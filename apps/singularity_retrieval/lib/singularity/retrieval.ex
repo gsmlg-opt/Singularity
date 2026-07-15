@@ -1,18 +1,3 @@
 defmodule Singularity.Retrieval do
-  @moduledoc """
-  Documentation for `Singularity.Retrieval`.
-  """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Singularity.Retrieval.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
+  @moduledoc "Vector projection boundary; concrete Qdrant work begins in PR 4."
 end

@@ -1,18 +1,3 @@
 defmodule Singularity.Store do
-  @moduledoc """
-  Documentation for `Singularity.Store`.
-  """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Singularity.Store.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
+  @moduledoc "Canonical persistence boundary; concrete CouchDB work begins in PR 2."
 end
