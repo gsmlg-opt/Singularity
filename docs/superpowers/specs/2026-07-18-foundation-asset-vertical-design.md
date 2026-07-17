@@ -310,7 +310,13 @@ Database roles are explicit:
 
 - A no-login table owner owns tables and RLS policies.
 - A migration administrator applies migrations and is never used by the
-  running application.
+  running application. An external PostgreSQL superuser provisioner creates
+  it as a no-`BYPASSRLS`, `NOCREATEROLE`, task-only `CREATEDB` login. It has
+  `SET TRUE, INHERIT FALSE, ADMIN FALSE` membership in the owner roles solely
+  so migrations can execute database-local DDL as the correct owner.
+- A no-login authorization-definer owns only the fixed
+  `core.principal_is_authorized/2` function and can read only the active
+  membership columns required by that function.
 - `singularity_pre_auth` has no table privileges and can execute only the
   authentication/session functions described below.
 - `singularity_web` handles request transactions and has no `BYPASSRLS`.
@@ -321,12 +327,46 @@ Database roles are explicit:
   `BYPASSRLS`, and accesses domain rows only after establishing the job's
   principal and vault context.
 
-Every user-data policy uses `FORCE ROW LEVEL SECURITY` and fails closed when
-either `singularity.principal_id` or `singularity.vault_id` is absent. Context is
-set only with `SET LOCAL` inside an Ecto transaction. Security-definer functions
-have a fixed `search_path`, validate their inputs, expose only the minimum
-columns required to claim work, and emit an audit record. Connection checkout
-asserts no context leaked from a prior borrower.
+Every user-data table uses `FORCE ROW LEVEL SECURITY`. Ordinary request and
+worker policies are explicitly limited to those runtime roles and fail closed
+when either `singularity.principal_id` or `singularity.vault_id` is absent.
+Both SQL predicates and checkout checks treat `NULL` and PostgreSQL's empty
+custom-GUC reset sentinel as absent, so a reused connection fails closed
+without attempting to cast an empty string to UUID. Context is set only with
+`SET LOCAL` inside an Ecto transaction.
+Security-definer functions have a fixed `search_path`, validate their inputs,
+and expose only their minimum result.
+
+The request/worker policy predicate calls
+`core.principal_is_authorized(principal_id, vault_id)`. That function runs as
+a dedicated no-login, no-`BYPASSRLS` authorization-definer and reads only the
+active principal/vault row in `core.vault_members`. The forced-RLS membership
+table has one separate policy targeted only at that definer role with a
+non-recursive `USING (true)` expression. Ordinary request/worker policies are
+never `TO PUBLIC` and do not include the definer role, so the helper lookup
+cannot invoke itself recursively. The helper also requires both arguments to
+equal the current transaction GUCs, preventing direct calls from becoming a
+cross-vault membership oracle. Runtime roles cannot `SET ROLE` to any definer.
+Function execution is revoked from `PUBLIC` and granted only to the request
+and worker roles. Integration tests prove active, missing, revoked, cross-GUC,
+and missing-GUC results and reject policy recursion.
+
+Function migrations temporarily grant the target no-login definer `CREATE` on
+the schema, `SET LOCAL ROLE` to that definer, and create or replace the
+function as its final owner. The table owner then revokes schema `CREATE`;
+the definer retains only schema `USAGE` and its exact table/column privileges.
+
+Cluster-role creation and membership normalization never run through
+`MigrationRepo`. In development/CI, the database gate waits for the managed
+PostgreSQL service, then explicitly runs the checked role-provisioning SQL
+with a local superuser URL that is not loaded into application configuration.
+In production, the database platform provisioner or IaC applies the same role
+contract out of band. A read-only Mix task verifies final role flags and
+memberships before any migration or integration database is created.
+
+Other security-definer functions expose only the minimum columns required to
+claim work and emit their required audit record. Connection checkout asserts
+no context leaked from a prior borrower.
 
 Login and opaque-session resolution are the only pre-context exceptions.
 `singularity_pre_auth` may execute three narrowly scoped functions owned by a
@@ -426,11 +466,18 @@ Uploads use a versioned chunked AEAD format:
   96-bit nonce using network byte order; counters cannot repeat for a DEK.
 - Four MiB plaintext chunks, with a final shorter chunk allowed.
 - Authenticated data binds the format version, vault ID, encryption-domain ID,
-  object ID, domain-key generation, chunk index, and plaintext chunk length.
+  object ID, chunk index, and plaintext chunk length.
 - A small authenticated header records the format version, chunk size, nonce
-  prefix, object ID, domain-key generation, and algorithm. A final encrypted
-  and authenticated record binds total plaintext size, chunk count, and
-  plaintext SHA-256.
+  prefix, vault ID, encryption-domain ID, object ID, and algorithm. A final
+  encrypted and authenticated record binds total plaintext size, chunk count,
+  and plaintext SHA-256.
+
+Domain-key generation belongs to the independently authenticated DEK wrapper,
+not the immutable ciphertext header or chunk AAD. Rewrapping a DEK under a new
+domain-key generation therefore changes only
+`content.asset_key_envelopes`; it cannot require rewriting canonical object
+bytes. A wrapper-generation mismatch fails before the DEK is released to the
+chunk codec.
 
 The clear header does not consume an AEAD nonce; its canonical byte encoding is
 included in every record's associated data. Data chunks use counters
@@ -477,6 +524,16 @@ Jobs that need plaintext, including metadata extraction, enter
 `waiting_for_unlock` in their job progress and resume when the vault is next
 unlocked; this is job progress, not an asset lifecycle state.
 
+The metadata transition is resumable by job/effect identity. The first claim
+persists the post-transition `processing_revision` and extractor checkpoint.
+A retry by that same job while the asset is already `processing` receives the
+persisted revision and checkpoint instead of attempting the stale
+`available -> processing` transition again. Completion uses that persisted
+processing revision. The begin/resume phase commits before extraction.
+Extraction advances in bounded steps that commit each new checkpoint before
+the next plaintext read, so a crash or unlock wait resumes from the last
+durable checkpoint. A different or revoked job remains stale.
+
 Plaintext jobs never receive a vault key, domain key, or DEK in their envelope.
 They request a `KeyLease` from the runtime custodian using job ID, vault,
 initiating principal, required capability, authorization epoch, and object key
@@ -491,6 +548,18 @@ plaintext already delivered to the extractor, but it prevents every subsequent
 read and causes the job to return to `waiting_for_unlock`. Unlock wakes waiting
 jobs for that vault; each job must acquire a new lease and resume from a
 persisted, idempotent extractor checkpoint.
+
+Revocation is custody-first. Lock, logout, timeout, session/principal
+revocation, and membership/capability/epoch changes synchronously mark the
+affected custody `revoking` and terminate matching leases before waiting for
+the database advisory locks used to persist revocation and audit. A lease
+therefore refuses the next chunk even when an already-running protected
+operation still holds the shared authorization lock. If database persistence
+fails, custody remains conservatively locked; key material is never
+resurrected automatically. Self-revocation requires a resolved opaque session,
+timeouts originate inside the custodian, and principal/vault-wide changes use
+a scoped authorization preflight before touching custody plus an authoritative
+recheck under the exclusive database lock.
 
 ### 6.4 ESS migration
 
@@ -538,7 +607,16 @@ Logical asset deletion and physical object cleanup are separate. A shared
 `content.asset_objects` row is eligible for `orphan_pending` only after a
 transaction proves that it has no live logical references. Its ciphertext moves
 to `deleted` only after retention permits removal and a missing-object check is
-recorded. Stale delete jobs cannot remove an object that gained a new reference.
+recorded. The logical asset reaches `deleted` as soon as its tombstone,
+projection cleanup, and reference release are committed; it does not wait for
+physical cleanup. If another logical asset still references the object, the
+canonical bytes remain available to that asset. If the object becomes orphaned,
+retention and physical deletion continue as independently retryable cleanup
+work in a separate `object_cleanup` job emitted by the logical-cleanup
+transaction. Finalization and object cleanup serialize on the same per-object
+session advisory lock, so a new reference cannot appear between the orphan
+recheck and byte removal. Stale delete jobs cannot remove an object that gained
+a new reference.
 
 New-object workflow:
 
@@ -630,6 +708,7 @@ asset_finalize
 asset_verify
 asset_metadata
 asset_cleanup
+object_cleanup
 backup
 maintenance
 ```
@@ -644,15 +723,34 @@ effect.
 `singularity_storage` owns a generic Oban worker and adapter, but it does not
 depend on runtime. `singularity_core` defines a `JobHandler` callback. Runtime
 injects `Singularity.Runtime.JobDispatcher` as that callback during composition.
-The generic worker validates and decodes the envelope, establishes a scoped
-transaction, and invokes the callback. Missing callback configuration or
-missing principal/vault context fails closed.
+The callback exposes an explicit, in-memory dependency bundle assembled by the
+supervised runtime composition root; it includes the authoritative
+authorization store and custodian. Storage treats the bundle as opaque, and it
+is never serialized into an envelope. Authorization code has no hidden
+application-environment or process-dictionary dependency accessors.
+The generic worker validates and decodes the envelope, pins its locks and
+worker connection, and passes the callback an explicit short scoped-transaction
+capability. Runtime handlers define and commit phase boundaries around
+external effects. Missing callback configuration or missing principal/vault
+context fails closed.
 
 The dispatcher discovers cross-vault outbox rows only through its audited claim
 function. Each handler transaction uses the no-bypass worker role with
 `SET LOCAL` context from the envelope. Maintenance work uses a named,
 least-privilege system principal scoped to the specific vault and operation; it
 does not impersonate the owner.
+
+The generic worker pins one checked-out worker connection while it holds the
+vault advisory lock and a shared principal/vault authorization lock. Each
+handler phase establishes RLS context, reloads live authority, and commits its
+database effect/acknowledgement. External work may occur between explicitly
+committed phases while the locks and connection remain pinned. Session-bound
+plaintext work additionally revalidates its session through KeyLease custody.
+Handlers receive the scoped repository only inside the transaction capability
+and must not switch to a request or dispatcher pool. Request mutations use the
+same pattern through a request-operation scope. Cached session context and the
+epoch copied into an envelope are identity hints and stale-work guards, never
+authorization authority.
 
 ## 9. Authentication, vault keys, and authorization
 
@@ -668,6 +766,18 @@ argument. Authentication responses and timing-visible error categories do not
 distinguish a missing account from an invalid credential. Per-account and
 per-source rate limits apply before Argon2id work, and successful
 authentication does not bypass the separate vault-unlock step.
+
+Session issuance and its successful-authentication audit event are one scoped
+database transaction: neither may commit without the other. Invalid and
+unknown credentials take the same public path and record an anonymous failure
+through the restricted pre-auth function. The HMAC fingerprint secret is a
+dedicated production configuration value of at least 256 bits; startup fails
+when it is missing or too short. The secret is used only to MAC a
+normalized login and normalized source under separate domain labels, producing
+independent rate-limit/audit fingerprints. It is never passed to persistence,
+persisted, or logged. Password-bearing request values remain in runtime;
+pre-auth and scoped persistence adapters receive only the normalized-login
+lookup input and sanitized fingerprint/session-digest/audit commands.
 
 ### 9.2 Password and vault key
 
@@ -694,6 +804,12 @@ the vault. The bootstrap and backup interfaces state this explicitly.
 - The signed cookie contains only an opaque session identifier.
 - Unlocked vault keys live only in a runtime-owned, session-scoped in-memory
   key store.
+- Unlock first creates a monitored, short-lived pending custody reference
+  that cannot issue leases or wake jobs. The live authorization transaction
+  and its unlock audit must commit before an after-commit callback atomically
+  activates that reference while the same advisory locks are held.
+- Transaction, audit, commit, or activation failure leaves no usable custody.
+  Pending references expire and are discarded idempotently.
 - The default inactivity timeout is 15 minutes and is configurable.
 - Logout, timeout, revocation, or application restart locks the vault.
 - Browser props never contain owner secrets, vault keys, or reusable API tokens.
@@ -709,7 +825,8 @@ Every operation evaluates:
 - Vault membership.
 - Required capability.
 - Resource classification.
-- Current vault-unlock state.
+- Current vault-unlock state when the operation requires plaintext or key
+  custody.
 
 RLS is the final database guard, not a replacement for application capability
 checks.
@@ -717,6 +834,19 @@ checks.
 Authorization is re-evaluated at use time. An upload grant, outbox event, or job
 created under an old authorization epoch cannot perform a sensitive effect
 after the initiating principal is revoked.
+
+Protected operations hold a session-level shared authorization lock keyed by
+principal and vault through their last external effect and database
+acknowledgement. Session revocation, membership/capability mutation, and epoch
+changes close the custody gate first, then take the corresponding database
+locks in the same order: vault first, authorization second. Therefore an
+already-linearized non-plaintext operation may finish before revocation
+commits, while plaintext work stops at its next lease read as soon as custody
+enters `revoking`. No protected effect can overlap a committed revocation.
+Unlock and key re-entry still perform live authorization with
+`requires_unlocked = false`; only the operation that establishes custody may
+waive the prior-unlock check. Object-specific finalization/cleanup locks, when
+needed, are always acquired last.
 
 ## 10. Delete, backup, and restore
 
@@ -765,6 +895,23 @@ by Singularity, and must be supplied out of band for restore. The manifest
 authentication tag, verified with that external passphrase-derived key, is the
 trust anchor. The backup path must not record plaintext passwords, vault keys,
 domain keys, DEKs, or unencrypted database/object content.
+
+Backup remains durable without persisting its passphrase or derived key.
+Request-time setup stores only a pending-manifest identifier, KDF salt and
+parameters, authenticated recovery-wrapper ciphertext, and an opaque
+operation-bound key-lease reference. The derived backup key first enters
+monitored pending custody that cannot encrypt or wake work. The
+pending-manifest, audit, and outbox transaction must commit before an
+after-commit callback activates the reference while the same locks remain
+held. Transaction/audit/commit failure discards the pending key; activation
+failure leaves the durable manifest waiting for re-entry but no usable key
+capability. The activated key stays inside the runtime custodian, which exposes
+streaming encryption operations but not the key. If a restart destroys that
+lease, the job waits for the operator to re-enter the passphrase; runtime
+derives the same key from the persisted salt, verifies the recovery wrapper,
+prepares another inert reference, commits its replacement/audit, then activates
+and wakes the job. Partial bundles are never accepted and are cleaned or
+restarted idempotently.
 
 ### 10.3 Restore
 
@@ -927,6 +1074,21 @@ The upload flow is:
    idempotency key and the server either returns the existing logical asset or
    creates one replacement stage.
 
+Runtime represents the active PUT with an opaque, short-lived upload-session
+handle. That process owns the checked-out request connection, live
+authorization scope, shared vault and authorization advisory locks, encrypted
+stage writer, and final database acknowledgement for the lifetime of the
+stream. It first commits grant consumption and stage creation in a short scoped
+transaction, streams outside a database transaction, then commits the sealed
+stage acknowledgement in another scoped transaction. Grant consumption
+therefore survives process/VM failure and the token cannot become reusable.
+Phoenix retains the `Plug.Conn` and sends only chunks and the opaque handle to
+runtime. The upload session monitors the controller, expires no later than the
+grant, and abandons its stage idempotently on disconnect, timeout, or
+cancellation. Its `after` path releases the writer, connection, and advisory
+locks. Concurrency is bounded below RequestRepo capacity; excess uploads fail
+before body reads so normal requests cannot be starved.
+
 Accepted types are exactly `application/pdf`, `image/jpeg`, and `image/png`.
 Magic-byte validation is authoritative; the declared type is only a hint. The
 default maximum is 512 MiB through `SINGULARITY_MAX_UPLOAD_BYTES`.
@@ -1039,8 +1201,9 @@ principal, vault, resource, asset, outbox, and job IDs where allowed, but never
 raw sensitive content, credentials, tokens, keys, or full identifiers.
 
 Telemetry covers upload bytes and latency, deduplication, stage age, integrity
-failures, outbox lag, job retry/failure, RLS denials, vault unlocks, backup
-duration, restore duration, and orphan cleanup.
+failures, outbox lag, job retry/failure, authentication-audit write failures,
+RLS denials, vault unlocks, backup duration, restore duration, and orphan
+cleanup.
 
 ## 13. Testing strategy
 
@@ -1051,8 +1214,8 @@ duration, restore duration, and orphan cleanup.
 - Invalid transitions and privilege escalation attempts must fail.
 - Encryption-format vectors cover header authentication, chunk ordering, nonce
   uniqueness, truncation, altered tags, wrong vault/domain/object associated
-  data, key-generation mismatch, reserved final-record counter, and chunk-count
-  overflow.
+  data, wrapper-generation validation before codec invocation, reserved
+  final-record counter, and chunk-count overflow.
 - Password change, vault-key rotation, and domain-key rotation prove that the
   correct wrappers change while canonical ciphertext remains byte-for-byte
   unchanged.
@@ -1122,11 +1285,18 @@ untracked canonical bytes.
 Key-lease tests prove that a waiting job wakes after unlock, receives only
 authenticated plaintext chunks, resumes from its persisted checkpoint, and
 returns to `waiting_for_unlock` without another chunk after lock, timeout,
-session revocation, or authorization-epoch change.
+session revocation, or authorization-epoch change. A paused-read race proves
+the next chunk fails after custody enters `revoking` while database revocation
+is still blocked on the exclusive authorization lock. Unlock failure injection
+at transaction, audit, commit, and activation boundaries proves that no usable
+custody, lease, or wake-up survives.
 
 Backup concurrency tests prove the exclusive lock waits for an already-running
 worker/cleanup effect, prevents new claims and mutations from entering the
 manifest cut, and releases blocked work only after the manifest is sealed.
+Backup-key setup failure injection proves transaction/audit/commit failures
+leave no manifest or key capability, while activation failure leaves only the
+durable `waiting_for_backup_key` manifest and no usable or orphaned custody.
 
 The durable-job restart test records the Oban job ID, job state, outbox ID, and
 domain effect count before terminating the application. After restart, the same
@@ -1167,14 +1337,19 @@ A headless Chromium smoke test verifies the complete Vault Workbench workflow,
 keyboard operation, visible focus, responsive layout at 767 and 1280 CSS
 pixels, reduced-motion behavior, and both light and dark themes.
 
-Security tests seed distinct canary values for password, upload token, CSRF
-token, vault key, domain key, DEK, and backup passphrase. Password/key/passphrase
-canaries must be absent from structured logs, audit metadata, rendered HTML,
+Security tests seed distinct canary values for password, audit-fingerprint
+secret, upload token, CSRF token, vault key, domain key, DEK, and backup
+passphrase. Password/key/passphrase/server-secret canaries must be absent from
+structured logs, audit metadata, persistence-adapter arguments, rendered HTML,
 `data-props`, LiveView payloads, controller JSON, and browser console output.
 The upload token may appear only in its one grant callback and corresponding XHR
-header. The CSRF token may appear only in the dedicated meta tag and same-origin
-request header. Both ephemeral-token canaries must be absent from every log,
-audit record, server-pushed event, `data-props`, controller response body, and
+header. The CSRF token may appear only in the dedicated meta tag, Phoenix
+LiveSocket connection parameter, Phoenix-generated `_csrf_token` hidden fields
+on the same-origin login/unlock/logout controller forms, and the same-origin
+upload request header. The LiveSocket and hidden-field occurrences are
+framework transport, not application events or server-pushed payloads. Both
+ephemeral-token canaries must be absent from every log, audit record,
+server-pushed event, `data-props`, controller JSON/application payload, and
 console message.
 
 Audit acceptance asserts one immutable event for each enumerated sensitive
