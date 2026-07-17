@@ -17,10 +17,5 @@ defmodule Singularity.Web.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
-  defp deps do
-    [
-      {:singularity_runtime, in_umbrella: true}
-    ]
-  end
+  defp deps, do: [{:singularity_runtime, in_umbrella: true}]
 end

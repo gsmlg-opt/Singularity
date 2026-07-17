@@ -1,3 +1,3 @@
 defmodule Singularity.Retrieval do
-  @moduledoc "Vector projection boundary; concrete Qdrant work begins in PR 4."
+  @moduledoc "Knowledge retrieval boundary; Qdrant integration begins in Milestone 8."
 end

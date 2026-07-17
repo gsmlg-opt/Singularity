@@ -1,11 +1,11 @@
 Code.require_file("../../build/project.exs", __DIR__)
 
-defmodule Singularity.Runtime.MixProject do
+defmodule Singularity.Ingest.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :singularity_runtime,
+      app: :singularity_ingest,
       version: "0.1.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
@@ -13,17 +13,14 @@ defmodule Singularity.Runtime.MixProject do
       lockfile: "../../mix.lock",
       elixir: Singularity.Build.elixir_requirement(),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: internal_deps()
     ]
   end
 
-  defp deps do
+  defp internal_deps do
     [
       {:singularity_core, in_umbrella: true},
-      {:singularity_storage, in_umbrella: true},
-      {:singularity_domains, in_umbrella: true},
-      {:singularity_ingest, in_umbrella: true},
-      {:singularity_retrieval, in_umbrella: true}
+      {:singularity_domains, in_umbrella: true}
     ]
   end
 end

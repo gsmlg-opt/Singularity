@@ -13,14 +13,14 @@ defmodule Singularity.Retrieval.MixProject do
       lockfile: "../../mix.lock",
       elixir: Singularity.Build.elixir_requirement(),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: internal_deps()
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
-  defp deps do
+  defp internal_deps do
     [
-      {:singularity_core, in_umbrella: true}
+      {:singularity_core, in_umbrella: true},
+      {:singularity_domains, in_umbrella: true}
     ]
   end
 end

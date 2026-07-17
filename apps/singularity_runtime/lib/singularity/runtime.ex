@@ -1,3 +1,3 @@
 defmodule Singularity.Runtime do
-  @moduledoc "Use-case orchestration boundary; workflow implementations begin after PR 1."
+  @moduledoc "Use-case orchestration across domain, ingest, retrieval, and storage boundaries."
 end

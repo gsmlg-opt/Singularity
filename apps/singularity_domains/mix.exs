@@ -1,11 +1,11 @@
 Code.require_file("../../build/project.exs", __DIR__)
 
-defmodule Singularity.Store.MixProject do
+defmodule Singularity.Domains.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :singularity_store,
+      app: :singularity_domains,
       version: "0.1.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
@@ -17,10 +17,5 @@ defmodule Singularity.Store.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
-  defp deps do
-    [
-      {:singularity_core, in_umbrella: true}
-    ]
-  end
+  defp deps, do: [{:singularity_core, in_umbrella: true}]
 end

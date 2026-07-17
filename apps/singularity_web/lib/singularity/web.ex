@@ -1,3 +1,3 @@
 defmodule Singularity.Web do
-  @moduledoc "Future Phoenix interface; Phoenix work begins in PR 6."
+  @moduledoc "Web interface boundary; all application access goes through `Singularity.Runtime`."
 end
