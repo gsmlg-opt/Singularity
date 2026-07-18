@@ -5,6 +5,7 @@ defmodule Singularity.Storage.MigrationsTest do
 
   alias Singularity.Storage.{Fixtures, MigrationRepo}
 
+  @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
   @schemas ~w(identity core content jobs audit)
   @tables [
     {"identity", "people"},
@@ -48,6 +49,29 @@ defmodule Singularity.Storage.MigrationsTest do
     {"audit", "backup_manifest_objects"}
   ]
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
+
+  setup do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE core.outbox_events
+        SET
+          claim_token = NULL,
+          claimed_until = NULL,
+          delivered_at = COALESCE(delivered_at, CURRENT_TIMESTAMP),
+          retired_at = NULL,
+          retirement_reason = NULL,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE delivered_at IS NULL
+          OR retired_at IS NOT NULL
+          OR retirement_reason IS NOT NULL
+        """
+      )
+    end)
+
+    :ok
+  end
 
   test "creates the exact logical schemas and Task 6 tables" do
     %{rows: schema_rows} =
@@ -248,7 +272,32 @@ defmodule Singularity.Storage.MigrationsTest do
            ]
   end
 
-  test "Task 11 migration preserves a legacy pending lease and keeps it claimable" do
+  test "Task 11 retirement markers require both a timestamp and a reason" do
+    %{one: fixture} = Fixtures.two_vaults!()
+    event = Fixtures.outbox_event!(fixture)
+
+    try do
+      assert_raise Postgrex.Error, fn ->
+        Fixtures.with_owner(fn ->
+          query!(
+            MigrationRepo,
+            """
+            UPDATE core.outbox_events
+            SET retired_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            """,
+            [event.id]
+          )
+        end)
+      end
+    after
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event.id])
+      end)
+    end
+  end
+
+  test "Task 11 migration retires legacy pending events across principal revoke and regrant" do
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
@@ -279,6 +328,16 @@ defmodule Singularity.Storage.MigrationsTest do
       assert {:ok, legacy_claimed_until} =
                MigrationRepo.transaction(fn ->
                  query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 query!(
+                   MigrationRepo,
+                   """
+                   UPDATE identity.principals
+                   SET authorization_epoch = 7
+                   WHERE id = $1
+                   """,
+                   [fixture.principal_id]
+                 )
 
                  %{rows: [[claimed_until]]} =
                    query!(
@@ -332,6 +391,23 @@ defmodule Singularity.Storage.MigrationsTest do
                  claimed_until
                end)
 
+      assert {:ok, :regranted} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 query!(
+                   MigrationRepo,
+                   """
+                   UPDATE identity.principals
+                   SET authorization_epoch = 9
+                   WHERE id = $1
+                   """,
+                   [fixture.principal_id]
+                 )
+
+                 :regranted
+               end)
+
       assert [20_260_718_000_800] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -341,23 +417,34 @@ defmodule Singularity.Storage.MigrationsTest do
                  log: false
                )
 
-      assert {:ok, {nil, ^legacy_claim_token, ^legacy_claimed_until}} =
+      assert {:ok, {0, 23, retired_at, @legacy_retirement_reason, nil, nil, nil}} =
                MigrationRepo.transaction(fn ->
                  query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
 
-                 %{rows: [[delivered_at, claim_token, claimed_until]]} =
+                 %{rows: [row]} =
                    query!(
                      MigrationRepo,
                      """
-                     SELECT delivered_at, claim_token, claimed_until
+                     SELECT
+                       principal_authorization_epoch,
+                       vault_authorization_epoch,
+                       retired_at,
+                       retirement_reason,
+                       delivered_at,
+                       claim_token,
+                       claimed_until
                      FROM core.outbox_events
                      WHERE id = $1
                      """,
                      [event_id]
                    )
 
-                 {delivered_at, claim_token, claimed_until}
+                 List.to_tuple(row)
                end)
+
+      assert %DateTime{} = retired_at
+      assert %DateTime{} = legacy_claimed_until
+      assert is_binary(legacy_claim_token)
 
       %{rows: claimed_rows} =
         query!(
@@ -369,7 +456,9 @@ defmodule Singularity.Storage.MigrationsTest do
           [replacement_claim_token]
         )
 
-      assert [event_id, replacement_claim_token] in claimed_rows
+      refute Enum.any?(claimed_rows, fn [claimed_event_id, _token] ->
+               claimed_event_id == event_id
+             end)
     after
       try do
         Ecto.Migrator.run(
@@ -384,6 +473,477 @@ defmodule Singularity.Storage.MigrationsTest do
           query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
           query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event_id])
         end)
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 11 downgrade refuses retirement markers before changing schema state" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.outbox_events (
+          id,
+          event_type,
+          idempotency_key,
+          vault_id,
+          principal_id,
+          required_capability,
+          principal_authorization_epoch,
+          vault_authorization_epoch,
+          classification,
+          correlation_id,
+          expected_entity_revision,
+          envelope_version,
+          payload,
+          occurred_at,
+          retired_at,
+          retirement_reason
+        ) VALUES (
+          $1,
+          'asset.verify_requested',
+          $2,
+          $3,
+          $4,
+          'asset.verify',
+          0,
+          23,
+          'private',
+          $5,
+          0,
+          1,
+          '{}'::jsonb,
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP,
+          $6
+        )
+        """,
+        [
+          event_id,
+          "retired-outbox-#{Ecto.UUID.generate()}",
+          fixture.vault_id,
+          fixture.principal_id,
+          correlation_id,
+          @legacy_retirement_reason
+        ]
+      )
+    end)
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert_raise Postgrex.Error, ~r/cannot downgrade.*retired legacy outbox/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert [] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 all: true,
+                 log: false
+               )
+
+      assert {:ok, {@legacy_retirement_reason, true, true, true}} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[reason]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT retirement_reason
+                     FROM core.outbox_events
+                     WHERE id = $1
+                     """,
+                     [event_id]
+                   )
+
+                 %{rows: [[principal_epoch, vault_epoch, retired_at]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT
+                       to_regclass('core.outbox_events') IS NOT NULL
+                         AND EXISTS (
+                           SELECT 1
+                           FROM information_schema.columns
+                           WHERE table_schema = 'core'
+                             AND table_name = 'outbox_events'
+                             AND column_name = 'principal_authorization_epoch'
+                         ),
+                       to_regclass('core.outbox_events') IS NOT NULL
+                         AND EXISTS (
+                           SELECT 1
+                           FROM information_schema.columns
+                           WHERE table_schema = 'core'
+                             AND table_name = 'outbox_events'
+                             AND column_name = 'vault_authorization_epoch'
+                         ),
+                       retired_at IS NOT NULL
+                     FROM core.outbox_events
+                     WHERE id = $1
+                     """,
+                     [event_id]
+                   )
+
+                 {reason, principal_epoch, vault_epoch, retired_at}
+               end)
+    after
+      try do
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event_id])
+        end)
+
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 11 downgrade refuses native pending events without changing state" do
+    %{one: fixture} = Fixtures.two_vaults!()
+    event = Fixtures.outbox_event!(fixture)
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert_raise Postgrex.Error, ~r/cannot downgrade.*pending outbox/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert [] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 all: true,
+                 log: false
+               )
+
+      assert {:ok, {7, 23, nil, nil, nil, true}} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [row]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT
+                       principal_authorization_epoch,
+                       vault_authorization_epoch,
+                       retired_at,
+                       retirement_reason,
+                       delivered_at,
+                       to_regprocedure(
+                         'core.claim_outbox_events(integer,integer,uuid)'
+                       ) IS NOT NULL
+                     FROM core.outbox_events
+                     WHERE id = $1
+                     """,
+                     [event.id]
+                   )
+
+                 List.to_tuple(row)
+               end)
+    after
+      try do
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event.id])
+        end)
+
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 11 downgrade locks out concurrent pending inserts before preflight" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    test_pid = self()
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 5)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    writer_task =
+      Task.async(fn ->
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            """
+            INSERT INTO core.outbox_events (
+              id,
+              event_type,
+              idempotency_key,
+              vault_id,
+              principal_id,
+              required_capability,
+              principal_authorization_epoch,
+              vault_authorization_epoch,
+              classification,
+              correlation_id,
+              expected_entity_revision,
+              envelope_version,
+              payload,
+              occurred_at
+            ) VALUES (
+              $1,
+              'asset.verify_requested',
+              $2,
+              $3,
+              $4,
+              'asset.verify',
+              7,
+              23,
+              'private',
+              $5,
+              0,
+              1,
+              '{}'::jsonb,
+              CURRENT_TIMESTAMP
+            )
+            """,
+            [
+              event_id,
+              "concurrent-outbox-#{Ecto.UUID.generate()}",
+              fixture.vault_id,
+              fixture.principal_id,
+              correlation_id
+            ]
+          )
+
+          send(test_pid, {:pending_insert_uncommitted, event_id})
+
+          receive do
+            {:commit_pending_insert, ^event_id} -> :inserted
+          end
+        end)
+      end)
+
+    assert_receive {:pending_insert_uncommitted, ^event_id}, 2_000
+
+    migration_task =
+      Task.async(fn ->
+        try do
+          {:ok,
+           Ecto.Migrator.run(
+             MigrationRepo,
+             migrations_path,
+             :down,
+             step: 1,
+             log: false
+           )}
+        rescue
+          exception in Postgrex.Error -> {:error, exception}
+        end
+      end)
+
+    try do
+      :ok = await_outbox_exclusive_wait!()
+
+      send(writer_task.pid, {:commit_pending_insert, event_id})
+      assert {:ok, :inserted} = Task.await(writer_task, 2_000)
+
+      assert {:error, exception} = Task.await(migration_task, 5_000)
+      assert Exception.message(exception) =~ ~r/cannot downgrade.*pending outbox/i
+    after
+      send(writer_task.pid, {:commit_pending_insert, event_id})
+      Task.shutdown(writer_task, 1_000)
+      Task.shutdown(migration_task, 5_000)
+
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event_id])
+        end)
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 11 migration round-trips when no retirement markers exist" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert {:ok, 0} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[count]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT count(*)
+                     FROM core.outbox_events
+                     WHERE retired_at IS NOT NULL OR retirement_reason IS NOT NULL
+                     """
+                   )
+
+                 count
+               end)
+
+      assert [20_260_718_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert {:ok, ["authorization_epoch"]} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[columns]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT array_agg(column_name ORDER BY column_name)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'core'
+                       AND table_name = 'outbox_events'
+                       AND (
+                         column_name LIKE '%authorization_epoch'
+                         OR column_name IN ('retired_at', 'retirement_reason')
+                       )
+                     """
+                   )
+
+                 columns
+               end)
+
+      assert [20_260_718_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert {:ok, columns} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[columns]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT array_agg(column_name ORDER BY column_name)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'core'
+                       AND table_name = 'outbox_events'
+                       AND (
+                         column_name LIKE '%authorization_epoch'
+                         OR column_name IN ('retired_at', 'retirement_reason')
+                       )
+                     """
+                   )
+
+                 columns
+               end)
+
+      assert columns == [
+               "principal_authorization_epoch",
+               "retired_at",
+               "retirement_reason",
+               "vault_authorization_epoch"
+             ]
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
       after
         Supervisor.stop(migration_repo)
         Code.compiler_options(compiler_options)
@@ -636,6 +1196,42 @@ defmodule Singularity.Storage.MigrationsTest do
         Supervisor.stop(migration_repo)
         Code.compiler_options(compiler_options)
       end
+    end
+  end
+
+  defp await_outbox_exclusive_wait!(attempts \\ 250)
+
+  defp await_outbox_exclusive_wait!(0) do
+    flunk("migration did not wait for an exclusive outbox lock")
+  end
+
+  defp await_outbox_exclusive_wait!(attempts) do
+    {:ok, rows} =
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+        %{rows: rows} =
+          query!(
+            MigrationRepo,
+            """
+            SELECT 1
+            FROM pg_catalog.pg_locks AS lock
+            WHERE lock.relation = 'core.outbox_events'::regclass
+              AND lock.mode = 'AccessExclusiveLock'
+              AND NOT lock.granted
+            """
+          )
+
+        rows
+      end)
+
+    case rows do
+      [[1] | _] ->
+        :ok
+
+      [] ->
+        Process.sleep(20)
+        await_outbox_exclusive_wait!(attempts - 1)
     end
   end
 end

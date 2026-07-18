@@ -3,6 +3,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   @legacy_dummy_verifier "$argon2id$v=19$m=65536,t=3,p=1$c2luZ3VsYXJpdHlkdW1teQ$c2luZ3VsYXJpdHlkdW1teXZlcmlmaWVy"
   @task11_dummy_verifier "$argon2id$v=19$m=65536,t=3,p=1$c2luZ3VsYXJpdHlkdW1teQ$5X38g/2eiHv9wnPQes+dkvbHR0wcGqDoPXStyiEIaHo"
+  @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
 
   def up do
     execute("SET LOCAL ROLE singularity_table_owner")
@@ -77,7 +78,9 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   def down do
     execute("SET LOCAL ROLE singularity_table_owner")
+    execute("LOCK TABLE core.outbox_events IN ACCESS EXCLUSIVE MODE")
 
+    ensure_outbox_retirement_downgrade_safe()
     ensure_vault_wrapper_generation_downgrade_safe()
     drop_outbox_claim_function()
     remove_outbox_authorization_epochs()
@@ -330,6 +333,30 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
   end
 
+  defp ensure_outbox_retirement_downgrade_safe do
+    execute("""
+    DO $block$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM core.outbox_events
+        WHERE retired_at IS NOT NULL OR retirement_reason IS NOT NULL
+      ) THEN
+        RAISE EXCEPTION
+          'cannot downgrade Task 11: retired legacy outbox events cannot be restored';
+      ELSIF EXISTS (
+        SELECT 1
+        FROM core.outbox_events
+        WHERE delivered_at IS NULL
+      ) THEN
+        RAISE EXCEPTION
+          'cannot downgrade Task 11: pending outbox events cannot be restored safely';
+      END IF;
+    END
+    $block$
+    """)
+  end
+
   defp add_outbox_authorization_epochs do
     execute("""
     ALTER TABLE core.outbox_events
@@ -344,18 +371,27 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
     execute("""
     ALTER TABLE core.outbox_events
-    ADD COLUMN principal_authorization_epoch bigint
+    ADD COLUMN principal_authorization_epoch bigint,
+    ADD COLUMN retired_at timestamptz(6),
+    ADD COLUMN retirement_reason text
     """)
 
     execute("""
-    -- Preserve the queue lifecycle while giving legacy rows the best available
-    -- principal checkpoint. Authorization is revalidated again at claim/use time.
-    UPDATE core.outbox_events AS event
+    -- Legacy rows do not prove the principal epoch that authorized their creation.
+    -- Zero is an inert placeholder only; pending rows are retired and unclaimable.
+    UPDATE core.outbox_events
     SET
-      principal_authorization_epoch = principal.authorization_epoch,
+      principal_authorization_epoch = 0,
+      retired_at =
+        CASE WHEN delivered_at IS NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
+      retirement_reason =
+        CASE
+          WHEN delivered_at IS NULL THEN '#{@legacy_retirement_reason}'
+          ELSE NULL
+        END,
+      claim_token = CASE WHEN delivered_at IS NULL THEN NULL ELSE claim_token END,
+      claimed_until = CASE WHEN delivered_at IS NULL THEN NULL ELSE claimed_until END,
       updated_at = CURRENT_TIMESTAMP
-    FROM identity.principals AS principal
-    WHERE principal.id = event.principal_id
     """)
 
     execute("""
@@ -370,7 +406,28 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     execute("""
-    GRANT SELECT (principal_authorization_epoch)
+    ALTER TABLE core.outbox_events
+    ADD CONSTRAINT outbox_events_retirement_shape_check
+    CHECK (
+      (retired_at IS NULL AND retirement_reason IS NULL)
+      OR (
+        retired_at IS NOT NULL
+        AND retirement_reason IS NOT NULL
+        AND retirement_reason = '#{@legacy_retirement_reason}'
+      )
+    )
+    """)
+
+    execute("DROP INDEX core.outbox_events_dispatchable")
+
+    execute("""
+    CREATE INDEX outbox_events_dispatchable
+    ON core.outbox_events(sequence)
+    WHERE delivered_at IS NULL AND retired_at IS NULL
+    """)
+
+    execute("""
+    GRANT SELECT (principal_authorization_epoch, retired_at)
     ON core.outbox_events
     TO singularity_outbox_definer
     """)
@@ -378,9 +435,16 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   defp remove_outbox_authorization_epochs do
     execute("""
-    REVOKE SELECT (principal_authorization_epoch)
+    REVOKE SELECT (principal_authorization_epoch, retired_at)
     ON core.outbox_events
     FROM singularity_outbox_definer
+    """)
+
+    execute("DROP INDEX core.outbox_events_dispatchable")
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    DROP CONSTRAINT outbox_events_retirement_shape_check
     """)
 
     execute("""
@@ -390,7 +454,9 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
     execute("""
     ALTER TABLE core.outbox_events
-    DROP COLUMN principal_authorization_epoch
+    DROP COLUMN principal_authorization_epoch,
+    DROP COLUMN retired_at,
+    DROP COLUMN retirement_reason
     """)
 
     execute("""
@@ -402,6 +468,12 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     execute("""
     ALTER TABLE core.outbox_events
     RENAME COLUMN vault_authorization_epoch TO authorization_epoch
+    """)
+
+    execute("""
+    CREATE INDEX outbox_events_dispatchable
+    ON core.outbox_events(sequence)
+    WHERE delivered_at IS NULL
     """)
   end
 
@@ -439,7 +511,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   end
 
   defp outbox_claim_function_sql(version) do
-    {returned_epochs, claimed_epochs, selected_epochs} =
+    {returned_epochs, claimed_epochs, selected_epochs, retirement_filter} =
       case version do
         :task11 ->
           {
@@ -454,14 +526,16 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
             """
                     claimed.principal_authorization_epoch,
                     claimed.vault_authorization_epoch,
-            """
+            """,
+            "          AND event.retired_at IS NULL\n"
           }
 
         :legacy ->
           {
             "      authorization_epoch bigint,\n",
             "          event.authorization_epoch,\n",
-            "        claimed.authorization_epoch,\n"
+            "        claimed.authorization_epoch,\n",
+            ""
           }
       end
 
@@ -507,7 +581,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
         SELECT event.id
         FROM core.outbox_events AS event
         WHERE event.delivered_at IS NULL
-          AND (
+    #{retirement_filter}      AND (
             event.claimed_until IS NULL
             OR event.claimed_until < CURRENT_TIMESTAMP
           )

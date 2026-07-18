@@ -30,6 +30,8 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
     field :claimed_until, :utc_datetime_usec
     field :runner_job_id, :string
     field :delivered_at, :utc_datetime_usec
+    field :retired_at, :utc_datetime_usec
+    field :retirement_reason, :string
     timestamps(type: :utc_datetime_usec)
   end
 
