@@ -15,27 +15,50 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Erlang and Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          elixir-version: "1.18.4"
-          version-type: strict
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
-      - name: Check unused lock entries
-        run: mix deps.unlock --check-unused
+      - name: Configure Cachix
+        uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+
+      - name: Install devenv
+        run: nix profile add nixpkgs#devenv
+
+      - name: Start services
+        run: devenv up -d
+
+      - name: Wait for PostgreSQL
+        run: |
+          devenv shell -- bash -c '
+            for attempt in {1..60}; do
+              if pg_isready; then
+                exit 0
+              fi
+              sleep 1
+            done
+            exit 1
+          '
 
       - name: Fetch dependencies
-        run: mix deps.get
+        run: devenv shell -- mix deps.get
+
+      - name: Check unused lock entries
+        run: devenv shell -- mix deps.unlock --check-unused
 
       - name: Check formatting
-        run: mix format --check-formatted
+        run: devenv shell -- mix format --check-formatted
 
       - name: Compile without warnings
-        run: mix compile --warnings-as-errors
+        run: devenv shell -- mix compile --warnings-as-errors
 
       - name: Run tests
-        run: mix test
+        run: devenv shell -- mix test
 
       - name: Check source cycles
-        run: mix xref graph --format cycles --fail-above 0
+        run: devenv shell -- mix xref graph --format cycles --fail-above 0
+
+      - name: Stop services
+        if: always()
+        run: devenv processes down

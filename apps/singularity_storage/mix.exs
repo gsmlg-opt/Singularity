@@ -13,14 +13,19 @@ defmodule Singularity.Storage.MixProject do
       lockfile: "../../mix.lock",
       elixir: Singularity.Build.elixir_requirement(),
       start_permanent: Mix.env() == :prod,
-      deps: internal_deps()
+      deps: deps()
     ]
   end
 
-  defp internal_deps do
+  defp deps do
     [
       {:singularity_core, in_umbrella: true},
-      {:singularity_domains, in_umbrella: true}
+      {:singularity_domains, in_umbrella: true},
+      {:ecto_sql, "~> 3.14"},
+      {:postgrex, "~> 0.22.3"},
+      {:oban, "~> 2.23"},
+      {:argon2_elixir, "~> 4.1"},
+      {:telemetry, "~> 1.4"}
     ]
   end
 end

@@ -9,10 +9,30 @@
 # move said applications out of the umbrella.
 import Config
 
-# Sample configuration:
-#
-#     config :logger, :console,
-#       level: :info,
-#       format: "$date $time [$level] $metadata$message\n",
-#       metadata: [:user_id]
-#
+config :phoenix, :json_library, JSON
+config :logger_json, :encoder, JSON
+
+config :singularity_runtime,
+  max_upload_bytes: 536_870_912,
+  max_concurrent_uploads: 2,
+  vault_idle_timeout_ms: :timer.minutes(15)
+
+config :singularity_storage, Singularity.Storage.RequestRepo, pool_size: 10
+
+config :singularity_storage, Oban,
+  name: Singularity.Oban,
+  repo: Singularity.Storage.WorkerRepo,
+  prefix: "jobs",
+  queues: [
+    asset_finalize: 2,
+    asset_verify: 2,
+    asset_metadata: 2,
+    asset_cleanup: 1,
+    object_cleanup: 1,
+    backup: 1,
+    maintenance: 1
+  ]
+
+if config_env() in [:dev, :test] do
+  import_config "#{config_env()}.exs"
+end

@@ -1,0 +1,47 @@
+import Config
+
+test_run_id =
+  System.get_env("SINGULARITY_TEST_RUN_ID", "default")
+  |> String.replace(~r/[^[:alnum:]_]/u, "_")
+
+test_database_url = fn role, database ->
+  "postgresql://#{role}@127.0.0.1:1/#{database}_#{test_run_id}"
+end
+
+config :singularity_storage,
+  storage_root: Path.join([System.tmp_dir!(), "singularity", "test", test_run_id])
+
+config :singularity_storage, Singularity.Storage.MigrationRepo,
+  url:
+    System.get_env(
+      "SINGULARITY_MIGRATION_DATABASE_URL",
+      test_database_url.("singularity_migration", "singularity_migration_test")
+    )
+
+config :singularity_storage, Singularity.Storage.RequestRepo,
+  url:
+    System.get_env(
+      "SINGULARITY_DATABASE_URL",
+      test_database_url.("singularity_request", "singularity_request_test")
+    )
+
+config :singularity_storage, Singularity.Storage.PreAuthRepo,
+  url:
+    System.get_env(
+      "SINGULARITY_PRE_AUTH_DATABASE_URL",
+      test_database_url.("singularity_pre_auth", "singularity_pre_auth_test")
+    )
+
+config :singularity_storage, Singularity.Storage.DispatcherRepo,
+  url:
+    System.get_env(
+      "SINGULARITY_DISPATCHER_DATABASE_URL",
+      test_database_url.("singularity_dispatcher", "singularity_dispatcher_test")
+    )
+
+config :singularity_storage, Singularity.Storage.WorkerRepo,
+  url:
+    System.get_env(
+      "SINGULARITY_WORKER_DATABASE_URL",
+      test_database_url.("singularity_worker", "singularity_worker_test")
+    )
