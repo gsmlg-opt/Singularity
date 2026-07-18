@@ -185,18 +185,59 @@ defmodule Singularity.Runtime.AuthorizationTest do
              )
   end
 
-  test "jobs reload principal authority without accepting session hints", %{
-    dependencies: dependencies
+  test "jobs bind the envelope epoch to the live vault independently of principal state", %{
+    dependencies: dependencies,
+    store: store
   } do
     envelope = %{
       principal_id: @principal_id,
       vault_id: @vault_id,
-      authorization_epoch: 7,
+      authorization_epoch: 23,
       required_capability: "asset.read",
       classification: :sensitive
     }
 
     assert :ok = Authorize.check_job(dependencies, :repo, envelope)
+
+    assert {:error, %Error{code: :forbidden}} =
+             Authorize.check_job(
+               dependencies,
+               :repo,
+               %{envelope | authorization_epoch: 7}
+             )
+
+    principal =
+      live_session()
+      |> Map.drop([:session_id, :expires_at])
+      |> Map.put(:principal_authorization_epoch, 91)
+
+    put_principal(store, principal)
+    assert :ok = Authorize.check_job(dependencies, :repo, envelope)
+
+    put_principal(
+      store,
+      Map.put(principal, :principal_revoked_at, DateTime.utc_now())
+    )
+
+    assert {:error, %Error{code: :forbidden}} =
+             Authorize.check_job(dependencies, :repo, envelope)
+
+    regranted =
+      principal
+      |> Map.put(:principal_revoked_at, nil)
+      |> Map.put(:vault_authorization_epoch, 24)
+
+    put_principal(store, regranted)
+
+    assert {:error, %Error{code: :forbidden}} =
+             Authorize.check_job(dependencies, :repo, envelope)
+
+    assert :ok =
+             Authorize.check_job(
+               dependencies,
+               :repo,
+               %{envelope | authorization_epoch: 24}
+             )
   end
 
   test "system principals are restricted to named exact-operation job capabilities", %{
@@ -219,7 +260,7 @@ defmodule Singularity.Runtime.AuthorizationTest do
     base = %{
       principal_id: @principal_id,
       vault_id: @vault_id,
-      authorization_epoch: 7,
+      authorization_epoch: 23,
       classification: :private
     }
 
@@ -255,7 +296,7 @@ defmodule Singularity.Runtime.AuthorizationTest do
                job_type: "maintenance",
                principal_id: @principal_id,
                vault_id: @vault_id,
-               authorization_epoch: 7,
+               authorization_epoch: 23,
                required_capability: "maintenance.run",
                classification: :private
              })
@@ -280,6 +321,13 @@ defmodule Singularity.Runtime.AuthorizationTest do
 
   defp put_live(store, live) do
     Agent.update(store, &put_in(&1, [:sessions, @session_id], live))
+  end
+
+  defp put_principal(store, live) do
+    Agent.update(
+      store,
+      &put_in(&1, [:principals, {@principal_id, @vault_id}], live)
+    )
   end
 
   defp session do

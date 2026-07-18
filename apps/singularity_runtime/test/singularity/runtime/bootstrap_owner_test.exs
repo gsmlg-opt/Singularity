@@ -100,6 +100,53 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
            } = aggregate_counts(first)
   end
 
+  @tag :integration
+  @tag :tmp_dir
+  test "bootstrap task owns its migration repo and preserves descriptor password bytes", %{
+    tmp_dir: tmp_dir
+  } do
+    password = "descriptor-password\t \r\n"
+    password_file = Path.join(tmp_dir, "owner-password")
+
+    File.write!(password_file, password <> "\r\n")
+    File.chmod!(password_file, 0o600)
+
+    {output, status} = run_bootstrap_task(password_file)
+
+    assert status == 0, output
+    assert output =~ "owner account="
+    refute output =~ password
+
+    verifier = credential_verifier_for_login("owner@singularity.local")
+
+    password_params =
+      :singularity_runtime
+      |> Application.fetch_env!(:bootstrap_owner)
+      |> Map.fetch!(:password_hasher_context)
+
+    assert {:ok, true} =
+             Singularity.Storage.Crypto.Argon2PasswordHasher.verify(
+               password_params,
+               password,
+               verifier
+             )
+
+    assert {:ok, false} =
+             Singularity.Storage.Crypto.Argon2PasswordHasher.verify(
+               password_params,
+               String.trim_trailing(password),
+               verifier
+             )
+
+    File.write!(password_file, "\t \n")
+
+    {output, status} = run_bootstrap_task(password_file)
+
+    assert status == 0, output
+    assert output =~ "owner account="
+    assert credential_verifier_for_login("owner@singularity.local") == verifier
+  end
+
   test "bootstraps the complete owner aggregate once and preserves the first credential" do
     {:ok, repository} =
       start_supervised({Singularity.Runtime.BootstrapOwnerTest.Repository, self()})
@@ -130,19 +177,25 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
       initial_capabilities: ["asset.read", "asset.write", "vault.unlock"]
     }
 
+    first_password = " \tfirst-password\r\n"
+    second_password = " \t "
+
     attrs = %{
       display_name: "Primary Owner",
       login: " Owner@Example.Test ",
-      password: "first-password"
+      password: first_password
     }
 
     assert {:ok, first} = BootstrapOwner.run(adapters, attrs)
-    assert {:ok, second} = BootstrapOwner.run(adapters, %{attrs | password: "other-password"})
+
+    assert {:ok, second} =
+             BootstrapOwner.run(adapters, %{attrs | password: second_password})
+
     assert first.account_id == second.account_id
     assert first.credential_hash == second.credential_hash
 
     state = Singularity.Runtime.BootstrapOwnerTest.Repository.state(repository)
-    assert state.aggregate.credential_hash == "hash:first-password"
+    assert state.aggregate.credential_hash == "hash:" <> first_password
 
     assert_receive {:bootstrap_command, first_command}
     assert_receive {:bootstrap_command, second_command}
@@ -169,8 +222,12 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
     assert first_command.membership.vault_id == first_command.vault.id
     assert first_command.key_domain.vault_id == first_command.vault.id
 
-    assert first_command.credential.secret_hash == "hash:first-password"
-    assert second_command.credential.secret_hash == "hash:other-password"
+    assert first_command.credential.secret_hash == "hash:" <> first_password
+    assert second_command.credential.secret_hash == "hash:" <> second_password
+    assert_receive {:password_hash, ^first_password}
+    assert_receive {:derive_kek, ^first_password, _salt, _params}
+    assert_receive {:password_hash, ^second_password}
+    assert_receive {:derive_kek, ^second_password, _salt, _params}
   end
 
   test "bootstrap task rejects positional password arguments without echoing them" do
@@ -239,6 +296,60 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
 
       verifier
     end)
+  end
+
+  defp credential_verifier_for_login(normalized_login) do
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      %{rows: [[verifier]]} =
+        Ecto.Adapters.SQL.query!(
+          Singularity.Storage.MigrationRepo,
+          "SELECT verifier FROM identity.credentials WHERE normalized_login = $1",
+          [normalized_login],
+          log: false
+        )
+
+      verifier
+    end)
+  end
+
+  defp migration_database_url do
+    config =
+      Application.fetch_env!(
+        :singularity_storage,
+        Singularity.Storage.MigrationRepo
+      )
+
+    query =
+      URI.encode_query(%{
+        "port" => Keyword.fetch!(config, :port),
+        "socket_dir" => Keyword.fetch!(config, :socket_dir)
+      })
+
+    username = config |> Keyword.fetch!(:username) |> URI.encode_www_form()
+    database = config |> Keyword.fetch!(:database) |> URI.encode_www_form()
+
+    "postgresql://#{username}@localhost/#{database}?#{query}"
+  end
+
+  defp umbrella_root do
+    Path.expand("../../../../..", __DIR__)
+  end
+
+  defp run_bootstrap_task(password_file) do
+    script = """
+    exec 3<"$SINGULARITY_PASSWORD_FILE"
+    exec mix singularity.bootstrap_owner --password-fd 3
+    """
+
+    System.cmd("bash", ["-c", script],
+      cd: umbrella_root(),
+      env: [
+        {"MIX_ENV", "test"},
+        {"SINGULARITY_MIGRATION_DATABASE_URL", migration_database_url()},
+        {"SINGULARITY_PASSWORD_FILE", password_file}
+      ],
+      stderr_to_stdout: true
+    )
   end
 
   defp aggregate_counts(owner) do

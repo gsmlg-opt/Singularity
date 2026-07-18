@@ -2,6 +2,8 @@ defmodule Singularity.Runtime.UnlockVaultTest do
   use ExUnit.Case, async: true
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.KeyCustodian
+  alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.SessionContext
   alias Singularity.Runtime.UnlockVault
 
@@ -130,6 +132,10 @@ defmodule Singularity.Runtime.UnlockVaultTest do
       State.push(state, {:discard, pending})
       :ok
     end
+  end
+
+  defmodule Clock do
+    def utc_now(_context), do: DateTime.utc_now()
   end
 
   setup context do
@@ -284,5 +290,87 @@ defmodule Singularity.Runtime.UnlockVaultTest do
     assert :committed in events
     assert Enum.any?(events, &match?({:activate, _}, &1))
     assert Enum.any?(events, &match?({:discard, _}, &1))
+  end
+
+  test "wake errors fail activation closed and leave no usable lease", context do
+    owner = self()
+
+    custodian =
+      start_real_custodian!(fn command ->
+        send(owner, {:wake_attempted, command})
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end)
+
+    runtime = %{context.runtime | custodian: {KeyCustodian, custodian}}
+
+    assert {:error, %Error{code: :storage_unavailable}} =
+             UnlockVault.run(
+               runtime,
+               context.session,
+               "correct-password",
+               "correlation-1"
+             )
+
+    assert_receive {:wake_attempted, %{session_id: "session-1"}}
+    refute KeyCustodian.unlocked?(custodian, "session-1")
+
+    assert {:error, :waiting_for_unlock} =
+             KeyCustodian.lease(custodian, lease_request())
+  end
+
+  test "wake exceptions are contained and leave custody locked", context do
+    custodian =
+      start_real_custodian!(fn _command ->
+        raise "injected wake failure"
+      end)
+
+    runtime = %{context.runtime | custodian: {KeyCustodian, custodian}}
+
+    assert {:error, %Error{code: :storage_unavailable}} =
+             UnlockVault.run(
+               runtime,
+               context.session,
+               "correct-password",
+               "correlation-1"
+             )
+
+    assert Process.alive?(custodian)
+    refute KeyCustodian.unlocked?(custodian, "session-1")
+  end
+
+  defp start_real_custodian!(wake_waiting) do
+    lease_supervisor =
+      start_supervised!(
+        {KeyLeaseSupervisor, name: nil},
+        id: make_ref()
+      )
+
+    start_supervised!(
+      {KeyCustodian,
+       %{
+         authorization: Fake.Authorization,
+         clock: Clock,
+         context: %{},
+         idle_lock: fn _session -> :ok end,
+         key_reader: Fake.KeyReader,
+         lease_supervisor: lease_supervisor,
+         object_key_loader: Fake.KeyReader,
+         wake_waiting: wake_waiting
+       }},
+      id: make_ref()
+    )
+  end
+
+  defp lease_request do
+    %{
+      job_id: "job-1",
+      vault_id: "vault-1",
+      principal_id: "principal-1",
+      required_capability: "asset.read",
+      authorization_epoch: 7,
+      object_id: "object-1",
+      object_generation: 1,
+      session_id: "session-1"
+    }
   end
 end

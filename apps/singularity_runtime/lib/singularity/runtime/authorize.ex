@@ -133,7 +133,7 @@ defmodule Singularity.Runtime.Authorize do
   defp check_job_binding(live, envelope) do
     with true <- live[:principal_id] == envelope.principal_id,
          true <- live[:vault_id] == envelope.vault_id,
-         :ok <- check_principal_epoch(live, envelope.authorization_epoch) do
+         :ok <- check_vault_epoch(live, envelope.authorization_epoch) do
       :ok
     else
       _denial -> forbidden()

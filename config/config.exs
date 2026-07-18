@@ -31,6 +31,14 @@ config :singularity_runtime,
     store: Singularity.Storage.Postgres.IdentityRepository,
     custodian: Singularity.Runtime.KeyCustodian
   },
+  key_custodian: %{
+    authorization: Singularity.Runtime.DeferredPlaintextAdapter,
+    clock: Singularity.Runtime.DeferredPlaintextAdapter,
+    context: %{},
+    idle_lock: Singularity.Runtime.LockVault,
+    key_reader: Singularity.Runtime.DeferredPlaintextAdapter,
+    object_key_loader: Singularity.Runtime.DeferredPlaintextAdapter
+  },
   bootstrap_owner: %{
     repository: Singularity.Storage.Postgres.IdentityRepository,
     repository_context: Singularity.Storage.MigrationRepo,

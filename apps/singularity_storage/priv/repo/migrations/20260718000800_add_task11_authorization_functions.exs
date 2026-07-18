@@ -9,8 +9,11 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
     replace_dummy_verifier(@task11_dummy_verifier)
     create_pre_auth_epoch_policies()
+    create_auth_attempt_completion_policy()
     grant_pre_auth_epoch_columns()
+    grant_auth_attempt_completion_columns()
     replace_session_resolver(:task11)
+    replace_auth_attempt_recorder(:task11)
     create_read_policies()
     create_credential_update_policy()
     grant_exact_columns()
@@ -30,7 +33,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     for signature <- [
           "core.live_session_authorization(uuid)",
           "core.live_principal_authorization()",
-          "identity.update_scoped_credential_verifier(uuid, timestamptz, text)"
+          "identity.update_scoped_credential_verifier(uuid, uuid, timestamptz, text)"
         ] do
       execute("REVOKE ALL ON FUNCTION #{signature} FROM PUBLIC")
     end
@@ -47,6 +50,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
     execute("""
     GRANT EXECUTE ON FUNCTION identity.update_scoped_credential_verifier(
+      uuid,
       uuid,
       timestamptz,
       text
@@ -71,6 +75,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     execute("""
     DROP FUNCTION IF EXISTS identity.update_scoped_credential_verifier(
       uuid,
+      uuid,
       timestamptz,
       text
     )
@@ -84,6 +89,18 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
     replace_dummy_verifier(@legacy_dummy_verifier)
     replace_session_resolver(:legacy)
+    replace_auth_attempt_recorder(:legacy)
+
+    execute("""
+    REVOKE SELECT (id, correlation_id), UPDATE (result)
+    ON identity.auth_attempts
+    FROM singularity_auth_definer
+    """)
+
+    execute("""
+    DROP POLICY IF EXISTS task11_auth_definer_completes_attempt
+    ON identity.auth_attempts
+    """)
 
     execute("""
     REVOKE SELECT (id, authorization_epoch, revoked_at)
@@ -235,6 +252,25 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
   end
 
+  defp create_auth_attempt_completion_policy do
+    execute("""
+    CREATE POLICY task11_auth_definer_completes_attempt
+    ON identity.auth_attempts
+    FOR UPDATE
+    TO singularity_auth_definer
+    USING (true)
+    WITH CHECK (true)
+    """)
+  end
+
+  defp grant_auth_attempt_completion_columns do
+    execute("""
+    GRANT SELECT (id, correlation_id), UPDATE (result)
+    ON identity.auth_attempts
+    TO singularity_auth_definer
+    """)
+  end
+
   defp replace_session_resolver(version) do
     execute("""
     GRANT USAGE, CREATE ON SCHEMA identity
@@ -265,6 +301,367 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     REVOKE CREATE ON SCHEMA identity
     FROM singularity_auth_definer
     """)
+  end
+
+  defp replace_auth_attempt_recorder(version) do
+    execute("""
+    GRANT USAGE, CREATE ON SCHEMA identity
+    TO singularity_auth_definer
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_auth_definer")
+
+    execute("""
+    DROP FUNCTION IF EXISTS identity.record_auth_attempt(
+      bytea,
+      bytea,
+      text
+    )
+    """)
+
+    execute("""
+    DROP FUNCTION IF EXISTS identity.record_auth_attempt(
+      bytea,
+      bytea,
+      text,
+      uuid,
+      uuid
+    )
+    """)
+
+    execute(auth_attempt_recorder_sql(version))
+
+    signature =
+      case version do
+        :task11 -> "bytea, bytea, text, uuid, uuid"
+        :legacy -> "bytea, bytea, text"
+      end
+
+    execute("""
+    REVOKE ALL ON FUNCTION identity.record_auth_attempt(#{signature})
+    FROM PUBLIC
+    """)
+
+    execute("""
+    GRANT EXECUTE ON FUNCTION identity.record_auth_attempt(#{signature})
+    TO singularity_pre_auth
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_table_owner")
+
+    execute("""
+    REVOKE CREATE ON SCHEMA identity
+    FROM singularity_auth_definer
+    """)
+  end
+
+  defp auth_attempt_recorder_sql(:task11) do
+    """
+    CREATE FUNCTION identity.record_auth_attempt(
+      requested_login_fingerprint bytea,
+      requested_source_fingerprint bytea,
+      requested_result text,
+      requested_correlation_id uuid,
+      requested_attempt_id uuid
+    ) RETURNS TABLE (
+      attempt_id uuid,
+      accepted boolean
+    )
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, identity, core, audit
+    AS $function$
+    DECLARE
+      selected_attempt_id uuid;
+      is_accepted boolean := false;
+      login_window integer;
+      login_limit integer;
+      source_window integer;
+      source_limit integer;
+      login_count bigint;
+      source_count bigint;
+      updated_count bigint;
+      audit_result text;
+    BEGIN
+      IF requested_login_fingerprint IS NULL
+        OR requested_source_fingerprint IS NULL
+        OR octet_length(requested_login_fingerprint) <> 32
+        OR octet_length(requested_source_fingerprint) <> 32
+      THEN
+        RAISE EXCEPTION 'authentication fingerprints must be 32 bytes'
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF requested_result IS NULL
+        OR requested_result NOT IN ('started', 'failed', 'succeeded')
+      THEN
+        RAISE EXCEPTION 'invalid authentication attempt result'
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF requested_correlation_id IS NULL THEN
+        RAISE EXCEPTION 'authentication correlation id is required'
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF requested_result = 'started' AND requested_attempt_id IS NOT NULL THEN
+        RAISE EXCEPTION 'started authentication attempts cannot supply an attempt id'
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF requested_result <> 'started' AND requested_attempt_id IS NULL THEN
+        RAISE EXCEPTION 'completed authentication attempts require an attempt id'
+          USING ERRCODE = '22023';
+      END IF;
+
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          'singularity:auth:login:' ||
+            encode(requested_login_fingerprint, 'hex'),
+          0
+        )
+      );
+
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          'singularity:auth:source:' ||
+            encode(requested_source_fingerprint, 'hex'),
+          0
+        )
+      );
+
+      IF requested_result = 'started' THEN
+        SELECT
+          setting.login_window_seconds,
+          setting.login_max_attempts,
+          setting.source_window_seconds,
+          setting.source_max_attempts
+        INTO login_window, login_limit, source_window, source_limit
+        FROM identity.security_settings AS setting
+        LIMIT 1;
+
+        SELECT count(*)
+        INTO login_count
+        FROM identity.auth_attempts AS attempt
+        WHERE attempt.login_fingerprint = requested_login_fingerprint
+          AND attempt.attempted_at >
+            CURRENT_TIMESTAMP - make_interval(secs => login_window);
+
+        SELECT count(*)
+        INTO source_count
+        FROM identity.auth_attempts AS attempt
+        WHERE attempt.source_fingerprint = requested_source_fingerprint
+          AND attempt.attempted_at >
+            CURRENT_TIMESTAMP - make_interval(secs => source_window);
+
+        is_accepted := login_count < login_limit AND source_count < source_limit;
+        selected_attempt_id := gen_random_uuid();
+
+        INSERT INTO identity.auth_attempts (
+          id,
+          login_fingerprint,
+          source_fingerprint,
+          result,
+          correlation_id
+        )
+        VALUES (
+          selected_attempt_id,
+          requested_login_fingerprint,
+          requested_source_fingerprint,
+          requested_result,
+          requested_correlation_id
+        );
+      ELSE
+        selected_attempt_id := requested_attempt_id;
+
+        UPDATE identity.auth_attempts AS attempt
+        SET result = requested_result
+        WHERE attempt.id = requested_attempt_id
+          AND attempt.login_fingerprint = requested_login_fingerprint
+          AND attempt.source_fingerprint = requested_source_fingerprint
+          AND attempt.correlation_id = requested_correlation_id
+          AND attempt.result = 'started';
+
+        GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+        IF updated_count <> 1 THEN
+          RAISE EXCEPTION 'authentication attempt binding is invalid'
+            USING ERRCODE = '22023';
+        END IF;
+      END IF;
+
+      audit_result :=
+        CASE
+          WHEN requested_result = 'started' AND is_accepted THEN 'allowed'
+          WHEN requested_result = 'succeeded' THEN 'allowed'
+          ELSE 'denied'
+        END;
+
+      INSERT INTO audit.events (
+        id,
+        vault_id,
+        actor_kind,
+        principal_id,
+        anonymous_fingerprint,
+        operation,
+        result,
+        classification,
+        correlation_id,
+        occurred_at
+      )
+      VALUES (
+        gen_random_uuid(),
+        NULL,
+        'anonymous',
+        NULL,
+        requested_login_fingerprint,
+        'identity.authentication_attempt',
+        audit_result,
+        'private',
+        requested_correlation_id,
+        CURRENT_TIMESTAMP
+      );
+
+      RETURN QUERY SELECT selected_attempt_id, is_accepted;
+    END
+    $function$
+    """
+  end
+
+  defp auth_attempt_recorder_sql(:legacy) do
+    """
+    CREATE FUNCTION identity.record_auth_attempt(
+      requested_login_fingerprint bytea,
+      requested_source_fingerprint bytea,
+      requested_result text
+    ) RETURNS TABLE (
+      attempt_id uuid,
+      accepted boolean
+    )
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, identity, core, audit
+    AS $function$
+    DECLARE
+      generated_attempt_id uuid := gen_random_uuid();
+      generated_correlation_id uuid := gen_random_uuid();
+      is_accepted boolean := false;
+      login_window integer;
+      login_limit integer;
+      source_window integer;
+      source_limit integer;
+      login_count bigint;
+      source_count bigint;
+    BEGIN
+      IF requested_login_fingerprint IS NULL
+        OR requested_source_fingerprint IS NULL
+        OR octet_length(requested_login_fingerprint) <> 32
+        OR octet_length(requested_source_fingerprint) <> 32
+      THEN
+        RAISE EXCEPTION 'authentication fingerprints must be 32 bytes'
+          USING ERRCODE = '22023';
+      END IF;
+
+      IF requested_result IS NULL
+        OR requested_result NOT IN ('started', 'failed', 'succeeded')
+      THEN
+        RAISE EXCEPTION 'invalid authentication attempt result'
+          USING ERRCODE = '22023';
+      END IF;
+
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          'singularity:auth:login:' ||
+            encode(requested_login_fingerprint, 'hex'),
+          0
+        )
+      );
+
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          'singularity:auth:source:' ||
+            encode(requested_source_fingerprint, 'hex'),
+          0
+        )
+      );
+
+      SELECT
+        setting.login_window_seconds,
+        setting.login_max_attempts,
+        setting.source_window_seconds,
+        setting.source_max_attempts
+      INTO login_window, login_limit, source_window, source_limit
+      FROM identity.security_settings AS setting
+      LIMIT 1;
+
+      IF requested_result = 'started' THEN
+        SELECT count(*)
+        INTO login_count
+        FROM identity.auth_attempts AS attempt
+        WHERE attempt.login_fingerprint = requested_login_fingerprint
+          AND attempt.result = 'started'
+          AND attempt.attempted_at >
+            CURRENT_TIMESTAMP - make_interval(secs => login_window);
+
+        SELECT count(*)
+        INTO source_count
+        FROM identity.auth_attempts AS attempt
+        WHERE attempt.source_fingerprint = requested_source_fingerprint
+          AND attempt.result = 'started'
+          AND attempt.attempted_at >
+            CURRENT_TIMESTAMP - make_interval(secs => source_window);
+
+        is_accepted := login_count < login_limit AND source_count < source_limit;
+      END IF;
+
+      INSERT INTO identity.auth_attempts (
+        id,
+        login_fingerprint,
+        source_fingerprint,
+        result,
+        correlation_id
+      )
+      VALUES (
+        generated_attempt_id,
+        requested_login_fingerprint,
+        requested_source_fingerprint,
+        requested_result,
+        generated_correlation_id
+      );
+
+      INSERT INTO audit.events (
+        id,
+        vault_id,
+        actor_kind,
+        principal_id,
+        anonymous_fingerprint,
+        operation,
+        result,
+        classification,
+        correlation_id,
+        occurred_at
+      )
+      VALUES (
+        gen_random_uuid(),
+        NULL,
+        'anonymous',
+        NULL,
+        requested_login_fingerprint,
+        'identity.authentication_attempt',
+        CASE WHEN is_accepted THEN 'allowed' ELSE 'denied' END,
+        'private',
+        generated_correlation_id,
+        CURRENT_TIMESTAMP
+      );
+
+      RETURN QUERY SELECT generated_attempt_id, is_accepted;
+    END
+    $function$
+    """
   end
 
   defp session_resolver_sql(:task11) do
@@ -589,6 +986,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   defp create_credential_update do
     execute("""
     CREATE OR REPLACE FUNCTION identity.update_scoped_credential_verifier(
+      requested_session uuid,
       requested_credential uuid,
       expected_revision timestamptz,
       replacement_verifier text
@@ -614,15 +1012,25 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
         SET
           verifier = replacement_verifier,
           updated_at = clock_timestamp()
-        FROM scoped, identity.principals AS principal
-        WHERE requested_credential IS NOT NULL
+        FROM
+          scoped,
+          identity.sessions AS session,
+          identity.principals AS principal
+        WHERE requested_session IS NOT NULL
+          AND requested_credential IS NOT NULL
           AND expected_revision IS NOT NULL
           AND replacement_verifier IS NOT NULL
           AND btrim(replacement_verifier) <> ''
-          AND principal.id = scoped.principal_id
+          AND session.id = requested_session
+          AND session.principal_id = scoped.principal_id
+          AND session.vault_id = scoped.vault_id
+          AND session.revoked_at IS NULL
+          AND session.expires_at > CURRENT_TIMESTAMP
+          AND principal.id = session.principal_id
+          AND principal.account_id = session.account_id
           AND principal.revoked_at IS NULL
           AND credential.id = requested_credential
-          AND credential.account_id = principal.account_id
+          AND credential.account_id = session.account_id
           AND credential.updated_at = expected_revision
           AND credential.revoked_at IS NULL
           AND EXISTS (

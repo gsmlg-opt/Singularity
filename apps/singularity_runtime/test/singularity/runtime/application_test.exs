@@ -3,7 +3,11 @@ defmodule Singularity.Runtime.ApplicationTest do
 
   alias Singularity.Runtime.Application, as: RuntimeApplication
   alias Singularity.Runtime.AuthorizationDependencies
+  alias Singularity.Runtime.DeferredPlaintextAdapter
   alias Singularity.Runtime.JobDispatcher
+  alias Singularity.Runtime.KeyCustodian
+  alias Singularity.Runtime.KeyLeaseSupervisor
+  alias Singularity.Runtime.LockVault
   alias Singularity.Storage.Jobs.GenericWorker
 
   test "pure tests opt out of every infrastructure child" do
@@ -31,6 +35,43 @@ defmodule Singularity.Runtime.ApplicationTest do
              RuntimeApplication.infrastructure_children(composition),
              &child_id/1
            )
+  end
+
+  test "dev and prod configuration provide startable fail-closed custody" do
+    config_path = Path.expand("../../../../../config/config.exs", __DIR__)
+
+    for environment <- [:dev, :prod] do
+      runtime_config =
+        config_path
+        |> Config.Reader.read!(env: environment)
+        |> Keyword.fetch!(:singularity_runtime)
+
+      assert %{
+               authorization: DeferredPlaintextAdapter,
+               clock: DeferredPlaintextAdapter,
+               context: %{},
+               idle_lock: LockVault,
+               key_reader: DeferredPlaintextAdapter,
+               object_key_loader: DeferredPlaintextAdapter
+             } = options = Keyword.fetch!(runtime_config, :key_custodian)
+
+      lease_supervisor =
+        start_supervised!(
+          {KeyLeaseSupervisor, name: nil},
+          id: make_ref()
+        )
+
+      custodian =
+        start_supervised!(
+          {KeyCustodian, Map.put(options, :lease_supervisor, lease_supervisor)},
+          id: make_ref()
+        )
+
+      assert Process.alive?(custodian)
+
+      assert {:error, :waiting_for_unlock} =
+               DeferredPlaintextAdapter.load_object_key(%{}, %{}, %{})
+    end
   end
 
   test "startup validation fails closed for a missing handler or authorization member" do

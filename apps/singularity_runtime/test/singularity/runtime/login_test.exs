@@ -79,6 +79,12 @@ defmodule Singularity.Runtime.LoginTest.Custodian do
   end
 end
 
+defmodule Singularity.Runtime.LoginTest.TelemetryHandler do
+  def handle(name, measurements, metadata, owner) do
+    send(owner, {:telemetry, name, measurements, metadata})
+  end
+end
+
 defmodule Singularity.Runtime.LoginTest do
   use ExUnit.Case, async: false
 
@@ -173,6 +179,111 @@ defmodule Singularity.Runtime.LoginTest do
     end)
   end
 
+  @tag :integration
+  test "unknown and invalid credentials have indistinguishable anonymous audit rendering" do
+    login = "audit-render-#{Ecto.UUID.generate()}@example.test"
+    password = "database-login-password"
+
+    assert {:ok, _owner} =
+             Singularity.Storage.Fixtures.with_owner(fn ->
+               Singularity.Runtime.BootstrapOwner.run(postgres_bootstrap_adapters(), %{
+                 display_name: "Audit Render Owner",
+                 login: login,
+                 password: password
+               })
+             end)
+
+    adapters = postgres_login_adapters(:binary.copy(<<0xD4>>, 32))
+    known_correlation = Ecto.UUID.generate()
+    unknown_correlation = Ecto.UUID.generate()
+
+    known_request =
+      login
+      |> request("wrong-password", "127.0.0.1")
+      |> Map.put(:correlation_id, known_correlation)
+
+    unknown_request =
+      "missing-#{Ecto.UUID.generate()}@example.test"
+      |> request("wrong-password", "127.0.0.1")
+      |> Map.put(:correlation_id, unknown_correlation)
+
+    assert {:error, %Error{code: :unauthenticated}} =
+             Login.run(adapters, known_request)
+
+    assert {:error, %Error{code: :unauthenticated}} =
+             Login.run(adapters, unknown_request)
+
+    known_rendering = authentication_audit_rendering(known_correlation)
+    unknown_rendering = authentication_audit_rendering(unknown_correlation)
+
+    assert known_rendering == unknown_rendering
+
+    assert known_rendering == [
+             [
+               "anonymous",
+               nil,
+               nil,
+               "identity.authentication_attempt",
+               "allowed",
+               "private",
+               %{}
+             ],
+             ["anonymous", nil, nil, "identity.authentication_attempt", "denied", "private", %{}]
+           ]
+  end
+
+  @tag :integration
+  test "a real post-session-insert audit failure rolls the session back" do
+    login = "audit-rollback-#{Ecto.UUID.generate()}@example.test"
+    password = "database-login-password"
+    correlation_id = Ecto.UUID.generate()
+    token = :binary.copy(<<0xD5>>, 32)
+
+    assert {:ok, owner} =
+             Singularity.Storage.Fixtures.with_owner(fn ->
+               Singularity.Runtime.BootstrapOwner.run(postgres_bootstrap_adapters(), %{
+                 display_name: "Audit Rollback Owner",
+                 login: login,
+                 password: password
+               })
+             end)
+
+    install_login_audit_failure!(correlation_id)
+
+    on_exit(fn ->
+      remove_login_audit_failure!()
+    end)
+
+    request =
+      login
+      |> request(password, "127.0.0.1")
+      |> Map.put(:correlation_id, correlation_id)
+
+    assert {:error, %Error{code: :unauthenticated}} =
+             Login.run(postgres_login_adapters(token), request)
+
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      %{rows: [[0, 0]]} =
+        Ecto.Adapters.SQL.query!(
+          Singularity.Storage.MigrationRepo,
+          """
+          SELECT
+            (SELECT count(*) FROM identity.sessions WHERE token_digest = $1),
+            (SELECT count(*) FROM audit.events
+             WHERE operation = 'identity.login'
+               AND correlation_id = $2
+               AND principal_id = $3)
+          """,
+          [
+            :crypto.hash(:sha256, token),
+            Ecto.UUID.dump!(correlation_id),
+            Ecto.UUID.dump!(owner.principal_id)
+          ],
+          log: false
+        )
+    end)
+  end
+
   test "reserves rate limit before verifier work and persists only sanitized commands", %{
     adapters: adapters
   } do
@@ -260,28 +371,39 @@ defmodule Singularity.Runtime.LoginTest do
     assert map_size(Login.cookie_payload(result)) == 1
   end
 
-  test "successful-auth audit failure creates no public session", %{adapters: adapters} do
-    Process.put(:session_audit_result, {:error, :audit_failed})
-
-    assert {:error, %Error{code: :unauthenticated}} =
-             Login.run(
-               adapters,
-               request("owner@example.test", "correct-password", "source")
-             )
-
-    assert_receive {:identity, :create_session_and_audit, _, _, _}
-    refute_receive {:session_issued, _}
-  end
-
   test "anonymous audit failure never permits login or changes its response", %{
     adapters: adapters
   } do
+    handler_id = "login-audit-health-#{System.unique_integer([:positive])}"
+    event = [:singularity, :authentication, :audit_write_failure]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &Singularity.Runtime.LoginTest.TelemetryHandler.handle/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
     Process.put(:record_attempt_result, {:error, :audit_failed})
 
     assert Login.run(
              adapters,
              request("missing@example.test", "wrong-password", "source")
            ) == {:error, Error.new(:unauthenticated)}
+
+    assert_receive {:telemetry, ^event, %{count: 1}, metadata}
+
+    assert metadata == %{
+             category: :anonymous_audit_write,
+             correlation_id: "00000000-0000-0000-0000-000000000111"
+           }
+
+    rendered = inspect(metadata)
+    refute rendered =~ "missing@example.test"
+    refute rendered =~ "wrong-password"
+    refute rendered =~ @fingerprint_secret
   end
 
   test "rejected reservation performs no verifier work", %{adapters: adapters} do
@@ -359,6 +481,113 @@ defmodule Singularity.Runtime.LoginTest do
       vault_kdf_params: password_params(),
       initial_capabilities: ["asset.read", "asset.write", "vault.unlock"]
     }
+  end
+
+  defp postgres_login_adapters(token) do
+    %{
+      pre_auth: Singularity.Storage.Postgres.PreAuth,
+      pre_auth_context: Singularity.Storage.PreAuthRepo,
+      identity: Singularity.Storage.Postgres.IdentityRepository,
+      identity_context: %{
+        repo: Singularity.Storage.RequestRepo,
+        clock: fn -> DateTime.utc_now() end,
+        session_ttl_seconds: 900
+      },
+      password_hasher: Singularity.Storage.Crypto.Argon2PasswordHasher,
+      password_hasher_context: password_params(),
+      audit_fingerprint_secret: :binary.copy(<<0xA7>>, 32),
+      random_bytes: fn 32 -> token end
+    }
+  end
+
+  defp authentication_audit_rendering(correlation_id) do
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      %{rows: rows} =
+        Ecto.Adapters.SQL.query!(
+          Singularity.Storage.MigrationRepo,
+          """
+          SELECT
+            actor_kind,
+            vault_id,
+            principal_id,
+            operation,
+            result,
+            classification,
+            metadata
+          FROM audit.events
+          WHERE correlation_id = $1
+            AND operation = 'identity.authentication_attempt'
+          ORDER BY result
+          """,
+          [Ecto.UUID.dump!(correlation_id)],
+          log: false
+        )
+
+      rows
+    end)
+  end
+
+  defp install_login_audit_failure!(correlation_id) do
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        """
+        CREATE OR REPLACE FUNCTION audit.task11_fail_login_audit()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $function$
+        BEGIN
+          IF NEW.operation = 'identity.login'
+            AND NEW.correlation_id = '#{correlation_id}'::uuid
+          THEN
+            RAISE EXCEPTION 'injected login audit failure';
+          END IF;
+
+          RETURN NEW;
+        END
+        $function$
+        """,
+        [],
+        log: false
+      )
+
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        "DROP TRIGGER IF EXISTS task11_fail_login_audit ON audit.events",
+        [],
+        log: false
+      )
+
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        """
+        CREATE TRIGGER task11_fail_login_audit
+        BEFORE INSERT ON audit.events
+        FOR EACH ROW
+        EXECUTE FUNCTION audit.task11_fail_login_audit()
+        """,
+        [],
+        log: false
+      )
+    end)
+  end
+
+  defp remove_login_audit_failure! do
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        "DROP TRIGGER IF EXISTS task11_fail_login_audit ON audit.events",
+        [],
+        log: false
+      )
+
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        "DROP FUNCTION IF EXISTS audit.task11_fail_login_audit()",
+        [],
+        log: false
+      )
+    end)
   end
 
   defp password_params do

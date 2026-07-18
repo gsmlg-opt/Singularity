@@ -221,19 +221,26 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
 
   def update_credential_verifier(
         repo,
+        session_id,
         credential_id,
         %DateTime{} = credential_revision,
         verifier
       )
-      when is_binary(credential_id) and is_binary(verifier) do
+      when is_binary(session_id) and is_binary(credential_id) and is_binary(verifier) do
     with true <- byte_size(String.trim(verifier)) > 0,
+         {:ok, dumped_session_id} <- UUID.dump(session_id),
          {:ok, dumped_credential_id} <- UUID.dump(credential_id) do
       case SQL.query(
              repo,
              """
-             SELECT identity.update_scoped_credential_verifier($1, $2, $3)
+             SELECT identity.update_scoped_credential_verifier($1, $2, $3, $4)
              """,
-             [dumped_credential_id, credential_revision, verifier],
+             [
+               dumped_session_id,
+               dumped_credential_id,
+               credential_revision,
+               verifier
+             ],
              log: false
            ) do
         {:ok, %{rows: [[updated?]]}} when is_boolean(updated?) ->
@@ -251,8 +258,14 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
     end
   end
 
-  def update_credential_verifier(_repo, _credential_id, _credential_revision, _verifier),
-    do: {:error, Error.new(:invalid)}
+  def update_credential_verifier(
+        _repo,
+        _session_id,
+        _credential_id,
+        _credential_revision,
+        _verifier
+      ),
+      do: {:error, Error.new(:invalid)}
 
   def load_unlock_material(
         repo,
@@ -481,6 +494,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
            :ok <-
              update_credential_revision(
                repo,
+               session_id,
                credential_id,
                credential_revision,
                new_verifier
@@ -1253,12 +1267,14 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
 
   defp update_credential_revision(
          repo,
+         session_id,
          credential_id,
          credential_revision,
          new_verifier
        ) do
     case update_credential_verifier(
            repo,
+           session_id,
            credential_id,
            credential_revision,
            new_verifier

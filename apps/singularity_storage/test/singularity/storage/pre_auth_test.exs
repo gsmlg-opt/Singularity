@@ -4,6 +4,8 @@ defmodule Singularity.Storage.PreAuthTest do
   @moduletag :integration
 
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.Postgres.PreAuth
 
   setup do
     Fixtures.two_vaults!()
@@ -106,35 +108,84 @@ defmodule Singularity.Storage.PreAuthTest do
   test "attempt recording reserves a bucket and returns uniform failure shapes", %{one: one} do
     login_fingerprint = :crypto.hash(:sha256, one.normalized_login)
     source_fingerprint = :crypto.hash(:sha256, "127.0.0.1")
+    known_correlation = Ecto.UUID.generate()
 
     assert %{columns: ["attempt_id", "accepted"], rows: [[started_id, true]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'started')",
-               [login_fingerprint, source_fingerprint]
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "started",
+               known_correlation,
+               nil
              )
 
     assert is_binary(started_id)
 
-    assert %{columns: ["attempt_id", "accepted"], rows: [[known_id, false]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'failed')",
-               [login_fingerprint, source_fingerprint]
+    assert %{columns: ["attempt_id", "accepted"], rows: [[^started_id, false]]} =
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "failed",
+               known_correlation,
+               started_id
              )
 
-    assert %{columns: ["attempt_id", "accepted"], rows: [[unknown_id, false]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'failed')",
-               [:crypto.hash(:sha256, "unknown"), source_fingerprint]
+    unknown_login = :crypto.hash(:sha256, "unknown")
+    unknown_correlation = Ecto.UUID.generate()
+
+    assert %{rows: [[unknown_id, true]]} =
+             record_attempt_query(
+               unknown_login,
+               source_fingerprint,
+               "started",
+               unknown_correlation,
+               nil
              )
 
-    assert is_binary(known_id)
-    assert is_binary(unknown_id)
+    assert %{columns: ["attempt_id", "accepted"], rows: [[^unknown_id, false]]} =
+             record_attempt_query(
+               unknown_login,
+               source_fingerprint,
+               "failed",
+               unknown_correlation,
+               unknown_id
+             )
   end
 
-  test "failed outcomes do not consume additional started-attempt capacity" do
+  test "adapter persists supplied correlation and completes the reserved attempt", %{one: one} do
+    login_fingerprint = :crypto.hash(:sha256, one.normalized_login)
+    source_fingerprint = :crypto.hash(:sha256, "correlated-source")
+    correlation_id = Ecto.UUID.generate()
+
+    assert {:ok, %{id: attempt_id, accepted?: true}} =
+             PreAuth.reserve_attempt(PreAuthRepo, %{
+               login_fingerprint: login_fingerprint,
+               source_fingerprint: source_fingerprint,
+               correlation_id: correlation_id
+             })
+
+    assert [^attempt_id, "started", ^correlation_id] =
+             persisted_attempt(attempt_id)
+
+    assert :ok =
+             PreAuth.record_attempt(PreAuthRepo, %{
+               attempt_id: attempt_id,
+               login_fingerprint: login_fingerprint,
+               source_fingerprint: source_fingerprint,
+               correlation_id: correlation_id,
+               result: "failed"
+             })
+
+    assert [^attempt_id, "failed", ^correlation_id] =
+             persisted_attempt(attempt_id)
+
+    assert [
+             ["anonymous", nil, nil, "allowed"],
+             ["anonymous", nil, nil, "denied"]
+           ] = persisted_attempt_audits(correlation_id)
+  end
+
+  test "failed outcomes retain the reserved attempt's rate-limit capacity" do
     Fixtures.set_auth_limits!(2, 2)
 
     on_exit(fn ->
@@ -143,33 +194,42 @@ defmodule Singularity.Storage.PreAuthTest do
 
     login_fingerprint = :crypto.hash(:sha256, "start-fail-cycle-login")
     source_fingerprint = :crypto.hash(:sha256, "start-fail-cycle-source")
+    first_correlation = Ecto.UUID.generate()
 
-    assert %{rows: [[_first_started_id, true]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'started')",
-               [login_fingerprint, source_fingerprint]
+    assert %{rows: [[first_started_id, true]]} =
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "started",
+               first_correlation,
+               nil
              )
 
-    assert %{rows: [[_failed_id, false]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'failed')",
-               [login_fingerprint, source_fingerprint]
+    assert %{rows: [[^first_started_id, false]]} =
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "failed",
+               first_correlation,
+               first_started_id
              )
 
     assert %{rows: [[_second_started_id, true]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'started')",
-               [login_fingerprint, source_fingerprint]
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "started",
+               Ecto.UUID.generate(),
+               nil
              )
 
     assert %{rows: [[_limited_id, false]]} =
-             query!(
-               PreAuthRepo,
-               "SELECT * FROM identity.record_auth_attempt($1, $2, 'started')",
-               [login_fingerprint, source_fingerprint]
+             record_attempt_query(
+               login_fingerprint,
+               source_fingerprint,
+               "started",
+               Ecto.UUID.generate(),
+               nil
              )
   end
 
@@ -192,10 +252,12 @@ defmodule Singularity.Storage.PreAuthTest do
           receive do
             :go ->
               %{rows: [[_attempt_id, accepted?]]} =
-                query!(
-                  PreAuthRepo,
-                  "SELECT * FROM identity.record_auth_attempt($1, $2, 'started')",
-                  [login_fingerprint, source_fingerprint]
+                record_attempt_query(
+                  login_fingerprint,
+                  source_fingerprint,
+                  "started",
+                  Ecto.UUID.generate(),
+                  nil
                 )
 
               accepted?
@@ -217,6 +279,7 @@ defmodule Singularity.Storage.PreAuthTest do
 
   test "attempt recording rejects missing and malformed parameters before writing" do
     valid_fingerprint = :crypto.hash(:sha256, "valid")
+    correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
 
     for {login_fingerprint, source_fingerprint, result} <- [
           {nil, valid_fingerprint, "started"},
@@ -227,8 +290,8 @@ defmodule Singularity.Storage.PreAuthTest do
       assert_raise Postgrex.Error, ~r/authentication fingerprints must be 32 bytes/, fn ->
         query!(
           PreAuthRepo,
-          "SELECT * FROM identity.record_auth_attempt($1, $2, $3)",
-          [login_fingerprint, source_fingerprint, result]
+          "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
+          [login_fingerprint, source_fingerprint, result, correlation_id, nil]
         )
       end
     end
@@ -236,9 +299,65 @@ defmodule Singularity.Storage.PreAuthTest do
     assert_raise Postgrex.Error, ~r/invalid authentication attempt result/, fn ->
       query!(
         PreAuthRepo,
-        "SELECT * FROM identity.record_auth_attempt($1, $2, $3)",
-        [valid_fingerprint, valid_fingerprint, nil]
+        "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
+        [valid_fingerprint, valid_fingerprint, nil, correlation_id, nil]
       )
     end
+  end
+
+  defp record_attempt_query(
+         login_fingerprint,
+         source_fingerprint,
+         result,
+         correlation_id,
+         attempt_id
+       ) do
+    query!(
+      PreAuthRepo,
+      "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
+      [
+        login_fingerprint,
+        source_fingerprint,
+        result,
+        Ecto.UUID.dump!(correlation_id),
+        attempt_id
+      ]
+    )
+  end
+
+  defp persisted_attempt(attempt_id) do
+    Fixtures.with_owner(fn ->
+      %{rows: [row]} =
+        query!(
+          MigrationRepo,
+          """
+          SELECT id::text, result, correlation_id::text
+          FROM identity.auth_attempts
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(attempt_id)]
+        )
+
+      row
+    end)
+  end
+
+  defp persisted_attempt_audits(correlation_id) do
+    Fixtures.with_owner(fn ->
+      %{rows: rows} =
+        query!(
+          MigrationRepo,
+          """
+          SELECT actor_kind, vault_id, principal_id, result
+          FROM audit.events
+          WHERE correlation_id = $1
+            AND operation = 'identity.authentication_attempt'
+          ORDER BY result
+          """,
+          [Ecto.UUID.dump!(correlation_id)]
+        )
+
+      rows
+    end)
   end
 end

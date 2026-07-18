@@ -15,9 +15,9 @@ defmodule Singularity.Runtime.BootstrapOwner do
   def run(adapters, %{display_name: display_name, login: login, password: password})
       when is_map(adapters) and is_binary(display_name) and is_binary(login) and
              is_binary(password) do
-    with {:ok, display_name} <- nonempty(display_name),
+    with {:ok, display_name} <- nonempty_text(display_name),
          {:ok, normalized_login} <- normalize_login(login),
-         {:ok, password} <- nonempty(password),
+         :ok <- require_secret(password),
          {:ok, credential_hash} <- hash_password(adapters, password),
          {:ok, command} <-
            build_command(
@@ -38,7 +38,7 @@ defmodule Singularity.Runtime.BootstrapOwner do
     login
     |> String.trim()
     |> String.downcase()
-    |> nonempty()
+    |> nonempty_text()
   end
 
   def normalize_login(_login), do: {:error, Error.new(:invalid)}
@@ -222,12 +222,15 @@ defmodule Singularity.Runtime.BootstrapOwner do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
-  defp nonempty(value) do
+  defp nonempty_text(value) do
     case String.trim(value) do
       "" -> {:error, Error.new(:invalid)}
       normalized -> {:ok, normalized}
     end
   end
+
+  defp require_secret(""), do: {:error, Error.new(:invalid)}
+  defp require_secret(_password), do: :ok
 
   defp require_size(value, size) when is_binary(value) and byte_size(value) == size, do: :ok
   defp require_size(_value, _size), do: {:error, Error.new(:invalid)}

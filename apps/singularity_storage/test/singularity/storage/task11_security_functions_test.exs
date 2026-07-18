@@ -121,6 +121,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
                one,
                &IdentityRepository.update_credential_verifier(
                  &1,
+                 session.session_id,
                  session.credential_id,
                  session.credential_revision,
                  "repository-verifier"
@@ -134,6 +135,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
                one,
                &IdentityRepository.update_credential_verifier(
                  &1,
+                 session.session_id,
                  session.credential_id,
                  session.credential_revision,
                  "stale-repository-verifier"
@@ -154,6 +156,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
                one,
                &IdentityRepository.update_credential_verifier(
                  &1,
+                 session.session_id,
                  session.credential_id,
                  nil,
                  "invalid-revision"
@@ -256,6 +259,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
              scoped(one, fn repo ->
                update_verifier(
                  repo,
+                 one.session_id,
                  one_snapshot.credential_id,
                  one_snapshot.credential_revision,
                  "new-verifier"
@@ -268,6 +272,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
              scoped(one, fn repo ->
                update_verifier(
                  repo,
+                 one.session_id,
                  two_snapshot.credential_id,
                  two_snapshot.credential_revision,
                  "stolen-verifier"
@@ -286,6 +291,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
              scoped(two, fn repo ->
                update_verifier(
                  repo,
+                 two.session_id,
                  two_snapshot.credential_id,
                  two_snapshot.credential_revision,
                  "revoked-verifier"
@@ -302,9 +308,55 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
              scoped(one, fn repo ->
                update_verifier(
                  repo,
+                 one.session_id,
                  snapshot.credential_id,
                  snapshot.credential_revision,
                  "membership-revoked-verifier"
+               )
+             end)
+
+    assert credential_verifier(one) == one.verifier
+  end
+
+  test "credential CAS definer requires the exact active scoped session", %{
+    one: one,
+    two: two
+  } do
+    assert {:ok, snapshot} = scoped(one, &session_snapshot(&1, one.session_id))
+
+    for denied_session <- [two.session_id, Ecto.UUID.generate() |> Ecto.UUID.dump!()] do
+      assert {:ok, false} =
+               scoped(one, fn repo ->
+                 update_verifier_for_session(
+                   repo,
+                   denied_session,
+                   snapshot.credential_id,
+                   snapshot.credential_revision,
+                   "session-bypass-verifier"
+                 )
+               end)
+    end
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE identity.sessions
+        SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+        WHERE id = $1
+        """,
+        [one.session_id]
+      )
+    end)
+
+    assert {:ok, false} =
+             scoped(one, fn repo ->
+               update_verifier_for_session(
+                 repo,
+                 one.session_id,
+                 snapshot.credential_id,
+                 snapshot.credential_revision,
+                 "expired-session-verifier"
                )
              end)
 
@@ -319,6 +371,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
                assert {:ok, true} =
                         update_verifier(
                           repo,
+                          one.session_id,
                           snapshot.credential_id,
                           snapshot.credential_revision,
                           "rolled-back-verifier"
@@ -344,6 +397,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
               scoped(one, fn repo ->
                 update_verifier(
                   repo,
+                  one.session_id,
                   snapshot.credential_id,
                   snapshot.credential_revision,
                   replacement
@@ -567,15 +621,29 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
     end
   end
 
-  defp update_verifier(repo, credential_id, revision, replacement) do
-    credential_id = Ecto.UUID.dump!(credential_id)
+  defp update_verifier(repo, session_id, credential_id, revision, replacement),
+    do:
+      update_verifier_for_session(
+        repo,
+        session_id,
+        credential_id,
+        revision,
+        replacement
+      )
 
+  defp update_verifier_for_session(
+         repo,
+         session_id,
+         credential_id,
+         revision,
+         replacement
+       ) do
     case SQL.query(
            repo,
            """
-           SELECT identity.update_scoped_credential_verifier($1, $2, $3)
+           SELECT identity.update_scoped_credential_verifier($1, $2, $3, $4)
            """,
-           [credential_id, revision, replacement],
+           [session_id, Ecto.UUID.dump!(credential_id), revision, replacement],
            log: false
          ) do
       {:ok, %{rows: [[updated?]]}} -> {:ok, updated?}

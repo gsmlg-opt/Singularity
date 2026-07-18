@@ -188,8 +188,13 @@ defmodule Singularity.Runtime.KeyCustodian do
           |> revoke_session_custody(session.session_id)
           |> install_session(session)
 
-        _wake_result = wake_waiting(state, session)
-        {:reply, :ok, state}
+        case activate_wake(state, session) do
+          :ok ->
+            {:reply, :ok, state}
+
+          {:error, %Error{}} = error ->
+            {:reply, error, revoke_session_custody(state, session.session_id)}
+        end
 
       _missing_or_foreign ->
         {:reply, {:error, Error.new(:conflict)}, state}
@@ -681,6 +686,18 @@ defmodule Singularity.Runtime.KeyCustodian do
         limit: state.wake_limit
       }
     ])
+  end
+
+  defp activate_wake(state, session) do
+    case wake_waiting(state, session) do
+      :ok -> :ok
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  rescue
+    _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  catch
+    _kind, _reason -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
   defp persist_idle_lock(_state, nil), do: :ok

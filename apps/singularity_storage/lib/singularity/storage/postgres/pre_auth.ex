@@ -39,7 +39,9 @@ defmodule Singularity.Storage.Postgres.PreAuth do
     case record_auth_attempt(repo, %{
            login_fingerprint: login_fingerprint,
            source_fingerprint: source_fingerprint,
-           result: :started
+           result: :started,
+           correlation_id: correlation_id,
+           attempt_id: nil
          }) do
       {:ok, %{attempt_id: id, accepted?: accepted?}} ->
         {:ok, %{id: id, accepted?: accepted?}}
@@ -52,6 +54,7 @@ defmodule Singularity.Storage.Postgres.PreAuth do
   def reserve_attempt(_repo, _command), do: {:error, Error.new(:invalid)}
 
   def record_attempt(repo, %{
+        attempt_id: attempt_id,
         login_fingerprint: login_fingerprint,
         source_fingerprint: source_fingerprint,
         correlation_id: correlation_id,
@@ -59,9 +62,11 @@ defmodule Singularity.Storage.Postgres.PreAuth do
       })
       when is_binary(correlation_id) do
     case record_auth_attempt(repo, %{
+           attempt_id: attempt_id,
            login_fingerprint: login_fingerprint,
            source_fingerprint: source_fingerprint,
-           result: :failed
+           result: :failed,
+           correlation_id: correlation_id
          }) do
       {:ok, _attempt} -> :ok
       {:error, %Error{}} = error -> error
@@ -116,23 +121,38 @@ defmodule Singularity.Storage.Postgres.PreAuth do
         %{
           login_fingerprint: login_fingerprint,
           source_fingerprint: source_fingerprint,
-          result: result
-        }
+          result: result,
+          correlation_id: correlation_id
+        } =
+          command
       )
       when is_binary(login_fingerprint) and byte_size(login_fingerprint) == 32 and
              is_binary(source_fingerprint) and byte_size(source_fingerprint) == 32 and
-             result in [:started, :failed, :succeeded] do
-    case SQL.query(
-           repo,
-           "SELECT * FROM identity.record_auth_attempt($1, $2, $3)",
-           [login_fingerprint, source_fingerprint, Atom.to_string(result)],
-           log: false
-         ) do
-      {:ok, %{rows: [[attempt_id, accepted?]]}} ->
-        {:ok, %{attempt_id: load_uuid(attempt_id), accepted?: accepted?}}
+             result in [:started, :failed, :succeeded] and
+             is_binary(correlation_id) do
+    with {:ok, dumped_correlation_id} <- Ecto.UUID.dump(correlation_id),
+         {:ok, dumped_attempt_id} <-
+           dump_attempt_id(result, Map.get(command, :attempt_id)) do
+      case SQL.query(
+             repo,
+             "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
+             [
+               login_fingerprint,
+               source_fingerprint,
+               Atom.to_string(result),
+               dumped_correlation_id,
+               dumped_attempt_id
+             ],
+             log: false
+           ) do
+        {:ok, %{rows: [[attempt_id, accepted?]]}} ->
+          {:ok, %{attempt_id: load_uuid(attempt_id), accepted?: accepted?}}
 
-      {:error, _reason} ->
-        {:error, Error.new(:storage_unavailable, retryable?: true)}
+        {:error, _reason} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    else
+      :error -> {:error, Error.new(:invalid)}
     end
   end
 
@@ -140,6 +160,13 @@ defmodule Singularity.Storage.Postgres.PreAuth do
 
   defp load_uuid(nil), do: nil
   defp load_uuid(uuid), do: Ecto.UUID.load!(uuid)
+
+  defp dump_attempt_id(:started, nil), do: {:ok, nil}
+
+  defp dump_attempt_id(result, attempt_id) when result in [:failed, :succeeded],
+    do: Ecto.UUID.dump(attempt_id)
+
+  defp dump_attempt_id(_result, _attempt_id), do: :error
 
   defp owner_scope(nil), do: nil
 

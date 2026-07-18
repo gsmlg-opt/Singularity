@@ -33,22 +33,11 @@ defmodule Singularity.Runtime.Login do
              login_fingerprint: fingerprints.login,
              source_fingerprint: fingerprints.source,
              correlation_id: correlation_id
-           }),
-         {:ok, candidate} <-
-           adapters.pre_auth.authentication_candidate(
-             adapters.pre_auth_context,
-             normalized_login
-           ),
-         {:ok, verified?} <-
-           adapters.password_hasher.verify(
-             adapters.password_hasher_context,
-             password,
-             candidate.verifier
-           ) do
-      finish(
+           }) do
+      authenticate_reserved(
         adapters,
-        verified? and not is_nil(candidate.scoped_context),
-        candidate,
+        normalized_login,
+        password,
         %{
           attempt_id: attempt_id,
           login_fingerprint: fingerprints.login,
@@ -64,6 +53,33 @@ defmodule Singularity.Runtime.Login do
   end
 
   def run(_adapters, _request), do: unauthenticated()
+
+  defp authenticate_reserved(adapters, normalized_login, password, command) do
+    with {:ok, candidate} <-
+           adapters.pre_auth.authentication_candidate(
+             adapters.pre_auth_context,
+             normalized_login
+           ),
+         {:ok, verified?} <-
+           adapters.password_hasher.verify(
+             adapters.password_hasher_context,
+             password,
+             candidate.verifier
+           ) do
+      finish(
+        adapters,
+        verified? and not is_nil(candidate.scoped_context),
+        candidate,
+        command
+      )
+    else
+      _failure -> finish(adapters, false, nil, command)
+    end
+  rescue
+    _error -> finish(adapters, false, nil, command)
+  catch
+    _kind, _reason -> finish(adapters, false, nil, command)
+  end
 
   @spec fingerprints(binary(), binary(), binary()) :: %{
           login: binary(),
@@ -115,13 +131,34 @@ defmodule Singularity.Runtime.Login do
       result: "failed"
     }
 
-    _redacted_audit_health =
-      adapters.pre_auth.record_attempt(
-        adapters.pre_auth_context,
-        failure_command
-      )
+    record_anonymous_failure(adapters, failure_command)
 
     unauthenticated()
+  end
+
+  defp record_anonymous_failure(adapters, failure_command) do
+    case adapters.pre_auth.record_attempt(
+           adapters.pre_auth_context,
+           failure_command
+         ) do
+      :ok -> :ok
+      _failure -> emit_audit_health(failure_command.correlation_id)
+    end
+  rescue
+    _error -> emit_audit_health(failure_command.correlation_id)
+  catch
+    _kind, _reason -> emit_audit_health(failure_command.correlation_id)
+  end
+
+  defp emit_audit_health(correlation_id) do
+    :telemetry.execute(
+      [:singularity, :authentication, :audit_write_failure],
+      %{count: 1},
+      %{
+        category: :anonymous_audit_write,
+        correlation_id: correlation_id
+      }
+    )
   end
 
   defp normalize(value) do
