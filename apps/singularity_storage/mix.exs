@@ -13,6 +13,7 @@ defmodule Singularity.Storage.MixProject do
       lockfile: "../../mix.lock",
       elixir: Singularity.Build.elixir_requirement(),
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps()
     ]
   end
@@ -28,4 +29,7 @@ defmodule Singularity.Storage.MixProject do
       {:telemetry, "~> 1.4"}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 end

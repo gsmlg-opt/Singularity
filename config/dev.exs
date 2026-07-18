@@ -18,7 +18,7 @@ config :singularity_storage, Singularity.Storage.RequestRepo,
   url:
     System.get_env(
       "SINGULARITY_DATABASE_URL",
-      "postgresql://singularity_request@localhost/singularity_dev"
+      "postgresql://singularity_web@localhost/singularity_dev"
     )
 
 config :singularity_storage, Singularity.Storage.PreAuthRepo,

@@ -14,7 +14,7 @@ defmodule Singularity.Storage.ConfigurationTest do
     "SINGULARITY_MIGRATION_DATABASE_URL" =>
       "postgresql://singularity_migration:secret@localhost/singularity_prod",
     "SINGULARITY_DATABASE_URL" =>
-      "postgresql://singularity_request:secret@localhost/singularity_prod",
+      "postgresql://singularity_web:secret@localhost/singularity_prod",
     "SINGULARITY_PRE_AUTH_DATABASE_URL" =>
       "postgresql://singularity_pre_auth:secret@localhost/singularity_prod",
     "SINGULARITY_DISPATCHER_DATABASE_URL" =>
@@ -68,6 +68,7 @@ defmodule Singularity.Storage.ConfigurationTest do
   test "JSON consumers use Elixir's built-in JSON module" do
     assert Application.fetch_env!(:phoenix, :json_library) == JSON
     assert Application.fetch_env!(:logger_json, :encoder) == JSON
+    assert Application.fetch_env!(:postgrex, :json_library) == JSON
   end
 
   test "production compile configuration does not require a missing environment file" do
@@ -154,6 +155,83 @@ defmodule Singularity.Storage.ConfigurationTest do
       |> Enum.map_join(&File.read!/1)
 
     refute config_source =~ "SINGULARITY_ROLE_PROVISIONER_DATABASE_URL"
+  end
+
+  @tag :tmp_dir
+  test "role bootstrap keeps provisioner credentials out of process arguments", %{
+    tmp_dir: tmp_dir
+  } do
+    wrapper_path =
+      Path.join(@repo_root, "apps/singularity_storage/priv/repo/bootstrap_roles.sh")
+
+    wrapper = File.read!(wrapper_path)
+
+    helper =
+      @repo_root
+      |> Path.join("apps/singularity_storage/priv/repo/bootstrap_roles.exs")
+      |> File.read!()
+
+    assert wrapper =~ ~s("$script_dir/bootstrap_roles.exs")
+    refute wrapper =~ ~s(psql "$SINGULARITY_ROLE_PROVISIONER_DATABASE_URL")
+    refute wrapper =~ "set -x"
+
+    assert helper =~ ~s|System.fetch_env!("SINGULARITY_ROLE_PROVISIONER_DATABASE_URL")|
+    assert helper =~ ~S|IO.puts("[#{@service_name}]")|
+    refute helper =~ "System.cmd"
+
+    fake_psql_path = Path.join(tmp_dir, "psql")
+    arguments_path = Path.join(tmp_dir, "arguments")
+    service_path = Path.join(tmp_dir, "service")
+    provisioner_environment_path = Path.join(tmp_dir, "provisioner_environment")
+
+    File.write!(
+      fake_psql_path,
+      """
+      #!/usr/bin/env bash
+      set -euo pipefail
+      printf '%s\\n' "$@" > "$CAPTURE_ARGUMENTS_PATH"
+      printf '%s' "${SINGULARITY_ROLE_PROVISIONER_DATABASE_URL:-}" \
+        > "$CAPTURE_PROVISIONER_ENVIRONMENT_PATH"
+      cat "$PGSERVICEFILE" > "$CAPTURE_SERVICE_PATH"
+      """
+    )
+
+    File.chmod!(fake_psql_path, 0o755)
+
+    provisioner_url =
+      "postgresql://canary_user:p%40ss%3Aword@db.example/singularity" <>
+        "?sslmode=require&user=query_user&password=query_password"
+
+    {_output, 0} =
+      System.cmd("bash", [wrapper_path],
+        env: [
+          {"PATH", tmp_dir <> ":" <> System.fetch_env!("PATH")},
+          {"SINGULARITY_ROLE_PROVISIONER_DATABASE_URL", provisioner_url},
+          {"CAPTURE_ARGUMENTS_PATH", arguments_path},
+          {"CAPTURE_SERVICE_PATH", service_path},
+          {"CAPTURE_PROVISIONER_ENVIRONMENT_PATH", provisioner_environment_path}
+        ],
+        stderr_to_stdout: true
+      )
+
+    arguments = File.read!(arguments_path)
+    service = File.read!(service_path)
+
+    refute arguments =~ provisioner_url
+    refute arguments =~ "postgresql://"
+    refute arguments =~ "canary_user"
+    refute arguments =~ "query_user"
+    refute arguments =~ "query_password"
+    refute arguments =~ "p%40ss%3Aword"
+    assert File.read!(provisioner_environment_path) == ""
+
+    assert service =~ "host=db.example"
+    assert service =~ "dbname=singularity"
+    assert service =~ "sslmode=require"
+    assert service =~ "user=query_user"
+    assert service =~ "password=query_password"
+    refute service =~ "canary_user"
+    refute service =~ "p%40ss%3Aword"
   end
 
   defp database_username(url) do

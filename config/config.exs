@@ -11,6 +11,7 @@ import Config
 
 config :phoenix, :json_library, JSON
 config :logger_json, :encoder, JSON
+config :postgrex, :json_library, JSON
 
 config :singularity_runtime,
   max_upload_bytes: 536_870_912,

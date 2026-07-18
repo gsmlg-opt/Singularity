@@ -22,7 +22,7 @@ config :singularity_storage, Singularity.Storage.RequestRepo,
   url:
     System.get_env(
       "SINGULARITY_DATABASE_URL",
-      test_database_url.("singularity_request", "singularity_request_test")
+      test_database_url.("singularity_web", "singularity_request_test")
     )
 
 config :singularity_storage, Singularity.Storage.PreAuthRepo,

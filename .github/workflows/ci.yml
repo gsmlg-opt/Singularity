@@ -30,16 +30,12 @@ jobs:
         run: devenv up -d
 
       - name: Wait for PostgreSQL
-        run: |
-          devenv shell -- bash -c '
-            for attempt in {1..60}; do
-              if pg_isready; then
-                exit 0
-              fi
-              sleep 1
-            done
-            exit 1
-          '
+        run: devenv processes wait --timeout 120
+
+      - name: Provision PostgreSQL roles
+        run: >-
+          devenv shell -- bash
+          apps/singularity_storage/priv/repo/bootstrap_roles.sh
 
       - name: Fetch dependencies
         run: devenv shell -- mix deps.get
@@ -55,6 +51,9 @@ jobs:
 
       - name: Run tests
         run: devenv shell -- mix test
+
+      - name: Run isolated PostgreSQL integration tests
+        run: devenv shell -- mix singularity.test.integration
 
       - name: Check source cycles
         run: devenv shell -- mix xref graph --format cycles --fail-above 0
