@@ -11,11 +11,7 @@ defmodule Singularity.Core.SchemaVersion do
   @spec validate(term()) :: :ok | {:error, Error.t()}
   def validate(@current), do: :ok
 
-  def validate(version) when is_integer(version) and version > 0 do
-    {:error, %Error{code: :unsupported, details: %{schema_version: version}}}
-  end
-
   def validate(version) do
-    {:error, %Error{code: :invalid, details: %{schema_version: version}}}
+    {:error, Error.new(:invalid, details: %{schema_version: version})}
   end
 end
