@@ -1,6 +1,8 @@
 import Config
 
 if config_env() == :prod do
+  Application.fetch_env!(:singularity_storage, :job_handler)
+
   request_repo_pool_size =
     Application.fetch_env!(:singularity_storage, Singularity.Storage.RequestRepo)
     |> Keyword.fetch!(:pool_size)

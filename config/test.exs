@@ -11,6 +11,21 @@ end
 config :singularity_storage,
   storage_root: Path.join([System.tmp_dir!(), "singularity", "test", test_run_id])
 
+config :singularity_runtime,
+  start_infrastructure: false,
+  authorization_dependencies: %{
+    store: Fake.Authorization,
+    custodian: Singularity.Runtime.KeyCustodian
+  },
+  key_custodian: %{
+    authorization: Fake.Authorization,
+    clock: Fake.Clock,
+    context: %{},
+    key_reader: Fake.KeyReader
+  },
+  oban_options: [testing: :manual, queues: false, plugins: false],
+  outbox_dispatcher_options: [interval_ms: 3_600_000]
+
 config :singularity_storage, Singularity.Storage.MigrationRepo,
   url:
     System.get_env(

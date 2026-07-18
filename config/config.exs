@@ -16,7 +16,11 @@ config :postgrex, :json_library, JSON
 config :singularity_runtime,
   max_upload_bytes: 536_870_912,
   max_concurrent_uploads: 2,
-  vault_idle_timeout_ms: :timer.minutes(15)
+  vault_idle_timeout_ms: :timer.minutes(15),
+  start_infrastructure: true
+
+config :singularity_storage,
+  job_handler: Singularity.Runtime.JobDispatcher
 
 config :singularity_storage, Singularity.Storage.RequestRepo, pool_size: 10
 
@@ -24,6 +28,7 @@ config :singularity_storage, Oban,
   name: Singularity.Oban,
   repo: Singularity.Storage.WorkerRepo,
   prefix: "jobs",
+  plugins: [Oban.Plugins.Lifeline],
   queues: [
     asset_finalize: 2,
     asset_verify: 2,
