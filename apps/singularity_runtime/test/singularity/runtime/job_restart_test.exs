@@ -68,6 +68,9 @@ defmodule Singularity.Runtime.JobRestartTest do
                [String.to_integer(runner_id_before)]
              )
 
+    assert encoded["principal_authorization_epoch"] == 7
+    assert encoded["vault_authorization_epoch"] == 23
+
     assert :ok = Application.stop(:singularity_runtime)
     assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
     assert Oban.whereis(Singularity.Oban)
@@ -75,6 +78,8 @@ defmodule Singularity.Runtime.JobRestartTest do
     assert {:ok, envelope} =
              Singularity.Storage.Jobs.EnvelopeCodec.decode(encoded)
 
+    assert envelope.principal_authorization_epoch == 7
+    assert envelope.vault_authorization_epoch == 23
     assert {:ok, ^runner_id_before} = ObanAdapter.submit(%{}, envelope)
 
     assert {:ok, _receipt} = GenericWorker.perform(%Oban.Job{args: encoded})

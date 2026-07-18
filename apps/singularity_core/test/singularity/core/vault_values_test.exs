@@ -82,13 +82,26 @@ defmodule Singularity.Core.VaultValuesTest do
             %OutboxEvent{
               outbox_event_id: "outbox-1",
               vault_id: "vault-1",
-              authorization_epoch: 2,
+              principal_authorization_epoch: 2,
+              vault_authorization_epoch: 7,
               expected_entity_revision: 7,
               idempotency_key: "asset-1:verify:7"
             }} = OutboxEvent.new(valid_outbox_event())
 
     assert {:error, %{code: :invalid}} =
              OutboxEvent.new(valid_outbox_event(payload: %{asset_id: "asset-1"}))
+
+    for field <- [:principal_authorization_epoch, :vault_authorization_epoch] do
+      assert {:error, %{code: :invalid}} =
+               valid_outbox_event()
+               |> Map.delete(field)
+               |> OutboxEvent.new()
+    end
+
+    for field <- [:principal_authorization_epoch, :vault_authorization_epoch] do
+      assert {:error, %{code: :invalid}} =
+               OutboxEvent.new(valid_outbox_event([{field, -1}]))
+    end
   end
 
   defp valid_outbox_event(overrides \\ []) do
@@ -100,7 +113,8 @@ defmodule Singularity.Core.VaultValuesTest do
         vault_id: "vault-1",
         principal_id: "principal-1",
         required_capability: "asset:verify",
-        authorization_epoch: 2,
+        principal_authorization_epoch: 2,
+        vault_authorization_epoch: 7,
         classification: :private,
         correlation_id: "correlation-1",
         causation_id: "upload-1",

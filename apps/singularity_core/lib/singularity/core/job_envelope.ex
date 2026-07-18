@@ -7,8 +7,8 @@ defmodule Singularity.Core.JobEnvelope do
 
   @required_fields ~w[
     version job_id job_type idempotency_key vault_id principal_id
-    required_capability authorization_epoch classification correlation_id
-    causation_id expected_entity_revision attempt payload
+    required_capability principal_authorization_epoch vault_authorization_epoch
+    classification correlation_id causation_id expected_entity_revision attempt payload
   ]a
 
   @enforce_keys @required_fields
@@ -22,7 +22,8 @@ defmodule Singularity.Core.JobEnvelope do
           vault_id: Types.id(),
           principal_id: Types.id(),
           required_capability: String.t(),
-          authorization_epoch: non_neg_integer(),
+          principal_authorization_epoch: non_neg_integer(),
+          vault_authorization_epoch: non_neg_integer(),
           classification: Classification.t(),
           correlation_id: Types.id(),
           causation_id: Types.id(),
@@ -44,8 +45,10 @@ defmodule Singularity.Core.JobEnvelope do
          {:ok, vault_id} <- Types.opaque_string(attrs, :vault_id),
          {:ok, principal_id} <- Types.opaque_string(attrs, :principal_id),
          {:ok, required_capability} <- Types.normalized_string(attrs, :required_capability),
-         {:ok, authorization_epoch} <-
-           Types.non_neg_integer(attrs, :authorization_epoch),
+         {:ok, principal_authorization_epoch} <-
+           Types.non_neg_integer(attrs, :principal_authorization_epoch),
+         {:ok, vault_authorization_epoch} <-
+           Types.non_neg_integer(attrs, :vault_authorization_epoch),
          {:ok, classification} <- Classification.new(Map.get(attrs, :classification)),
          {:ok, correlation_id} <- Types.opaque_string(attrs, :correlation_id),
          {:ok, causation_id} <- Types.opaque_string(attrs, :causation_id),
@@ -62,7 +65,8 @@ defmodule Singularity.Core.JobEnvelope do
          vault_id: vault_id,
          principal_id: principal_id,
          required_capability: required_capability,
-         authorization_epoch: authorization_epoch,
+         principal_authorization_epoch: principal_authorization_epoch,
+         vault_authorization_epoch: vault_authorization_epoch,
          classification: classification,
          correlation_id: correlation_id,
          causation_id: causation_id,

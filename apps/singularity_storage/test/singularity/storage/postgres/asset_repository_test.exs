@@ -32,6 +32,7 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
   alias Singularity.Core.SourceReference
   alias Singularity.Domains.Assets
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.Schema.Content.UploadGrant
@@ -386,6 +387,73 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
     scoped(fixture, fn repo ->
       assert count_rows(repo, "audit.events", fixture.vault_id) == 1
       assert count_rows(repo, "core.outbox_events", fixture.vault_id) == 1
+      :ok
+    end)
+  end
+
+  test "asset producer persists distinct principal and vault authorization epochs", %{
+    fixture: fixture
+  } do
+    principal_epoch = 11
+    vault_epoch = 23
+    asset_id = Ecto.UUID.generate()
+    source_reference_id = Ecto.UUID.generate()
+
+    Fixtures.with_owner(fn ->
+      Ecto.Adapters.SQL.query!(
+        MigrationRepo,
+        """
+        UPDATE identity.principals
+        SET authorization_epoch = $2
+        WHERE id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.principal_id), principal_epoch],
+        log: false
+      )
+
+      Ecto.Adapters.SQL.query!(
+        MigrationRepo,
+        """
+        UPDATE core.vaults
+        SET authorization_epoch = $2
+        WHERE id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.vault_id), vault_epoch],
+        log: false
+      )
+    end)
+
+    command =
+      upload_intent_command(
+        fixture,
+        asset_id,
+        source_reference_id,
+        "two-axis-epochs-#{asset_id}",
+        DateTime.utc_now(:microsecond)
+      )
+
+    assert {:ok, _intent} =
+             scoped(fixture, fn repo ->
+               Assets.create_upload_intent(
+                 %{repository: AssetRepository, context: repo},
+                 command
+               )
+             end)
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[^principal_epoch, ^vault_epoch]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT
+                   principal_authorization_epoch,
+                   vault_authorization_epoch
+                 FROM core.outbox_events
+                 WHERE causation_id = $1
+                 """,
+                 [Ecto.UUID.dump!(source_reference_id)]
+               )
+
       :ok
     end)
   end

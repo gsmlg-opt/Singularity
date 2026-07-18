@@ -185,14 +185,15 @@ defmodule Singularity.Runtime.AuthorizationTest do
              )
   end
 
-  test "jobs bind the envelope epoch to the live vault independently of principal state", %{
+  test "jobs bind both authorization epochs and reject revoke-regrant staleness", %{
     dependencies: dependencies,
     store: store
   } do
     envelope = %{
       principal_id: @principal_id,
       vault_id: @vault_id,
-      authorization_epoch: 23,
+      principal_authorization_epoch: 7,
+      vault_authorization_epoch: 23,
       required_capability: "asset.read",
       classification: :sensitive
     }
@@ -203,16 +204,24 @@ defmodule Singularity.Runtime.AuthorizationTest do
              Authorize.check_job(
                dependencies,
                :repo,
-               %{envelope | authorization_epoch: 7}
+               %{envelope | principal_authorization_epoch: 6}
              )
 
     principal =
       live_session()
       |> Map.drop([:session_id, :expires_at])
-      |> Map.put(:principal_authorization_epoch, 91)
+      |> Map.put(:principal_authorization_epoch, 8)
 
     put_principal(store, principal)
-    assert :ok = Authorize.check_job(dependencies, :repo, envelope)
+
+    assert {:error, %Error{code: :forbidden}} =
+             Authorize.check_job(dependencies, :repo, envelope)
+
+    current_principal =
+      %{envelope | principal_authorization_epoch: 8}
+
+    assert :ok =
+             Authorize.check_job(dependencies, :repo, current_principal)
 
     put_principal(
       store,
@@ -225,18 +234,33 @@ defmodule Singularity.Runtime.AuthorizationTest do
     regranted =
       principal
       |> Map.put(:principal_revoked_at, nil)
-      |> Map.put(:vault_authorization_epoch, 24)
+      |> Map.put(:principal_authorization_epoch, 9)
 
     put_principal(store, regranted)
 
     assert {:error, %Error{code: :forbidden}} =
-             Authorize.check_job(dependencies, :repo, envelope)
+             Authorize.check_job(dependencies, :repo, current_principal)
+
+    current_principal =
+      %{envelope | principal_authorization_epoch: 9}
+
+    assert :ok =
+             Authorize.check_job(dependencies, :repo, current_principal)
+
+    changed_vault =
+      regranted
+      |> Map.put(:vault_authorization_epoch, 24)
+
+    put_principal(store, changed_vault)
+
+    assert {:error, %Error{code: :forbidden}} =
+             Authorize.check_job(dependencies, :repo, current_principal)
 
     assert :ok =
              Authorize.check_job(
                dependencies,
                :repo,
-               %{envelope | authorization_epoch: 24}
+               %{current_principal | vault_authorization_epoch: 24}
              )
   end
 
@@ -260,7 +284,8 @@ defmodule Singularity.Runtime.AuthorizationTest do
     base = %{
       principal_id: @principal_id,
       vault_id: @vault_id,
-      authorization_epoch: 23,
+      principal_authorization_epoch: 7,
+      vault_authorization_epoch: 23,
       classification: :private
     }
 
@@ -296,7 +321,8 @@ defmodule Singularity.Runtime.AuthorizationTest do
                job_type: "maintenance",
                principal_id: @principal_id,
                vault_id: @vault_id,
-               authorization_epoch: 23,
+               principal_authorization_epoch: 7,
+               vault_authorization_epoch: 23,
                required_capability: "maintenance.run",
                classification: :private
              })

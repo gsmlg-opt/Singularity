@@ -3,8 +3,15 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
 
   @moduletag :integration
 
+  alias Singularity.Core.Error
+  alias Singularity.Domains.Assets
+  alias Singularity.Runtime.AuthorizationDependencies
+  alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.OutboxDispatcher
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.IdentityRepository
+  alias Singularity.Storage.ScopedRepo
   alias Singularity.Storage.VaultLock
 
   defmodule FakeRunner do
@@ -176,6 +183,8 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert envelope.job_type == "asset_verify"
     assert envelope.vault_id == load_uuid(fixture.vault_id)
     assert envelope.principal_id == load_uuid(fixture.principal_id)
+    assert envelope.principal_authorization_epoch == 7
+    assert envelope.vault_authorization_epoch == 23
     assert envelope.causation_id == causation_id
     assert envelope.payload == %{"asset_id" => load_uuid(fixture.asset_id)}
     assert is_binary(runner_id)
@@ -189,6 +198,144 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
                """,
                [event.id]
              )
+  end
+
+  test "an AssetRepository job becomes stale when either live authorization axis changes", %{
+    runner: runner
+  } do
+    fixture = Fixtures.two_vaults!().one
+    principal_id = load_uuid(fixture.principal_id)
+    vault_id = load_uuid(fixture.vault_id)
+    asset_id = load_uuid(fixture.asset_id)
+    resource_version_id = load_uuid(fixture.resource_version_id)
+    capability_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    owner_query(
+      """
+      UPDATE identity.principals
+      SET authorization_epoch = 11
+      WHERE id = $1
+      """,
+      [fixture.principal_id]
+    )
+
+    owner_query(
+      "UPDATE core.vaults SET authorization_epoch = 23 WHERE id = $1",
+      [fixture.vault_id]
+    )
+
+    owner_query(
+      """
+      INSERT INTO core.capabilities (id, name)
+      VALUES ($1, 'assets.verify')
+      ON CONFLICT (name) DO NOTHING
+      """,
+      [capability_id]
+    )
+
+    owner_query(
+      """
+      INSERT INTO core.principal_capabilities (
+        principal_id,
+        vault_id,
+        capability_id
+      )
+      SELECT $1, $2, capability.id
+      FROM core.capabilities AS capability
+      WHERE capability.name = 'assets.verify'
+      ON CONFLICT (principal_id, vault_id, capability_id)
+      DO UPDATE SET revoked_at = NULL
+      """,
+      [fixture.principal_id, fixture.vault_id]
+    )
+
+    assert {:ok, %{outbox: %{event_type: "asset.verify_requested"}}} =
+             ScopedRepo.transact(
+               RequestRepo,
+               %{principal_id: principal_id, vault_id: vault_id},
+               fn repo ->
+                 Assets.record_sealed_upload(
+                   %{
+                     repository: AssetRepository,
+                     context: repo,
+                     audit: Singularity.Storage.Postgres.AuditSink,
+                     outbox: Singularity.Storage.Postgres.Outbox
+                   },
+                   %{
+                     asset_id: asset_id,
+                     vault_id: vault_id,
+                     resource_version_id: resource_version_id,
+                     principal_id: principal_id,
+                     sealed_ref: "sealed://#{vault_id}/#{asset_id}",
+                     filename: "two-axis.bin",
+                     content_type: "application/octet-stream",
+                     byte_size: 4,
+                     checksum: "sha256:" <> String.duplicate("ab", 32),
+                     classification: :private
+                   }
+                 )
+               end
+             )
+
+    assert {:ok, %{submitted: 1, skipped: 0, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    assert_receive {:runner_submit, envelope, _runner_id}
+    assert envelope.principal_authorization_epoch == 11
+    assert envelope.vault_authorization_epoch == 23
+
+    assert {:ok,
+            %{
+              principal_id: ^principal_id,
+              principal_kind: :owner,
+              principal_authorization_epoch: 11,
+              vault_id: ^vault_id,
+              vault_authorization_epoch: 23,
+              principal_revoked_at: nil,
+              membership_revoked_at: nil,
+              clearance: :private,
+              capabilities: capabilities
+            }} = live_job_authority(envelope)
+
+    assert "assets.verify" in capabilities
+    assert envelope.required_capability == "assets.verify"
+    assert envelope.classification == :private
+    assert :ok = authorize_job(envelope)
+
+    owner_query(
+      "UPDATE core.vaults SET authorization_epoch = 24 WHERE id = $1",
+      [fixture.vault_id]
+    )
+
+    assert {:error, %Error{code: :forbidden}} = authorize_job(envelope)
+
+    current_vault = %{envelope | vault_authorization_epoch: 24}
+    assert :ok = authorize_job(current_vault)
+
+    owner_query(
+      """
+      UPDATE identity.principals
+      SET revoked_at = CURRENT_TIMESTAMP, authorization_epoch = 12
+      WHERE id = $1
+      """,
+      [fixture.principal_id]
+    )
+
+    assert {:error, %Error{code: :forbidden}} = authorize_job(current_vault)
+
+    owner_query(
+      """
+      UPDATE identity.principals
+      SET revoked_at = NULL, authorization_epoch = 13
+      WHERE id = $1
+      """,
+      [fixture.principal_id]
+    )
+
+    assert {:error, %Error{code: :forbidden}} = authorize_job(current_vault)
+
+    current_authority = %{current_vault | principal_authorization_epoch: 13}
+    assert :ok = authorize_job(current_authority)
   end
 
   test "post-submit crash retries with the same runner identity and one logical submission",
@@ -423,6 +570,27 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
       lease_seconds: 60,
       after_submit: fn _envelope, _runner_id -> :ok end
     }
+  end
+
+  defp authorize_job(envelope) do
+    dependencies = %AuthorizationDependencies{
+      store: IdentityRepository,
+      custodian: :unused
+    }
+
+    ScopedRepo.transact(WorkerRepo, envelope, fn repo ->
+      Authorize.check_job(dependencies, repo, envelope)
+    end)
+  end
+
+  defp live_job_authority(envelope) do
+    ScopedRepo.transact(WorkerRepo, envelope, fn repo ->
+      IdentityRepository.load_live_principal(
+        repo,
+        envelope.principal_id,
+        envelope.vault_id
+      )
+    end)
   end
 
   defp expire_claim!(event_id) do

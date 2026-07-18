@@ -5,8 +5,8 @@ defmodule Singularity.Core.JobEnvelopeTest do
 
   @required_fields ~w[
     version job_id job_type idempotency_key vault_id principal_id
-    required_capability authorization_epoch classification correlation_id
-    causation_id expected_entity_revision attempt payload
+    required_capability principal_authorization_epoch vault_authorization_epoch
+    classification correlation_id causation_id expected_entity_revision attempt payload
   ]a
 
   test "required fields are stable and complete" do
@@ -23,7 +23,8 @@ defmodule Singularity.Core.JobEnvelopeTest do
               vault_id: "vault-1",
               principal_id: "principal-1",
               required_capability: "asset:verify",
-              authorization_epoch: 2,
+              principal_authorization_epoch: 2,
+              vault_authorization_epoch: 7,
               classification: :private,
               correlation_id: "correlation-1",
               causation_id: "outbox-1",
@@ -39,7 +40,8 @@ defmodule Singularity.Core.JobEnvelopeTest do
           :vault_id,
           :required_capability,
           :classification,
-          :authorization_epoch,
+          :principal_authorization_epoch,
+          :vault_authorization_epoch,
           :expected_entity_revision,
           :correlation_id
         ] do
@@ -68,7 +70,8 @@ defmodule Singularity.Core.JobEnvelopeTest do
     for overrides <- [
           [idempotency_key: " \t "],
           [required_capability: "  "],
-          [authorization_epoch: -1],
+          [principal_authorization_epoch: -1],
+          [vault_authorization_epoch: -1],
           [expected_entity_revision: -1],
           [attempt: -1]
         ] do
@@ -87,7 +90,8 @@ defmodule Singularity.Core.JobEnvelopeTest do
         vault_id: "vault-1",
         principal_id: "principal-1",
         required_capability: " asset:verify ",
-        authorization_epoch: 2,
+        principal_authorization_epoch: 2,
+        vault_authorization_epoch: 7,
         classification: :private,
         correlation_id: "correlation-1",
         causation_id: "outbox-1",

@@ -45,26 +45,39 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   def create_upload_intent(_repo, _intent), do: {:error, Error.new(:invalid)}
 
   defp persist_upload_intent(repo, %{asset: asset, provenance: provenance} = intent) do
+    with {:ok, authorization_epochs} <-
+           authorization_epochs(repo, provenance.principal_id, asset.vault_id) do
+      do_persist_upload_intent(repo, intent, authorization_epochs)
+    end
+  end
+
+  defp do_persist_upload_intent(
+         repo,
+         %{asset: asset, provenance: provenance} = intent,
+         authorization_epochs
+       ) do
     correlation_id = Ecto.UUID.generate()
 
     outbox =
-      outbox_changeset(%{
-        event_type: "asset.upload_intent_created",
-        idempotency_key: "upload-intent:#{intent.idempotency_key}",
-        vault_id: asset.vault_id,
-        principal_id: provenance.principal_id,
-        required_capability: "assets.upload",
-        authorization_epoch: authorization_epoch(repo, asset.vault_id),
-        classification: asset.classification,
-        correlation_id: correlation_id,
-        causation_id: provenance.source_reference_id,
-        expected_entity_revision: 0,
-        payload: %{
-          "asset_id" => asset.asset_id,
-          "resource_version_id" => asset.resource_version_id
+      outbox_changeset(
+        %{
+          event_type: "asset.upload_intent_created",
+          idempotency_key: "upload-intent:#{intent.idempotency_key}",
+          vault_id: asset.vault_id,
+          principal_id: provenance.principal_id,
+          required_capability: "assets.upload",
+          classification: asset.classification,
+          correlation_id: correlation_id,
+          causation_id: provenance.source_reference_id,
+          expected_entity_revision: 0,
+          payload: %{
+            "asset_id" => asset.asset_id,
+            "resource_version_id" => asset.resource_version_id
+          },
+          occurred_at: provenance.observed_at
         },
-        occurred_at: provenance.observed_at
-      })
+        authorization_epochs
+      )
 
     asset_changeset =
       StoredAsset.create_changeset(%StoredAsset{}, %{
@@ -162,7 +175,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
          {:ok, current} <- fetch_asset(repo, asset.asset_id),
          :ok <- validate_sealed_asset(current, asset),
          {:ok, transitioned} <-
-           AssetState.transition(current, :uploaded, current.state_revision) do
+           AssetState.transition(current, :uploaded, current.state_revision),
+         {:ok, authorization_epochs} <-
+           authorization_epochs(repo, asset.principal_id, asset.vault_id) do
       persisted_asset = %{
         transitioned
         | metadata: %{
@@ -176,20 +191,22 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       }
 
       outbox =
-        outbox_changeset(%{
-          event_type: intent.outbox.event_type,
-          idempotency_key: "sealed-upload:#{asset.asset_id}",
-          vault_id: asset.vault_id,
-          principal_id: asset.principal_id,
-          required_capability: "assets.verify",
-          authorization_epoch: authorization_epoch(repo, asset.vault_id),
-          classification: intent.outbox.classification,
-          correlation_id: correlation_id,
-          causation_id: asset.asset_id,
-          expected_entity_revision: transitioned.state_revision,
-          payload: %{"asset_id" => asset.asset_id},
-          occurred_at: now
-        })
+        outbox_changeset(
+          %{
+            event_type: intent.outbox.event_type,
+            idempotency_key: "sealed-upload:#{asset.asset_id}",
+            vault_id: asset.vault_id,
+            principal_id: asset.principal_id,
+            required_capability: "assets.verify",
+            classification: intent.outbox.classification,
+            correlation_id: correlation_id,
+            causation_id: asset.asset_id,
+            expected_entity_revision: transitioned.state_revision,
+            payload: %{"asset_id" => asset.asset_id},
+            occurred_at: now
+          },
+          authorization_epochs
+        )
 
       audit =
         audit_changeset(%{
@@ -309,7 +326,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
              current,
              intent.to,
              intent.expected_state_revision
-           ) do
+           ),
+         {:ok, authorization_epochs} <-
+           authorization_epochs(repo, intent.principal_id, current.vault_id) do
       now = DateTime.utc_now(:microsecond)
       correlation_id = Ecto.UUID.generate()
 
@@ -334,24 +353,26 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         })
 
       outbox =
-        outbox_changeset(%{
-          event_type: intent.outbox.event_type,
-          idempotency_key:
-            "asset-transition:#{intent.asset_id}:#{intent.expected_state_revision}:#{intent.to}",
-          vault_id: current.vault_id,
-          principal_id: intent.principal_id,
-          required_capability: "assets.transition",
-          authorization_epoch: authorization_epoch(repo, current.vault_id),
-          classification: intent.outbox.classification,
-          correlation_id: correlation_id,
-          causation_id: intent.asset_id,
-          expected_entity_revision: intent.expected_state_revision,
-          payload: %{
-            "asset_id" => intent.asset_id,
-            "to" => Atom.to_string(intent.to)
+        outbox_changeset(
+          %{
+            event_type: intent.outbox.event_type,
+            idempotency_key:
+              "asset-transition:#{intent.asset_id}:#{intent.expected_state_revision}:#{intent.to}",
+            vault_id: current.vault_id,
+            principal_id: intent.principal_id,
+            required_capability: "assets.transition",
+            classification: intent.outbox.classification,
+            correlation_id: correlation_id,
+            causation_id: intent.asset_id,
+            expected_entity_revision: intent.expected_state_revision,
+            payload: %{
+              "asset_id" => intent.asset_id,
+              "to" => Atom.to_string(intent.to)
+            },
+            occurred_at: now
           },
-          occurred_at: now
-        })
+          authorization_epochs
+        )
 
       Multi.new()
       |> Multi.update_all(
@@ -394,6 +415,13 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   defp persist_tombstone(repo, current, tombstoned, intent) do
+    with {:ok, authorization_epochs} <-
+           authorization_epochs(repo, intent.principal_id, current.vault_id) do
+      do_persist_tombstone(repo, current, tombstoned, intent, authorization_epochs)
+    end
+  end
+
+  defp do_persist_tombstone(repo, current, tombstoned, intent, authorization_epochs) do
     now = DateTime.utc_now(:microsecond)
     correlation_id = Ecto.UUID.generate()
 
@@ -455,20 +483,22 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     )
     |> Multi.insert(
       :outbox,
-      outbox_changeset(%{
-        event_type: intent.outbox.event_type,
-        idempotency_key: "asset-release:#{intent.asset_id}:#{intent.expected_state_revision}",
-        vault_id: current.vault_id,
-        principal_id: intent.principal_id,
-        required_capability: "assets.release",
-        authorization_epoch: authorization_epoch(repo, current.vault_id),
-        classification: intent.outbox.classification,
-        correlation_id: correlation_id,
-        causation_id: intent.asset_id,
-        expected_entity_revision: intent.expected_state_revision,
-        payload: %{"asset_id" => intent.asset_id},
-        occurred_at: now
-      })
+      outbox_changeset(
+        %{
+          event_type: intent.outbox.event_type,
+          idempotency_key: "asset-release:#{intent.asset_id}:#{intent.expected_state_revision}",
+          vault_id: current.vault_id,
+          principal_id: intent.principal_id,
+          required_capability: "assets.release",
+          classification: intent.outbox.classification,
+          correlation_id: correlation_id,
+          causation_id: intent.asset_id,
+          expected_entity_revision: intent.expected_state_revision,
+          payload: %{"asset_id" => intent.asset_id},
+          occurred_at: now
+        },
+        authorization_epochs
+      )
     )
     |> repo.transaction()
     |> case do
@@ -553,10 +583,12 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     })
   end
 
-  defp outbox_changeset(attrs) do
+  defp outbox_changeset(attrs, authorization_epochs) do
     OutboxEvent.create_changeset(
       %OutboxEvent{},
-      Map.merge(attrs, %{id: Ecto.UUID.generate(), envelope_version: 1})
+      attrs
+      |> Map.merge(authorization_epochs)
+      |> Map.merge(%{id: Ecto.UUID.generate(), envelope_version: 1})
     )
   end
 
@@ -648,18 +680,41 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     end
   end
 
-  defp authorization_epoch(repo, vault_id) do
-    with {:ok, dumped_vault_id} <- UUID.dump(vault_id),
-         {:ok, %{rows: [[epoch]]}} <-
-           Ecto.Adapters.SQL.query(
+  defp authorization_epochs(repo, principal_id, vault_id) do
+    with {:ok, dumped_principal_id} <- UUID.dump(principal_id),
+         {:ok, dumped_vault_id} <- UUID.dump(vault_id) do
+      case Ecto.Adapters.SQL.query(
              repo,
-             "SELECT authorization_epoch FROM core.vaults WHERE id = $1",
-             [dumped_vault_id],
+             """
+             SELECT
+               principal_authorization_epoch,
+               vault_authorization_epoch
+             FROM core.live_principal_authorization()
+             WHERE principal_id = $1 AND vault_id = $2
+             """,
+             [dumped_principal_id, dumped_vault_id],
              log: false
            ) do
-      epoch
+        {:ok, %{rows: [[principal_epoch, vault_epoch]]}}
+        when is_integer(principal_epoch) and principal_epoch >= 0 and
+               is_integer(vault_epoch) and vault_epoch >= 0 ->
+          {:ok,
+           %{
+             principal_authorization_epoch: principal_epoch,
+             vault_authorization_epoch: vault_epoch
+           }}
+
+        {:ok, %{rows: []}} ->
+          {:error, Error.new(:forbidden)}
+
+        {:ok, _unexpected_result} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+        {:error, _reason} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
     else
-      _other -> 0
+      :error -> {:error, Error.new(:invalid)}
     end
   end
 

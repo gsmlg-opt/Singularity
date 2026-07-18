@@ -15,7 +15,8 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
     field :vault_id, Ecto.UUID
     field :principal_id, Ecto.UUID
     field :required_capability, :string
-    field :authorization_epoch, :integer
+    field :principal_authorization_epoch, :integer
+    field :vault_authorization_epoch, :integer
 
     field :classification, Ecto.Enum, values: [:private, :sensitive, :restricted]
 
@@ -41,7 +42,8 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
       :vault_id,
       :principal_id,
       :required_capability,
-      :authorization_epoch,
+      :principal_authorization_epoch,
+      :vault_authorization_epoch,
       :classification,
       :correlation_id,
       :causation_id,
@@ -57,7 +59,8 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
       :vault_id,
       :principal_id,
       :required_capability,
-      :authorization_epoch,
+      :principal_authorization_epoch,
+      :vault_authorization_epoch,
       :classification,
       :correlation_id,
       :expected_entity_revision,
@@ -65,7 +68,8 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
       :payload,
       :occurred_at
     ])
-    |> validate_number(:authorization_epoch, greater_than_or_equal_to: 0)
+    |> validate_number(:principal_authorization_epoch, greater_than_or_equal_to: 0)
+    |> validate_number(:vault_authorization_epoch, greater_than_or_equal_to: 0)
     |> validate_number(:expected_entity_revision, greater_than_or_equal_to: 0)
     |> validate_number(:envelope_version, greater_than: 0)
     |> validate_change(:payload, &string_keyed_json/2)
@@ -81,8 +85,11 @@ defmodule Singularity.Storage.Schema.Core.OutboxEvent do
     |> check_constraint(:classification,
       name: :outbox_events_classification_check
     )
-    |> check_constraint(:authorization_epoch,
-      name: :outbox_events_authorization_epoch_check
+    |> check_constraint(:principal_authorization_epoch,
+      name: :outbox_events_principal_authorization_epoch_check
+    )
+    |> check_constraint(:vault_authorization_epoch,
+      name: :outbox_events_vault_authorization_epoch_check
     )
     |> check_constraint(:expected_entity_revision,
       name: :outbox_events_expected_revision_check

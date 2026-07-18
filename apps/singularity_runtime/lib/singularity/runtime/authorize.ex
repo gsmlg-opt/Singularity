@@ -46,11 +46,13 @@ defmodule Singularity.Runtime.Authorize do
         %{
           principal_id: principal_id,
           vault_id: vault_id,
-          authorization_epoch: authorization_epoch
+          principal_authorization_epoch: principal_authorization_epoch,
+          vault_authorization_epoch: vault_authorization_epoch
         } = envelope
       )
       when is_binary(principal_id) and is_binary(vault_id) and
-             is_integer(authorization_epoch) do
+             is_integer(principal_authorization_epoch) and
+             is_integer(vault_authorization_epoch) do
     with {:ok, live} <-
            load_principal(dependencies.store, repo, principal_id, vault_id),
          :ok <- check_live_principal(live),
@@ -133,7 +135,16 @@ defmodule Singularity.Runtime.Authorize do
   defp check_job_binding(live, envelope) do
     with true <- live[:principal_id] == envelope.principal_id,
          true <- live[:vault_id] == envelope.vault_id,
-         :ok <- check_vault_epoch(live, envelope.authorization_epoch) do
+         :ok <-
+           check_principal_epoch(
+             live,
+             envelope.principal_authorization_epoch
+           ),
+         :ok <-
+           check_vault_epoch(
+             live,
+             envelope.vault_authorization_epoch
+           ) do
       :ok
     else
       _denial -> forbidden()
@@ -188,7 +199,7 @@ defmodule Singularity.Runtime.Authorize do
     case Map.fetch(@system_jobs, job_type) do
       {:ok, exact_capability} ->
         if live[:principal_kind] == :system and
-             envelope[:required_capability] == exact_capability do
+             Map.get(envelope, :required_capability) == exact_capability do
           :ok
         else
           forbidden()
@@ -234,7 +245,7 @@ defmodule Singularity.Runtime.Authorize do
 
   defp check_classification(live, requirement) do
     with {:ok, clearance} <- classification(live[:clearance]),
-         {:ok, required} <- classification(requirement[:classification]),
+         {:ok, required} <- classification(Map.get(requirement, :classification)),
          true <-
            Map.fetch!(@classification_rank, clearance) >=
              Map.fetch!(@classification_rank, required) do

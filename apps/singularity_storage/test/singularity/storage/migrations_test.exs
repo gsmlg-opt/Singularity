@@ -211,6 +211,43 @@ defmodule Singularity.Storage.MigrationsTest do
     assert trigger_count == 1
   end
 
+  test "Task 11 stores distinct principal and vault authorization epochs on outbox events" do
+    %{rows: epoch_columns} =
+      query!(
+        RequestRepo,
+        """
+        SELECT column_name, is_nullable, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'core'
+          AND table_name = 'outbox_events'
+          AND column_name LIKE '%authorization_epoch'
+        ORDER BY column_name
+        """
+      )
+
+    assert epoch_columns == [
+             ["principal_authorization_epoch", "NO", "bigint"],
+             ["vault_authorization_epoch", "NO", "bigint"]
+           ]
+
+    %{rows: epoch_constraints} =
+      query!(
+        RequestRepo,
+        """
+        SELECT conname
+        FROM pg_catalog.pg_constraint
+        WHERE conrelid = 'core.outbox_events'::regclass
+          AND conname LIKE 'outbox_events_%authorization_epoch_check'
+        ORDER BY conname
+        """
+      )
+
+    assert epoch_constraints == [
+             ["outbox_events_principal_authorization_epoch_check"],
+             ["outbox_events_vault_authorization_epoch_check"]
+           ]
+  end
+
   test "forces row-level security on every user-data table" do
     %{rows: rows} =
       query!(

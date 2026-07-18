@@ -7,6 +7,9 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   def up do
     execute("SET LOCAL ROLE singularity_table_owner")
 
+    drop_outbox_claim_function()
+    add_outbox_authorization_epochs()
+    create_outbox_claim_function(:task11)
     replace_dummy_verifier(@task11_dummy_verifier)
     create_pre_auth_epoch_policies()
     create_auth_attempt_completion_policy()
@@ -70,6 +73,13 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   end
 
   def down do
+    execute("SET LOCAL ROLE singularity_table_owner")
+
+    drop_outbox_claim_function()
+    remove_outbox_authorization_epochs()
+    create_outbox_claim_function(:legacy)
+
+    execute("SET LOCAL ROLE NONE")
     execute("SET LOCAL ROLE singularity_authorization_definer")
 
     execute("""
@@ -204,6 +214,272 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     execute("SET LOCAL ROLE NONE")
+  end
+
+  defp add_outbox_authorization_epochs do
+    execute("""
+    ALTER TABLE core.outbox_events
+    RENAME COLUMN authorization_epoch TO vault_authorization_epoch
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    RENAME CONSTRAINT outbox_events_authorization_epoch_check
+    TO outbox_events_vault_authorization_epoch_check
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    ADD COLUMN principal_authorization_epoch bigint
+    """)
+
+    execute("""
+    -- A pre-Task 11 event cannot prove its original principal epoch. Retire it
+    -- instead of minting fresh authority from the principal's migration-time epoch.
+    UPDATE core.outbox_events AS event
+    SET
+      principal_authorization_epoch = principal.authorization_epoch,
+      claim_token = NULL,
+      claimed_until = NULL,
+      delivered_at = COALESCE(event.delivered_at, CURRENT_TIMESTAMP),
+      updated_at = CURRENT_TIMESTAMP
+    FROM identity.principals AS principal
+    WHERE principal.id = event.principal_id
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    ALTER COLUMN principal_authorization_epoch SET NOT NULL
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    ADD CONSTRAINT outbox_events_principal_authorization_epoch_check
+    CHECK (principal_authorization_epoch >= 0)
+    """)
+
+    execute("""
+    GRANT SELECT (principal_authorization_epoch)
+    ON core.outbox_events
+    TO singularity_outbox_definer
+    """)
+  end
+
+  defp remove_outbox_authorization_epochs do
+    execute("""
+    REVOKE SELECT (principal_authorization_epoch)
+    ON core.outbox_events
+    FROM singularity_outbox_definer
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    DROP CONSTRAINT outbox_events_principal_authorization_epoch_check
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    DROP COLUMN principal_authorization_epoch
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    RENAME CONSTRAINT outbox_events_vault_authorization_epoch_check
+    TO outbox_events_authorization_epoch_check
+    """)
+
+    execute("""
+    ALTER TABLE core.outbox_events
+    RENAME COLUMN vault_authorization_epoch TO authorization_epoch
+    """)
+  end
+
+  defp drop_outbox_claim_function do
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_outbox_definer")
+
+    execute("""
+    DROP FUNCTION IF EXISTS core.claim_outbox_events(integer, integer, uuid)
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_table_owner")
+  end
+
+  defp create_outbox_claim_function(version) do
+    execute("GRANT USAGE, CREATE ON SCHEMA core TO singularity_outbox_definer")
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_outbox_definer")
+    execute(outbox_claim_function_sql(version))
+
+    execute("""
+    REVOKE ALL ON FUNCTION core.claim_outbox_events(integer, integer, uuid)
+    FROM PUBLIC
+    """)
+
+    execute("""
+    GRANT EXECUTE ON FUNCTION core.claim_outbox_events(integer, integer, uuid)
+    TO singularity_dispatcher
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_table_owner")
+    execute("REVOKE CREATE ON SCHEMA core FROM singularity_outbox_definer")
+  end
+
+  defp outbox_claim_function_sql(version) do
+    {returned_epochs, claimed_epochs, selected_epochs} =
+      case version do
+        :task11 ->
+          {
+            """
+                  principal_authorization_epoch bigint,
+                  vault_authorization_epoch bigint,
+            """,
+            """
+                      event.principal_authorization_epoch,
+                      event.vault_authorization_epoch,
+            """,
+            """
+                    claimed.principal_authorization_epoch,
+                    claimed.vault_authorization_epoch,
+            """
+          }
+
+        :legacy ->
+          {
+            "      authorization_epoch bigint,\n",
+            "          event.authorization_epoch,\n",
+            "        claimed.authorization_epoch,\n"
+          }
+      end
+
+    """
+    CREATE FUNCTION core.claim_outbox_events(
+      requested_limit integer,
+      requested_lease_seconds integer,
+      requested_claim_token uuid
+    ) RETURNS TABLE (
+      outbox_event_id uuid,
+      event_type text,
+      idempotency_key text,
+      vault_id uuid,
+      principal_id uuid,
+      required_capability text,
+    #{returned_epochs}  classification text,
+      correlation_id uuid,
+      causation_id uuid,
+      expected_entity_revision bigint,
+      envelope_version integer,
+      payload jsonb,
+      occurred_at timestamptz,
+      claim_token uuid
+    )
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, identity, core, audit
+    AS $function$
+    BEGIN
+      IF requested_limit IS NULL OR requested_limit < 1 OR requested_limit > 100
+        OR requested_lease_seconds IS NULL
+        OR requested_lease_seconds < 1
+        OR requested_lease_seconds > 3600
+        OR requested_claim_token IS NULL
+      THEN
+        RAISE EXCEPTION 'invalid outbox claim parameters'
+          USING ERRCODE = '22023';
+      END IF;
+
+      RETURN QUERY
+      WITH candidates AS (
+        SELECT event.id
+        FROM core.outbox_events AS event
+        WHERE event.delivered_at IS NULL
+          AND (
+            event.claimed_until IS NULL
+            OR event.claimed_until < CURRENT_TIMESTAMP
+          )
+        ORDER BY event.sequence
+        FOR UPDATE SKIP LOCKED
+        LIMIT requested_limit
+      ),
+      claimed AS (
+        UPDATE core.outbox_events AS event
+        SET
+          claim_token = requested_claim_token,
+          claimed_until =
+            CURRENT_TIMESTAMP + make_interval(secs => requested_lease_seconds),
+          updated_at = CURRENT_TIMESTAMP
+        FROM candidates
+        WHERE event.id = candidates.id
+        RETURNING
+          event.id,
+          event.event_type,
+          event.idempotency_key,
+          event.vault_id,
+          event.principal_id,
+          event.required_capability,
+    #{claimed_epochs}      event.classification,
+          event.correlation_id,
+          event.causation_id,
+          event.expected_entity_revision,
+          event.envelope_version,
+          event.payload,
+          event.occurred_at,
+          event.claim_token
+      ),
+      audited AS (
+        INSERT INTO audit.events (
+          id,
+          vault_id,
+          actor_kind,
+          principal_id,
+          anonymous_fingerprint,
+          operation,
+          result,
+          classification,
+          correlation_id,
+          target_type,
+          target_id,
+          occurred_at
+        )
+        SELECT
+          gen_random_uuid(),
+          claimed.vault_id,
+          'system',
+          claimed.principal_id,
+          NULL,
+          'outbox.claim',
+          'completed',
+          claimed.classification,
+          claimed.correlation_id,
+          'outbox_event',
+          claimed.id,
+          CURRENT_TIMESTAMP
+        FROM claimed
+        RETURNING 1
+      )
+      SELECT
+        claimed.id,
+        claimed.event_type,
+        claimed.idempotency_key,
+        claimed.vault_id,
+        claimed.principal_id,
+        claimed.required_capability,
+    #{selected_epochs}    claimed.classification,
+        claimed.correlation_id,
+        claimed.causation_id,
+        claimed.expected_entity_revision,
+        claimed.envelope_version,
+        claimed.payload,
+        claimed.occurred_at,
+        claimed.claim_token
+      FROM claimed
+      WHERE (SELECT count(*) FROM audited) >= 0;
+    END
+    $function$
+    """
   end
 
   defp replace_dummy_verifier(verifier) do

@@ -70,9 +70,10 @@ defmodule Singularity.Storage.OutboxObanTest do
 
     assert Map.keys(encoded) |> Enum.sort() ==
              ~w[
-               attempt authorization_epoch causation_id classification correlation_id
-               expected_entity_revision idempotency_key job_id job_type payload principal_id
-               required_capability vault_id version
+               attempt causation_id classification correlation_id
+               expected_entity_revision idempotency_key job_id job_type payload
+               principal_authorization_epoch principal_id required_capability
+               vault_authorization_epoch vault_id version
              ]
 
     assert encoded["classification"] == "private"
@@ -88,10 +89,13 @@ defmodule Singularity.Storage.OutboxObanTest do
 
     for invalid <- [
           Map.delete(encoded_envelope(), "principal_id"),
+          Map.delete(encoded_envelope(), "principal_authorization_epoch"),
+          Map.delete(encoded_envelope(), "vault_authorization_epoch"),
           Map.put(encoded_envelope(), "version", 2),
           Map.put(encoded_envelope(), "job_type", "arbitrary.module.Name"),
           Map.put(encoded_envelope(), "payload", %{asset_id: uuid(7)}),
-          Map.put(encoded_envelope(), "authorization_epoch", -1),
+          Map.put(encoded_envelope(), "principal_authorization_epoch", -1),
+          Map.put(encoded_envelope(), "vault_authorization_epoch", -1),
           Map.put(encoded_envelope(), "unexpected", "authority")
         ] do
       assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
@@ -177,7 +181,8 @@ defmodule Singularity.Storage.OutboxObanTest do
       "vault_id" => uuid(2),
       "principal_id" => uuid(3),
       "required_capability" => "asset:verify",
-      "authorization_epoch" => 4,
+      "principal_authorization_epoch" => 4,
+      "vault_authorization_epoch" => 9,
       "classification" => "private",
       "correlation_id" => uuid(5),
       "causation_id" => uuid(6),
@@ -196,7 +201,8 @@ defmodule Singularity.Storage.OutboxObanTest do
       vault_id: uuid(2),
       principal_id: uuid(3),
       required_capability: "asset:verify",
-      authorization_epoch: 4,
+      principal_authorization_epoch: 4,
+      vault_authorization_epoch: 9,
       classification: :private,
       correlation_id: uuid(5),
       causation_id: uuid(6),

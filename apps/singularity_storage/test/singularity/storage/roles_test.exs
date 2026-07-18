@@ -268,6 +268,44 @@ defmodule Singularity.Storage.RolesTest do
         )
         """
       )
+
+    %{rows: outbox_epoch_privileges} =
+      query!(
+        RequestRepo,
+        """
+        SELECT attribute.attname, privilege.privilege_type
+        FROM pg_catalog.pg_attribute AS attribute
+        JOIN pg_catalog.pg_class AS relation
+          ON relation.oid = attribute.attrelid
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS privilege
+        JOIN pg_catalog.pg_roles AS grantee
+          ON grantee.oid = privilege.grantee
+        WHERE namespace.nspname = 'core'
+          AND relation.relname = 'outbox_events'
+          AND grantee.rolname = 'singularity_outbox_definer'
+          AND attribute.attname LIKE '%authorization_epoch'
+        ORDER BY attribute.attname, privilege.privilege_type
+        """
+      )
+
+    assert outbox_epoch_privileges == [
+             ["principal_authorization_epoch", "SELECT"],
+             ["vault_authorization_epoch", "SELECT"]
+           ]
+
+    %{rows: [[false]]} =
+      query!(
+        RequestRepo,
+        """
+        SELECT has_table_privilege(
+          'singularity_outbox_definer',
+          'core.outbox_events',
+          'SELECT'
+        )
+        """
+      )
   end
 
   test "dispatcher can claim and acknowledge only through the audited definer interface" do
@@ -279,7 +317,21 @@ defmodule Singularity.Storage.RolesTest do
       query!(DispatcherRepo, "SELECT id FROM core.outbox_events")
     end
 
-    assert %{rows: [[event_id | _minimal_envelope]]} =
+    assert %{
+             rows: [
+               [
+                 event_id,
+                 _event_type,
+                 _idempotency_key,
+                 _vault_id,
+                 _principal_id,
+                 _required_capability,
+                 7,
+                 23
+                 | _minimal_envelope
+               ]
+             ]
+           } =
              query!(
                DispatcherRepo,
                "SELECT * FROM core.claim_outbox_events(1, 30, $1)",
