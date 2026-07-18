@@ -262,7 +262,13 @@ defmodule Singularity.Runtime.Authorize do
       case call_adapter(
              custodian,
              :assert_unlocked,
-             [live.session_id, live.principal_id, live.vault_id]
+             [
+               live.session_id,
+               live.principal_id,
+               live.vault_id,
+               live.principal_authorization_epoch,
+               live.vault_authorization_epoch
+             ]
            ) do
         :ok -> :ok
         true -> :ok

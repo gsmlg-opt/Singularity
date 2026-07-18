@@ -28,29 +28,41 @@ defmodule Singularity.Runtime.LockVault do
       )
       when is_map(runtime) and is_binary(correlation_id) and
              byte_size(correlation_id) > 0 do
-    selector = %{session_id: session.session_id}
+    selector = %{vault_id: session.vault_id}
 
     with {:ok, adapters} <- adapters(runtime),
-         :ok <- call_adapter(adapters.custodian, :begin_revoke, [selector]),
-         :ok <- call_adapter(adapters.custodian, :await_revoking, [selector]),
-         result <-
-           call_adapter(adapters.operation_scope, :with_exclusive_request, [
-             runtime,
-             session,
-             @requirement,
-             fn repo ->
-               call_adapter(adapters.vaults, :lock_and_audit, [
-                 repo,
-                 %{
-                   session_id: session.session_id,
-                   principal_id: session.principal_id,
-                   vault_id: session.vault_id,
-                   correlation_id: correlation_id
-                 }
-               ])
-             end
-           ]) do
-      locked_result(result, session)
+         {:ok, token} <-
+           call_adapter(adapters.custodian, :begin_revoke, [selector]) do
+      try do
+        with :ok <-
+               call_adapter(
+                 adapters.custodian,
+                 :await_revoking,
+                 [selector]
+               ),
+             result <-
+               call_adapter(adapters.operation_scope, :with_exclusive_request, [
+                 runtime,
+                 session,
+                 @requirement,
+                 fn repo ->
+                   call_adapter(adapters.vaults, :lock_and_audit, [
+                     repo,
+                     %{
+                       session_id: session.session_id,
+                       principal_id: session.principal_id,
+                       vault_id: session.vault_id,
+                       correlation_id: correlation_id
+                     }
+                   ])
+                 end
+               ]) do
+          locked_result(result, session)
+        end
+      after
+        _finish_result =
+          call_adapter(adapters.custodian, :finish_revoke, [token])
+      end
     end
   rescue
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}

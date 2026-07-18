@@ -103,7 +103,9 @@ defmodule Singularity.Runtime.Login do
     if is_binary(token) and byte_size(token) == @opaque_token_bytes do
       session_command = %{
         attempt_id: command.attempt_id,
+        credential_id: candidate.credential_id,
         token_digest: :crypto.hash(:sha256, token),
+        login_fingerprint: command.login_fingerprint,
         source_fingerprint: command.source_fingerprint,
         correlation_id: command.correlation_id
       }

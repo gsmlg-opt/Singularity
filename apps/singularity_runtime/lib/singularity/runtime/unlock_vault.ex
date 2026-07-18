@@ -64,7 +64,6 @@ defmodule Singularity.Runtime.UnlockVault do
                expires_at: session.expires_at,
                principal_authorization_epoch: session.principal_authorization_epoch,
                vault_authorization_epoch: session.vault_authorization_epoch,
-               authorization_epoch: session.authorization_epoch,
                vault_key: vault_key,
                domain_key: domain_key
              }
@@ -129,6 +128,8 @@ defmodule Singularity.Runtime.UnlockVault do
               session_id: session.session_id,
               principal_id: session.principal_id,
               vault_id: session.vault_id,
+              wrapper_id: material.vault_wrapper.id,
+              wrapper_generation: material.vault_wrapper.generation,
               vault_key_version_id: material.vault_wrapper.vault_key_version_id,
               domain_key_version_id: material.domain_key_version.id,
               correlation_id: correlation_id

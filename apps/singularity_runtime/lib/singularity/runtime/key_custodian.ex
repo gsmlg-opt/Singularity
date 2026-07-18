@@ -12,8 +12,9 @@ defmodule Singularity.Runtime.KeyCustodian do
   alias Singularity.Runtime.KeyLeaseSupervisor
 
   @request_fields ~w[
-    job_id vault_id principal_id required_capability authorization_epoch
-    object_id object_generation session_id
+    job_id vault_id principal_id required_capability
+    principal_authorization_epoch vault_authorization_epoch object_id
+    object_generation session_id
   ]a
   @default_pending_ttl_ms :timer.seconds(30)
   @default_idle_timeout_ms :timer.minutes(15)
@@ -60,28 +61,67 @@ defmodule Singularity.Runtime.KeyCustodian do
           GenServer.server(),
           String.t(),
           String.t(),
-          String.t()
+          String.t(),
+          non_neg_integer(),
+          non_neg_integer()
         ) ::
           :ok | {:error, Error.t()}
-  def assert_unlocked(server, session_id, principal_id, vault_id),
-    do:
-      GenServer.call(
+  def assert_unlocked(
         server,
-        {:assert_unlocked, session_id, principal_id, vault_id}
-      )
+        session_id,
+        principal_id,
+        vault_id,
+        principal_authorization_epoch,
+        vault_authorization_epoch
+      ),
+      do:
+        GenServer.call(
+          server,
+          {:assert_unlocked, session_id, principal_id, vault_id, principal_authorization_epoch,
+           vault_authorization_epoch}
+        )
 
-  @spec assert_unlocked(String.t(), String.t(), String.t()) ::
+  @spec assert_unlocked(
+          String.t(),
+          String.t(),
+          String.t(),
+          non_neg_integer(),
+          non_neg_integer()
+        ) ::
           :ok | {:error, Error.t()}
-  def assert_unlocked(session_id, principal_id, vault_id),
-    do: assert_unlocked(__MODULE__, session_id, principal_id, vault_id)
+  def assert_unlocked(
+        session_id,
+        principal_id,
+        vault_id,
+        principal_authorization_epoch,
+        vault_authorization_epoch
+      ),
+      do:
+        assert_unlocked(
+          __MODULE__,
+          session_id,
+          principal_id,
+          vault_id,
+          principal_authorization_epoch,
+          vault_authorization_epoch
+        )
 
   @spec begin_revoke(GenServer.server(), map() | tuple()) ::
-          :ok | {:error, Error.t()}
+          {:ok, reference()} | {:error, Error.t()}
   def begin_revoke(server, selector),
     do: GenServer.call(server, {:begin_revoke, selector}, :infinity)
 
-  @spec begin_revoke(map() | tuple()) :: :ok | {:error, Error.t()}
+  @spec begin_revoke(map() | tuple()) ::
+          {:ok, reference()} | {:error, Error.t()}
   def begin_revoke(selector), do: begin_revoke(__MODULE__, selector)
+
+  @spec finish_revoke(GenServer.server(), reference()) ::
+          :ok | {:error, Error.t()}
+  def finish_revoke(server, token),
+    do: GenServer.call(server, {:finish_revoke, token}, :infinity)
+
+  @spec finish_revoke(reference()) :: :ok | {:error, Error.t()}
+  def finish_revoke(token), do: finish_revoke(__MODULE__, token)
 
   @spec await_revoking(GenServer.server(), map() | tuple()) ::
           :ok | {:error, Error.t()}
@@ -141,6 +181,7 @@ defmodule Singularity.Runtime.KeyCustodian do
            Map.get(adapters, :pending_ttl_ms, @default_pending_ttl_ms),
            @default_pending_ttl_ms
          ),
+       revoking: %{},
        sessions: %{},
        wake_limit:
          adapters
@@ -155,24 +196,28 @@ defmodule Singularity.Runtime.KeyCustodian do
   def handle_call({:prepare_unlock, session}, {owner, _tag}, state) do
     case validate_session(session) do
       :ok ->
-        pending = make_ref()
-        monitor = Process.monitor(owner)
-        timer = Process.send_after(self(), {:expire_pending, pending}, state.pending_ttl_ms)
+        if matching_revocation?(state, session) do
+          {:reply, {:error, Error.new(:conflict)}, state}
+        else
+          pending = make_ref()
+          monitor = Process.monitor(owner)
+          timer = Process.send_after(self(), {:expire_pending, pending}, state.pending_ttl_ms)
 
-        entry = %{
-          monitor: monitor,
-          owner: owner,
-          session: sanitize_session(session),
-          timer: timer
-        }
+          entry = %{
+            monitor: monitor,
+            owner: owner,
+            session: sanitize_session(session),
+            timer: timer
+          }
 
-        state =
-          state
-          |> discard_pending_for_session(session.session_id)
-          |> put_in([:pending, pending], entry)
-          |> put_in([:pending_monitors, monitor], pending)
+          state =
+            state
+            |> discard_pending_for_session(session.session_id)
+            |> put_in([:pending, pending], entry)
+            |> put_in([:pending_monitors, monitor], pending)
 
-        {:reply, {:ok, pending}, state}
+          {:reply, {:ok, pending}, state}
+        end
 
       {:error, %Error{}} = error ->
         {:reply, error, state}
@@ -182,18 +227,22 @@ defmodule Singularity.Runtime.KeyCustodian do
   def handle_call({:activate_unlock, pending}, {owner, _tag}, state) do
     case Map.get(state.pending, pending) do
       %{owner: ^owner, session: session} ->
-        state =
-          state
-          |> discard_pending_entry(pending)
-          |> revoke_session_custody(session.session_id)
-          |> install_session(session)
+        if matching_revocation?(state, session) do
+          {:reply, {:error, Error.new(:conflict)}, discard_pending_entry(state, pending)}
+        else
+          state =
+            state
+            |> discard_pending_entry(pending)
+            |> revoke_session_custody(session.session_id)
+            |> install_session(session)
 
-        case activate_wake(state, session) do
-          :ok ->
-            {:reply, :ok, state}
+          case activate_wake(state, session) do
+            :ok ->
+              {:reply, :ok, state}
 
-          {:error, %Error{}} = error ->
-            {:reply, error, revoke_session_custody(state, session.session_id)}
+            {:error, %Error{}} = error ->
+              {:reply, error, revoke_session_custody(state, session.session_id)}
+          end
         end
 
       _missing_or_foreign ->
@@ -210,13 +259,23 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   def handle_call(
-        {:assert_unlocked, session_id, principal_id, vault_id},
+        {:assert_unlocked, session_id, principal_id, vault_id, principal_authorization_epoch,
+         vault_authorization_epoch},
         _from,
         state
       ) do
     case Map.get(state.sessions, session_id) do
-      %{principal_id: ^principal_id, vault_id: ^vault_id} ->
-        {:reply, :ok, touch_session(state, session_id)}
+      %{
+        principal_id: ^principal_id,
+        vault_id: ^vault_id,
+        principal_authorization_epoch: ^principal_authorization_epoch,
+        vault_authorization_epoch: ^vault_authorization_epoch
+      } = session ->
+        if matching_revocation?(state, session) do
+          {:reply, {:error, Error.new(:vault_locked)}, state}
+        else
+          {:reply, :ok, touch_session(state, session_id)}
+        end
 
       _locked_or_mismatched ->
         {:reply, {:error, Error.new(:vault_locked)}, state}
@@ -226,11 +285,26 @@ defmodule Singularity.Runtime.KeyCustodian do
   def handle_call({:begin_revoke, selector}, _from, state) do
     case normalize_selector(selector) do
       {:ok, normalized} ->
-        {:reply, :ok, begin_revocation(state, normalized)}
+        token = make_ref()
+
+        state =
+          state
+          |> put_in([:revoking, token], normalized)
+          |> begin_revocation(normalized)
+
+        {:reply, {:ok, token}, state}
 
       :error ->
         {:reply, {:error, Error.new(:invalid)}, state}
     end
+  end
+
+  def handle_call({:finish_revoke, token}, _from, state) when is_reference(token) do
+    {:reply, :ok, %{state | revoking: Map.delete(state.revoking, token)}}
+  end
+
+  def handle_call({:finish_revoke, _token}, _from, state) do
+    {:reply, {:error, Error.new(:invalid)}, state}
   end
 
   def handle_call({:await_revoking, selector}, _from, state) do
@@ -250,10 +324,22 @@ defmodule Singularity.Runtime.KeyCustodian do
   def handle_call({:lease, request}, _from, state) do
     with :ok <- validate_request(request),
          binding = Map.take(request, @request_fields),
-         %{principal_id: principal_id, vault_id: vault_id} = session <-
+         %{
+           principal_id: principal_id,
+           vault_id: vault_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch
+         } = session <-
            Map.get(state.sessions, binding.session_id),
+         false <- matching_revocation?(state, session),
          true <- vault_id == binding.vault_id,
          true <- principal_id == binding.principal_id,
+         true <-
+           principal_authorization_epoch ==
+             binding.principal_authorization_epoch,
+         true <-
+           vault_authorization_epoch ==
+             binding.vault_authorization_epoch,
          {:ok, object_dek} <- object_key(state, session, binding),
          {:ok, checkpoint} <-
            state.adapters.key_reader.load_checkpoint(state.context, binding),
@@ -280,6 +366,7 @@ defmodule Singularity.Runtime.KeyCustodian do
       {:reply, {:ok, lease}, state}
     else
       nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      true -> {:reply, {:error, :waiting_for_unlock}, state}
       false -> {:reply, {:error, :waiting_for_unlock}, state}
       {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
       {:error, %Error{}} = error -> {:reply, error, state}
@@ -311,9 +398,17 @@ defmodule Singularity.Runtime.KeyCustodian do
     case Map.get(state.idle_timers, session_id) do
       {_timer, ^token} ->
         session = Map.get(state.sessions, session_id)
-        state = begin_revocation(state, %{session_id: session_id})
+        selector = %{vault_id: session.vault_id}
+        revocation_token = make_ref()
+
+        state =
+          state
+          |> put_in([:revoking, revocation_token], selector)
+          |> begin_revocation(selector)
+
         _idle_lock_result = persist_idle_lock(state, session)
-        {:noreply, state}
+
+        {:noreply, %{state | revoking: Map.delete(state.revoking, revocation_token)}}
 
       _stale ->
         {:noreply, state}
@@ -346,12 +441,18 @@ defmodule Singularity.Runtime.KeyCustodian do
            session_id: session_id,
            principal_id: principal_id,
            vault_id: vault_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch,
            vault_key: <<_::binary-size(32)>>
          } = session
        )
        when is_binary(session_id) and byte_size(session_id) > 0 and
               is_binary(principal_id) and byte_size(principal_id) > 0 and
-              is_binary(vault_id) and byte_size(vault_id) > 0,
+              is_binary(vault_id) and byte_size(vault_id) > 0 and
+              is_integer(principal_authorization_epoch) and
+              principal_authorization_epoch >= 0 and
+              is_integer(vault_authorization_epoch) and
+              vault_authorization_epoch >= 0,
        do: validate_optional_keys(session)
 
   defp validate_session(_session), do: {:error, Error.new(:invalid)}
@@ -385,6 +486,8 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   defp validate_request(request) when is_map(request) do
     with true <- Enum.all?(@request_fields, &Map.has_key?(request, &1)),
+         true <- not Map.has_key?(request, :authorization_epoch),
+         true <- not Map.has_key?(request, "authorization_epoch"),
          true <- nonempty_binary?(request.job_id),
          true <- nonempty_binary?(request.vault_id),
          true <- nonempty_binary?(request.principal_id),
@@ -392,7 +495,11 @@ defmodule Singularity.Runtime.KeyCustodian do
          true <- nonempty_binary?(request.object_id),
          true <- nonempty_binary?(request.session_id),
          true <-
-           is_integer(request.authorization_epoch) and request.authorization_epoch >= 0,
+           is_integer(request.principal_authorization_epoch) and
+             request.principal_authorization_epoch >= 0,
+         true <-
+           is_integer(request.vault_authorization_epoch) and
+             request.vault_authorization_epoch >= 0,
          true <- is_integer(request.object_generation) and request.object_generation > 0 do
       :ok
     else
@@ -492,7 +599,6 @@ defmodule Singularity.Runtime.KeyCustodian do
       :expires_at,
       :principal_authorization_epoch,
       :vault_authorization_epoch,
-      :authorization_epoch,
       :vault_key,
       :domain_key,
       :object_keys
@@ -500,6 +606,12 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   defp active_session?(state, session_id), do: Map.has_key?(state.sessions, session_id)
+
+  defp matching_revocation?(state, session) do
+    Enum.any?(state.revoking, fn {_token, selector} ->
+      matches_selector?(session, selector)
+    end)
+  end
 
   defp begin_revocation(state, selector) do
     session_ids = matching_session_ids(state, selector)

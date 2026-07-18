@@ -15,10 +15,11 @@ defmodule Singularity.Runtime.KeyLease do
 
   @lease_seconds 60
   @termination_grace_seconds 5
-  @checkpoint_version 1
+  @checkpoint_version 2
   @checkpoint_keys ~w[
     version next_chunk_index job_id vault_id principal_id required_capability
-    authorization_epoch object_id object_generation
+    principal_authorization_epoch vault_authorization_epoch object_id
+    object_generation
   ]
 
   @type ref :: pid()
@@ -50,7 +51,8 @@ defmodule Singularity.Runtime.KeyLease do
       "vault_id" => binding.vault_id,
       "principal_id" => binding.principal_id,
       "required_capability" => binding.required_capability,
-      "authorization_epoch" => binding.authorization_epoch,
+      "principal_authorization_epoch" => binding.principal_authorization_epoch,
+      "vault_authorization_epoch" => binding.vault_authorization_epoch,
       "object_id" => binding.object_id,
       "object_generation" => binding.object_generation
     }

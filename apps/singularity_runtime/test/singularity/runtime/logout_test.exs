@@ -22,12 +22,18 @@ defmodule Singularity.Runtime.LogoutTest do
 
   defmodule Custodian do
     def begin_revoke(state, selector) do
-      State.push(state, {:begin_revoke, selector})
-      :ok
+      token = make_ref()
+      State.push(state, {:begin_revoke, selector, token})
+      {:ok, token}
     end
 
     def await_revoking(state, selector) do
       State.push(state, {:await_revoking, selector})
+      :ok
+    end
+
+    def finish_revoke(state, token) do
+      State.push(state, {:finish_revoke, token})
       :ok
     end
   end
@@ -72,8 +78,8 @@ defmodule Singularity.Runtime.LogoutTest do
     assert :ok = Logout.run(context.runtime, context.session, "correlation-1")
 
     assert [
-             {:begin_revoke, %{session_id: "session-1"}},
-             {:await_revoking, %{session_id: "session-1"}},
+             {:begin_revoke, %{vault_id: "vault-1"}, token},
+             {:await_revoking, %{vault_id: "vault-1"}},
              {:scope,
               %{
                 required_capability: "vault.lock",
@@ -86,8 +92,11 @@ defmodule Singularity.Runtime.LogoutTest do
                 principal_id: "principal-1",
                 vault_id: "vault-1",
                 correlation_id: "correlation-1"
-              }}
+              }},
+             {:finish_revoke, finished_token}
            ] = State.events(context.state)
+
+    assert finished_token == token
   end
 
   test "a transaction or audit failure leaves custody revoked", context do
@@ -96,6 +105,14 @@ defmodule Singularity.Runtime.LogoutTest do
     assert {:error, %Error{code: :storage_unavailable}} =
              Logout.run(context.runtime, context.session, "correlation-1")
 
-    assert [{:begin_revoke, _selector} | _events] = State.events(context.state)
+    assert [
+             {:begin_revoke, _selector, token},
+             {:await_revoking, _},
+             {:scope, _},
+             {:persist, _},
+             {:finish_revoke, finished_token}
+           ] = State.events(context.state)
+
+    assert finished_token == token
   end
 end

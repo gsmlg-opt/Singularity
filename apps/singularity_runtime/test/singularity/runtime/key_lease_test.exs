@@ -9,9 +9,20 @@ defmodule Singularity.Runtime.KeyLeaseTest do
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
+  alias Singularity.Runtime.LockVault
+  alias Singularity.Runtime.SessionContext
 
   defmodule IdleLock do
     def idle_lock(_owner, _session), do: :ok
+  end
+
+  defmodule ImmediateExclusiveScope do
+    def with_exclusive_request(_runtime, _session, _requirement, callback),
+      do: callback.(:repo)
+  end
+
+  defmodule SuccessfulVaultLock do
+    def lock_and_audit(:repo, _command), do: :ok
   end
 
   @now ~U[2026-07-18 08:00:00Z]
@@ -19,7 +30,8 @@ defmodule Singularity.Runtime.KeyLeaseTest do
   @principal_id "principal-1"
   @vault_id "vault-1"
   @object_id "object-1"
-  @authorization_epoch 7
+  @principal_authorization_epoch 7
+  @vault_authorization_epoch 23
   @object_generation 3
   @capability "assets.read"
 
@@ -97,10 +109,10 @@ defmodule Singularity.Runtime.KeyLeaseTest do
 
     read = Task.async(fn -> KeyLease.read_chunk(lease, 0) end)
 
-    assert_receive {:key_reader_blocked, worker, token, ^request, 0}, 1_000
+    assert_receive {:key_reader_blocked, worker, read_token, ^request, 0}, 1_000
     worker_monitor = Process.monitor(worker)
 
-    assert :ok =
+    assert {:ok, revocation_token} =
              KeyCustodian.begin_revoke(custodian, %{session_id: @session_id})
 
     assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}, 1_000
@@ -114,11 +126,70 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert lease_state.revoked?
     refute Map.has_key?(lease_state.reader_context, :key_material)
 
-    assert :ok = Fake.KeyReader.release_read(worker, token)
+    assert :ok = Fake.KeyReader.release_read(worker, read_token)
 
+    assert :ok = KeyCustodian.finish_revoke(custodian, revocation_token)
     assert :ok = activate!(custodian, unlocked_session())
     replacement = lease!(custodian, request)
     assert_read(replacement, 0, "authenticated chunk zero")
+  end
+
+  test "a durable vault lock revokes a plaintext lease owned by another session", %{
+    context: context,
+    custodian: custodian
+  } do
+    second_session_id = "session-2"
+
+    assert :ok =
+             Fake.Authorization.add_session(context, %{
+               session_id: second_session_id,
+               status: :active,
+               principal_id: @principal_id,
+               vault_id: @vault_id
+             })
+
+    assert :ok =
+             activate!(
+               custodian,
+               unlocked_session(session_id: second_session_id)
+             )
+
+    second_request =
+      lease_request(session_id: second_session_id, job_id: "job-2")
+
+    assert :ok =
+             Fake.KeyReader.put_checkpoint(
+               context,
+               second_request,
+               checkpoint(second_request, 0)
+             )
+
+    second_lease = lease!(custodian, second_request)
+    assert_read(second_lease, 0, "authenticated chunk zero")
+
+    runtime = %{
+      custodian: {KeyCustodian, custodian},
+      operation_scope: ImmediateExclusiveScope,
+      vaults: SuccessfulVaultLock
+    }
+
+    initiating_session = %SessionContext{
+      session_id: @session_id,
+      principal_id: @principal_id,
+      vault_id: @vault_id,
+      expires_at: DateTime.add(@now, 300, :second),
+      principal_authorization_epoch: @principal_authorization_epoch,
+      vault_authorization_epoch: @vault_authorization_epoch,
+      authorization_epoch: @principal_authorization_epoch,
+      unlocked?: true
+    }
+
+    assert {:ok, %SessionContext{unlocked?: false}} =
+             LockVault.run(runtime, initiating_session, "correlation-1")
+
+    refute KeyCustodian.unlocked?(custodian, @session_id)
+    refute KeyCustodian.unlocked?(custodian, second_session_id)
+    assert_waiting(second_lease, 1)
   end
 
   test "a CAS-linearized read completes before a queued lock can acknowledge", %{
@@ -152,7 +223,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert Task.yield(lock, 100) == nil
     assert :ok = Fake.KeyReader.release_persist(persister, token)
     assert {:ok, "authenticated chunk zero"} = Task.await(read)
-    assert :ok = Task.await(lock)
+    assert {:ok, _token} = Task.await(lock)
 
     assert Fake.KeyReader.checkpoint(context, request) == checkpoint(request, 1)
     assert_waiting(lease, 1)
@@ -174,7 +245,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert_received {:plaintext_chunk, 0, "authenticated chunk zero"}
     assert Fake.KeyReader.checkpoint(context, request) == checkpoint(request, 1)
 
-    assert :ok =
+    assert {:ok, _token} =
              KeyCustodian.begin_revoke(custodian, %{session_id: @session_id})
 
     assert_waiting(lease, 1)
@@ -279,7 +350,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     lease = lease!(custodian)
     assert_read(lease, 0, "authenticated chunk zero")
 
-    assert :ok =
+    assert {:ok, _token} =
              KeyCustodian.begin_revoke(custodian, %{session_id: @session_id})
 
     assert_waiting(lease, 1)
@@ -295,7 +366,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
         ] do
       lease = lease!(custodian)
 
-      assert :ok = KeyCustodian.begin_revoke(custodian, selector)
+      assert {:ok, token} = KeyCustodian.begin_revoke(custodian, selector)
       assert_waiting(lease, 0)
 
       assert_eventually(fn ->
@@ -303,6 +374,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
         state.leases == %{} and state.monitors == %{}
       end)
 
+      assert :ok = KeyCustodian.finish_revoke(custodian, token)
       assert :ok = activate!(custodian, unlocked_session())
     end
   end
@@ -396,7 +468,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert [{_, 0}] = Fake.KeyReader.calls(context)
   end
 
-  test "authorization epoch change between reads prevents the next plaintext chunk", %{
+  test "principal authorization epoch change between reads prevents the next plaintext chunk", %{
     context: context,
     custodian: custodian
   } do
@@ -404,11 +476,30 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert_read(lease, 0, "authenticated chunk zero")
 
     assert :ok =
-             Fake.Authorization.set_authorization_epoch(
+             Fake.Authorization.set_principal_authorization_epoch(
                context,
                @principal_id,
                @vault_id,
-               @authorization_epoch + 1
+               @principal_authorization_epoch + 1
+             )
+
+    assert_waiting(lease, 1)
+    assert [{_, 0}] = Fake.KeyReader.calls(context)
+  end
+
+  test "vault authorization epoch change between reads prevents the next plaintext chunk", %{
+    context: context,
+    custodian: custodian
+  } do
+    lease = lease!(custodian)
+    assert_read(lease, 0, "authenticated chunk zero")
+
+    assert :ok =
+             Fake.Authorization.set_vault_authorization_epoch(
+               context,
+               @principal_id,
+               @vault_id,
+               @vault_authorization_epoch + 1
              )
 
     assert_waiting(lease, 1)
@@ -461,12 +552,13 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert_read(old_lease, 0, "authenticated chunk zero")
     assert Fake.KeyReader.checkpoint(context, lease_request()) == checkpoint(lease_request(), 1)
 
-    assert :ok =
+    assert {:ok, token} =
              KeyCustodian.begin_revoke(custodian, %{session_id: @session_id})
 
     assert_waiting(old_lease, 1)
     GenServer.stop(old_lease)
     refute Process.alive?(old_lease)
+    assert :ok = KeyCustodian.finish_revoke(custodian, token)
 
     new_session = unlocked_session(session_id: "session-2")
 
@@ -508,12 +600,98 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     assert {:error, %Error{code: :integrity_failure}} =
              KeyCustodian.lease(custodian, request)
 
-    stale = checkpoint(request, 0) |> Map.put("authorization_epoch", @authorization_epoch - 1)
+    stale =
+      checkpoint(request, 0)
+      |> Map.put(
+        "principal_authorization_epoch",
+        @principal_authorization_epoch - 1
+      )
+
     assert :ok = Fake.KeyReader.put_checkpoint(context, request, stale)
     assert {:error, %Error{code: :conflict}} = KeyCustodian.lease(custodian, request)
 
     assert Fake.KeyReader.calls(context) == []
     refute_receive {:plaintext_chunk, _, _}
+  end
+
+  test "lease bindings and checkpoints use both named authorization epochs", %{
+    context: context,
+    custodian: custodian
+  } do
+    request = lease_request()
+    assert :ok = Fake.KeyReader.put_checkpoint(context, request, checkpoint(request, 0))
+
+    assert {:ok, lease} = KeyCustodian.lease(custodian, request)
+    assert {:ok, "authenticated chunk zero"} = KeyLease.read_chunk(lease, 0)
+
+    [binding | _checks] = Fake.Authorization.checks(context)
+    assert binding.principal_authorization_epoch == @principal_authorization_epoch
+    assert binding.vault_authorization_epoch == @vault_authorization_epoch
+    refute Map.has_key?(binding, :authorization_epoch)
+
+    persisted = Fake.KeyReader.checkpoint(context, request)
+    assert persisted["principal_authorization_epoch"] == @principal_authorization_epoch
+    assert persisted["vault_authorization_epoch"] == @vault_authorization_epoch
+    refute Map.has_key?(persisted, "authorization_epoch")
+  end
+
+  test "legacy aggregate authorization epochs are rejected from requests and checkpoints", %{
+    custodian: custodian
+  } do
+    request = Map.put(lease_request(), :authorization_epoch, 7)
+
+    assert {:error, %Error{code: :invalid}} =
+             KeyCustodian.lease(custodian, request)
+
+    legacy_checkpoint =
+      lease_request()
+      |> checkpoint(0)
+      |> Map.put("authorization_epoch", 7)
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             KeyLease.validate_checkpoint(legacy_checkpoint, lease_request())
+  end
+
+  test "lease issuance rejects either stale custody epoch", %{custodian: custodian} do
+    request = lease_request()
+
+    assert {:error, :waiting_for_unlock} =
+             KeyCustodian.lease(
+               custodian,
+               %{request | principal_authorization_epoch: @principal_authorization_epoch + 1}
+             )
+
+    assert {:error, :waiting_for_unlock} =
+             KeyCustodian.lease(
+               custodian,
+               %{request | vault_authorization_epoch: @vault_authorization_epoch + 1}
+             )
+  end
+
+  test "resumed checkpoints reject stale principal and vault epochs", %{
+    context: context,
+    custodian: custodian
+  } do
+    request = lease_request()
+
+    stale_principal =
+      request
+      |> checkpoint(0)
+      |> Map.put(
+        "principal_authorization_epoch",
+        @principal_authorization_epoch - 1
+      )
+
+    assert :ok = Fake.KeyReader.put_checkpoint(context, request, stale_principal)
+    assert {:error, %Error{code: :conflict}} = KeyCustodian.lease(custodian, request)
+
+    stale_vault =
+      request
+      |> checkpoint(0)
+      |> Map.put("vault_authorization_epoch", @vault_authorization_epoch - 1)
+
+    assert :ok = Fake.KeyReader.put_checkpoint(context, request, stale_vault)
+    assert {:error, %Error{code: :conflict}} = KeyCustodian.lease(custodian, request)
   end
 
   test "a lease rejects checkpoint replay or skipping and requires a new lease", %{
@@ -635,6 +813,8 @@ defmodule Singularity.Runtime.KeyLeaseTest do
       session_id: @session_id,
       principal_id: @principal_id,
       vault_id: @vault_id,
+      principal_authorization_epoch: @principal_authorization_epoch,
+      vault_authorization_epoch: @vault_authorization_epoch,
       vault_key: :binary.copy(<<0xA1>>, 32),
       domain_key: :binary.copy(<<0xB2>>, 32),
       object_keys: %{
@@ -669,7 +849,8 @@ defmodule Singularity.Runtime.KeyLeaseTest do
       vault_id: @vault_id,
       principal_id: @principal_id,
       required_capability: @capability,
-      authorization_epoch: @authorization_epoch,
+      principal_authorization_epoch: @principal_authorization_epoch,
+      vault_authorization_epoch: @vault_authorization_epoch,
       object_id: @object_id,
       object_generation: @object_generation,
       session_id: @session_id
@@ -689,7 +870,8 @@ defmodule Singularity.Runtime.KeyLeaseTest do
       principals: %{@principal_id => :active},
       authorizations: %{
         {@principal_id, @vault_id} => %{
-          epoch: @authorization_epoch,
+          principal_authorization_epoch: @principal_authorization_epoch,
+          vault_authorization_epoch: @vault_authorization_epoch,
           capabilities: MapSet.new([@capability])
         }
       },
@@ -701,13 +883,14 @@ defmodule Singularity.Runtime.KeyLeaseTest do
 
   defp checkpoint(request, next_chunk_index) do
     %{
-      "version" => 1,
+      "version" => 2,
       "next_chunk_index" => next_chunk_index,
       "job_id" => request.job_id,
       "vault_id" => request.vault_id,
       "principal_id" => request.principal_id,
       "required_capability" => request.required_capability,
-      "authorization_epoch" => request.authorization_epoch,
+      "principal_authorization_epoch" => request.principal_authorization_epoch,
+      "vault_authorization_epoch" => request.vault_authorization_epoch,
       "object_id" => request.object_id,
       "object_generation" => request.object_generation
     }

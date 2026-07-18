@@ -10,6 +10,7 @@ defmodule Singularity.Runtime.LoginTest.PreAuth do
     if normalized_login == "owner@example.test" do
       {:ok,
        %{
+         credential_id: "credential-1",
          verifier: "known-verifier",
          scoped_context: %{
            account_id: "account-1",
@@ -96,7 +97,11 @@ defmodule Singularity.Runtime.LoginTest do
   @fingerprint_secret "CANARY_AUDIT_FINGERPRINT_SECRET_32_BYTES"
   @opaque_token "CANARY_OPAQUE_SESSION_TOKEN_32B!"
 
-  setup do
+  setup context do
+    if context[:integration] do
+      Singularity.Storage.Fixtures.reset_bootstrap_state!()
+    end
+
     adapters = %{
       pre_auth: Singularity.Runtime.LoginTest.PreAuth,
       pre_auth_context: self(),
@@ -115,6 +120,7 @@ defmodule Singularity.Runtime.LoginTest do
   test "PostgreSQL login atomically persists a digest-only session and allowed audit" do
     login = "login-#{Ecto.UUID.generate()}@example.test"
     password = "database-login-password"
+    correlation_id = Ecto.UUID.generate()
     bootstrap = postgres_bootstrap_adapters()
 
     assert {:ok, owner} =
@@ -144,7 +150,12 @@ defmodule Singularity.Runtime.LoginTest do
     }
 
     assert {:ok, result} =
-             Login.run(adapters, request(login, password, "127.0.0.1"))
+             Login.run(
+               adapters,
+               login
+               |> request(password, "127.0.0.1")
+               |> Map.put(:correlation_id, correlation_id)
+             )
 
     assert result.opaque_token == token
     assert result.session.account_id == owner.account_id
@@ -152,13 +163,16 @@ defmodule Singularity.Runtime.LoginTest do
     assert result.session.vault_id == owner.vault_id
 
     Singularity.Storage.Fixtures.with_owner(fn ->
-      %{rows: [[stored_digest, session_count, audit_count]]} =
+      %{rows: [[stored_credential_id, stored_digest, session_count, attempt_result, audit_count]]} =
         Ecto.Adapters.SQL.query!(
           Singularity.Storage.MigrationRepo,
           """
           SELECT
+            (SELECT credential_id FROM identity.sessions WHERE id = $1),
             (SELECT token_digest FROM identity.sessions WHERE id = $1),
             (SELECT count(*) FROM identity.sessions WHERE id = $1),
+            (SELECT result FROM identity.auth_attempts
+             WHERE correlation_id = $4),
             (SELECT count(*) FROM audit.events
              WHERE operation = 'identity.login'
                AND result = 'allowed'
@@ -168,15 +182,88 @@ defmodule Singularity.Runtime.LoginTest do
           [
             Ecto.UUID.dump!(result.session.id),
             Ecto.UUID.dump!(owner.principal_id),
-            Ecto.UUID.dump!(owner.vault_id)
+            Ecto.UUID.dump!(owner.vault_id),
+            Ecto.UUID.dump!(correlation_id)
           ],
           log: false
         )
 
+      assert stored_credential_id == Ecto.UUID.dump!(owner.credential_id)
       assert stored_digest == :crypto.hash(:sha256, token)
       assert session_count == 1
+      assert attempt_result == "succeeded"
       assert audit_count == 1
     end)
+  end
+
+  @tag :integration
+  test "PostgreSQL login binds a same-account secondary credential through password material" do
+    primary_login = "primary-#{Ecto.UUID.generate()}@example.test"
+    secondary_login = "secondary-#{Ecto.UUID.generate()}@example.test"
+    password = "secondary-login-password"
+    secondary_credential_id = Ecto.UUID.generate()
+
+    assert {:ok, owner} =
+             Singularity.Storage.Fixtures.with_owner(fn ->
+               Singularity.Runtime.BootstrapOwner.run(postgres_bootstrap_adapters(), %{
+                 display_name: "Multi Credential Owner",
+                 login: primary_login,
+                 password: "primary-login-password"
+               })
+             end)
+
+    assert {:ok, verifier} =
+             Singularity.Storage.Crypto.Argon2PasswordHasher.hash(password_params(), password)
+
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      Ecto.Adapters.SQL.query!(
+        Singularity.Storage.MigrationRepo,
+        """
+        INSERT INTO identity.credentials (
+          id,
+          account_id,
+          normalized_login,
+          verifier
+        ) VALUES ($1, $2, $3, $4)
+        """,
+        [
+          Ecto.UUID.dump!(secondary_credential_id),
+          Ecto.UUID.dump!(owner.account_id),
+          secondary_login,
+          verifier
+        ],
+        log: false
+      )
+    end)
+
+    assert {:ok, result} =
+             Login.run(
+               postgres_login_adapters(:binary.copy(<<0xD5>>, 32)),
+               secondary_login
+               |> request(password, "127.0.0.1")
+               |> Map.put(:correlation_id, Ecto.UUID.generate())
+             )
+
+    scoped_context = %{
+      account_id: owner.account_id,
+      principal_id: owner.principal_id,
+      vault_id: owner.vault_id
+    }
+
+    assert {:ok, %{credential_id: ^secondary_credential_id}} =
+             Singularity.Storage.RequestRepo.checkout(fn ->
+               Singularity.Storage.ScopedRepo.transact(
+                 Singularity.Storage.RequestRepo,
+                 scoped_context,
+                 fn repo ->
+                   Singularity.Storage.Postgres.IdentityRepository.load_password_material(repo, %{
+                     session_id: result.session.id,
+                     principal_id: owner.principal_id,
+                     vault_id: owner.vault_id
+                   })
+                 end
+               )
+             end)
   end
 
   @tag :integration
@@ -263,7 +350,7 @@ defmodule Singularity.Runtime.LoginTest do
              Login.run(postgres_login_adapters(token), request)
 
     Singularity.Storage.Fixtures.with_owner(fn ->
-      %{rows: [[0, 0]]} =
+      %{rows: [[0, 0, "started"]]} =
         Ecto.Adapters.SQL.query!(
           Singularity.Storage.MigrationRepo,
           """
@@ -272,7 +359,9 @@ defmodule Singularity.Runtime.LoginTest do
             (SELECT count(*) FROM audit.events
              WHERE operation = 'identity.login'
                AND correlation_id = $2
-               AND principal_id = $3)
+               AND principal_id = $3),
+            (SELECT result FROM identity.auth_attempts
+             WHERE correlation_id = $2)
           """,
           [
             :crypto.hash(:sha256, token),
@@ -362,6 +451,10 @@ defmodule Singularity.Runtime.LoginTest do
            }
 
     assert command.token_digest == :crypto.hash(:sha256, @opaque_token)
+    assert command.credential_id == "credential-1"
+    assert command.attempt_id == "attempt-1"
+    assert byte_size(command.login_fingerprint) == 32
+    assert byte_size(command.source_fingerprint) == 32
     refute inspect(command) =~ @opaque_token
     refute Map.has_key?(result.session, :unlocked?)
     assert result.opaque_token == @opaque_token

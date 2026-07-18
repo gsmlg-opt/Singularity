@@ -29,6 +29,8 @@ defmodule Singularity.Storage.RolesTest do
       {"singularity_authorization_definer", ["singularity_web", "singularity_worker"]},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
+    "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>
+      {"singularity_auth_definer", ["singularity_web"]},
     "identity.record_auth_attempt(bytea,bytea,text,uuid,uuid)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.resolve_session(bytea)" => {"singularity_auth_definer", ["singularity_pre_auth"]}

@@ -12,6 +12,7 @@ defmodule Singularity.Storage.Schema.Core.VaultKeyWrapper do
     field :vault_id, Ecto.UUID
     field :vault_key_version_id, Ecto.UUID
     field :account_id, Ecto.UUID
+    field :generation, :integer
     field :kdf_version, :integer
     field :kdf_salt, :binary
     field :kdf_parameters, :map
@@ -27,6 +28,7 @@ defmodule Singularity.Storage.Schema.Core.VaultKeyWrapper do
       :vault_id,
       :vault_key_version_id,
       :account_id,
+      :generation,
       :kdf_version,
       :kdf_salt,
       :kdf_parameters,
@@ -38,12 +40,14 @@ defmodule Singularity.Storage.Schema.Core.VaultKeyWrapper do
       :vault_id,
       :vault_key_version_id,
       :account_id,
+      :generation,
       :kdf_version,
       :kdf_salt,
       :kdf_parameters,
       :wrapper_algorithm,
       :wrapped_key
     ])
+    |> validate_number(:generation, greater_than: 0)
     |> validate_number(:kdf_version, greater_than: 0)
     |> validate_change(:kdf_parameters, &string_keyed_json/2)
     |> foreign_key_constraint(:vault_key_version_id,
@@ -54,6 +58,9 @@ defmodule Singularity.Storage.Schema.Core.VaultKeyWrapper do
     )
     |> check_constraint(:kdf_version,
       name: :vault_key_wrappers_kdf_version_check
+    )
+    |> check_constraint(:generation,
+      name: :vault_key_wrappers_generation_check
     )
   end
 

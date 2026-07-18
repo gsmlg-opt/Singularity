@@ -126,21 +126,32 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
           vault_id: vault_id
         } = scoped_context,
         %{
-          token_digest: <<_::binary-size(32)>> = token_digest,
+          attempt_id: attempt_id,
+          credential_id: credential_id,
+          token_digest: <<_::binary-size(32)>>,
+          login_fingerprint: <<_::binary-size(32)>>,
+          source_fingerprint: <<_::binary-size(32)>>,
           correlation_id: correlation_id
-        },
+        } = command,
         audit_result: "allowed"
       )
       when is_atom(repo) and is_function(clock, 0) and
              is_integer(session_ttl_seconds) and session_ttl_seconds > 0 do
-    with :ok <- UUID.validate([account_id, principal_id, vault_id, correlation_id]) do
+    with :ok <-
+           UUID.validate([
+             account_id,
+             principal_id,
+             vault_id,
+             attempt_id,
+             credential_id,
+             correlation_id
+           ]) do
       repo.checkout(fn ->
         ScopedRepo.transact(repo, scoped_context, fn transaction_repo ->
           insert_session_and_audit(
             transaction_repo,
             scoped_context,
-            token_digest,
-            correlation_id,
+            command,
             clock.(),
             session_ttl_seconds
           )
@@ -340,17 +351,21 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
           session_id: session_id,
           principal_id: principal_id,
           vault_id: vault_id,
+          wrapper_id: wrapper_id,
+          wrapper_generation: wrapper_generation,
           vault_key_version_id: vault_key_version_id,
           domain_key_version_id: domain_key_version_id,
           correlation_id: correlation_id
         } = command
-      ) do
+      )
+      when is_integer(wrapper_generation) and wrapper_generation > 0 do
     runtime_operation(fn ->
       with :ok <-
              UUID.validate([
                session_id,
                principal_id,
                vault_id,
+               wrapper_id,
                vault_key_version_id,
                domain_key_version_id,
                correlation_id
@@ -450,6 +465,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
           new_verifier: new_verifier,
           wrapper_id: wrapper_id,
           vault_key_version_id: vault_key_version_id,
+          expected_wrapper_generation: expected_wrapper_generation,
+          new_wrapper_generation: new_wrapper_generation,
           expected_wrapped_key: expected_wrapped_key,
           new_kdf_version: new_kdf_version,
           new_kdf_salt: new_kdf_salt,
@@ -459,6 +476,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         } = command
       )
       when is_binary(new_verifier) and is_binary(expected_wrapped_key) and
+             is_integer(expected_wrapper_generation) and
+             is_integer(new_wrapper_generation) and
              is_integer(new_kdf_version) and is_binary(new_kdf_salt) and
              is_map(new_kdf_parameters) and is_binary(new_wrapper_algorithm) and
              is_binary(new_wrapped_key) do
@@ -484,6 +503,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
              validate_password_replacement(
                new_verifier,
                expected_wrapped_key,
+               expected_wrapper_generation,
+               new_wrapper_generation,
                new_kdf_version,
                new_kdf_salt,
                new_kdf_parameters,
@@ -540,17 +561,16 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
 
     lock_bootstrap(repo, digest, owner_id, credential_id)
 
-    case owner_by_idempotency_digest(repo, digest) do
+    case existing_bootstrap_owner(repo) do
       nil -> bootstrap_unbound_key(repo, command, digest, mode)
-      %Principal{} = owner -> existing_owner(repo, owner, mode)
+      %Principal{} = owner -> ensure_bootstrap_alias(repo, owner, digest, mode)
     end
   end
 
   defp insert_session_and_audit(
          repo,
          scoped_context,
-         token_digest,
-         correlation_id,
+         command,
          now,
          session_ttl_seconds
        ) do
@@ -561,9 +581,10 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
       Session.create_changeset(%Session{}, %{
         id: session_id,
         account_id: scoped_context.account_id,
+        credential_id: command.credential_id,
         principal_id: scoped_context.principal_id,
         vault_id: scoped_context.vault_id,
-        token_digest: token_digest,
+        token_digest: command.token_digest,
         expires_at: expires_at
       })
 
@@ -576,17 +597,19 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         operation: "identity.login",
         result: :allowed,
         classification: :private,
-        correlation_id: correlation_id,
+        correlation_id: command.correlation_id,
         metadata: %{},
         occurred_at: now
       })
 
     with {:ok, session} <- repo.insert(session_changeset),
+         :ok <- complete_authentication_attempt(repo, command),
          {:ok, _audit} <- repo.insert(audit_changeset) do
       {:ok,
        %{
          id: session.id,
          account_id: session.account_id,
+         credential_id: session.credential_id,
          principal_id: session.principal_id,
          vault_id: session.vault_id,
          expires_at: session.expires_at
@@ -594,6 +617,32 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, changeset_error(changeset)}
+    end
+  end
+
+  defp complete_authentication_attempt(repo, command) do
+    with {:ok, attempt_id} <- UUID.dump(command.attempt_id),
+         {:ok, correlation_id} <- UUID.dump(command.correlation_id) do
+      case SQL.query(
+             repo,
+             """
+             SELECT identity.complete_authentication_attempt($1, $2, $3, $4)
+             """,
+             [
+               attempt_id,
+               command.login_fingerprint,
+               command.source_fingerprint,
+               correlation_id
+             ],
+             log: false
+           ) do
+        {:ok, %{rows: [[true]]}} -> :ok
+        {:ok, %{rows: [[false]]}} -> {:error, Error.new(:conflict)}
+        {:ok, _unexpected_result} -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+        {:error, _reason} -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    else
+      :error -> {:error, Error.new(:invalid)}
     end
   end
 
@@ -770,22 +819,23 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
     end
   end
 
-  defp owner_by_idempotency_digest(repo, digest) do
+  defp existing_bootstrap_owner(repo) do
     repo.one(
       from principal in Principal,
         where: principal.kind == :owner,
         where:
           fragment(
-            "? @> ?",
+            "(? -> ?) IS NOT NULL",
             principal.metadata,
-            type(^%{@bootstrap_digests_key => [digest]}, :map)
+            ^@bootstrap_digests_key
           ),
+        order_by: [asc: principal.inserted_at, asc: principal.id],
         limit: 1
     )
   end
 
   defp lock_bootstrap(repo, digest, owner_id, credential_id) do
-    ["key:" <> digest, "owner:" <> owner_id, "credential:" <> credential_id]
+    ["global", "key:" <> digest, "owner:" <> owner_id, "credential:" <> credential_id]
     |> Enum.each(fn lock_key ->
       SQL.query!(
         repo,
@@ -794,6 +844,14 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         log: false
       )
     end)
+  end
+
+  defp ensure_bootstrap_alias(repo, owner, digest, mode) do
+    if digest in Map.get(owner.metadata, @bootstrap_digests_key, []) do
+      existing_owner(repo, owner, mode)
+    else
+      bind_idempotency_digest(repo, owner, digest, mode)
+    end
   end
 
   defp idempotency_digest(idempotency_key) do
@@ -902,6 +960,9 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
          true <-
            command.vault_key_version.id ==
              command.vault_key_wrapper.vault_key_version_id,
+         true <-
+           command.vault_key_version.generation ==
+             command.vault_key_wrapper.generation,
          true <-
            command.vault_key_version.id ==
              command.domain_key_version.vault_key_version_id,
@@ -1083,7 +1144,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         select: %{
           id: wrapper.id,
           vault_key_version_id: wrapper.vault_key_version_id,
-          generation: version.generation,
+          generation: wrapper.generation,
           kdf_version: wrapper.kdf_version,
           kdf_salt: wrapper.kdf_salt,
           kdf_parameters: wrapper.kdf_parameters,
@@ -1215,12 +1276,18 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
          repo,
          %{
            vault_id: vault_id,
+           wrapper_id: wrapper_id,
+           wrapper_generation: wrapper_generation,
            vault_key_version_id: vault_key_version_id,
            domain_key_version_id: domain_key_version_id
          }
        ) do
     if repo.exists?(
          from vault_version in VaultKeyVersion,
+           join: wrapper in VaultKeyWrapper,
+           on:
+             wrapper.vault_key_version_id == vault_version.id and
+               wrapper.vault_id == vault_version.vault_id,
            join: domain_version in DomainKeyVersion,
            on:
              domain_version.vault_id == vault_version.vault_id and
@@ -1228,6 +1295,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
            where: vault_version.id == ^vault_key_version_id,
            where: vault_version.vault_id == ^vault_id,
            where: vault_version.state == :active,
+           where: wrapper.id == ^wrapper_id,
+           where: wrapper.generation == ^wrapper_generation,
            where: domain_version.id == ^domain_key_version_id,
            where: domain_version.state == :active
        ),
@@ -1291,6 +1360,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
            vault_id: vault_id,
            wrapper_id: wrapper_id,
            vault_key_version_id: vault_key_version_id,
+           expected_wrapper_generation: expected_wrapper_generation,
+           new_wrapper_generation: new_wrapper_generation,
            expected_wrapped_key: expected_wrapped_key,
            new_kdf_version: new_kdf_version,
            new_kdf_salt: new_kdf_salt,
@@ -1308,12 +1379,14 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         where: wrapper.id == ^wrapper_id,
         where: wrapper.vault_id == ^vault_id,
         where: wrapper.vault_key_version_id == ^vault_key_version_id,
+        where: wrapper.generation == ^expected_wrapper_generation,
         where: wrapper.wrapped_key == ^expected_wrapped_key,
         where: version.state == :active
 
     case repo.update_all(query,
            set: [
              kdf_version: new_kdf_version,
+             generation: new_wrapper_generation,
              kdf_salt: new_kdf_salt,
              kdf_parameters: new_kdf_parameters,
              wrapper_algorithm: new_wrapper_algorithm,
@@ -1328,6 +1401,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
   defp validate_password_replacement(
          new_verifier,
          expected_wrapped_key,
+         expected_wrapper_generation,
+         new_wrapper_generation,
          new_kdf_version,
          new_kdf_salt,
          new_kdf_parameters,
@@ -1335,7 +1410,9 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
          new_wrapped_key
        ) do
     if byte_size(String.trim(new_verifier)) > 0 and
-         byte_size(expected_wrapped_key) > 0 and new_kdf_version > 0 and
+         byte_size(expected_wrapped_key) > 0 and expected_wrapper_generation > 0 and
+         new_wrapper_generation == expected_wrapper_generation + 1 and
+         new_kdf_version > 0 and
          byte_size(new_kdf_salt) >= 8 and json_value?(new_kdf_parameters) and
          new_wrapper_algorithm == String.trim(new_wrapper_algorithm) and
          new_wrapper_algorithm not in ["", "unknown"] and

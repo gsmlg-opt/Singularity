@@ -7,6 +7,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
   import Ecto.Query
   alias Singularity.Core.Error
   alias Singularity.Domains.Identity
+  alias Singularity.Storage.Fixtures
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.IdentityRepository
   alias Singularity.Storage.Postgres.PreAuth
@@ -17,6 +18,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
   alias Singularity.Storage.Schema.Identity.Principal
 
   setup do
+    Fixtures.reset_bootstrap_state!()
     start_supervised!({MigrationRepo, pool_size: 4})
     :ok
   end
@@ -138,14 +140,21 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
            }
   end
 
-  test "concurrent reuse of one normalized key creates one owner aggregate" do
+  test "concurrent different bootstrap keys create one global owner aggregate" do
     first_owner_id = Ecto.UUID.generate()
     second_owner_id = Ecto.UUID.generate()
-    idempotency_key = "owner-bootstrap-race-#{first_owner_id}"
 
     commands = [
-      bootstrap_command(first_owner_id, " #{idempotency_key}", "first-hash"),
-      bootstrap_command(second_owner_id, "#{idempotency_key} ", "second-hash")
+      bootstrap_command(
+        first_owner_id,
+        "owner-bootstrap-first-#{first_owner_id}",
+        "first-hash"
+      ),
+      bootstrap_command(
+        second_owner_id,
+        "owner-bootstrap-second-#{second_owner_id}",
+        "second-hash"
+      )
     ]
 
     counts_before = identity_counts()
@@ -167,13 +176,13 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
            }
   end
 
-  test "a new owner cannot reuse an existing credential id" do
+  test "a later bootstrap reusing a credential id returns the global owner" do
     first_owner_id = Ecto.UUID.generate()
 
     first_command =
       bootstrap_command(first_owner_id, "owner-bootstrap-first-#{first_owner_id}", "first-hash")
 
-    assert {:ok, _first} = bootstrap(first_command)
+    assert {:ok, first} = bootstrap(first_command)
 
     second_owner_id = Ecto.UUID.generate()
 
@@ -184,7 +193,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
 
     counts_before = identity_counts()
 
-    assert {:error, %Error{code: :conflict, retryable?: false}} = bootstrap(second_command)
+    assert {:ok, ^first} = bootstrap(second_command)
     assert identity_counts() == counts_before
   end
 

@@ -7,6 +7,8 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   def up do
     execute("SET LOCAL ROLE singularity_table_owner")
 
+    add_session_credential_binding()
+    add_vault_wrapper_generation()
     drop_outbox_claim_function()
     add_outbox_authorization_epochs()
     create_outbox_claim_function(:task11)
@@ -17,6 +19,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     grant_auth_attempt_completion_columns()
     replace_session_resolver(:task11)
     replace_auth_attempt_recorder(:task11)
+    create_auth_attempt_completion()
     create_read_policies()
     create_credential_update_policy()
     grant_exact_columns()
@@ -75,9 +78,22 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
   def down do
     execute("SET LOCAL ROLE singularity_table_owner")
 
+    ensure_vault_wrapper_generation_downgrade_safe()
     drop_outbox_claim_function()
     remove_outbox_authorization_epochs()
     create_outbox_claim_function(:legacy)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_auth_definer")
+
+    execute("""
+    DROP FUNCTION IF EXISTS identity.complete_authentication_attempt(
+      uuid,
+      bytea,
+      bytea,
+      uuid
+    )
+    """)
 
     execute("SET LOCAL ROLE NONE")
     execute("SET LOCAL ROLE singularity_authorization_definer")
@@ -113,7 +129,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     execute("""
-    REVOKE SELECT (id, authorization_epoch, revoked_at)
+    REVOKE SELECT (id, account_id, authorization_epoch, revoked_at)
     ON identity.principals
     FROM singularity_auth_definer
     """)
@@ -148,11 +164,18 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     execute("""
+    REVOKE SELECT (id, status)
+    ON identity.accounts
+    FROM singularity_authorization_definer
+    """)
+
+    execute("""
     REVOKE SELECT (
       id,
       principal_id,
       vault_id,
       account_id,
+      credential_id,
       expires_at,
       revoked_at
     )
@@ -197,6 +220,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     for {table, policy} <- [
+          {"identity.accounts", "task11_authorization_reads_accounts"},
           {"identity.sessions", "task11_authorization_reads_sessions"},
           {"identity.principals", "task11_authorization_reads_principals"},
           {"identity.credentials", "task11_authorization_reads_credentials"},
@@ -213,7 +237,97 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     FROM singularity_authorization_definer
     """)
 
+    execute("""
+    REVOKE SELECT (account_id, credential_id)
+    ON identity.sessions
+    FROM singularity_auth_definer
+    """)
+
     execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_table_owner")
+    remove_session_credential_binding()
+    remove_vault_wrapper_generation()
+
+    execute("SET LOCAL ROLE NONE")
+  end
+
+  defp add_session_credential_binding do
+    execute("""
+    ALTER TABLE identity.sessions
+    ADD COLUMN credential_id uuid
+      REFERENCES identity.credentials(id)
+    """)
+
+    execute("""
+    GRANT SELECT (account_id, credential_id)
+    ON identity.sessions
+    TO singularity_auth_definer
+    """)
+  end
+
+  defp remove_session_credential_binding do
+    execute("""
+    ALTER TABLE identity.sessions
+    DROP COLUMN credential_id
+    """)
+  end
+
+  defp add_vault_wrapper_generation do
+    execute("""
+    ALTER TABLE core.vault_key_wrappers
+    ADD COLUMN generation integer
+    """)
+
+    execute("""
+    UPDATE core.vault_key_wrappers AS wrapper
+    SET generation = version.generation
+    FROM core.vault_key_versions AS version
+    WHERE version.id = wrapper.vault_key_version_id
+      AND version.vault_id = wrapper.vault_id
+    """)
+
+    execute("""
+    ALTER TABLE core.vault_key_wrappers
+    ALTER COLUMN generation SET NOT NULL
+    """)
+
+    execute("""
+    ALTER TABLE core.vault_key_wrappers
+    ADD CONSTRAINT vault_key_wrappers_generation_check
+    CHECK (generation > 0)
+    """)
+  end
+
+  defp remove_vault_wrapper_generation do
+    execute("""
+    ALTER TABLE core.vault_key_wrappers
+    DROP CONSTRAINT vault_key_wrappers_generation_check
+    """)
+
+    execute("""
+    ALTER TABLE core.vault_key_wrappers
+    DROP COLUMN generation
+    """)
+  end
+
+  defp ensure_vault_wrapper_generation_downgrade_safe do
+    execute("""
+    DO $block$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM core.vault_key_wrappers AS wrapper
+        JOIN core.vault_key_versions AS version
+          ON version.id = wrapper.vault_key_version_id
+         AND version.vault_id = wrapper.vault_id
+        WHERE wrapper.generation <> version.generation
+      ) THEN
+        RAISE EXCEPTION
+          'cannot downgrade Task 11: rotated vault wrapper generation would be lost';
+      END IF;
+    END
+    $block$
+    """)
   end
 
   defp add_outbox_authorization_epochs do
@@ -234,14 +348,11 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     """)
 
     execute("""
-    -- A pre-Task 11 event cannot prove its original principal epoch. Retire it
-    -- instead of minting fresh authority from the principal's migration-time epoch.
+    -- Preserve the queue lifecycle while giving legacy rows the best available
+    -- principal checkpoint. Authorization is revalidated again at claim/use time.
     UPDATE core.outbox_events AS event
     SET
       principal_authorization_epoch = principal.authorization_epoch,
-      claim_token = NULL,
-      claimed_until = NULL,
-      delivered_at = COALESCE(event.delivered_at, CURRENT_TIMESTAMP),
       updated_at = CURRENT_TIMESTAMP
     FROM identity.principals AS principal
     WHERE principal.id = event.principal_id
@@ -510,7 +621,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   defp grant_pre_auth_epoch_columns do
     execute("""
-    GRANT SELECT (id, authorization_epoch, revoked_at)
+    GRANT SELECT (id, account_id, authorization_epoch, revoked_at)
     ON identity.principals
     TO singularity_auth_definer
     """)
@@ -622,6 +733,74 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
     execute("""
     GRANT EXECUTE ON FUNCTION identity.record_auth_attempt(#{signature})
     TO singularity_pre_auth
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_table_owner")
+
+    execute("""
+    REVOKE CREATE ON SCHEMA identity
+    FROM singularity_auth_definer
+    """)
+  end
+
+  defp create_auth_attempt_completion do
+    execute("""
+    GRANT USAGE, CREATE ON SCHEMA identity
+    TO singularity_auth_definer
+    """)
+
+    execute("SET LOCAL ROLE NONE")
+    execute("SET LOCAL ROLE singularity_auth_definer")
+
+    execute("""
+    CREATE FUNCTION identity.complete_authentication_attempt(
+      requested_attempt_id uuid,
+      requested_login_fingerprint bytea,
+      requested_source_fingerprint bytea,
+      requested_correlation_id uuid
+    ) RETURNS boolean
+    LANGUAGE sql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, identity
+    AS $function$
+      WITH updated AS (
+        UPDATE identity.auth_attempts AS attempt
+        SET result = 'succeeded'
+        WHERE requested_attempt_id IS NOT NULL
+          AND octet_length(requested_login_fingerprint) = 32
+          AND octet_length(requested_source_fingerprint) = 32
+          AND requested_correlation_id IS NOT NULL
+          AND attempt.id = requested_attempt_id
+          AND attempt.login_fingerprint = requested_login_fingerprint
+          AND attempt.source_fingerprint = requested_source_fingerprint
+          AND attempt.correlation_id = requested_correlation_id
+          AND attempt.result = 'started'
+        RETURNING attempt.id
+      )
+      SELECT EXISTS(SELECT 1 FROM updated)
+    $function$
+    """)
+
+    execute("""
+    REVOKE ALL ON FUNCTION identity.complete_authentication_attempt(
+      uuid,
+      bytea,
+      bytea,
+      uuid
+    )
+    FROM PUBLIC
+    """)
+
+    execute("""
+    GRANT EXECUTE ON FUNCTION identity.complete_authentication_attempt(
+      uuid,
+      bytea,
+      bytea,
+      uuid
+    )
+    TO singularity_web
     """)
 
     execute("SET LOCAL ROLE NONE")
@@ -965,8 +1144,16 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
         principal.authorization_epoch,
         vault.authorization_epoch
       FROM identity.sessions AS session
+      JOIN identity.accounts AS account
+        ON account.id = session.account_id
+       AND account.status = 'active'
+      JOIN identity.credentials AS credential
+        ON credential.id = session.credential_id
+       AND credential.account_id = account.id
+       AND credential.revoked_at IS NULL
       JOIN identity.principals AS principal
         ON principal.id = session.principal_id
+       AND principal.account_id = account.id
        AND principal.revoked_at IS NULL
       JOIN core.vaults AS vault
         ON vault.id = session.vault_id
@@ -1015,6 +1202,7 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   defp create_read_policies do
     for {table, policy} <- [
+          {"identity.accounts", "task11_authorization_reads_accounts"},
           {"identity.sessions", "task11_authorization_reads_sessions"},
           {"identity.principals", "task11_authorization_reads_principals"},
           {"identity.credentials", "task11_authorization_reads_credentials"},
@@ -1045,11 +1233,18 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
 
   defp grant_exact_columns do
     execute("""
+    GRANT SELECT (id, status)
+    ON identity.accounts
+    TO singularity_authorization_definer
+    """)
+
+    execute("""
     GRANT SELECT (
       id,
       principal_id,
       vault_id,
       account_id,
+      credential_id,
       expires_at,
       revoked_at
     )
@@ -1172,17 +1367,16 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
         ON session.id = requested_session
        AND session.principal_id = scoped.principal_id
        AND session.vault_id = scoped.vault_id
+      JOIN identity.accounts AS account
+        ON account.id = session.account_id
+       AND account.status = 'active'
       JOIN identity.principals AS principal
         ON principal.id = session.principal_id
-       AND principal.account_id = session.account_id
-      JOIN LATERAL (
-        SELECT candidate.id, candidate.updated_at
-        FROM identity.credentials AS candidate
-        WHERE candidate.account_id = principal.account_id
-          AND candidate.revoked_at IS NULL
-        ORDER BY candidate.id
-        LIMIT 1
-      ) AS credential ON true
+       AND principal.account_id = account.id
+      JOIN identity.credentials AS credential
+        ON credential.id = session.credential_id
+       AND credential.account_id = account.id
+       AND credential.revoked_at IS NULL
       JOIN core.vaults AS vault
         ON vault.id = session.vault_id
       JOIN core.vault_members AS membership
@@ -1249,6 +1443,9 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
       FROM scoped
       JOIN identity.principals AS principal
         ON principal.id = scoped.principal_id
+      JOIN identity.accounts AS account
+        ON account.id = principal.account_id
+       AND account.status = 'active'
       JOIN core.vaults AS vault
         ON vault.id = scoped.vault_id
       JOIN core.vault_members AS membership
@@ -1300,11 +1497,18 @@ defmodule Singularity.Storage.Migrations.AddTask11AuthorizationFunctions do
           AND session.id = requested_session
           AND session.principal_id = scoped.principal_id
           AND session.vault_id = scoped.vault_id
+          AND session.credential_id = requested_credential
           AND session.revoked_at IS NULL
           AND session.expires_at > CURRENT_TIMESTAMP
           AND principal.id = session.principal_id
           AND principal.account_id = session.account_id
           AND principal.revoked_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM identity.accounts AS account
+            WHERE account.id = session.account_id
+              AND account.status = 'active'
+          )
           AND credential.id = requested_credential
           AND credential.account_id = session.account_id
           AND credential.updated_at = expected_revision

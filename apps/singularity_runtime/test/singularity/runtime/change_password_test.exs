@@ -107,11 +107,16 @@ defmodule Singularity.Runtime.ChangePasswordTest do
   defmodule Custodian do
     def begin_revoke(state, selector) do
       State.push(state, {:begin_revoke, selector})
-      :ok
+      {:ok, "revoke-token"}
     end
 
     def await_revoking(state, selector) do
       State.push(state, {:await_revoking, selector})
+      :ok
+    end
+
+    def finish_revoke(state, token) do
+      State.push(state, {:finish_revoke, token})
       :ok
     end
   end
@@ -169,10 +174,11 @@ defmodule Singularity.Runtime.ChangePasswordTest do
              {:hash, "new-password"},
              {:derive, "new-password", new_salt, new_parameters},
              {:wrap, _new_kek, vault_key, wrap_metadata},
-             {:begin_revoke, %{principal_id: "principal-1"}},
-             {:await_revoking, %{principal_id: "principal-1"}},
+             {:begin_revoke, %{vault_id: "vault-1"}},
+             {:await_revoking, %{vault_id: "vault-1"}},
              {:shared_scope, shared_requirement},
-             {:persist, command}
+             {:persist, command},
+             {:finish_revoke, "revoke-token"}
            ] = events
 
     assert shared_requirement == requirement
@@ -183,7 +189,8 @@ defmodule Singularity.Runtime.ChangePasswordTest do
              requires_unlocked?: false
            }
 
-    assert unwrap_metadata == wrap_metadata
+    assert unwrap_metadata.generation == 2
+    assert wrap_metadata == %{unwrap_metadata | generation: 3}
     assert new_salt == :binary.copy(<<0x22>>, 16)
     assert new_parameters == context.runtime.vault_kdf_params
     assert vault_key == :binary.copy(<<0xBB>>, 32)
@@ -192,6 +199,8 @@ defmodule Singularity.Runtime.ChangePasswordTest do
     assert command.credential_revision == ~U[2026-07-18 08:00:00Z]
     assert command.new_verifier == "new-credential-verifier"
     assert command.wrapper_id == "wrapper-1"
+    assert command.expected_wrapper_generation == 2
+    assert command.new_wrapper_generation == 3
     assert command.expected_wrapped_key == "old-wrapped-vault-key"
     assert command.new_wrapped_key == "new-wrapped-vault-key"
     assert command.new_kdf_salt == :binary.copy(<<0x22>>, 16)
@@ -240,5 +249,6 @@ defmodule Singularity.Runtime.ChangePasswordTest do
 
     assert Enum.any?(State.events(context.state), &match?({:begin_revoke, _}, &1))
     assert Enum.any?(State.events(context.state), &match?({:persist, _}, &1))
+    assert {:finish_revoke, "revoke-token"} in State.events(context.state)
   end
 end

@@ -58,6 +58,14 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
 
   alias Singularity.Runtime.BootstrapOwner
 
+  setup context do
+    if context[:integration] do
+      Singularity.Storage.Fixtures.reset_bootstrap_state!()
+    end
+
+    :ok
+  end
+
   @tag :integration
   test "PostgreSQL persists one complete owner aggregate in one transaction" do
     login = "owner-#{Ecto.UUID.generate()}@example.test"
@@ -210,6 +218,7 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
     assert first_command.key_domain.classification == :private
     assert first_command.vault_key_version.generation == 1
     assert first_command.domain_key_version.generation == 1
+    assert first_command.vault_key_wrapper.generation == 1
     assert byte_size(first_command.vault_key_wrapper.kdf_salt) == 16
     assert is_binary(first_command.vault_key_wrapper.wrapped_key)
     assert is_binary(first_command.domain_key_version.wrapped_key)

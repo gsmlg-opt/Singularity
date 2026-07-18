@@ -34,12 +34,13 @@ defmodule Singularity.Runtime.ChangePassword do
              material.vault_wrapper.kdf_salt,
              old_parameters
            ]),
-         metadata = wrapper_metadata(session, material.vault_wrapper),
+         {:ok, old_metadata, new_metadata} <-
+           wrapper_metadata_pair(session, material.vault_wrapper),
          {:ok, vault_key} <-
            call_adapter(adapters.key_wrapper, :unwrap, [
              old_kek,
              material.vault_wrapper.wrapped_key,
-             metadata
+             old_metadata
            ]),
          :ok <- key_size(vault_key),
          {:ok, new_verifier} <-
@@ -57,22 +58,25 @@ defmodule Singularity.Runtime.ChangePassword do
            call_adapter(adapters.key_wrapper, :wrap, [
              new_kek,
              vault_key,
-             metadata
+             new_metadata
            ]),
          {:ok, encoded_wrapper} <- wrapped_key(new_wrapper),
          {:ok, new_wrapper_algorithm} <- wrapper_algorithm(new_wrapper),
-         selector = %{principal_id: session.principal_id},
-         :ok <- call_adapter(adapters.custodian, :begin_revoke, [selector]),
-         :ok <- call_adapter(adapters.custodian, :await_revoking, [selector]),
+         selector = %{vault_id: session.vault_id},
+         {:ok, revoke_token} <-
+           call_adapter(adapters.custodian, :begin_revoke, [selector]),
          result <-
-           persist_change(
+           persist_while_revoking(
              adapters,
              runtime,
              session,
              material,
+             selector,
+             revoke_token,
              new_verifier,
              new_salt,
              new_parameters,
+             new_metadata.generation,
              new_wrapper_algorithm,
              encoded_wrapper,
              correlation_id
@@ -113,6 +117,7 @@ defmodule Singularity.Runtime.ChangePassword do
          new_verifier,
          new_salt,
          new_parameters,
+         new_wrapper_generation,
          new_wrapper_algorithm,
          encoded_wrapper,
          correlation_id
@@ -134,6 +139,8 @@ defmodule Singularity.Runtime.ChangePassword do
             new_verifier: new_verifier,
             wrapper_id: material.vault_wrapper.id,
             vault_key_version_id: material.vault_wrapper.vault_key_version_id,
+            expected_wrapper_generation: material.vault_wrapper.generation,
+            new_wrapper_generation: new_wrapper_generation,
             expected_wrapped_key: material.vault_wrapper.wrapped_key,
             new_kdf_version: new_parameters.version,
             new_kdf_salt: new_salt,
@@ -146,18 +153,61 @@ defmodule Singularity.Runtime.ChangePassword do
     ])
   end
 
+  defp persist_while_revoking(
+         adapters,
+         runtime,
+         session,
+         material,
+         selector,
+         revoke_token,
+         new_verifier,
+         new_salt,
+         new_parameters,
+         new_wrapper_generation,
+         new_wrapper_algorithm,
+         encoded_wrapper,
+         correlation_id
+       ) do
+    try do
+      with :ok <- call_adapter(adapters.custodian, :await_revoking, [selector]) do
+        persist_change(
+          adapters,
+          runtime,
+          session,
+          material,
+          new_verifier,
+          new_salt,
+          new_parameters,
+          new_wrapper_generation,
+          new_wrapper_algorithm,
+          encoded_wrapper,
+          correlation_id
+        )
+      end
+    after
+      _finish_result =
+        call_adapter(adapters.custodian, :finish_revoke, [revoke_token])
+    end
+  end
+
   defp change_result(:ok, session), do: {:ok, SessionContext.locked(session)}
   defp change_result({:ok, _value}, session), do: {:ok, SessionContext.locked(session)}
   defp change_result({:error, %Error{}} = error, _session), do: error
   defp change_result(_invalid, _session), do: {:error, Error.new(:storage_unavailable)}
 
-  defp wrapper_metadata(session, wrapper) do
-    %{
+  defp wrapper_metadata_pair(session, %{generation: generation})
+       when is_integer(generation) and generation > 0 do
+    old_metadata = %{
       purpose: :vault_key,
-      generation: wrapper.generation,
+      generation: generation,
       aad: session.vault_id
     }
+
+    {:ok, old_metadata, %{old_metadata | generation: generation + 1}}
   end
+
+  defp wrapper_metadata_pair(_session, _wrapper),
+    do: {:error, Error.new(:invalid)}
 
   defp kdf_parameters(%{
          "version" => version,

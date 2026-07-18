@@ -4,6 +4,17 @@ defmodule Singularity.Storage.Fixtures do
   alias Ecto.Adapters.SQL
   alias Singularity.Storage.MigrationRepo
 
+  def reset_bootstrap_state! do
+    with_owner(fn ->
+      SQL.query!(
+        MigrationRepo,
+        "TRUNCATE TABLE identity.people CASCADE",
+        [],
+        log: false
+      )
+    end)
+  end
+
   def two_vaults! do
     with_owner(fn ->
       %{one: vault_fixture!("one"), two: vault_fixture!("two")}
@@ -207,13 +218,14 @@ defmodule Singularity.Storage.Fixtures do
       INSERT INTO identity.sessions (
         id,
         account_id,
+        credential_id,
         principal_id,
         vault_id,
         token_digest,
         expires_at
-      ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP + interval '1 hour')
+      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP + interval '1 hour')
       """,
-      [session_id, account_id, principal_id, vault_id, token_digest]
+      [session_id, account_id, credential_id, principal_id, vault_id, token_digest]
     )
 
     query!(

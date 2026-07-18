@@ -60,8 +60,13 @@ defmodule Fake.Authorization do
     end)
   end
 
-  @spec set_authorization_epoch(map(), String.t(), String.t(), non_neg_integer()) :: :ok
-  def set_authorization_epoch(
+  @spec set_principal_authorization_epoch(
+          map(),
+          String.t(),
+          String.t(),
+          non_neg_integer()
+        ) :: :ok
+  def set_principal_authorization_epoch(
         %{authorization: authorization},
         principal_id,
         vault_id,
@@ -69,7 +74,41 @@ defmodule Fake.Authorization do
       )
       when is_integer(epoch) and epoch >= 0 do
     Agent.update(authorization, fn state ->
-      put_in(state, [:authorizations, {principal_id, vault_id}, :epoch], epoch)
+      put_in(
+        state,
+        [
+          :authorizations,
+          {principal_id, vault_id},
+          :principal_authorization_epoch
+        ],
+        epoch
+      )
+    end)
+  end
+
+  @spec set_vault_authorization_epoch(
+          map(),
+          String.t(),
+          String.t(),
+          non_neg_integer()
+        ) :: :ok
+  def set_vault_authorization_epoch(
+        %{authorization: authorization},
+        principal_id,
+        vault_id,
+        epoch
+      )
+      when is_integer(epoch) and epoch >= 0 do
+    Agent.update(authorization, fn state ->
+      put_in(
+        state,
+        [
+          :authorizations,
+          {principal_id, vault_id},
+          :vault_authorization_epoch
+        ],
+        epoch
+      )
     end)
   end
 
@@ -108,10 +147,15 @@ defmodule Fake.Authorization do
          } <- state.sessions[binding.session_id],
          :active <- state.principals[principal_id],
          %{
-           epoch: epoch,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch,
            capabilities: capabilities
          } <- state.authorizations[{principal_id, vault_id}],
-         true <- epoch == binding.authorization_epoch,
+         true <-
+           principal_authorization_epoch ==
+             binding.principal_authorization_epoch,
+         true <-
+           vault_authorization_epoch == binding.vault_authorization_epoch,
          true <- MapSet.member?(capabilities, binding.required_capability),
          generation when is_integer(generation) <-
            state.object_generations[{vault_id, binding.object_id}],

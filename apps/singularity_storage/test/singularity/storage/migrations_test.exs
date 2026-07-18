@@ -3,7 +3,7 @@ defmodule Singularity.Storage.MigrationsTest do
 
   @moduletag :integration
 
-  alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.{Fixtures, MigrationRepo}
 
   @schemas ~w(identity core content jobs audit)
   @tables [
@@ -246,6 +246,280 @@ defmodule Singularity.Storage.MigrationsTest do
              ["outbox_events_principal_authorization_epoch_check"],
              ["outbox_events_vault_authorization_epoch_check"]
            ]
+  end
+
+  test "Task 11 migration preserves a legacy pending lease and keeps it claimable" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    legacy_claim_token = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    replacement_claim_token = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert [20_260_718_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert {:ok, legacy_claimed_until} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[claimed_until]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     INSERT INTO core.outbox_events (
+                       id,
+                       event_type,
+                       idempotency_key,
+                       vault_id,
+                       principal_id,
+                       required_capability,
+                       authorization_epoch,
+                       classification,
+                       correlation_id,
+                       expected_entity_revision,
+                       envelope_version,
+                       payload,
+                       occurred_at,
+                       claim_token,
+                       claimed_until
+                     ) VALUES (
+                       $1,
+                       'asset.verify_requested',
+                       $2,
+                       $3,
+                       $4,
+                       'asset.verify',
+                       23,
+                       'private',
+                       $5,
+                       0,
+                       1,
+                       '{}'::jsonb,
+                       CURRENT_TIMESTAMP,
+                       $6,
+                       CURRENT_TIMESTAMP - interval '5 minutes'
+                     )
+                     RETURNING claimed_until
+                     """,
+                     [
+                       event_id,
+                       "legacy-outbox-#{Ecto.UUID.generate()}",
+                       fixture.vault_id,
+                       fixture.principal_id,
+                       correlation_id,
+                       legacy_claim_token
+                     ]
+                   )
+
+                 claimed_until
+               end)
+
+      assert [20_260_718_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert {:ok, {nil, ^legacy_claim_token, ^legacy_claimed_until}} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[delivered_at, claim_token, claimed_until]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT delivered_at, claim_token, claimed_until
+                     FROM core.outbox_events
+                     WHERE id = $1
+                     """,
+                     [event_id]
+                   )
+
+                 {delivered_at, claim_token, claimed_until}
+               end)
+
+      %{rows: claimed_rows} =
+        query!(
+          DispatcherRepo,
+          """
+          SELECT outbox_event_id, claim_token
+          FROM core.claim_outbox_events(100, 30, $1)
+          """,
+          [replacement_claim_token]
+        )
+
+      assert [event_id, replacement_claim_token] in claimed_rows
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "DELETE FROM core.outbox_events WHERE id = $1", [event_id])
+        end)
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 11 migration refuses to discard a rotated wrapper generation on downgrade" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    version_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    wrapper_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.vault_key_versions (
+          id,
+          vault_id,
+          generation,
+          state,
+          algorithm
+        ) VALUES ($1, $2, 1, 'active', 'aes-256-gcm')
+        """,
+        [version_id, fixture.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.vault_key_wrappers (
+          id,
+          vault_id,
+          vault_key_version_id,
+          account_id,
+          generation,
+          kdf_version,
+          kdf_salt,
+          kdf_parameters,
+          wrapper_algorithm,
+          wrapped_key
+        ) VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          2,
+          1,
+          decode('00112233445566778899aabbccddeeff', 'hex'),
+          '{"version":1,"t_cost":1,"m_cost":8,"parallelism":1}'::jsonb,
+          'aes_256_gcm',
+          decode('aabbccdd', 'hex')
+        )
+        """,
+        [wrapper_id, fixture.vault_id, version_id, fixture.account_id]
+      )
+    end)
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert_raise Postgrex.Error, ~r/cannot downgrade.*wrapper generation/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert [] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 all: true,
+                 log: false
+               )
+
+      assert {:ok, 2} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[generation]]} =
+                   query!(
+                     MigrationRepo,
+                     """
+                     SELECT generation
+                     FROM core.vault_key_wrappers
+                     WHERE id = $1
+                     """,
+                     [wrapper_id]
+                   )
+
+                 generation
+               end)
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            "DELETE FROM core.vault_key_wrappers WHERE id = $1",
+            [wrapper_id]
+          )
+
+          query!(
+            MigrationRepo,
+            "DELETE FROM core.vault_key_versions WHERE id = $1",
+            [version_id]
+          )
+        end)
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
   end
 
   test "forces row-level security on every user-data table" do

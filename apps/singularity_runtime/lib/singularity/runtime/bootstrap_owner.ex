@@ -142,6 +142,7 @@ defmodule Singularity.Runtime.BootstrapOwner do
            vault_id: vault_id,
            vault_key_version_id: vault_key_version_id,
            account_id: owner_id,
+           generation: 1,
            kdf_version: Map.fetch!(kdf_params, :version),
            kdf_salt: kdf_salt,
            kdf_parameters: stringify_keys(kdf_params),

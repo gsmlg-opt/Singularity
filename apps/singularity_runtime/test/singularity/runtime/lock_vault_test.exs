@@ -20,12 +20,18 @@ defmodule Singularity.Runtime.LockVaultTest do
 
   defmodule Custodian do
     def begin_revoke(recorder, selector) do
-      Recorder.record(recorder, {:begin_revoke, selector})
-      :ok
+      token = make_ref()
+      Recorder.record(recorder, {:begin_revoke, selector, token})
+      {:ok, token}
     end
 
     def await_revoking(recorder, selector) do
       Recorder.record(recorder, {:await_revoking, selector})
+      :ok
+    end
+
+    def finish_revoke(recorder, token) do
+      Recorder.record(recorder, {:finish_revoke, token})
       :ok
     end
   end
@@ -100,11 +106,14 @@ defmodule Singularity.Runtime.LockVaultTest do
              LockVault.run(runtime, session, "correlation-1")
 
     assert [
-             {:begin_revoke, %{session_id: "session-1"}},
-             {:await_revoking, %{session_id: "session-1"}},
+             {:begin_revoke, %{vault_id: "vault-1"}, token},
+             {:await_revoking, %{vault_id: "vault-1"}},
              {:scope, requirement},
-             {:persist, command}
+             {:persist, command},
+             {:finish_revoke, finished_token}
            ] = Recorder.events(recorder)
+
+    assert finished_token == token
 
     assert requirement == %{
              required_capability: "vault.lock",
@@ -130,10 +139,15 @@ defmodule Singularity.Runtime.LockVaultTest do
     assert {:error, %Error{code: :storage_unavailable}} =
              LockVault.run(runtime, session, "correlation-1")
 
-    assert match?(
-             [{:begin_revoke, _}, {:await_revoking, _}, {:scope, _}, {:persist, _}],
-             Recorder.events(recorder)
-           )
+    assert [
+             {:begin_revoke, _, token},
+             {:await_revoking, _},
+             {:scope, _},
+             {:persist, _},
+             {:finish_revoke, finished_token}
+           ] = Recorder.events(recorder)
+
+    assert finished_token == token
   end
 
   test "idle timeout persists an audited lock after custody has already been removed", %{

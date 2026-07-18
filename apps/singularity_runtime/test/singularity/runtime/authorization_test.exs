@@ -27,9 +27,20 @@ defmodule Singularity.Runtime.AuthorizationTest do
   end
 
   defmodule Custodian do
-    def assert_unlocked(context, session_id, principal_id, vault_id) do
+    def assert_unlocked(
+          context,
+          session_id,
+          principal_id,
+          vault_id,
+          principal_authorization_epoch,
+          vault_authorization_epoch
+        ) do
       Agent.get(context, fn state ->
-        if MapSet.member?(state, {session_id, principal_id, vault_id}) do
+        if MapSet.member?(
+             state,
+             {session_id, principal_id, vault_id, principal_authorization_epoch,
+              vault_authorization_epoch}
+           ) do
           :ok
         else
           {:error, Error.new(:vault_locked)}
@@ -57,7 +68,7 @@ defmodule Singularity.Runtime.AuthorizationTest do
 
     custodian =
       start_agent!(fn ->
-        MapSet.new([{@session_id, @principal_id, @vault_id}])
+        MapSet.new([{@session_id, @principal_id, @vault_id, 7, 23}])
       end)
 
     dependencies = %AuthorizationDependencies{
@@ -157,7 +168,7 @@ defmodule Singularity.Runtime.AuthorizationTest do
 
     Agent.update(
       custodian,
-      &MapSet.delete(&1, {@session_id, @principal_id, @vault_id})
+      &MapSet.delete(&1, {@session_id, @principal_id, @vault_id, 7, 23})
     )
 
     assert {:error, %Error{code: :vault_locked}} =

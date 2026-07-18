@@ -155,6 +155,8 @@ defmodule Singularity.Runtime.UnlockVaultTest do
       principal_id: "principal-1",
       vault_id: "vault-1",
       expires_at: DateTime.add(DateTime.utc_now(), 300),
+      principal_authorization_epoch: 7,
+      vault_authorization_epoch: 23,
       authorization_epoch: 7,
       unlocked?: false
     }
@@ -218,6 +220,9 @@ defmodule Singularity.Runtime.UnlockVaultTest do
     assert custody.session_id == "session-1"
     assert custody.principal_id == "principal-1"
     assert custody.vault_id == "vault-1"
+    assert custody.principal_authorization_epoch == 7
+    assert custody.vault_authorization_epoch == 23
+    refute Map.has_key?(custody, :authorization_epoch)
     assert byte_size(custody.vault_key) == 32
     assert byte_size(custody.domain_key) == 32
     refute Map.has_key?(custody, :object_dek)
@@ -226,6 +231,8 @@ defmodule Singularity.Runtime.UnlockVaultTest do
              session_id: "session-1",
              principal_id: "principal-1",
              vault_id: "vault-1",
+             wrapper_id: "wrapper-1",
+             wrapper_generation: 3,
              vault_key_version_id: "vault-version-1",
              domain_key_version_id: "domain-version-1",
              correlation_id: "correlation-1"
@@ -367,7 +374,8 @@ defmodule Singularity.Runtime.UnlockVaultTest do
       vault_id: "vault-1",
       principal_id: "principal-1",
       required_capability: "asset.read",
-      authorization_epoch: 7,
+      principal_authorization_epoch: 7,
+      vault_authorization_epoch: 23,
       object_id: "object-1",
       object_generation: 1,
       session_id: "session-1"

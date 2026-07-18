@@ -10,6 +10,7 @@ defmodule Singularity.Storage.Schema.Identity.Session do
 
   schema "sessions" do
     field :account_id, Ecto.UUID
+    field :credential_id, Ecto.UUID
     field :principal_id, Ecto.UUID
     field :vault_id, Ecto.UUID
     field :token_digest, :binary
@@ -23,6 +24,7 @@ defmodule Singularity.Storage.Schema.Identity.Session do
     |> cast(attrs, [
       :id,
       :account_id,
+      :credential_id,
       :principal_id,
       :vault_id,
       :token_digest,
@@ -31,6 +33,7 @@ defmodule Singularity.Storage.Schema.Identity.Session do
     |> validate_required([
       :id,
       :account_id,
+      :credential_id,
       :principal_id,
       :vault_id,
       :token_digest,
@@ -38,6 +41,7 @@ defmodule Singularity.Storage.Schema.Identity.Session do
     ])
     |> validate_change(:token_digest, &validate_digest/2)
     |> foreign_key_constraint(:account_id, name: :sessions_account_id_fkey)
+    |> foreign_key_constraint(:credential_id, name: :sessions_credential_id_fkey)
     |> foreign_key_constraint(:principal_id, name: :sessions_membership_fkey)
     |> unique_constraint(:token_digest, name: :sessions_token_digest_key)
     |> unique_constraint([:id, :vault_id], name: :sessions_id_vault_id_key)

@@ -178,6 +178,8 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
       new_verifier: "new-verifier",
       wrapper_id: material.vault_wrapper.id,
       vault_key_version_id: material.vault_wrapper.vault_key_version_id,
+      expected_wrapper_generation: material.vault_wrapper.generation,
+      new_wrapper_generation: material.vault_wrapper.generation + 1,
       expected_wrapped_key: material.vault_wrapper.wrapped_key,
       new_kdf_version: 2,
       new_kdf_salt: :binary.copy(<<0x52>>, 16),
@@ -207,8 +209,21 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
                &IdentityRepository.change_password_and_wrapper(&1, stale_wrapper)
              )
 
+    stale_generation = %{
+      command
+      | expected_wrapper_generation: command.expected_wrapper_generation + 1,
+        new_wrapper_generation: command.new_wrapper_generation + 1
+    }
+
+    assert {:error, %Error{code: :conflict}} =
+             scoped(
+               one,
+               &IdentityRepository.change_password_and_wrapper(&1, stale_generation)
+             )
+
     assert credential_and_wrapper(one) == %{
              verifier: one.verifier,
+             generation: 3,
              kdf_version: 1,
              kdf_salt: :binary.copy(<<0x11>>, 16),
              kdf_parameters: %{
@@ -229,6 +244,7 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
 
     assert credential_and_wrapper(one) == %{
              verifier: "new-verifier",
+             generation: 4,
              kdf_version: 2,
              kdf_salt: :binary.copy(<<0x52>>, 16),
              kdf_parameters: %{
@@ -247,6 +263,9 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
 
     assert {:error, %Error{code: :conflict}} =
              scoped(one, &IdentityRepository.change_password_and_wrapper(&1, command))
+
+    assert {:error, %Error{code: :conflict}} =
+             scoped(one, &IdentityRepository.unlock_and_audit(&1, unlock_command(one)))
 
     assert audit_operations(one) == ["identity.password_change"]
   end
@@ -286,12 +305,13 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
           vault_id,
           vault_key_version_id,
           account_id,
+          generation,
           kdf_version,
           kdf_salt,
           kdf_parameters,
           wrapper_algorithm,
           wrapped_key
-        ) VALUES ($1, $2, $3, $4, 1, $5, $6::text::jsonb, 'aes_256_gcm', $7)
+        ) VALUES ($1, $2, $3, $4, 3, 1, $5, $6::text::jsonb, 'aes_256_gcm', $7)
         """,
         [
           wrapper_id,
@@ -354,6 +374,8 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
     fixture
     |> mutation_command()
     |> Map.merge(%{
+      wrapper_id: canonical(fixture.key_material.wrapper_id),
+      wrapper_generation: 3,
       vault_key_version_id: canonical(fixture.key_material.vault_key_version_id),
       domain_key_version_id: canonical(fixture.key_material.domain_key_version_id)
     })
@@ -458,12 +480,17 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
 
   defp credential_and_wrapper(fixture) do
     Fixtures.with_owner(fn ->
-      %{rows: [[verifier, kdf_version, kdf_salt, kdf_parameters, algorithm, wrapped_key]]} =
+      %{
+        rows: [
+          [verifier, generation, kdf_version, kdf_salt, kdf_parameters, algorithm, wrapped_key]
+        ]
+      } =
         query!(
           MigrationRepo,
           """
           SELECT
             credential.verifier,
+            wrapper.generation,
             wrapper.kdf_version,
             wrapper.kdf_salt,
             wrapper.kdf_parameters,
@@ -479,6 +506,7 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
 
       %{
         verifier: verifier,
+        generation: generation,
         kdf_version: kdf_version,
         kdf_salt: kdf_salt,
         kdf_parameters: kdf_parameters,

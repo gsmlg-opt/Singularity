@@ -9,6 +9,7 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.IdentityRepository
+  alias Singularity.Storage.Postgres.PreAuth
   alias Singularity.Storage.ScopedRepo
 
   @session_fields [
@@ -246,6 +247,16 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
     assert snapshot.vault_authorization_epoch == 7
     refute snapshot.vault_locked
     assert snapshot.capabilities == []
+  end
+
+  test "disabled accounts invalidate opaque sessions and both authorization snapshots", %{
+    one: one
+  } do
+    Fixtures.disable_account!(one)
+
+    assert {:ok, nil} = PreAuth.resolve_session(PreAuthRepo, one.token_digest)
+    assert {:ok, nil} = scoped(one, &session_snapshot(&1, one.session_id))
+    assert {:ok, nil} = scoped(one, &principal_snapshot/1)
   end
 
   test "credential CAS is scoped and denied after principal revocation", %{
