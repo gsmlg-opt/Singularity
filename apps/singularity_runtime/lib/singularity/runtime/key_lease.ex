@@ -290,6 +290,7 @@ defmodule Singularity.Runtime.KeyLease do
   defp finish_read({:ok, chunk}, pending, state) do
     case persist_completed_read(state, pending.index) do
       {:ok, next_checkpoint} ->
+        send(state.custodian, {:authorized_activity, state.binding.session_id})
         GenServer.reply(pending.from, {:ok, chunk})
 
         {:noreply, %{state | checkpoint: next_checkpoint, next_index: pending.index + 1}}

@@ -12,12 +12,15 @@ defmodule Singularity.Storage.Postgres.PreAuth do
            log: false
          ) do
       {:ok, %{rows: [[credential_id, account_id, verifier, verifier_version]]}} ->
+        account_id = load_uuid(account_id)
+
         {:ok,
          %{
            credential_id: load_uuid(credential_id),
-           account_id: load_uuid(account_id),
+           account_id: account_id,
            verifier: verifier,
-           verifier_version: verifier_version
+           verifier_version: verifier_version,
+           scoped_context: owner_scope(account_id)
          }}
 
       {:error, _reason} ->
@@ -26,6 +29,46 @@ defmodule Singularity.Storage.Postgres.PreAuth do
   end
 
   def authentication_candidate(_repo, _login), do: {:error, Error.new(:invalid)}
+
+  def reserve_attempt(repo, %{
+        login_fingerprint: login_fingerprint,
+        source_fingerprint: source_fingerprint,
+        correlation_id: correlation_id
+      })
+      when is_binary(correlation_id) do
+    case record_auth_attempt(repo, %{
+           login_fingerprint: login_fingerprint,
+           source_fingerprint: source_fingerprint,
+           result: :started
+         }) do
+      {:ok, %{attempt_id: id, accepted?: accepted?}} ->
+        {:ok, %{id: id, accepted?: accepted?}}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  def reserve_attempt(_repo, _command), do: {:error, Error.new(:invalid)}
+
+  def record_attempt(repo, %{
+        login_fingerprint: login_fingerprint,
+        source_fingerprint: source_fingerprint,
+        correlation_id: correlation_id,
+        result: "failed"
+      })
+      when is_binary(correlation_id) do
+    case record_auth_attempt(repo, %{
+           login_fingerprint: login_fingerprint,
+           source_fingerprint: source_fingerprint,
+           result: :failed
+         }) do
+      {:ok, _attempt} -> :ok
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  def record_attempt(_repo, _command), do: {:error, Error.new(:invalid)}
 
   def resolve_session(repo, token_digest)
       when is_binary(token_digest) and byte_size(token_digest) == 32 do
@@ -38,13 +81,27 @@ defmodule Singularity.Storage.Postgres.PreAuth do
       {:ok, %{rows: []}} ->
         {:ok, nil}
 
-      {:ok, %{rows: [[session_id, principal_id, vault_id, expires_at]]}} ->
+      {:ok,
+       %{
+         rows: [
+           [
+             session_id,
+             principal_id,
+             vault_id,
+             expires_at,
+             principal_authorization_epoch,
+             vault_authorization_epoch
+           ]
+         ]
+       }} ->
         {:ok,
          %{
            session_id: load_uuid(session_id),
            principal_id: load_uuid(principal_id),
            vault_id: load_uuid(vault_id),
-           expires_at: expires_at
+           expires_at: expires_at,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch
          }}
 
       {:error, _reason} ->
@@ -83,4 +140,14 @@ defmodule Singularity.Storage.Postgres.PreAuth do
 
   defp load_uuid(nil), do: nil
   defp load_uuid(uuid), do: Ecto.UUID.load!(uuid)
+
+  defp owner_scope(nil), do: nil
+
+  defp owner_scope(account_id) do
+    %{
+      account_id: account_id,
+      principal_id: account_id,
+      vault_id: account_id
+    }
+  end
 end

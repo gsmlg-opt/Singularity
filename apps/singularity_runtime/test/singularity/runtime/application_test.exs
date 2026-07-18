@@ -37,7 +37,12 @@ defmodule Singularity.Runtime.ApplicationTest do
     for invalid <- [
           put_in(valid_composition(), [:job_handler], nil),
           put_in(valid_composition(), [:authorization, :store], nil),
-          put_in(valid_composition(), [:authorization, :custodian], nil)
+          put_in(valid_composition(), [:authorization, :custodian], nil),
+          update_in(
+            valid_composition(),
+            [:key_custodian],
+            &Map.delete(&1, :object_key_loader)
+          )
         ] do
       assert_raise ArgumentError, ~r/runtime job composition is invalid/, fn ->
         RuntimeApplication.infrastructure_children(invalid)
@@ -136,7 +141,9 @@ defmodule Singularity.Runtime.ApplicationTest do
         authorization: Fake.Authorization,
         clock: Fake.Clock,
         context: %{},
-        key_reader: Fake.KeyReader
+        idle_lock: fn _session -> :ok end,
+        key_reader: Fake.KeyReader,
+        object_key_loader: Fake.KeyReader
       },
       oban: [],
       outbox_dispatcher: []

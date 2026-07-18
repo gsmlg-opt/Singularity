@@ -122,9 +122,19 @@ defmodule Singularity.Runtime.Application do
   defp valid_handler?(_handler), do: false
 
   defp valid_custodian_options?(options) when is_map(options) do
-    Enum.all?([:authorization, :clock, :context, :key_reader], fn key ->
-      Map.has_key?(options, key) and Map.fetch!(options, key) not in [nil, false]
-    end)
+    Enum.all?(
+      [
+        :authorization,
+        :clock,
+        :context,
+        :idle_lock,
+        :key_reader,
+        :object_key_loader
+      ],
+      fn key ->
+        Map.has_key?(options, key) and Map.fetch!(options, key) not in [nil, false]
+      end
+    )
   end
 
   defp valid_custodian_options?(_options), do: false

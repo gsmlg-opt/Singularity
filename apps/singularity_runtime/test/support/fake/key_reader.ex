@@ -12,6 +12,7 @@ defmodule Fake.KeyReader do
         calls: [],
         checkpoint_loads: [],
         checkpoint_persists: [],
+        object_key_loads: [],
         checkpoints: Keyword.get(options, :checkpoints, %{}),
         chunks: Keyword.fetch!(options, :chunks),
         block_next_read?: false,
@@ -37,6 +38,30 @@ defmodule Fake.KeyReader do
           {:release_key_reader, ^token} -> result
         end
     end
+  end
+
+  @spec load_object_key(map(), map(), map()) ::
+          {:ok, binary()} | {:error, :waiting_for_unlock}
+  def load_object_key(
+        %{key_reader: key_reader},
+        binding,
+        %{cached_object_keys: object_keys} = hierarchy
+      ) do
+    Agent.get_and_update(key_reader, fn state ->
+      load = %{binding: binding, hierarchy: hierarchy}
+      state = %{state | object_key_loads: [load | state.object_key_loads]}
+
+      result =
+        case Map.get(
+               object_keys,
+               {binding.object_id, binding.object_generation}
+             ) do
+          <<_::binary-size(32)>> = object_dek -> {:ok, object_dek}
+          _missing -> {:error, :waiting_for_unlock}
+        end
+
+      {result, state}
+    end)
   end
 
   @spec calls(map()) :: [{map(), non_neg_integer()}]
@@ -95,6 +120,11 @@ defmodule Fake.KeyReader do
   @spec load_calls(map()) :: [map()]
   def load_calls(%{key_reader: key_reader}) do
     Agent.get(key_reader, &Enum.reverse(&1.checkpoint_loads))
+  end
+
+  @spec object_key_loads(map()) :: [map()]
+  def object_key_loads(%{key_reader: key_reader}) do
+    Agent.get(key_reader, &Enum.reverse(&1.object_key_loads))
   end
 
   @spec persist_calls(map()) :: [map()]

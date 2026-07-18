@@ -284,12 +284,12 @@ defmodule Singularity.Storage.MigrationsTest do
     Code.compiler_options(ignore_module_conflict: true)
 
     try do
-      assert [20_260_718_000_700, 20_260_718_000_600] =
+      assert [20_260_718_000_800, 20_260_718_000_700, 20_260_718_000_600] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 2,
+                 step: 3,
                  log: false
                )
 

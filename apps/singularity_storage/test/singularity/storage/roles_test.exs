@@ -251,6 +251,7 @@ defmodule Singularity.Storage.RolesTest do
       )
 
     assert column_privileges == [
+             ["clearance", "SELECT"],
              ["principal_id", "SELECT"],
              ["revoked_at", "SELECT"],
              ["vault_id", "SELECT"]

@@ -9,6 +9,13 @@
 # move said applications out of the umbrella.
 import Config
 
+argon2_params = %{
+  version: 1,
+  t_cost: 3,
+  m_cost: 16,
+  parallelism: 1
+}
+
 config :phoenix, :json_library, JSON
 config :logger_json, :encoder, JSON
 config :postgrex, :json_library, JSON
@@ -16,8 +23,25 @@ config :postgrex, :json_library, JSON
 config :singularity_runtime,
   max_upload_bytes: 536_870_912,
   max_concurrent_uploads: 2,
+  password_hash_params: argon2_params,
+  vault_kdf_params: argon2_params,
   vault_idle_timeout_ms: :timer.minutes(15),
-  start_infrastructure: true
+  start_infrastructure: true,
+  authorization_dependencies: %{
+    store: Singularity.Storage.Postgres.IdentityRepository,
+    custodian: Singularity.Runtime.KeyCustodian
+  },
+  bootstrap_owner: %{
+    repository: Singularity.Storage.Postgres.IdentityRepository,
+    repository_context: Singularity.Storage.MigrationRepo,
+    password_hasher: Singularity.Storage.Crypto.Argon2PasswordHasher,
+    password_hasher_context: argon2_params,
+    key_deriver: Singularity.Storage.Crypto.Argon2KeyDeriver,
+    key_wrapper: Singularity.Storage.Crypto.KeyWrapper,
+    id_generator: &Ecto.UUID.generate/0,
+    random_bytes: &:crypto.strong_rand_bytes/1,
+    vault_kdf_params: argon2_params
+  }
 
 config :singularity_storage,
   job_handler: Singularity.Runtime.JobDispatcher

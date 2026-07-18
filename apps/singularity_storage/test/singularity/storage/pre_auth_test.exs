@@ -43,7 +43,9 @@ defmodule Singularity.Storage.PreAuthTest do
                "session_id",
                "principal_id",
                "vault_id",
-               "expires_at"
+               "expires_at",
+               "principal_authorization_epoch",
+               "vault_authorization_epoch"
              ],
              rows: [session]
            } =
@@ -53,10 +55,20 @@ defmodule Singularity.Storage.PreAuthTest do
                [one.token_digest]
              )
 
-    assert [session_id, principal_id, vault_id, _expires_at] = session
+    assert [
+             session_id,
+             principal_id,
+             vault_id,
+             _expires_at,
+             principal_authorization_epoch,
+             vault_authorization_epoch
+           ] = session
+
     assert session_id == one.session_id
     assert principal_id == one.principal_id
     assert vault_id == one.vault_id
+    assert principal_authorization_epoch == 0
+    assert vault_authorization_epoch == 0
   end
 
   test "pre-auth cannot enumerate identity tables" do

@@ -13,6 +13,7 @@ config :singularity_storage,
 
 config :singularity_runtime,
   start_infrastructure: false,
+  audit_fingerprint_secret: :binary.copy(<<0xA7>>, 32),
   authorization_dependencies: %{
     store: Fake.Authorization,
     custodian: Singularity.Runtime.KeyCustodian
@@ -21,7 +22,9 @@ config :singularity_runtime,
     authorization: Fake.Authorization,
     clock: Fake.Clock,
     context: %{},
-    key_reader: Fake.KeyReader
+    idle_lock: fn _session -> :ok end,
+    key_reader: Fake.KeyReader,
+    object_key_loader: Fake.KeyReader
   },
   oban_options: [testing: :manual, queues: false, plugins: false],
   outbox_dispatcher_options: [interval_ms: 3_600_000]

@@ -24,11 +24,25 @@ if config_env() == :prod do
         end
     end
 
+  storage_root = System.fetch_env!("SINGULARITY_STORAGE_ROOT")
+
+  audit_fingerprint_secret =
+    case System.fetch_env!("SINGULARITY_AUDIT_FINGERPRINT_SECRET")
+         |> Base.decode64() do
+      {:ok, secret} when byte_size(secret) >= 32 ->
+        secret
+
+      _invalid ->
+        raise ArgumentError,
+              "SINGULARITY_AUDIT_FINGERPRINT_SECRET must decode to at least 32 bytes"
+    end
+
   config :singularity_runtime,
+    audit_fingerprint_secret: audit_fingerprint_secret,
     max_concurrent_uploads: max_concurrent_uploads
 
   config :singularity_storage,
-    storage_root: System.fetch_env!("SINGULARITY_STORAGE_ROOT")
+    storage_root: storage_root
 
   config :singularity_storage, Singularity.Storage.MigrationRepo,
     url: System.fetch_env!("SINGULARITY_MIGRATION_DATABASE_URL")
