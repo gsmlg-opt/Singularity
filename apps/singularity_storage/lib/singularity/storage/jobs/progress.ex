@@ -29,7 +29,7 @@ defmodule Singularity.Storage.Jobs.Progress do
         }
       )
       when is_binary(effect_key) and byte_size(effect_key) > 0 and
-             result in [:applied, :stale] and is_integer(entity_revision) and
+             result in [:applied, :stale, :failed] and is_integer(entity_revision) and
              entity_revision >= 0 do
     now = DateTime.utc_now()
 

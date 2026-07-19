@@ -47,6 +47,7 @@ defmodule Singularity.Runtime.BootstrapOwner do
     owner_id = generate_id(adapters)
     credential_id = generate_id(adapters)
     vault_id = owner_id
+    cleanup_principal_id = generate_id(adapters)
     key_domain_id = generate_id(adapters)
     vault_key_version_id = generate_id(adapters)
     vault_key_wrapper_id = generate_id(adapters)
@@ -110,6 +111,13 @@ defmodule Singularity.Runtime.BootstrapOwner do
            authorization_epoch: 0,
            metadata: %{}
          },
+         cleanup_principal: %{
+           id: cleanup_principal_id,
+           account_id: owner_id,
+           kind: :system,
+           authorization_epoch: 0,
+           metadata: %{"name" => "object_cleanup"}
+         },
          vault: %{
            id: vault_id,
            kind: :personal,
@@ -122,7 +130,13 @@ defmodule Singularity.Runtime.BootstrapOwner do
            vault_id: vault_id,
            clearance: :restricted
          },
+         cleanup_membership: %{
+           principal_id: cleanup_principal_id,
+           vault_id: vault_id,
+           clearance: :restricted
+         },
          capabilities: Map.get(adapters, :initial_capabilities, @default_capabilities),
+         cleanup_capabilities: ["object.cleanup"],
          key_domain: %{
            id: key_domain_id,
            vault_id: vault_id,

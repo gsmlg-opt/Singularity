@@ -18,8 +18,15 @@ defmodule Singularity.Storage.Schema.Content.AssetObject do
     field :ciphertext_byte_size, :integer
     field :storage_ref, :string
     field :format_version, :integer
-    field :lifecycle, Ecto.Enum, values: [:staged, :available, :pending_delete, :deleted]
+
+    field :lifecycle,
+          Ecto.Enum,
+          values: [:staged, :available, :pending_delete, :orphan_pending, :deleting, :deleted]
+
+    field :lifecycle_revision, :integer, default: 0
     field :retained_until, :utc_datetime_usec
+    field :delete_claim_token, Ecto.UUID
+    field :delete_claimed_at, :utc_datetime_usec
     field :deleted_at, :utc_datetime_usec
     field :deletion_evidence, :map
     timestamps(type: :utc_datetime_usec)
@@ -39,6 +46,7 @@ defmodule Singularity.Storage.Schema.Content.AssetObject do
       :storage_ref,
       :format_version,
       :lifecycle,
+      :lifecycle_revision,
       :retained_until
     ])
     |> validate_required([
@@ -52,20 +60,38 @@ defmodule Singularity.Storage.Schema.Content.AssetObject do
       :ciphertext_byte_size,
       :storage_ref,
       :format_version,
-      :lifecycle
+      :lifecycle,
+      :lifecycle_revision
     ])
     |> validate_number(:plaintext_byte_size, greater_than_or_equal_to: 0)
     |> validate_number(:ciphertext_byte_size, greater_than_or_equal_to: 0)
     |> validate_number(:format_version, greater_than: 0)
+    |> validate_number(:lifecycle_revision, greater_than_or_equal_to: 0)
     |> apply_constraints()
   end
 
   def lifecycle_changeset(object, attrs) do
     object
-    |> cast(attrs, [:lifecycle, :retained_until, :deleted_at, :deletion_evidence])
+    |> cast(attrs, [
+      :lifecycle,
+      :lifecycle_revision,
+      :retained_until,
+      :delete_claim_token,
+      :delete_claimed_at,
+      :deleted_at,
+      :deletion_evidence
+    ])
     |> validate_required([:lifecycle])
+    |> validate_number(:lifecycle_revision, greater_than_or_equal_to: 0)
     |> validate_change(:deletion_evidence, &string_keyed_json/2)
     |> check_constraint(:lifecycle, name: :asset_objects_lifecycle_check)
+    |> check_constraint(:lifecycle_revision,
+      name: :asset_objects_lifecycle_revision_check
+    )
+    |> check_constraint(:delete_claim_token,
+      name: :asset_objects_cleanup_claim_check
+    )
+    |> check_constraint(:lifecycle, name: :asset_objects_lifecycle_evidence_check)
   end
 
   defp apply_constraints(changeset) do
@@ -76,7 +102,7 @@ defmodule Singularity.Storage.Schema.Content.AssetObject do
       name: :asset_objects_id_vault_id_key_domain_id_key
     )
     |> unique_constraint([:vault_id, :key_domain_id, :lookup_digest],
-      name: :asset_objects_vault_id_key_domain_id_lookup_digest_key
+      name: :asset_objects_live_lookup_key
     )
     |> check_constraint(:classification, name: :asset_objects_classification_check)
     |> check_constraint(:lookup_digest, name: :asset_objects_lookup_digest_check)
@@ -84,6 +110,13 @@ defmodule Singularity.Storage.Schema.Content.AssetObject do
     |> check_constraint(:plaintext_byte_size, name: :asset_objects_sizes_check)
     |> check_constraint(:format_version, name: :asset_objects_format_version_check)
     |> check_constraint(:lifecycle, name: :asset_objects_lifecycle_check)
+    |> check_constraint(:lifecycle_revision,
+      name: :asset_objects_lifecycle_revision_check
+    )
+    |> check_constraint(:delete_claim_token,
+      name: :asset_objects_cleanup_claim_check
+    )
+    |> check_constraint(:lifecycle, name: :asset_objects_lifecycle_evidence_check)
   end
 
   defp string_keyed_json(field, value) do

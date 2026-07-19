@@ -28,7 +28,11 @@ defmodule Singularity.Storage.LocalFilesystemAdapter do
   end
 
   @impl true
+  def stage(context, %{stage_id: stage_id}) when is_binary(stage_id),
+    do: Stage.create(context, stage_id)
+
   def stage(context, options) when is_map(options), do: Stage.create(context)
+
   def stage(_context, _options), do: invalid()
 
   @impl true

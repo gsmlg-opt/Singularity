@@ -65,6 +65,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
           account: %{id: owner_id},
           credential: %{id: credential_id},
           principal: %{id: owner_id, kind: :owner},
+          cleanup_principal: %{id: cleanup_principal_id, kind: :system},
           vault: %{id: vault_id},
           key_domain: %{id: key_domain_id},
           vault_key_version: %{id: vault_key_version_id},
@@ -76,6 +77,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
     ids = [
       owner_id,
       credential_id,
+      cleanup_principal_id,
       vault_id,
       key_domain_id,
       vault_key_version_id,
@@ -306,11 +308,18 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
                repo,
                vault_id,
                vault_wrapper.vault_key_version_id
+             ),
+           {:ok, domain_dedup_key_wrapper} <-
+             load_active_domain_dedup_key_wrapper(
+               repo,
+               vault_id,
+               domain_key_version
              ) do
         {:ok,
          %{
            vault_wrapper: vault_wrapper,
-           domain_key_version: domain_key_version
+           domain_key_version: domain_key_version,
+           domain_dedup_key_wrapper: domain_dedup_key_wrapper
          }}
       end
     end)
@@ -744,12 +753,39 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
       :membership,
       VaultMember.create_changeset(%VaultMember{}, command.membership)
     )
+    |> Multi.insert(
+      :cleanup_principal,
+      Principal.create_changeset(%Principal{}, command.cleanup_principal)
+    )
+    |> Multi.insert(
+      :cleanup_membership,
+      VaultMember.create_changeset(
+        %VaultMember{},
+        command.cleanup_membership
+      )
+    )
+    |> Multi.update(:cleanup_vault, fn %{
+                                         vault: vault,
+                                         cleanup_principal: cleanup_principal
+                                       } ->
+      Vault.cleanup_principal_changeset(vault, %{
+        object_cleanup_principal_id: cleanup_principal.id
+      })
+    end)
     |> Multi.run(:capabilities, fn transaction_repo, _changes ->
       insert_capabilities(
         transaction_repo,
         command.principal.id,
         command.vault.id,
         command.capabilities
+      )
+    end)
+    |> Multi.run(:cleanup_capabilities, fn transaction_repo, _changes ->
+      insert_capabilities(
+        transaction_repo,
+        command.cleanup_principal.id,
+        command.vault.id,
+        command.cleanup_capabilities
       )
     end)
     |> Multi.insert(
@@ -950,8 +986,13 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
     with true <- command.person.id == command.account.person_id,
          true <- command.account.id == command.credential.account_id,
          true <- command.account.id == command.principal.account_id,
+         true <- command.account.id == command.cleanup_principal.account_id,
          true <- command.principal.id == command.membership.principal_id,
+         true <-
+           command.cleanup_principal.id ==
+             command.cleanup_membership.principal_id,
          true <- command.vault.id == command.membership.vault_id,
+         true <- command.vault.id == command.cleanup_membership.vault_id,
          true <- command.vault.id == command.key_domain.vault_id,
          true <- command.vault.id == command.vault_key_version.vault_id,
          true <- command.vault.id == command.vault_key_wrapper.vault_id,
@@ -973,7 +1014,10 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
          true <-
            command.domain_key_version.id ==
              command.domain_dedup_key_wrapper.domain_key_version_id,
-         true <- valid_capabilities?(command.capabilities) do
+         true <- valid_capabilities?(command.capabilities),
+         true <- valid_capabilities?(command.cleanup_capabilities),
+         true <- command.cleanup_capabilities == ["object.cleanup"],
+         true <- command.cleanup_principal.metadata == %{"name" => "object_cleanup"} do
       :ok
     else
       false -> {:error, Error.new(:invalid)}
@@ -1172,9 +1216,33 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         select: %{
           id: version.id,
           key_domain_id: version.key_domain_id,
+          classification: domain.classification,
           generation: version.generation,
           algorithm: version.algorithm,
           wrapped_key: version.wrapped_key
+        }
+    )
+    |> one_runtime_material()
+  end
+
+  defp load_active_domain_dedup_key_wrapper(
+         repo,
+         vault_id,
+         %{id: domain_key_version_id, key_domain_id: key_domain_id}
+       ) do
+    repo.all(
+      from wrapper in DomainDedupKeyWrapper,
+        where: wrapper.vault_id == ^vault_id,
+        where: wrapper.key_domain_id == ^key_domain_id,
+        where: wrapper.domain_key_version_id == ^domain_key_version_id,
+        order_by: [asc: wrapper.id],
+        limit: 2,
+        select: %{
+          id: wrapper.id,
+          key_domain_id: wrapper.key_domain_id,
+          domain_key_version_id: wrapper.domain_key_version_id,
+          algorithm: wrapper.algorithm,
+          wrapped_key: wrapper.wrapped_key
         }
     )
     |> one_runtime_material()

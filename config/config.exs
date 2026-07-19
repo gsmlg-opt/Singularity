@@ -32,12 +32,17 @@ config :singularity_runtime,
     custodian: Singularity.Runtime.KeyCustodian
   },
   key_custodian: %{
-    authorization: Singularity.Runtime.DeferredPlaintextAdapter,
-    clock: Singularity.Runtime.DeferredPlaintextAdapter,
-    context: %{},
+    authorization: Singularity.Runtime.CustodyReader,
+    clock: Singularity.Runtime.CustodyReader,
+    context: %{
+      repo: Singularity.Storage.WorkerRepo,
+      repository_adapter: Singularity.Storage.Postgres.CustodyRepository,
+      key_wrapper: Singularity.Storage.Crypto.KeyWrapper,
+      storage: Singularity.Runtime.StorageAdapter
+    },
     idle_lock: Singularity.Runtime.LockVault,
-    key_reader: Singularity.Runtime.DeferredPlaintextAdapter,
-    object_key_loader: Singularity.Runtime.DeferredPlaintextAdapter
+    key_reader: Singularity.Runtime.CustodyReader,
+    object_key_loader: Singularity.Runtime.CustodyReader
   },
   bootstrap_owner: %{
     repository: Singularity.Storage.Postgres.IdentityRepository,

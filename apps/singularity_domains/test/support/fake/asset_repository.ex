@@ -20,6 +20,15 @@ defmodule Fake.AssetRepository do
   end
 
   @impl true
+  def create_upload_grant(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{state | calls: [{:create_upload_grant, intent} | state.calls]}
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
   def create_upload_intent(context, intent) do
     Agent.get_and_update(repository(context), fn state ->
       state = %{
@@ -36,6 +45,30 @@ defmodule Fake.AssetRepository do
   def consume_upload_grant(context, intent) do
     Agent.get_and_update(repository(context), fn state ->
       state = %{state | calls: [{:consume_upload_grant, intent} | state.calls]}
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
+  def consume_grant_and_create_stage(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{
+        state
+        | calls: [{:consume_grant_and_create_stage, intent} | state.calls]
+      }
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
+  def mark_stage_abandoned(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{
+        state
+        | calls: [{:mark_stage_abandoned, intent} | state.calls]
+      }
 
       {{:ok, intent}, state}
     end)
@@ -62,6 +95,54 @@ defmodule Fake.AssetRepository do
           {error, state}
       end
     end)
+  end
+
+  @impl true
+  def prepare_verification(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{
+        state
+        | calls: [{:prepare_verification, intent} | state.calls]
+      }
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
+  def record_verified_stage(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{
+        state
+        | calls: [{:record_verified_stage, intent} | state.calls]
+      }
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
+  def resolve_finalization(context, intent) do
+    record_passthrough(context, :resolve_finalization, intent)
+  end
+
+  @impl true
+  def reserve_finalization(context, intent) do
+    record_passthrough(context, :reserve_finalization, intent)
+  end
+
+  @impl true
+  def acknowledge_finalization(context, intent) do
+    record_passthrough(context, :acknowledge_finalization, intent)
+  end
+
+  @impl true
+  def record_job_failure(context, intent, error) do
+    record_passthrough(
+      context,
+      :record_job_failure,
+      %{intent: intent, error: error}
+    )
   end
 
   @impl true
@@ -155,6 +236,17 @@ defmodule Fake.AssetRepository do
   def audit_entries(context), do: Agent.get(repository(context), &Enum.reverse(&1.audit))
   def outbox_entries(context), do: Agent.get(repository(context), &Enum.reverse(&1.outbox))
   def ordering(context), do: Agent.get(repository(context), &Enum.reverse(&1.ordering))
+
+  defp record_passthrough(context, operation, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{
+        state
+        | calls: [{operation, intent} | state.calls]
+      }
+
+      {{:ok, intent}, state}
+    end)
+  end
 
   defp persisted_asset(%Asset{} = asset), do: {:ok, asset}
 

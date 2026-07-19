@@ -11,6 +11,7 @@ defmodule Singularity.Storage.Schema.Core.Vault do
   schema "vaults" do
     field :kind, Ecto.Enum, values: [:personal, :system], default: :personal
     field :authorization_epoch, :integer, default: 0
+    field :object_cleanup_principal_id, Ecto.UUID
     field :locked, :boolean, default: true
     field :metadata, :map, default: %{}
     timestamps(type: :utc_datetime_usec)
@@ -35,6 +36,15 @@ defmodule Singularity.Storage.Schema.Core.Vault do
     |> validate_number(:authorization_epoch, greater_than_or_equal_to: 0)
     |> check_constraint(:authorization_epoch,
       name: :vaults_authorization_epoch_check
+    )
+  end
+
+  def cleanup_principal_changeset(vault, attrs) do
+    vault
+    |> cast(attrs, [:object_cleanup_principal_id])
+    |> validate_required([:object_cleanup_principal_id])
+    |> foreign_key_constraint(:object_cleanup_principal_id,
+      name: :vaults_object_cleanup_membership_fkey
     )
   end
 

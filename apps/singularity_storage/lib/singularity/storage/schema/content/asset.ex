@@ -83,6 +83,15 @@ defmodule Singularity.Storage.Schema.Content.Asset do
     |> check_constraint(:failure_code, name: :assets_failure_shape_check)
   end
 
+  def retry_changeset(asset, attrs) do
+    asset
+    |> cast(attrs, [:failure_code, :retryable?, :failed_operation, :attempt])
+    |> validate_required([:attempt])
+    |> validate_number(:attempt, greater_than_or_equal_to: 0)
+    |> check_constraint(:attempt, name: :assets_attempt_check)
+    |> check_constraint(:failure_code, name: :assets_failure_shape_check)
+  end
+
   defp apply_constraints(changeset) do
     changeset
     |> foreign_key_constraint(:resource_version_id,

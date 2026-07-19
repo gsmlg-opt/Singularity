@@ -284,7 +284,12 @@ defmodule Singularity.Runtime.AuthorizationTest do
       |> Map.drop([:session_id, :expires_at])
       |> Map.merge(%{
         principal_kind: :system,
-        capabilities: ["maintenance.run", "integrity.audit", "asset.read"]
+        capabilities: [
+          "maintenance.run",
+          "integrity.audit",
+          "object.cleanup",
+          "asset.read"
+        ]
       })
 
     Agent.update(
@@ -310,10 +315,21 @@ defmodule Singularity.Runtime.AuthorizationTest do
                })
              )
 
+    assert :ok =
+             Authorize.check_job(
+               dependencies,
+               :repo,
+               Map.merge(base, %{
+                 job_type: "object_cleanup",
+                 required_capability: "object.cleanup"
+               })
+             )
+
     for denied <- [
           %{job_type: "maintenance", required_capability: "asset.read"},
           %{job_type: "asset_verify", required_capability: "asset.read"},
-          %{job_type: "integrity_audit", required_capability: "maintenance.run"}
+          %{job_type: "integrity_audit", required_capability: "maintenance.run"},
+          %{job_type: "object_cleanup", required_capability: "asset.read"}
         ] do
       assert {:error, %Error{code: :forbidden}} =
                Authorize.check_job(
@@ -327,16 +343,21 @@ defmodule Singularity.Runtime.AuthorizationTest do
   test "owner principals cannot impersonate named system operations", %{
     dependencies: dependencies
   } do
-    assert {:error, %Error{code: :forbidden}} =
-             Authorize.check_job(dependencies, :repo, %{
-               job_type: "maintenance",
-               principal_id: @principal_id,
-               vault_id: @vault_id,
-               principal_authorization_epoch: 7,
-               vault_authorization_epoch: 23,
-               required_capability: "maintenance.run",
-               classification: :private
-             })
+    for {job_type, capability} <- [
+          {"maintenance", "maintenance.run"},
+          {"object_cleanup", "object.cleanup"}
+        ] do
+      assert {:error, %Error{code: :forbidden}} =
+               Authorize.check_job(dependencies, :repo, %{
+                 job_type: job_type,
+                 principal_id: @principal_id,
+                 vault_id: @vault_id,
+                 principal_authorization_epoch: 7,
+                 vault_authorization_epoch: 23,
+                 required_capability: capability,
+                 classification: :private
+               })
+    end
   end
 
   defp assert_denied(dependencies, store, update) do

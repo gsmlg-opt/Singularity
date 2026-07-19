@@ -166,15 +166,24 @@ defmodule Singularity.Storage.Task11SecurityFunctionsTest do
   end
 
   test "snapshots expose every live denial state and remove revoked capabilities", %{one: one} do
-    capability_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    capability_id =
+      Fixtures.with_owner(fn ->
+        %{rows: [[capability_id]]} =
+          query!(
+            MigrationRepo,
+            """
+            INSERT INTO core.capabilities (id, name)
+            VALUES ($1, 'asset.read')
+            ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            [Ecto.UUID.generate() |> Ecto.UUID.dump!()]
+          )
+
+        capability_id
+      end)
 
     Fixtures.with_owner(fn ->
-      query!(
-        MigrationRepo,
-        "INSERT INTO core.capabilities (id, name) VALUES ($1, 'asset.read')",
-        [capability_id]
-      )
-
       query!(
         MigrationRepo,
         """

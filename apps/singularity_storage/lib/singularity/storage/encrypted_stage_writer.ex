@@ -79,6 +79,31 @@ defmodule Singularity.Storage.EncryptedStageWriter do
   def stream_and_seal(_storage, _upload, _stream),
     do: {:error, Error.new(:invalid), nil}
 
+  @doc """
+  Streams and durably seals an encrypted stage without looking up or publishing
+  a canonical object.
+
+  The caller persists the returned checkpoint before a later verifier and
+  finalizer continue the saga.
+  """
+  @spec stream_and_seal_stage(map(), map(), Enumerable.t()) ::
+          {:ok, result() | %{required(:stage_ref) => StageRef.t()}}
+          | {:error, Error.t(), StageRef.t() | nil}
+  def stream_and_seal_stage(storage, upload, stream)
+      when is_map(storage) and is_map(upload) do
+    case validate(storage, upload) do
+      {:ok, config} ->
+        start_stage(config, stream, :retain)
+
+      {:error, %Error{} = error} ->
+        _ = destroy_unvalidated_wrapper(storage, upload)
+        {:error, error, nil}
+    end
+  end
+
+  def stream_and_seal_stage(_storage, _upload, _stream),
+    do: {:error, Error.new(:invalid), nil}
+
   @spec retry_finalize(map(), RecoveryRef.t()) ::
           {:ok, result()} | {:error, Error.t(), RecoveryRef.t()}
   def retry_finalize(
@@ -126,10 +151,10 @@ defmodule Singularity.Storage.EncryptedStageWriter do
   def retry_finalize(_storage, %RecoveryRef{} = recovery),
     do: {:error, Error.new(:invalid), recovery}
 
-  defp start_stage(config, stream) do
+  defp start_stage(config, stream, disposition \\ :publish) do
     with :ok <- enforce_declared_limit(config),
          {:ok, %StageRef{} = stage_ref} <- call_stage(config) do
-      run_stage(config, stage_ref, stream)
+      run_stage(config, stage_ref, stream, disposition)
     else
       {:error, %Error{} = error} ->
         _ = destroy_wrapper(config)
@@ -141,10 +166,13 @@ defmodule Singularity.Storage.EncryptedStageWriter do
     end
   end
 
-  defp run_stage(config, stage_ref, stream) do
+  defp run_stage(config, stage_ref, stream, disposition) do
     result =
       try do
-        write_stage(config, stage_ref, stream)
+        case disposition do
+          :publish -> write_stage(config, stage_ref, stream)
+          :retain -> write_stage_only(config, stage_ref, stream)
+        end
       rescue
         _exception -> {:error, unavailable()}
       catch
@@ -169,6 +197,35 @@ defmodule Singularity.Storage.EncryptedStageWriter do
   end
 
   defp write_stage(config, stage_ref, stream) do
+    with {:ok, sealed} <- seal_stream(config, stage_ref, stream) do
+      resolve_object(
+        config,
+        stage_ref,
+        sealed.summary,
+        sealed.lookup_digest,
+        sealed.ciphertext_hash,
+        sealed.ciphertext_bytes
+      )
+    end
+  end
+
+  defp write_stage_only(config, stage_ref, stream) do
+    with {:ok, sealed} <- seal_stream(config, stage_ref, stream) do
+      {:ok,
+       config.object_id
+       |> then(&%ObjectRef{object_id: &1})
+       |> result(
+         sealed.summary,
+         sealed.lookup_digest,
+         sealed.ciphertext_hash,
+         sealed.ciphertext_bytes,
+         config.dek_wrapper
+       )
+       |> Map.put(:stage_ref, stage_ref)}
+    end
+  end
+
+  defp seal_stream(config, stage_ref, stream) do
     with {:ok, header, cipher} <- init_cipher(config),
          :ok <- append_nonempty(config, stage_ref, header),
          {:ok, state} <- reduce_stream(config, stage_ref, stream, initial_state(cipher, header)),
@@ -194,14 +251,13 @@ defmodule Singularity.Storage.EncryptedStageWriter do
              state.ciphertext_bytes,
              ciphertext_hash
            ) do
-      resolve_object(
-        config,
-        stage_ref,
-        summary,
-        lookup_digest,
-        ciphertext_hash,
-        state.ciphertext_bytes
-      )
+      {:ok,
+       %{
+         summary: summary,
+         lookup_digest: lookup_digest,
+         ciphertext_hash: ciphertext_hash,
+         ciphertext_bytes: state.ciphertext_bytes
+       }}
     else
       {:error, %Error{} = error} -> {:error, error}
       {:error, reason} -> {:error, codec_error(reason)}
@@ -641,7 +697,8 @@ defmodule Singularity.Storage.EncryptedStageWriter do
          expected_bytes when is_integer(expected_bytes) and expected_bytes >= 0 <-
            Map.get(upload, :expected_bytes),
          max_bytes when is_integer(max_bytes) and max_bytes >= 0 <-
-           Map.get(upload, :max_bytes) do
+           Map.get(upload, :max_bytes),
+         {:ok, stage_ref} <- optional_stage_ref(Map.get(upload, :stage_ref)) do
       {:ok,
        %{
          adapter: adapter,
@@ -656,7 +713,8 @@ defmodule Singularity.Storage.EncryptedStageWriter do
          domain_dedup_key: domain_dedup_key,
          dek_wrapper: dek_wrapper,
          expected_bytes: expected_bytes,
-         max_bytes: max_bytes
+         max_bytes: max_bytes,
+         stage_ref: stage_ref
        }}
     else
       _invalid -> {:error, Error.new(:invalid)}
@@ -678,15 +736,47 @@ defmodule Singularity.Storage.EncryptedStageWriter do
     do: {:error, Error.new(:upload_too_large)}
 
   defp call_stage(config) do
+    options =
+      case config.stage_ref do
+        nil -> %{}
+        %StageRef{stage_id: stage_id} -> %{stage_id: stage_id}
+      end
+
     try do
-      config.adapter.stage(config.context, %{})
+      config.adapter.stage(config.context, options)
       |> normalize_adapter()
+      |> validate_created_stage(config.stage_ref)
     rescue
       _exception -> {:error, unavailable()}
     catch
       _kind, _reason -> {:error, unavailable()}
     end
   end
+
+  defp validate_created_stage({:ok, %StageRef{} = created}, nil),
+    do: {:ok, created}
+
+  defp validate_created_stage(
+         {:ok, %StageRef{stage_id: stage_id} = created},
+         %StageRef{stage_id: stage_id}
+       ),
+       do: {:ok, created}
+
+  defp validate_created_stage({:ok, %StageRef{}}, %StageRef{}),
+    do: {:error, Error.new(:conflict)}
+
+  defp validate_created_stage(result, _expected), do: result
+
+  defp optional_stage_ref(nil), do: {:ok, nil}
+
+  defp optional_stage_ref(%StageRef{stage_id: stage_id} = stage_ref) do
+    case Ecto.UUID.cast(stage_id) do
+      {:ok, _uuid} -> {:ok, stage_ref}
+      :error -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp optional_stage_ref(_stage_ref), do: {:error, Error.new(:invalid)}
 
   defp call_finalize(config, context, stage_ref, object_ref) do
     try do

@@ -231,6 +231,74 @@ defmodule Singularity.Storage.Crypto.ChunkedAEAD do
     end
   end
 
+  @doc """
+  Authenticates and decrypts one complete canonical data record.
+
+  The expected counter and plaintext size are part of the authenticated
+  context. Truncated records and records with trailing bytes fail closed.
+  """
+  @spec decrypt_data_record(binary(), map()) ::
+          {:ok, binary()} | {:error, :integrity_failure}
+  def decrypt_data_record(
+        <<counter::unsigned-big-32, size::unsigned-big-32, ciphertext::binary-size(size),
+          tag::binary-size(@tag_size)>>,
+        %{
+          key: <<_::binary-size(32)>> = key,
+          header: <<_::binary-size(66)>> = header,
+          nonce_prefix: <<_::binary-size(8)>> = nonce_prefix,
+          counter: expected_counter,
+          plaintext_size: expected_size
+        }
+      )
+      when counter == expected_counter and counter >= 0 and
+             counter <= @final_counter - 1 and size == expected_size and size > 0 and
+             size <= @chunk_size do
+    decrypt_record(
+      ciphertext,
+      tag,
+      key,
+      Format.nonce(nonce_prefix, counter),
+      Format.data_aad(header, counter, size)
+    )
+  end
+
+  def decrypt_data_record(_record, _context), do: {:error, :integrity_failure}
+
+  @doc """
+  Authenticates and decrypts the complete reserved final metadata record.
+  """
+  @spec decrypt_final_record(binary(), map()) ::
+          {:ok, encryption_summary()} | {:error, :integrity_failure}
+  def decrypt_final_record(
+        <<@final_counter::unsigned-big-32, @final_plaintext_size::unsigned-big-32,
+          ciphertext::binary-size(@final_plaintext_size), tag::binary-size(@tag_size)>>,
+        %{
+          key: <<_::binary-size(32)>> = key,
+          header: <<_::binary-size(66)>> = header,
+          nonce_prefix: <<_::binary-size(8)>> = nonce_prefix
+        }
+      ) do
+    with {:ok,
+          <<plaintext_bytes::unsigned-big-64, chunk_count::unsigned-big-32,
+            plaintext_sha256::binary-size(32)>>} <-
+           decrypt_record(
+             ciphertext,
+             tag,
+             key,
+             Format.nonce(nonce_prefix, @final_counter),
+             Format.final_aad(header)
+           ) do
+      {:ok,
+       %{
+         plaintext_bytes: plaintext_bytes,
+         chunk_count: chunk_count,
+         plaintext_sha256: plaintext_sha256
+       }}
+    end
+  end
+
+  def decrypt_final_record(_record, _context), do: {:error, :integrity_failure}
+
   @spec decode(binary(), map()) :: {:ok, binary()} | {:error, :integrity_failure}
   def decode(
         encoded,
@@ -612,17 +680,23 @@ defmodule Singularity.Storage.Crypto.ChunkedAEAD do
        do: {:error, :integrity_failure}
 
   defp decrypt_record(ciphertext, tag, key, nonce, aad) do
-    case :crypto.crypto_one_time_aead(
-           :aes_256_gcm,
-           key,
-           nonce,
-           ciphertext,
-           aad,
-           tag,
-           false
-         ) do
-      :error -> {:error, :integrity_failure}
-      plaintext when is_binary(plaintext) -> {:ok, plaintext}
+    try do
+      case :crypto.crypto_one_time_aead(
+             :aes_256_gcm,
+             key,
+             nonce,
+             ciphertext,
+             aad,
+             tag,
+             false
+           ) do
+        :error -> {:error, :integrity_failure}
+        plaintext when is_binary(plaintext) -> {:ok, plaintext}
+      end
+    rescue
+      ArgumentError -> {:error, :integrity_failure}
+    catch
+      :error, _reason -> {:error, :integrity_failure}
     end
   end
 

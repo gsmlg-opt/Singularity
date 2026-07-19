@@ -45,19 +45,29 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
              domain_key_version: %{
                id: domain_key_version_id,
                key_domain_id: key_domain_id,
+               classification: :private,
                generation: 5,
                algorithm: "aes_256_gcm",
                wrapped_key: wrapped_domain_key
+             },
+             domain_dedup_key_wrapper: %{
+               id: dedup_wrapper_id,
+               key_domain_id: key_domain_id,
+               domain_key_version_id: domain_key_version_id,
+               algorithm: "aes_256_gcm",
+               wrapped_key: wrapped_dedup_key
              }
            } = unlock_material
 
     assert wrapper_id == canonical(one.key_material.wrapper_id)
     assert vault_key_version_id == canonical(one.key_material.vault_key_version_id)
     assert domain_key_version_id == canonical(one.key_material.domain_key_version_id)
+    assert dedup_wrapper_id == canonical(one.key_material.dedup_wrapper_id)
     assert key_domain_id == canonical(one.key_material.key_domain_id)
     assert kdf_salt == :binary.copy(<<0x11>>, 16)
     assert wrapped_vault_key == :binary.copy(<<0x31>>, 48)
     assert wrapped_domain_key == :binary.copy(<<0x41>>, 48)
+    assert wrapped_dedup_key == :binary.copy(<<0x51>>, 48)
 
     assert {:ok, password_material} =
              scoped(
@@ -276,6 +286,7 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
       vault_key_version_id = uuid()
       wrapper_id = uuid()
       domain_key_version_id = uuid()
+      dedup_wrapper_id = uuid()
 
       query!(
         MigrationRepo,
@@ -352,11 +363,33 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
         ]
       )
 
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.domain_dedup_key_wrappers (
+          id,
+          vault_id,
+          key_domain_id,
+          domain_key_version_id,
+          algorithm,
+          wrapped_key
+        ) VALUES ($1, $2, $3, $4, 'aes_256_gcm', $5)
+        """,
+        [
+          dedup_wrapper_id,
+          fixture.vault_id,
+          key_domain_id,
+          domain_key_version_id,
+          :binary.copy(<<marker + 0x40>>, 48)
+        ]
+      )
+
       %{
         key_domain_id: key_domain_id,
         vault_key_version_id: vault_key_version_id,
         wrapper_id: wrapper_id,
-        domain_key_version_id: domain_key_version_id
+        domain_key_version_id: domain_key_version_id,
+        dedup_wrapper_id: dedup_wrapper_id
       }
     end)
   end

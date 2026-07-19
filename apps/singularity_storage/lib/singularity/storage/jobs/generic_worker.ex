@@ -26,9 +26,18 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
       WorkerScope.run(envelope, fn worker_context ->
         context = Map.merge(dependencies, worker_context)
 
-        context
-        |> handler.handle(envelope)
-        |> consume_pending_wake(context, envelope, job)
+        result =
+          context
+          |> handler.handle(envelope)
+          |> consume_pending_wake(context, envelope, job)
+
+        record_terminal_failure(
+          result,
+          handler,
+          context,
+          envelope,
+          job
+        )
       end)
       |> map_result()
     else
@@ -95,6 +104,60 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
   end
 
   defp consume_pending_wake(result, _context, _envelope, _job), do: result
+
+  defp record_terminal_failure(
+         {:error, %Error{} = failure} = result,
+         handler,
+         context,
+         envelope,
+         job
+       ) do
+    if terminal_attempt?(failure, job) and
+         function_exported?(handler, :handle_failure, 4) do
+      case handler.handle_failure(
+             context,
+             envelope,
+             failure,
+             %{
+               attempt: Map.get(job, :attempt),
+               max_attempts: Map.get(job, :max_attempts)
+             }
+           ) do
+        :ok -> result
+        {:ok, _recorded} -> result
+        {:error, %Error{}} = recorder_error -> recorder_error
+        _invalid -> {:error, Error.new(:job_failed)}
+      end
+    else
+      result
+    end
+  rescue
+    _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  catch
+    _kind, _reason ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  defp record_terminal_failure(
+         result,
+         _handler,
+         _context,
+         _envelope,
+         _job
+       ),
+       do: result
+
+  defp terminal_attempt?(%Error{retryable?: false}, _job), do: true
+
+  defp terminal_attempt?(
+         %Error{retryable?: true},
+         %{attempt: attempt, max_attempts: max_attempts}
+       )
+       when is_integer(attempt) and is_integer(max_attempts) and
+              max_attempts > 0,
+       do: attempt >= max_attempts
+
+  defp terminal_attempt?(_failure, _job), do: false
 
   defp job_prefix(%Oban.Job{conf: %{prefix: prefix}}) when is_binary(prefix), do: prefix
 

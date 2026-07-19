@@ -31,7 +31,7 @@ defmodule Singularity.Core.PortsTest do
     ],
     Outbox => [acknowledge: 3, append: 2, claim: 2],
     JobRunner => [submit: 2, wake_vault: 2],
-    JobHandler => [dependencies: 0, handle: 2],
+    JobHandler => [dependencies: 0, handle: 2, handle_failure: 4],
     PasswordHasher => [hash: 2, verify: 3],
     KeyDeriver => [derive: 3],
     KeyWrapper => [unwrap: 3, wrap: 3],

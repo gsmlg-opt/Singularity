@@ -4,8 +4,15 @@ defmodule Singularity.Runtime.Application do
   use Application
 
   alias Singularity.Runtime.AuthorizationDependencies
+  alias Singularity.Runtime.Assets.UploadReconciler
+  alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
+  alias Singularity.Runtime.StorageAdapter
+  alias Singularity.Runtime.UploadSessionSupervisor
+  alias Singularity.Storage.ObjectLock
+  alias Singularity.Storage.Postgres.AssetDeletionRepository
+  alias Singularity.Storage.Postgres.AssetRepository
 
   @impl true
   def start(_type, _args) do
@@ -41,13 +48,23 @@ defmodule Singularity.Runtime.Application do
       start: {__MODULE__, :start_named_key_custodian, [custodian_options]}
     }
 
+    upload_recovery_tasks = %{
+      id: Singularity.Runtime.UploadRecoveryTaskSupervisor,
+      start:
+        {Task.Supervisor, :start_link, [[name: Singularity.Runtime.UploadRecoveryTaskSupervisor]]},
+      type: :supervisor
+    }
+
     [
       Singularity.Storage.RequestRepo,
       Singularity.Storage.PreAuthRepo,
       Singularity.Storage.DispatcherRepo,
       Singularity.Storage.WorkerRepo,
+      UploadReconciler,
+      upload_recovery_tasks,
       key_lease_supervisor,
       key_custodian,
+      UploadSessionSupervisor,
       {Singularity.Storage.Jobs.ObanAdapter, composition.oban},
       {Singularity.Runtime.OutboxDispatcher, composition.outbox_dispatcher}
     ]
@@ -63,7 +80,14 @@ defmodule Singularity.Runtime.Application do
       |> Application.fetch_env!(:authorization_dependencies)
       |> build_authorization!()
 
-    %{authorization: dependencies}
+    %{
+      asset_deletions: AssetDeletionRepository,
+      assets: AssetRepository,
+      authorization: dependencies,
+      authorize: Authorize,
+      object_lock: ObjectLock,
+      storage: StorageAdapter.configured()
+    }
   end
 
   @doc false

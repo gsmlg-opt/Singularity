@@ -5,11 +5,16 @@ defmodule Singularity.Storage.Local.Stage do
 
   alias Singularity.Core.Error
   alias Singularity.Core.StageRef
+  alias Singularity.Storage.Crypto.Format
   alias Singularity.Storage.Local.PathGuard
   alias Singularity.Storage.Local.Sync
 
   @write_bit 0o200
   @read_size 64 * 1024
+  @header_size 66
+  @record_header_size 8
+  @record_tag_size 16
+  @final_plaintext_size 44
 
   @spec create(map()) :: {:ok, StageRef.t()} | {:error, Error.t()}
   def create(%{root: root} = context) when is_binary(root) do
@@ -21,6 +26,23 @@ defmodule Singularity.Storage.Local.Stage do
   end
 
   def create(_context), do: invalid()
+
+  @spec create(map(), String.t()) :: {:ok, StageRef.t()} | {:error, Error.t()}
+  def create(%{root: root} = context, stage_id)
+      when is_binary(root) and is_binary(stage_id) do
+    staging_directory = Path.join(Path.expand(root), "staging")
+
+    with {:ok, ^stage_id} <- PathGuard.uuid(stage_id),
+         :ok <- ensure_directory(context, staging_directory),
+         {:ok, path} <- PathGuard.staging_path(root, stage_id) do
+      create_exact(path, stage_id)
+    else
+      {:error, %Error{} = error} -> {:error, error}
+      _invalid -> invalid()
+    end
+  end
+
+  def create(_context, _stage_id), do: invalid()
 
   @spec append(map(), StageRef.t(), iodata()) :: :ok | {:error, Error.t()}
   def append(%{root: root} = context, %StageRef{stage_id: stage_id} = stage_ref, chunk)
@@ -71,11 +93,13 @@ defmodule Singularity.Storage.Local.Stage do
     with {:ok, ^stage_id} <- PathGuard.uuid(stage_id),
          {:ok, path} <- PathGuard.staging_path(root, stage_id),
          {:ok, file_stat} <- regular_stat(path),
-         {:ok, digest} <- digest(path) do
+         {:ok, digest} <- digest(path),
+         {:ok, format_envelope} <- inspect_format_envelope(path, file_stat.size) do
       {:ok,
        %{
          byte_size: file_stat.size,
          ciphertext_hash: digest,
+         format_envelope: format_envelope,
          sealed?: sealed?(file_stat)
        }}
     else
@@ -199,6 +223,46 @@ defmodule Singularity.Storage.Local.Stage do
     end
   end
 
+  defp create_exact(path, stage_id) do
+    case :file.open(String.to_charlist(path), [:write, :binary, :raw, :exclusive]) do
+      {:ok, io} ->
+        case :file.close(io) do
+          :ok ->
+            with :ok <- File.chmod(path, 0o600) do
+              {:ok, %StageRef{stage_id: stage_id}}
+            else
+              {:error, _reason} -> unavailable()
+            end
+
+          {:error, _reason} ->
+            unavailable()
+        end
+
+      {:error, :eexist} ->
+        reusable_empty_stage(path, stage_id)
+
+      {:error, _reason} ->
+        unavailable()
+    end
+  end
+
+  defp reusable_empty_stage(path, stage_id) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, size: 0} = stat} ->
+        if sealed?(stat) do
+          {:error, Error.new(:conflict)}
+        else
+          {:ok, %StageRef{stage_id: stage_id}}
+        end
+
+      {:ok, _other} ->
+        invalid()
+
+      {:error, _reason} ->
+        unavailable()
+    end
+  end
+
   defp make_read_only(path, %File.Stat{} = stat) do
     if sealed?(stat), do: :ok, else: File.chmod(path, 0o400)
   end
@@ -234,6 +298,120 @@ defmodule Singularity.Storage.Local.Stage do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp inspect_format_envelope(path, byte_size)
+       when is_integer(byte_size) and
+              byte_size >=
+                @header_size + @record_header_size +
+                  @final_plaintext_size + @record_tag_size do
+    with {:ok, io} <- open_regular(path, [:read, :binary, :raw]) do
+      result =
+        with {:ok, header} <- :file.pread(io, 0, Format.header_size()),
+             {:ok, ^header, "", parsed} <- Format.split_header(header),
+             {:ok, chunk_count} <-
+               inspect_record_frames(io, Format.header_size(), byte_size, 0, false),
+             {:ok, vault_id} <- Ecto.UUID.load(parsed.vault_id),
+             {:ok, encryption_domain_id} <-
+               Ecto.UUID.load(parsed.encryption_domain_id),
+             {:ok, object_id} <- Ecto.UUID.load(parsed.object_id) do
+          {:ok,
+           %{
+             algorithm: parsed.algorithm,
+             chunk_count: chunk_count,
+             chunk_size: parsed.chunk_size,
+             encryption_domain_id: encryption_domain_id,
+             final_record?: true,
+             format_version: parsed.format_version,
+             object_id: object_id,
+             vault_id: vault_id
+           }}
+        else
+          _invalid -> {:ok, nil}
+        end
+
+      close_result = :file.close(io)
+
+      case {result, close_result} do
+        {{:ok, envelope}, :ok} -> {:ok, envelope}
+        {{:error, _reason} = error, :ok} -> error
+        {_result, {:error, reason}} -> {:error, reason}
+      end
+    end
+  end
+
+  defp inspect_format_envelope(_path, _byte_size), do: {:ok, nil}
+
+  defp inspect_record_frames(
+         io,
+         offset,
+         byte_size,
+         expected_counter,
+         short_record_seen?
+       ) do
+    with true <- offset + @record_header_size <= byte_size,
+         {:ok, <<counter::unsigned-big-32, plaintext_size::unsigned-big-32>>} <-
+           :file.pread(io, offset, @record_header_size) do
+      inspect_record_frame(
+        io,
+        offset,
+        byte_size,
+        expected_counter,
+        short_record_seen?,
+        counter,
+        plaintext_size
+      )
+    else
+      _invalid -> {:error, :invalid_format}
+    end
+  end
+
+  defp inspect_record_frame(
+         _io,
+         offset,
+         byte_size,
+         expected_counter,
+         _short_record_seen?,
+         counter,
+         @final_plaintext_size
+       )
+       when counter == 0xFFFFFFFF and
+              offset + @record_header_size + @final_plaintext_size +
+                @record_tag_size == byte_size,
+       do: {:ok, expected_counter}
+
+  defp inspect_record_frame(
+         io,
+         offset,
+         byte_size,
+         expected_counter,
+         false,
+         counter,
+         plaintext_size
+       )
+       when counter == expected_counter and counter <= 0xFFFFFFFE and
+              plaintext_size > 0 and plaintext_size <= 4_194_304 do
+    next_offset =
+      offset + @record_header_size + plaintext_size + @record_tag_size
+
+    inspect_record_frames(
+      io,
+      next_offset,
+      byte_size,
+      expected_counter + 1,
+      plaintext_size < 4_194_304
+    )
+  end
+
+  defp inspect_record_frame(
+         _io,
+         _offset,
+         _byte_size,
+         _expected_counter,
+         _short_record_seen?,
+         _counter,
+         _plaintext_size
+       ),
+       do: {:error, :invalid_format}
 
   defp open_regular(path, modes) do
     with {:ok, before_stat} <- regular_stat(path),

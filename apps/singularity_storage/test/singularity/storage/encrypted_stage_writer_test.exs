@@ -3,6 +3,7 @@ defmodule Singularity.Storage.EncryptedStageWriterTest do
 
   alias Singularity.Core.ObjectRef
   alias Singularity.Core.Error
+  alias Singularity.Core.StageRef
   alias Singularity.Storage.Crypto.ChunkedAEAD
   alias Singularity.Storage.Crypto.ObjectIdentity
   alias Singularity.Storage.EncryptedStageWriter
@@ -14,6 +15,66 @@ defmodule Singularity.Storage.EncryptedStageWriterTest do
   @object_id "00000000-0000-0000-0000-000000000003"
 
   @moduletag :tmp_dir
+
+  test "stage-only streaming durably seals without dedup lookup or physical publication", %{
+    tmp_dir: tmp_dir
+  } do
+    owner = self()
+    plaintext = "%PDF-1.7\nstaged"
+
+    storage =
+      storage(tmp_dir,
+        dedup_lookup: fn _vault_id, _domain_id, _lookup_digest ->
+          send(owner, :dedup_looked_up)
+          :miss
+        end
+      )
+
+    assert {:ok,
+            %{
+              stage_ref: stage_ref,
+              object_ref: %ObjectRef{object_id: @object_id},
+              plaintext_byte_size: plaintext_size,
+              ciphertext_byte_size: ciphertext_size,
+              lookup_digest: <<_::binary-size(32)>>,
+              ciphertext_hash: <<_::binary-size(32)>>,
+              format_version: 1,
+              dek_wrapper: "wrapped-dek"
+            }} =
+             EncryptedStageWriter.stream_and_seal_stage(
+               storage,
+               upload(byte_size(plaintext)),
+               [plaintext]
+             )
+
+    assert plaintext_size == byte_size(plaintext)
+    assert ciphertext_size > plaintext_size
+
+    assert {:ok, %{sealed?: true, byte_size: ^ciphertext_size}} =
+             LocalFilesystemAdapter.stat_stage(storage.context, stage_ref)
+
+    assert {:ok, [^stage_ref]} =
+             LocalFilesystemAdapter.list_staged(storage.context)
+
+    refute_received :dedup_looked_up
+  end
+
+  test "stage-only streaming uses a caller-created durable stage", %{tmp_dir: tmp_dir} do
+    plaintext = "%PDF-1.7\ncaller-stage"
+    storage = storage(tmp_dir)
+    stage_ref = %StageRef{stage_id: Ecto.UUID.generate()}
+
+    upload =
+      byte_size(plaintext)
+      |> upload()
+      |> Map.put(:stage_ref, stage_ref)
+
+    assert {:ok, %{stage_ref: ^stage_ref}} =
+             EncryptedStageWriter.stream_and_seal_stage(storage, upload, [plaintext])
+
+    assert {:ok, [^stage_ref]} =
+             LocalFilesystemAdapter.list_staged(storage.context)
+  end
 
   defmodule RecordingAdapter do
     @moduledoc false

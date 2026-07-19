@@ -52,8 +52,19 @@ defmodule Singularity.Runtime.UnlockVault do
                    ":" <> material.domain_key_version.key_domain_id
              }
            ]),
+         {:ok, domain_dedup_key} <-
+           call_adapter(adapters.key_wrapper, :unwrap, [
+             domain_key,
+             material.domain_dedup_key_wrapper.wrapped_key,
+             %{
+               purpose: :domain_dedup_key,
+               generation: material.domain_key_version.generation,
+               aad: material.domain_key_version.key_domain_id
+             }
+           ]),
          :ok <- key_size(vault_key),
          :ok <- key_size(domain_key),
+         :ok <- key_size(domain_dedup_key),
          {:ok, pending} <-
            call_adapter(adapters.custodian, :prepare_unlock, [
              %{
@@ -65,7 +76,12 @@ defmodule Singularity.Runtime.UnlockVault do
                principal_authorization_epoch: session.principal_authorization_epoch,
                vault_authorization_epoch: session.vault_authorization_epoch,
                vault_key: vault_key,
-               domain_key: domain_key
+               domain_key: domain_key,
+               domain_dedup_key: domain_dedup_key,
+               key_domain_id: material.domain_key_version.key_domain_id,
+               domain_key_version_id: material.domain_key_version.id,
+               domain_key_generation: material.domain_key_version.generation,
+               domain_classification: material.domain_key_version.classification
              }
            ]) do
       try do

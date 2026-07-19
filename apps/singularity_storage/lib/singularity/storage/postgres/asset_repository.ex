@@ -10,17 +10,71 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Core.AssetState
   alias Singularity.Core.Classification
   alias Singularity.Core.Error
+  alias Singularity.Core.JobEnvelope
+  alias Singularity.Core.ObjectRef
+  alias Singularity.Core.StageRef
   alias Singularity.Core.Types
+  alias Singularity.Storage.Jobs.Progress
   alias Singularity.Storage.Schema.Audit.Event, as: AuditEvent
   alias Singularity.Storage.Schema.Content.Asset, as: StoredAsset
+  alias Singularity.Storage.Schema.Content.AssetKeyEnvelope
   alias Singularity.Storage.Schema.Content.AssetMetadata
+  alias Singularity.Storage.Schema.Content.AssetObject
+  alias Singularity.Storage.Schema.Content.AssetStage
   alias Singularity.Storage.Schema.Content.ResourceAsset
   alias Singularity.Storage.Schema.Content.ResourceVersion
   alias Singularity.Storage.Schema.Content.SourceReference
   alias Singularity.Storage.Schema.Content.Tombstone
   alias Singularity.Storage.Schema.Content.UploadGrant
+  alias Singularity.Storage.Schema.Core.DomainKeyVersion
   alias Singularity.Storage.Schema.Core.OutboxEvent
+  alias Singularity.Storage.Schema.Jobs.EffectReceipt
   alias Singularity.Storage.Postgres.UUID
+
+  @max_bigint 9_223_372_036_854_775_807
+
+  @impl true
+  def create_upload_grant(repo, command) when is_map(command) do
+    with :ok <- validate_upload_grant_command(command) do
+      Multi.new()
+      |> Multi.run(:idempotency_lock, fn transaction_repo, _changes ->
+        lock_upload_grant_idempotency(transaction_repo, command)
+      end)
+      |> Multi.run(:existing_grant, fn transaction_repo, _changes ->
+        lock_existing_upload_grant(transaction_repo, command)
+      end)
+      |> Multi.merge(fn
+        %{existing_grant: nil} ->
+          new_upload_grant_multi(command)
+
+        %{existing_grant: %UploadGrant{} = grant} ->
+          replay_upload_grant_multi(grant, command)
+      end)
+      |> repo.transaction()
+      |> case do
+        {:ok, %{grant: grant, source: source}} ->
+          {:ok, upload_grant_result(grant, source, command)}
+
+        {:error, _operation, %Error{} = error, _changes} ->
+          {:error, error}
+
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, _operation, _reason, _changes} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def create_upload_grant(_repo, _command),
+    do: {:error, Error.new(:invalid)}
 
   @impl true
   def create_upload_intent(repo, %{asset: asset, provenance: provenance} = intent) do
@@ -167,6 +221,198 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   def consume_upload_grant(_repo, _intent), do: {:error, Error.new(:invalid)}
 
   @impl true
+  def consume_grant_and_create_stage(repo, command) when is_map(command) do
+    with :ok <- validate_grant_stage_command(command) do
+      token_digest = :crypto.hash(:sha256, command.token)
+
+      Multi.new()
+      |> Multi.run(:grant, fn transaction_repo, _changes ->
+        lock_eligible_grant(
+          transaction_repo,
+          command.grant_id,
+          command.principal_id
+        )
+      end)
+      |> Multi.run(:asset, fn transaction_repo, %{grant: grant} ->
+        lock_upload_asset(transaction_repo, grant, command)
+      end)
+      |> Multi.run(
+        :authorization_epochs,
+        fn transaction_repo, %{grant: grant} ->
+          authorization_epochs(
+            transaction_repo,
+            grant.principal_id,
+            grant.vault_id
+          )
+        end
+      )
+      |> Multi.run(
+        :binding,
+        fn _transaction_repo, %{grant: grant, authorization_epochs: authorization_epochs} ->
+          validate_grant_stage_binding(
+            grant,
+            command,
+            token_digest,
+            authorization_epochs
+          )
+        end
+      )
+      |> Multi.run(:consumed_grant, fn transaction_repo, %{grant: grant} ->
+        consume_locked_grant(transaction_repo, grant.id)
+      end)
+      |> Multi.insert(:stage, fn _changes ->
+        AssetStage.open_changeset(%AssetStage{}, stage_attrs(command))
+      end)
+      |> repo.transaction()
+      |> case do
+        {:ok, %{stage: stage}} ->
+          {:ok, stage}
+
+        {:error, _operation, %Error{} = error, _changes} ->
+          {:error, error}
+
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, _operation, _reason, _changes} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def consume_grant_and_create_stage(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def mark_stage_abandoned(repo, command) when is_map(command) do
+    with :ok <- validate_stage_abandonment(command) do
+      correlation_id = Ecto.UUID.generate()
+
+      Multi.new()
+      |> Multi.run(:grant, fn transaction_repo, _changes ->
+        lock_upload_grant(
+          transaction_repo,
+          command.grant_id,
+          command.principal_id
+        )
+      end)
+      |> Multi.run(:stage, fn transaction_repo, _changes ->
+        lock_asset_stage(transaction_repo, command.stage_id)
+      end)
+      |> Multi.run(:asset, fn transaction_repo, _changes ->
+        lock_stored_asset(transaction_repo, command.asset_id)
+      end)
+      |> Multi.run(:authorization_epochs, fn transaction_repo, _changes ->
+        authorization_epochs(
+          transaction_repo,
+          command.principal_id,
+          command.vault_id
+        )
+      end)
+      |> Multi.run(:abandonment_mode, fn _transaction_repo, locked ->
+        validate_stage_abandonment_binding(locked, command)
+      end)
+      |> Multi.merge(fn locked ->
+        stage_abandonment_effects(locked, command, correlation_id)
+      end)
+      |> repo.transaction()
+      |> case do
+        {:ok, %{abandoned_stage: stage}} ->
+          {:ok, stage}
+
+        {:error, _operation, %Error{} = error, _changes} ->
+          {:error, error}
+
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, _operation, _reason, _changes} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def mark_stage_abandoned(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def record_sealed_stage(
+        repo,
+        %{stage_ref: %StageRef{stage_id: stage_id}} = command
+      )
+      when is_map(command) do
+    with :ok <- validate_sealed_checkpoint(command) do
+      correlation_id = Ecto.UUID.generate()
+
+      Multi.new()
+      |> Multi.run(:grant, fn transaction_repo, _changes ->
+        lock_upload_grant(
+          transaction_repo,
+          command.grant_id,
+          command.principal_id
+        )
+      end)
+      |> Multi.run(:stage, fn transaction_repo, _changes ->
+        lock_asset_stage(transaction_repo, stage_id)
+      end)
+      |> Multi.run(:asset, fn transaction_repo, _changes ->
+        lock_stored_asset(transaction_repo, command.asset_id)
+      end)
+      |> Multi.run(:source, fn transaction_repo, %{asset: asset, grant: grant} ->
+        lock_upload_source(transaction_repo, asset, grant)
+      end)
+      |> Multi.run(:authorization_epochs, fn transaction_repo, _changes ->
+        authorization_epochs(
+          transaction_repo,
+          command.principal_id,
+          command.vault_id
+        )
+      end)
+      |> Multi.run(:checkpoint_mode, fn _transaction_repo, locked ->
+        validate_sealed_checkpoint_binding(locked, command)
+      end)
+      |> Multi.merge(fn locked ->
+        sealed_checkpoint_effects(locked, command, correlation_id)
+      end)
+      |> repo.transaction()
+      |> case do
+        {:ok, %{checkpoint_asset: asset, checkpoint_stage: stage}} ->
+          {:ok, %{asset: asset, stage: stage}}
+
+        {:error, _operation, %Error{} = error, _changes} ->
+          {:error, error}
+
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, _operation, _reason, _changes} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  @impl true
   def record_sealed_stage(repo, %{asset: asset} = intent) do
     now = DateTime.utc_now(:microsecond)
     correlation_id = Ecto.UUID.generate()
@@ -285,6 +531,1446 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   def record_sealed_stage(_repo, _intent), do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def prepare_verification(repo, %JobEnvelope{} = envelope) do
+    with :ok <- validate_asset_job(envelope, "asset_verify"),
+         {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          prepare_pending_verification(repo, envelope)
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def prepare_verification(_repo, _envelope),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def record_verified_stage(
+        repo,
+        %{
+          envelope: %JobEnvelope{} = envelope,
+          stage_id: stage_id,
+          sealed?: true,
+          ciphertext_byte_size: ciphertext_byte_size,
+          ciphertext_hash: <<_::binary-size(32)>>
+        } = command
+      ) do
+    with :ok <- validate_asset_job(envelope, "asset_verify"),
+         :ok <- UUID.validate(stage_id),
+         true <- is_integer(ciphertext_byte_size) and ciphertext_byte_size >= 0 do
+      transact_callback(repo, fn ->
+        do_record_verified_stage(repo, envelope, command)
+      end)
+    else
+      false -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def record_verified_stage(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def resolve_finalization(repo, %JobEnvelope{} = envelope) do
+    with :ok <- validate_asset_job(envelope, "asset_finalize"),
+         {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          resolve_pending_finalization(repo, envelope)
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def resolve_finalization(_repo, _envelope),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def reserve_finalization(
+        repo,
+        %{
+          envelope: %JobEnvelope{} = envelope,
+          object_id: object_id
+        }
+      ) do
+    with :ok <- validate_asset_job(envelope, "asset_finalize"),
+         :ok <- UUID.validate(object_id) do
+      transact_callback(repo, fn ->
+        do_reserve_finalization(repo, envelope, object_id)
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def reserve_finalization(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def acknowledge_finalization(
+        repo,
+        %{
+          envelope: %JobEnvelope{} = envelope,
+          object_id: object_id,
+          stage_id: stage_id,
+          action: action,
+          observed_ciphertext_byte_size: observed_size,
+          observed_ciphertext_hash: <<_::binary-size(32)>>
+        } = command
+      )
+      when action in [:publish, :reuse] and is_integer(observed_size) and
+             observed_size >= 0 do
+    with :ok <- validate_asset_job(envelope, "asset_finalize"),
+         :ok <- UUID.validate([object_id, stage_id]) do
+      transact_callback(repo, fn ->
+        do_acknowledge_finalization(repo, command)
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def acknowledge_finalization(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @spec status(module(), String.t()) ::
+          {:ok, Asset.t()} | {:error, Error.t()}
+  def status(repo, asset_id) when is_binary(asset_id) do
+    with :ok <- UUID.validate(asset_id) do
+      fetch_discoverable_asset(repo, asset_id)
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def status(_repo, _asset_id), do: {:error, Error.new(:invalid)}
+
+  @spec authorized_object(module(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def authorized_object(repo, asset_id) when is_binary(asset_id) do
+    with :ok <- UUID.validate(asset_id) do
+      query =
+        from asset in StoredAsset,
+          join: object in AssetObject,
+          on:
+            object.id == asset.asset_object_id and
+              object.vault_id == asset.vault_id and
+              object.classification == asset.classification,
+          join: envelope in AssetKeyEnvelope,
+          on:
+            envelope.asset_object_id == object.id and
+              envelope.vault_id == object.vault_id and
+              envelope.key_domain_id == object.key_domain_id and
+              envelope.classification == object.classification,
+          join: domain_version in DomainKeyVersion,
+          on:
+            domain_version.id == envelope.domain_key_version_id and
+              domain_version.vault_id == envelope.vault_id and
+              domain_version.key_domain_id == envelope.key_domain_id,
+          where: asset.id == ^asset_id,
+          where:
+            fragment(
+              "core.current_principal_can_discover_classification(?)",
+              asset.classification
+            ),
+          where: asset.state in [:available, :processing, :ready],
+          where: object.lifecycle == :available,
+          where: domain_version.state == :active,
+          order_by: [desc: envelope.key_generation, desc: envelope.inserted_at],
+          limit: 2,
+          select: %{
+            asset_id: asset.id,
+            vault_id: asset.vault_id,
+            classification: asset.classification,
+            object_id: object.id,
+            object_generation: envelope.key_generation
+          }
+
+      case repo.all(query) do
+        [binding] -> {:ok, binding}
+        [] -> {:error, Error.new(:not_found)}
+        [_first, _second] -> {:error, Error.new(:integrity_failure)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def authorized_object(_repo, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def record_job_failure(
+        repo,
+        %JobEnvelope{} = envelope,
+        %Error{} = failure
+      ) do
+    with {:ok, operation} <- failure_operation(envelope.job_type),
+         :ok <- validate_asset_job(envelope, envelope.job_type) do
+      transact_callback(repo, fn ->
+        do_record_job_failure(
+          repo,
+          envelope,
+          failure,
+          operation
+        )
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def record_job_failure(_repo, _envelope, _failure),
+    do: {:error, Error.new(:invalid)}
+
+  @spec retry(module(), map()) ::
+          {:ok, :accepted | :stale} | {:error, Error.t()}
+  def retry(repo, command) when is_map(command) do
+    with :ok <- validate_retry_command(command) do
+      transact_callback(repo, fn ->
+        with {:ok, asset} <- lock_retry_asset(repo, command) do
+          retry_locked_asset(repo, asset, command)
+        end
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def retry(_repo, _command), do: {:error, Error.new(:invalid)}
+
+  defp do_record_job_failure(
+         repo,
+         envelope,
+         failure,
+         operation
+       ) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope),
+         {:ok, asset} <- lock_job_asset(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          fetch_asset(repo, asset.id)
+
+        nil ->
+          persist_job_failure(
+            repo,
+            asset,
+            envelope,
+            failure,
+            operation
+          )
+      end
+    end
+  end
+
+  defp persist_job_failure(
+         repo,
+         asset,
+         envelope,
+         failure,
+         operation
+       ) do
+    if asset.state_revision == envelope.expected_entity_revision and
+         failure_state?(asset.state, envelope.job_type) do
+      now = DateTime.utc_now(:microsecond)
+
+      with {:ok, _failed_asset} <-
+             asset
+             |> StoredAsset.record_failure_changeset(%{
+               failure_code: Atom.to_string(failure.code),
+               retryable?: failure.retryable?,
+               failed_operation: envelope.job_type,
+               attempt: asset.attempt
+             })
+             |> repo.update()
+             |> map_changeset_result(),
+           {:ok, _audit} <-
+             repo.insert(
+               audit_changeset(%{
+                 operation: operation,
+                 result: :failed,
+                 vault_id: asset.vault_id,
+                 principal_id: envelope.principal_id,
+                 classification: asset.classification,
+                 correlation_id: envelope.correlation_id,
+                 target_id: asset.id,
+                 metadata: %{
+                   "failure_code" => Atom.to_string(failure.code),
+                   "job_id" => envelope.job_id,
+                   "operation" => envelope.job_type,
+                   "retryable" => failure.retryable?
+                 },
+                 occurred_at: now
+               })
+             ),
+           {:ok, _receipt} <-
+             Progress.record_effect(repo, envelope, %{
+               effect_key: envelope.idempotency_key,
+               result: :failed,
+               entity_revision: asset.state_revision
+             }) do
+        fetch_asset(repo, asset.id)
+      else
+        {:error, %Ecto.Changeset{} = changeset} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, %Error{}} = error ->
+          error
+      end
+    else
+      fetch_asset(repo, asset.id)
+    end
+  end
+
+  defp failure_operation("asset_verify"),
+    do: {:ok, "asset.verify_failed"}
+
+  defp failure_operation("asset_finalize"),
+    do: {:ok, "asset.finalize_failed"}
+
+  defp failure_operation("asset_cleanup"),
+    do: {:ok, "asset.cleanup_failed"}
+
+  defp failure_operation(_job_type),
+    do: {:error, Error.new(:invalid)}
+
+  defp failure_state?(:uploaded, "asset_verify"), do: true
+  defp failure_state?(:verified, "asset_finalize"), do: true
+  defp failure_state?(:pending_delete, "asset_cleanup"), do: true
+  defp failure_state?(_state, _job_type), do: false
+
+  defp prepare_pending_verification(repo, envelope) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      if asset.state == :uploaded and
+           asset.state_revision == envelope.expected_entity_revision do
+        with {:ok, stage} <- lock_verification_stage(repo, asset.id, asset.vault_id),
+             :ok <- validate_stage_envelope(stage) do
+          {:ok,
+           %{
+             status: :pending,
+             asset: asset,
+             stage_id: stage.id,
+             stage_ref: %StageRef{stage_id: stage.id},
+             ciphertext_byte_size: stage.ciphertext_byte_size,
+             ciphertext_hash: stage.ciphertext_hash,
+             format_envelope: %{
+               algorithm: :aes_256_gcm,
+               chunk_count: chunk_count(stage.plaintext_byte_size),
+               chunk_size: 4_194_304,
+               encryption_domain_id: stage.key_domain_id,
+               final_record?: true,
+               format_version: stage.format_version,
+               object_id: stage.candidate_object_id,
+               vault_id: stage.vault_id
+             }
+           }}
+        end
+      else
+        record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp do_record_verified_stage(repo, envelope, command) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          apply_verified_stage(repo, envelope, command)
+      end
+    end
+  end
+
+  defp apply_verified_stage(repo, envelope, command) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      if asset.state == :uploaded and
+           asset.state_revision == envelope.expected_entity_revision do
+        with {:ok, stage} <- lock_asset_stage(repo, command.stage_id),
+             :ok <- validate_stage_envelope(stage),
+             :ok <- validate_verified_stage_binding(stage, asset, command),
+             {:ok, verified} <- persist_verified_effect(repo, asset, envelope) do
+          {:ok,
+           %{
+             status: :complete,
+             effect_result: :applied,
+             asset: verified
+           }}
+        end
+      else
+        record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp persist_verified_effect(repo, asset, envelope) do
+    now = DateTime.utc_now(:microsecond)
+
+    changeset =
+      asset
+      |> StoredAsset.transition_changeset(%{
+        state: :verified,
+        state_revision: asset.state_revision
+      })
+      |> Ecto.Changeset.optimistic_lock(:state_revision)
+
+    with {:ok, verified} <- repo.update(changeset),
+         {:ok, _audit} <-
+           repo.insert(
+             audit_changeset(%{
+               operation: "asset.verified",
+               vault_id: asset.vault_id,
+               principal_id: envelope.principal_id,
+               classification: asset.classification,
+               correlation_id: envelope.correlation_id,
+               target_id: asset.id,
+               metadata: %{"state" => "verified"},
+               occurred_at: now
+             })
+           ),
+         {:ok, _outbox} <-
+           repo.insert(
+             outbox_changeset(
+               %{
+                 event_type: "asset.finalize_requested",
+                 idempotency_key: "asset-finalize:#{asset.id}:#{verified.state_revision}",
+                 vault_id: asset.vault_id,
+                 principal_id: envelope.principal_id,
+                 required_capability: "asset.write",
+                 classification: asset.classification,
+                 correlation_id: envelope.correlation_id,
+                 causation_id: envelope.job_id,
+                 expected_entity_revision: verified.state_revision,
+                 payload: %{"asset_id" => asset.id},
+                 occurred_at: now
+               },
+               %{
+                 principal_authorization_epoch: envelope.principal_authorization_epoch,
+                 vault_authorization_epoch: envelope.vault_authorization_epoch
+               }
+             )
+           ),
+         {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :applied,
+             entity_revision: verified.state_revision
+           }) do
+      {:ok, verified}
+    else
+      {:error, %Ecto.Changeset{} = changeset_error} ->
+        {:error, changeset_error(changeset_error)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp validate_verified_stage_binding(stage, asset, command) do
+    exact? =
+      stage.id == command.stage_id and
+        stage.asset_id == asset.id and
+        stage.vault_id == asset.vault_id and
+        stage.classification == asset.classification and
+        stage.state == :sealed and
+        stage.state_revision == 1 and
+        stage.ciphertext_byte_size == command.ciphertext_byte_size and
+        digest_matches?(stage.ciphertext_hash, command.ciphertext_hash)
+
+    if exact?,
+      do: :ok,
+      else: {:error, Error.new(:conflict)}
+  end
+
+  defp validate_stage_envelope(%AssetStage{} = stage) do
+    with :ok <-
+           UUID.validate([
+             stage.id,
+             stage.asset_id,
+             stage.vault_id,
+             stage.key_domain_id,
+             stage.candidate_object_id,
+             stage.domain_key_version_id
+           ]),
+         true <- stage.state == :sealed,
+         true <- stage.state_revision == 1,
+         true <- stage.format_version == 1,
+         true <-
+           is_integer(stage.ciphertext_byte_size) and
+             stage.ciphertext_byte_size >= 0,
+         true <-
+           is_binary(stage.ciphertext_hash) and
+             byte_size(stage.ciphertext_hash) == 32,
+         true <- stage.wrapper_algorithm == "aes_256_gcm",
+         true <- is_integer(stage.key_generation) and stage.key_generation > 0,
+         true <- is_binary(stage.dek_wrapper) and byte_size(stage.dek_wrapper) > 0 do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp lock_verification_stage(repo, asset_id, vault_id) do
+    query =
+      from stage in AssetStage,
+        where:
+          stage.asset_id == ^asset_id and
+            stage.vault_id == ^vault_id and
+            stage.state == :sealed,
+        order_by: [asc: stage.inserted_at, asc: stage.id],
+        limit: 2,
+        lock: "FOR SHARE"
+
+    case repo.all(query) do
+      [%AssetStage{} = stage] -> {:ok, stage}
+      [] -> {:error, Error.new(:conflict)}
+      [_first, _second] -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_job_asset(repo, envelope) do
+    asset_id = envelope.payload["asset_id"]
+
+    query =
+      from asset in StoredAsset,
+        where:
+          asset.id == ^asset_id and
+            asset.vault_id == ^envelope.vault_id and
+            asset.classification == ^envelope.classification,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %StoredAsset{} = asset -> {:ok, asset}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_effect_receipt(repo, envelope) do
+    query =
+      from receipt in EffectReceipt,
+        where:
+          receipt.vault_id == ^envelope.vault_id and
+            receipt.effect_key == ^envelope.idempotency_key,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      nil ->
+        {:ok, nil}
+
+      %EffectReceipt{} = receipt ->
+        if receipt.submission_id == envelope.job_id and
+             receipt.classification == envelope.classification do
+          {:ok, receipt}
+        else
+          {:error, Error.new(:conflict)}
+        end
+    end
+  end
+
+  defp completed_job_result(repo, envelope, receipt) do
+    if receipt.result == :failed do
+      {:error, Error.new(:job_failed)}
+    else
+      with {:ok, asset} <- lock_job_asset(repo, envelope),
+           true <- receipt.entity_revision <= asset.state_revision,
+           true <- receipt.result in [:applied, :stale] do
+        {:ok,
+         %{
+           status: :complete,
+           effect_result: receipt.result,
+           asset: asset
+         }}
+      else
+        false -> {:error, Error.new(:conflict)}
+        {:error, %Error{}} = error -> error
+      end
+    end
+  end
+
+  defp record_stale_job(repo, envelope, asset) do
+    with {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :stale,
+             entity_revision: asset.state_revision
+           }) do
+      {:ok,
+       %{
+         status: :complete,
+         effect_result: :stale,
+         asset: asset
+       }}
+    end
+  end
+
+  defp resolve_pending_finalization(repo, envelope) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      if asset.state == :verified and
+           asset.state_revision == envelope.expected_entity_revision do
+        with {:ok, stage} <- lock_verification_stage(repo, asset.id, asset.vault_id),
+             :ok <- validate_stage_envelope(stage),
+             {:ok, canonical} <-
+               lock_live_canonical_object(repo, stage, "FOR SHARE") do
+          {:ok,
+           %{
+             status: :lock,
+             asset: asset,
+             object_id: if(canonical, do: canonical.id, else: stage.candidate_object_id),
+             stage_id: stage.id
+           }}
+        end
+      else
+        record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp do_reserve_finalization(repo, envelope, requested_object_id) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          reserve_pending_finalization(repo, envelope, requested_object_id)
+      end
+    end
+  end
+
+  defp reserve_pending_finalization(repo, envelope, requested_object_id) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      if asset.state == :verified and
+           asset.state_revision == envelope.expected_entity_revision do
+        with {:ok, stage} <- lock_verification_stage(repo, asset.id, asset.vault_id),
+             :ok <- validate_stage_envelope(stage),
+             {:ok, canonical} <-
+               lock_live_canonical_object(repo, stage, "FOR UPDATE") do
+          reserve_canonical_object(
+            repo,
+            stage,
+            canonical,
+            requested_object_id
+          )
+        end
+      else
+        record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp reserve_canonical_object(
+         repo,
+         stage,
+         nil,
+         requested_object_id
+       )
+       when requested_object_id == stage.candidate_object_id do
+    with {:ok, object} <- insert_staged_object(repo, stage),
+         {:ok, _envelope} <- insert_candidate_key_envelope(repo, stage, object.id) do
+      {:ok, finalization_reservation(:publish, stage, object)}
+    end
+  end
+
+  defp reserve_canonical_object(_repo, stage, nil, _requested_object_id) do
+    {:ok,
+     %{
+       status: :retry_lock,
+       object_id: stage.candidate_object_id
+     }}
+  end
+
+  defp reserve_canonical_object(
+         _repo,
+         %AssetStage{} = _stage,
+         %AssetObject{id: canonical_id},
+         requested_object_id
+       )
+       when canonical_id != requested_object_id do
+    {:ok, %{status: :retry_lock, object_id: canonical_id}}
+  end
+
+  defp reserve_canonical_object(
+         repo,
+         stage,
+         %AssetObject{lifecycle: :available} = object,
+         _requested_object_id
+       ) do
+    with :ok <- validate_reusable_object(object, stage),
+         :ok <- validate_canonical_key_envelope(repo, object) do
+      {:ok, finalization_reservation(:reuse, stage, object)}
+    end
+  end
+
+  defp reserve_canonical_object(
+         repo,
+         stage,
+         %AssetObject{lifecycle: :staged} = object,
+         _requested_object_id
+       ) do
+    with true <- object.id == stage.candidate_object_id,
+         :ok <- validate_publishing_object(object, stage),
+         :ok <- validate_candidate_key_envelope(repo, object, stage) do
+      {:ok, finalization_reservation(:publish, stage, object)}
+    else
+      false -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp reserve_canonical_object(
+         _repo,
+         _stage,
+         %AssetObject{},
+         _requested_object_id
+       ),
+       do: {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+  defp insert_staged_object(repo, stage) do
+    %AssetObject{}
+    |> AssetObject.create_changeset(%{
+      id: stage.candidate_object_id,
+      vault_id: stage.vault_id,
+      key_domain_id: stage.key_domain_id,
+      classification: stage.classification,
+      lookup_digest: stage.lookup_digest,
+      ciphertext_hash: stage.ciphertext_hash,
+      plaintext_byte_size: stage.plaintext_byte_size,
+      ciphertext_byte_size: stage.ciphertext_byte_size,
+      storage_ref: stage.candidate_object_id,
+      format_version: stage.format_version,
+      lifecycle: :staged,
+      lifecycle_revision: 0
+    })
+    |> repo.insert()
+    |> map_reservation_insert_result()
+  end
+
+  defp insert_candidate_key_envelope(repo, stage, object_id) do
+    %AssetKeyEnvelope{}
+    |> AssetKeyEnvelope.create_changeset(%{
+      id: Ecto.UUID.generate(),
+      vault_id: stage.vault_id,
+      asset_object_id: object_id,
+      domain_key_version_id: stage.domain_key_version_id,
+      key_domain_id: stage.key_domain_id,
+      classification: stage.classification,
+      algorithm: stage.wrapper_algorithm,
+      key_generation: stage.key_generation,
+      wrapped_dek: stage.dek_wrapper
+    })
+    |> repo.insert()
+    |> map_changeset_result()
+  end
+
+  defp finalization_reservation(action, stage, object)
+       when action in [:publish, :reuse] do
+    %{
+      status: :reserved,
+      action: action,
+      object_id: object.id,
+      object_ref: %ObjectRef{object_id: object.id},
+      stage_id: stage.id,
+      stage_ref: %StageRef{stage_id: stage.id},
+      vault_id: object.vault_id,
+      key_domain_id: object.key_domain_id,
+      lookup_digest: object.lookup_digest,
+      ciphertext_byte_size: object.ciphertext_byte_size,
+      ciphertext_hash: object.ciphertext_hash
+    }
+  end
+
+  defp do_acknowledge_finalization(repo, command) do
+    envelope = command.envelope
+
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          acknowledge_pending_finalization(repo, command)
+      end
+    end
+  end
+
+  defp acknowledge_pending_finalization(repo, command) do
+    envelope = command.envelope
+
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      if asset.state == :verified and
+           asset.state_revision == envelope.expected_entity_revision do
+        with {:ok, stage} <- lock_asset_stage(repo, command.stage_id),
+             {:ok, object} <-
+               lock_asset_object(
+                 repo,
+                 command.object_id,
+                 envelope.vault_id
+               ),
+             :ok <- validate_stage_envelope(stage),
+             :ok <-
+               validate_finalization_acknowledgement(
+                 repo,
+                 asset,
+                 stage,
+                 object,
+                 command
+               ),
+             {:ok, available} <-
+               persist_available_effect(
+                 repo,
+                 asset,
+                 stage,
+                 object,
+                 command
+               ) do
+          {:ok,
+           %{
+             status: :complete,
+             effect_result: :applied,
+             asset: available
+           }}
+        end
+      else
+        record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp validate_finalization_acknowledgement(
+         repo,
+         asset,
+         stage,
+         object,
+         command
+       ) do
+    exact_binding? =
+      stage.id == command.stage_id and
+        stage.asset_id == asset.id and
+        stage.vault_id == asset.vault_id and
+        stage.classification == asset.classification and
+        stage.state == :sealed and
+        stage.state_revision == 1 and
+        object.id == command.object_id and
+        object.vault_id == stage.vault_id and
+        object.key_domain_id == stage.key_domain_id and
+        object.classification == stage.classification and
+        digest_matches?(object.lookup_digest, stage.lookup_digest) and
+        object.plaintext_byte_size == stage.plaintext_byte_size and
+        object.format_version == stage.format_version and
+        object.ciphertext_byte_size ==
+          command.observed_ciphertext_byte_size and
+        digest_matches?(
+          object.ciphertext_hash,
+          command.observed_ciphertext_hash
+        )
+
+    with true <- exact_binding?,
+         :ok <-
+           validate_acknowledgement_action(
+             repo,
+             object,
+             stage,
+             command.action
+           ) do
+      :ok
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_acknowledgement_action(
+         repo,
+         %AssetObject{lifecycle: :staged} = object,
+         stage,
+         :publish
+       ) do
+    with true <- object.id == stage.candidate_object_id,
+         :ok <- validate_publishing_object(object, stage),
+         :ok <- validate_candidate_key_envelope(repo, object, stage) do
+      :ok
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_acknowledgement_action(
+         repo,
+         %AssetObject{lifecycle: :available} = object,
+         stage,
+         :reuse
+       ) do
+    with :ok <- validate_reusable_object(object, stage),
+         :ok <- validate_canonical_key_envelope(repo, object) do
+      :ok
+    end
+  end
+
+  defp validate_acknowledgement_action(
+         _repo,
+         _object,
+         _stage,
+         _action
+       ),
+       do: {:error, Error.new(:conflict)}
+
+  defp persist_available_effect(repo, asset, stage, object, command) do
+    envelope = command.envelope
+    now = DateTime.utc_now(:microsecond)
+
+    with {:ok, available_object} <-
+           make_object_available(repo, object, command.action),
+         {:ok, _finalized_stage} <-
+           stage
+           |> AssetStage.finalize_changeset()
+           |> repo.update()
+           |> map_changeset_result(),
+         {:ok, available_asset} <-
+           asset
+           |> StoredAsset.attach_object_changeset(%{
+             asset_object_id: available_object.id
+           })
+           |> StoredAsset.transition_changeset(%{
+             state: :available,
+             state_revision: asset.state_revision
+           })
+           |> Ecto.Changeset.optimistic_lock(:state_revision)
+           |> repo.update()
+           |> map_changeset_result(),
+         {:ok, _audit} <-
+           repo.insert(
+             audit_changeset(%{
+               operation: "asset.available",
+               vault_id: asset.vault_id,
+               principal_id: envelope.principal_id,
+               classification: asset.classification,
+               correlation_id: envelope.correlation_id,
+               target_id: asset.id,
+               metadata: %{"state" => "available"},
+               occurred_at: now
+             })
+           ),
+         {:ok, _outbox} <-
+           repo.insert(
+             outbox_changeset(
+               %{
+                 event_type: "asset.metadata_requested",
+                 idempotency_key: "asset-metadata:#{asset.id}:#{available_asset.state_revision}",
+                 vault_id: asset.vault_id,
+                 principal_id: envelope.principal_id,
+                 required_capability: "asset.read",
+                 classification: asset.classification,
+                 correlation_id: envelope.correlation_id,
+                 causation_id: envelope.job_id,
+                 expected_entity_revision: available_asset.state_revision,
+                 payload: %{"asset_id" => asset.id},
+                 occurred_at: now
+               },
+               %{
+                 principal_authorization_epoch: envelope.principal_authorization_epoch,
+                 vault_authorization_epoch: envelope.vault_authorization_epoch
+               }
+             )
+           ),
+         {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :applied,
+             entity_revision: available_asset.state_revision
+           }) do
+      {:ok, available_asset}
+    else
+      {:error, %Ecto.Changeset{} = changeset_error} ->
+        {:error, changeset_error(changeset_error)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp make_object_available(
+         repo,
+         %AssetObject{lifecycle: :staged} = object,
+         :publish
+       ) do
+    object
+    |> AssetObject.lifecycle_changeset(%{
+      lifecycle: :available,
+      lifecycle_revision: object.lifecycle_revision
+    })
+    |> Ecto.Changeset.optimistic_lock(:lifecycle_revision)
+    |> repo.update()
+    |> map_changeset_result()
+  end
+
+  defp make_object_available(
+         _repo,
+         %AssetObject{lifecycle: :available} = object,
+         :reuse
+       ),
+       do: {:ok, object}
+
+  defp make_object_available(_repo, _object, _action),
+    do: {:error, Error.new(:conflict)}
+
+  defp validate_publishing_object(object, stage) do
+    exact? =
+      object.id == stage.candidate_object_id and
+        object.vault_id == stage.vault_id and
+        object.key_domain_id == stage.key_domain_id and
+        object.classification == stage.classification and
+        digest_matches?(object.lookup_digest, stage.lookup_digest) and
+        digest_matches?(object.ciphertext_hash, stage.ciphertext_hash) and
+        object.plaintext_byte_size == stage.plaintext_byte_size and
+        object.ciphertext_byte_size == stage.ciphertext_byte_size and
+        object.storage_ref == stage.candidate_object_id and
+        object.format_version == stage.format_version and
+        object.lifecycle == :staged and
+        object.lifecycle_revision == 0
+
+    if exact?,
+      do: :ok,
+      else: {:error, Error.new(:conflict)}
+  end
+
+  defp validate_reusable_object(object, stage) do
+    exact? =
+      object.vault_id == stage.vault_id and
+        object.key_domain_id == stage.key_domain_id and
+        object.classification == stage.classification and
+        digest_matches?(object.lookup_digest, stage.lookup_digest) and
+        object.plaintext_byte_size == stage.plaintext_byte_size and
+        object.format_version == stage.format_version and
+        object.lifecycle == :available and
+        valid_text?(object.storage_ref)
+
+    if exact?,
+      do: :ok,
+      else: {:error, Error.new(:conflict)}
+  end
+
+  defp validate_candidate_key_envelope(repo, object, stage) do
+    query =
+      from envelope in AssetKeyEnvelope,
+        where:
+          envelope.asset_object_id == ^object.id and
+            envelope.vault_id == ^object.vault_id and
+            envelope.key_domain_id == ^object.key_domain_id and
+            envelope.domain_key_version_id == ^stage.domain_key_version_id and
+            envelope.classification == ^stage.classification and
+            envelope.algorithm == ^stage.wrapper_algorithm and
+            envelope.key_generation == ^stage.key_generation,
+        lock: "FOR SHARE"
+
+    case repo.one(query) do
+      %AssetKeyEnvelope{wrapped_dek: wrapped_dek}
+      when is_binary(wrapped_dek) and byte_size(wrapped_dek) > 0 ->
+        if :crypto.hash_equals(wrapped_dek, stage.dek_wrapper),
+          do: :ok,
+          else: {:error, Error.new(:conflict)}
+
+      _missing_or_invalid ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_canonical_key_envelope(repo, object) do
+    query =
+      from envelope in AssetKeyEnvelope,
+        where:
+          envelope.asset_object_id == ^object.id and
+            envelope.vault_id == ^object.vault_id and
+            envelope.key_domain_id == ^object.key_domain_id and
+            envelope.classification == ^object.classification and
+            envelope.key_generation > 0,
+        order_by: [desc: envelope.key_generation, desc: envelope.inserted_at],
+        limit: 1,
+        lock: "FOR SHARE"
+
+    case repo.one(query) do
+      %AssetKeyEnvelope{
+        algorithm: algorithm,
+        wrapped_dek: wrapped_dek
+      }
+      when is_binary(algorithm) and algorithm != "" and
+             is_binary(wrapped_dek) and byte_size(wrapped_dek) > 0 ->
+        :ok
+
+      _missing_or_invalid ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_live_canonical_object(repo, stage, "FOR SHARE") do
+    query =
+      from object in AssetObject,
+        where:
+          object.vault_id == ^stage.vault_id and
+            object.key_domain_id == ^stage.key_domain_id and
+            object.lookup_digest == ^stage.lookup_digest and
+            object.lifecycle != :deleted,
+        lock: "FOR SHARE"
+
+    {:ok, repo.one(query)}
+  end
+
+  defp lock_live_canonical_object(repo, stage, "FOR UPDATE") do
+    query =
+      from object in AssetObject,
+        where:
+          object.vault_id == ^stage.vault_id and
+            object.key_domain_id == ^stage.key_domain_id and
+            object.lookup_digest == ^stage.lookup_digest and
+            object.lifecycle != :deleted,
+        lock: "FOR UPDATE"
+
+    {:ok, repo.one(query)}
+  end
+
+  defp lock_asset_object(repo, object_id, vault_id) do
+    query =
+      from object in AssetObject,
+        where:
+          object.id == ^object_id and
+            object.vault_id == ^vault_id,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %AssetObject{} = object -> {:ok, object}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp map_changeset_result({:ok, value}), do: {:ok, value}
+
+  defp map_changeset_result({:error, %Ecto.Changeset{} = changeset}),
+    do: {:error, changeset_error(changeset)}
+
+  defp map_reservation_insert_result({:ok, value}), do: {:ok, value}
+
+  defp map_reservation_insert_result({:error, %Ecto.Changeset{} = changeset}) do
+    if Enum.any?(changeset.errors, fn
+         {_field, {_message, metadata}} ->
+           metadata[:constraint] == :unique and
+             to_string(metadata[:constraint_name]) ==
+               "asset_objects_live_lookup_key"
+       end) do
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+    else
+      {:error, changeset_error(changeset)}
+    end
+  end
+
+  defp validate_asset_job(
+         %JobEnvelope{
+           job_type: job_type,
+           required_capability: required_capability,
+           payload: %{"asset_id" => asset_id},
+           classification: classification,
+           expected_entity_revision: expected_revision
+         } = envelope,
+         expected_job_type
+       ) do
+    with true <- job_type == expected_job_type,
+         true <- required_capability == "asset.write",
+         :ok <-
+           UUID.validate([
+             envelope.job_id,
+             envelope.vault_id,
+             envelope.principal_id,
+             envelope.correlation_id,
+             envelope.causation_id,
+             asset_id
+           ]),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <- is_integer(expected_revision) and expected_revision >= 0,
+         true <- valid_text?(envelope.idempotency_key),
+         false <- Map.has_key?(envelope.payload, "object_dek"),
+         false <- Map.has_key?(envelope.payload, "dek_wrapper"),
+         false <- Map.has_key?(envelope.payload, "plaintext_sha256") do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp transact_callback(repo, callback) do
+    case repo.transaction(fn ->
+           case callback.() do
+             {:error, reason} -> repo.rollback(reason)
+             result -> result
+           end
+         end) do
+      {:ok, result} -> result
+      {:error, %Error{}} = error -> error
+      {:error, _reason} -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp chunk_count(0), do: 0
+
+  defp chunk_count(plaintext_byte_size)
+       when is_integer(plaintext_byte_size) and plaintext_byte_size > 0,
+       do: div(plaintext_byte_size + 4_194_303, 4_194_304)
+
+  defp validate_retry_command(
+         %{
+           asset_id: asset_id,
+           vault_id: vault_id,
+           principal_id: principal_id,
+           classification: classification,
+           expected_state_revision: expected_state_revision
+         } = command
+       ) do
+    with :ok <- UUID.validate([asset_id, vault_id, principal_id]),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <-
+           is_integer(expected_state_revision) and
+             expected_state_revision >= 0,
+         true <-
+           Map.keys(command)
+           |> Enum.sort() ==
+             [
+               :asset_id,
+               :classification,
+               :expected_state_revision,
+               :principal_id,
+               :vault_id
+             ] do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_retry_command(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_retry_asset(repo, command) do
+    query =
+      from asset in StoredAsset,
+        where:
+          asset.id == ^command.asset_id and
+            asset.vault_id == ^command.vault_id and
+            asset.classification == ^command.classification,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %StoredAsset{} = asset -> {:ok, asset}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp retry_locked_asset(repo, asset, command) do
+    cond do
+      asset.state_revision != command.expected_state_revision ->
+        {:ok, :stale}
+
+      retryable_failure?(asset) ->
+        apply_retry(repo, asset, command)
+
+      replayed_retry?(repo, asset, command) ->
+        {:ok, :accepted}
+
+      true ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp retryable_failure?(%StoredAsset{
+         failure_code: failure_code,
+         retryable?: true,
+         failed_operation: failed_operation
+       }),
+       do: valid_text?(failure_code) and valid_text?(failed_operation)
+
+  defp retryable_failure?(_asset), do: false
+
+  defp apply_retry(repo, asset, command) do
+    with {:ok, job} <- retry_job(asset),
+         {:ok, epochs} <-
+           authorization_epochs(
+             repo,
+             command.principal_id,
+             command.vault_id
+           ) do
+      next_attempt = asset.attempt + 1
+      idempotency_key = retry_idempotency_key(asset, next_attempt)
+      now = DateTime.utc_now(:microsecond)
+      correlation_id = Ecto.UUID.generate()
+
+      with {:ok, _cleared} <-
+             asset
+             |> StoredAsset.retry_changeset(%{
+               failure_code: nil,
+               retryable?: nil,
+               failed_operation: nil,
+               attempt: next_attempt
+             })
+             |> repo.update()
+             |> map_changeset_result(),
+           {:ok, _audit} <-
+             repo.insert(
+               audit_changeset(%{
+                 operation: "asset.retry_requested",
+                 vault_id: asset.vault_id,
+                 principal_id: command.principal_id,
+                 classification: asset.classification,
+                 correlation_id: correlation_id,
+                 target_id: asset.id,
+                 metadata: %{
+                   "attempt" => next_attempt,
+                   "operation" => job.job_type
+                 },
+                 occurred_at: now
+               })
+             ),
+           {:ok, _outbox} <-
+             repo.insert(
+               outbox_changeset(
+                 %{
+                   event_type: job.event_type,
+                   idempotency_key: idempotency_key,
+                   vault_id: asset.vault_id,
+                   principal_id: command.principal_id,
+                   required_capability: "asset.write",
+                   classification: asset.classification,
+                   correlation_id: correlation_id,
+                   causation_id: asset.id,
+                   expected_entity_revision: asset.state_revision,
+                   payload: %{"asset_id" => asset.id},
+                   occurred_at: now
+                 },
+                 epochs
+               )
+             ) do
+        {:ok, :accepted}
+      else
+        {:error, %Ecto.Changeset{} = changeset} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, %Error{}} = error ->
+          error
+      end
+    end
+  end
+
+  defp retry_job(%StoredAsset{
+         state: :uploaded,
+         failed_operation: operation
+       })
+       when operation in ["asset_verify", "verify"],
+       do:
+         {:ok,
+          %{
+            event_type: "asset.verify_requested",
+            job_type: "asset_verify"
+          }}
+
+  defp retry_job(%StoredAsset{
+         state: :verified,
+         failed_operation: operation
+       })
+       when operation in ["asset_finalize", "finalize"],
+       do:
+         {:ok,
+          %{
+            event_type: "asset.finalize_requested",
+            job_type: "asset_finalize"
+          }}
+
+  defp retry_job(%StoredAsset{
+         state: :pending_delete,
+         failed_operation: operation
+       })
+       when operation in ["asset_cleanup", "cleanup"],
+       do:
+         {:ok,
+          %{
+            event_type: "asset.cleanup_requested",
+            job_type: "asset_cleanup"
+          }}
+
+  defp retry_job(_asset), do: {:error, Error.new(:conflict)}
+
+  defp replayed_retry?(repo, asset, command) do
+    if is_nil(asset.failure_code) and is_nil(asset.retryable?) and
+         is_nil(asset.failed_operation) and asset.attempt > 0 do
+      key = retry_idempotency_key(asset, asset.attempt)
+
+      repo.exists?(
+        from event in OutboxEvent,
+          where:
+            event.vault_id == ^command.vault_id and
+              event.principal_id == ^command.principal_id and
+              event.classification == ^command.classification and
+              event.idempotency_key == ^key and
+              event.expected_entity_revision ==
+                ^command.expected_state_revision and
+              fragment("? ->> 'asset_id'", event.payload) ==
+                ^command.asset_id
+      )
+    else
+      false
+    end
+  end
+
+  defp retry_idempotency_key(asset, attempt) do
+    "asset-retry:#{asset.id}:#{asset.state_revision}:#{attempt}"
+  end
 
   @impl true
   def transition(repo, intent) do
@@ -542,19 +2228,39 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         {:error, Error.new(:not_found)}
 
       stored ->
-        Asset.new(%{
-          asset_id: stored.id,
-          vault_id: stored.vault_id,
-          resource_version_id: stored.resource_version_id,
-          classification: stored.classification,
-          state: stored.state,
-          state_revision: stored.state_revision,
-          failure_code: failure_code(stored.failure_code),
-          retryable?: stored.retryable? || false,
-          failed_operation: stored.failed_operation,
-          attempt: stored.attempt
-        })
+        stored_asset(stored)
     end
+  end
+
+  defp fetch_discoverable_asset(repo, asset_id) do
+    query =
+      from asset in StoredAsset,
+        where: asset.id == ^asset_id,
+        where:
+          fragment(
+            "core.current_principal_can_discover_classification(?)",
+            asset.classification
+          )
+
+    case repo.one(query) do
+      nil -> {:error, Error.new(:not_found)}
+      stored -> stored_asset(stored)
+    end
+  end
+
+  defp stored_asset(stored) do
+    Asset.new(%{
+      asset_id: stored.id,
+      vault_id: stored.vault_id,
+      resource_version_id: stored.resource_version_id,
+      classification: stored.classification,
+      state: stored.state,
+      state_revision: stored.state_revision,
+      failure_code: failure_code(stored.failure_code),
+      retryable?: stored.retryable? || false,
+      failed_operation: stored.failed_operation,
+      attempt: stored.attempt
+    })
   end
 
   defp same_classification(%Asset{classification: classification}, classification),
@@ -573,7 +2279,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       actor_kind: :principal,
       principal_id: attrs.principal_id,
       operation: attrs.operation,
-      result: :completed,
+      result: Map.get(attrs, :result, :completed),
       classification: attrs.classification,
       correlation_id: attrs.correlation_id,
       target_type: "asset",
@@ -602,6 +2308,453 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       provenance.resource_version_id,
       provenance.principal_id
     ])
+  end
+
+  defp validate_stage_abandonment(
+         %{
+           stage_id: stage_id,
+           grant_id: grant_id,
+           asset_id: asset_id,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id,
+           classification: classification,
+           storage_ref: storage_ref,
+           expected_stage_revision: expected_stage_revision,
+           failure_code: failure_code,
+           abandoned_at: abandoned_at
+         } = command
+       ) do
+    with :ok <-
+           UUID.validate([
+             stage_id,
+             grant_id,
+             asset_id,
+             session_id,
+             principal_id,
+             vault_id
+           ]),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <- valid_text?(storage_ref),
+         true <-
+           valid_text?(failure_code) and
+             failure_code == String.trim(failure_code) and
+             byte_size(failure_code) <= 128,
+         true <-
+           is_integer(expected_stage_revision) and
+             expected_stage_revision >= 0,
+         {:ok, ^abandoned_at} <- Types.utc_datetime(command, :abandoned_at),
+         false <- Map.has_key?(command, :token),
+         false <- Map.has_key?(command, :token_digest),
+         false <- Map.has_key?(command, :object_dek),
+         false <- Map.has_key?(command, :dek_wrapper),
+         false <- Map.has_key?(command, :plaintext_sha256) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_stage_abandonment(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp validate_stage_abandonment_binding(
+         %{
+           stage: stage,
+           grant: grant,
+           asset: asset,
+           authorization_epochs: authorization_epochs
+         },
+         command
+       ) do
+    exact_binding? =
+      stage.id == command.stage_id and
+        stage.upload_grant_id == grant.id and
+        stage.asset_id == asset.id and
+        stage.vault_id == command.vault_id and
+        stage.classification == command.classification and
+        stage.storage_ref == command.storage_ref and
+        grant.id == command.grant_id and
+        grant.session_id == command.session_id and
+        grant.principal_id == command.principal_id and
+        grant.vault_id == command.vault_id and
+        grant.asset_id == command.asset_id and
+        grant.classification == command.classification and
+        not is_nil(grant.consumed_at) and
+        grant.principal_authorization_epoch ==
+          authorization_epochs.principal_authorization_epoch and
+        grant.vault_authorization_epoch ==
+          authorization_epochs.vault_authorization_epoch and
+        asset.id == command.asset_id and
+        asset.vault_id == command.vault_id and
+        asset.classification == command.classification and
+        asset.state == :staging and
+        asset.state_revision == 0
+
+    cond do
+      not exact_binding? ->
+        {:error, Error.new(:conflict)}
+
+      stage.state == :open and
+          stage.state_revision == command.expected_stage_revision ->
+        {:ok, :apply}
+
+      stage.state == :abandoned and
+        stage.state_revision == command.expected_stage_revision + 1 and
+        stage.failure_code == command.failure_code and
+          DateTime.compare(stage.abandoned_at, command.abandoned_at) == :eq ->
+        {:ok, :replay}
+
+      true ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp stage_abandonment_effects(
+         %{abandonment_mode: :replay, stage: stage},
+         _command,
+         _correlation_id
+       ) do
+    Multi.new()
+    |> Multi.put(:abandoned_stage, stage)
+  end
+
+  defp stage_abandonment_effects(
+         %{abandonment_mode: :apply, stage: stage, grant: grant},
+         command,
+         correlation_id
+       ) do
+    audit =
+      audit_changeset(%{
+        operation: "asset.upload_abandoned",
+        vault_id: grant.vault_id,
+        principal_id: grant.principal_id,
+        classification: grant.classification,
+        correlation_id: correlation_id,
+        target_id: grant.asset_id,
+        metadata: %{
+          "failure_code" => command.failure_code,
+          "grant_id" => grant.id,
+          "stage_id" => stage.id
+        },
+        occurred_at: command.abandoned_at
+      })
+
+    Multi.new()
+    |> Multi.update(
+      :abandoned_stage,
+      AssetStage.abandon_changeset(stage, %{
+        abandoned_at: command.abandoned_at,
+        failure_code: command.failure_code
+      })
+    )
+    |> Multi.insert(:abandonment_audit, audit)
+  end
+
+  defp validate_sealed_checkpoint(
+         %{
+           stage_ref: %StageRef{stage_id: stage_id},
+           storage_ref: storage_ref,
+           grant_id: grant_id,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id,
+           asset_id: asset_id,
+           classification: classification,
+           expected_stage_revision: expected_stage_revision,
+           expected_asset_revision: expected_asset_revision,
+           format_version: format_version,
+           plaintext_byte_size: plaintext_byte_size,
+           ciphertext_byte_size: ciphertext_byte_size,
+           lookup_digest: lookup_digest,
+           ciphertext_hash: ciphertext_hash,
+           sealed_at: sealed_at
+         } = command
+       ) do
+    with :ok <-
+           UUID.validate([
+             stage_id,
+             grant_id,
+             session_id,
+             principal_id,
+             vault_id,
+             asset_id
+           ]),
+         true <- valid_text?(storage_ref),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <- expected_stage_revision == 0,
+         true <- expected_asset_revision == 0,
+         true <- is_integer(format_version) and format_version > 0,
+         true <-
+           is_integer(plaintext_byte_size) and plaintext_byte_size >= 0 and
+             plaintext_byte_size <= @max_bigint,
+         true <-
+           is_integer(ciphertext_byte_size) and ciphertext_byte_size >= 0 and
+             ciphertext_byte_size <= @max_bigint,
+         true <- is_binary(lookup_digest) and byte_size(lookup_digest) == 32,
+         true <- is_binary(ciphertext_hash) and byte_size(ciphertext_hash) == 32,
+         {:ok, ^sealed_at} <- Types.utc_datetime(command, :sealed_at),
+         false <- Map.has_key?(command, :object_dek),
+         false <- Map.has_key?(command, :plaintext_sha256) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_sealed_checkpoint(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_asset_stage(repo, stage_id) do
+    query =
+      from stage in AssetStage,
+        where: stage.id == ^stage_id,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %AssetStage{} = stage -> {:ok, stage}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp lock_upload_grant(repo, grant_id, principal_id) do
+    query =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^grant_id and
+            grant.principal_id == ^principal_id and
+            grant.principal_id ==
+              fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid"),
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %UploadGrant{} = grant -> {:ok, grant}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_stored_asset(repo, asset_id) do
+    query =
+      from asset in StoredAsset,
+        where: asset.id == ^asset_id,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %StoredAsset{} = asset -> {:ok, asset}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp lock_upload_asset(repo, grant, command) do
+    with true <- command.asset_id == grant.asset_id,
+         true <- command.vault_id == grant.vault_id,
+         true <- command.classification == grant.classification,
+         {:ok, asset} <- lock_stored_asset(repo, grant.asset_id),
+         true <- asset.vault_id == grant.vault_id,
+         true <- asset.classification == grant.classification,
+         true <- asset.state == :staging,
+         true <- asset.state_revision == 0 do
+      {:ok, asset}
+    else
+      {:error, %Error{}} = error -> error
+      false -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_upload_source(repo, asset, grant) do
+    idempotency_digest = :crypto.hash(:sha256, grant.idempotency_key)
+
+    query =
+      from source in SourceReference,
+        where:
+          source.id == ^grant.source_reference_id and
+            source.vault_id == ^grant.vault_id and
+            source.resource_version_id == ^asset.resource_version_id and
+            source.principal_id == ^grant.principal_id and
+            source.classification == ^grant.classification and
+            source.kind == :browser_upload and
+            source.original_filename == ^grant.filename and
+            source.declared_media_type == ^grant.declared_media_type and
+            source.byte_size == ^grant.byte_size and
+            source.idempotency_key_digest == ^idempotency_digest,
+        lock: "FOR SHARE"
+
+    case repo.one(query) do
+      %SourceReference{} = source -> {:ok, source}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_sealed_checkpoint_binding(
+         %{
+           stage: stage,
+           grant: grant,
+           asset: asset,
+           source: source,
+           authorization_epochs: authorization_epochs
+         },
+         command
+       ) do
+    exact_binding? =
+      stage.id == command.stage_ref.stage_id and
+        stage.storage_ref == command.storage_ref and
+        stage.upload_grant_id == grant.id and
+        stage.asset_id == asset.id and
+        stage.vault_id == command.vault_id and
+        stage.classification == command.classification and
+        grant.id == command.grant_id and
+        grant.session_id == command.session_id and
+        grant.principal_id == command.principal_id and
+        grant.vault_id == command.vault_id and
+        grant.asset_id == command.asset_id and
+        grant.classification == command.classification and
+        grant.byte_size == command.plaintext_byte_size and
+        not is_nil(grant.consumed_at) and
+        grant.principal_authorization_epoch ==
+          authorization_epochs.principal_authorization_epoch and
+        grant.vault_authorization_epoch ==
+          authorization_epochs.vault_authorization_epoch and
+        asset.id == command.asset_id and
+        asset.vault_id == command.vault_id and
+        asset.classification == command.classification and
+        source.vault_id == command.vault_id and
+        source.id == grant.source_reference_id and
+        source.resource_version_id == asset.resource_version_id and
+        source.principal_id == command.principal_id and
+        source.classification == command.classification and
+        source.original_filename == grant.filename and
+        source.declared_media_type == grant.declared_media_type and
+        source.byte_size == grant.byte_size
+
+    cond do
+      not exact_binding? ->
+        {:error, Error.new(:conflict)}
+
+      open_checkpoint?(stage, asset, command) ->
+        {:ok, :apply}
+
+      replayed_checkpoint?(stage, asset, command) ->
+        {:ok, :replay}
+
+      true ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp open_checkpoint?(stage, asset, command) do
+    stage.state == :open and
+      stage.state_revision == command.expected_stage_revision and
+      asset.state == :staging and
+      asset.state_revision == command.expected_asset_revision
+  end
+
+  defp replayed_checkpoint?(stage, asset, command) do
+    stage.state == :sealed and
+      stage.state_revision == command.expected_stage_revision + 1 and
+      stage.format_version == command.format_version and
+      stage.plaintext_byte_size == command.plaintext_byte_size and
+      stage.ciphertext_byte_size == command.ciphertext_byte_size and
+      digest_matches?(stage.lookup_digest, command.lookup_digest) and
+      digest_matches?(stage.ciphertext_hash, command.ciphertext_hash) and
+      DateTime.compare(stage.sealed_at, command.sealed_at) == :eq and
+      asset.state == :uploaded and
+      asset.state_revision == command.expected_asset_revision + 1
+  end
+
+  defp sealed_checkpoint_effects(
+         %{checkpoint_mode: :replay, stage: stage, asset: asset},
+         _command,
+         _correlation_id
+       ) do
+    Multi.new()
+    |> Multi.put(:checkpoint_stage, stage)
+    |> Multi.put(:checkpoint_asset, asset)
+  end
+
+  defp sealed_checkpoint_effects(
+         %{
+           checkpoint_mode: :apply,
+           stage: stage,
+           asset: asset,
+           grant: grant,
+           authorization_epochs: authorization_epochs
+         },
+         command,
+         correlation_id
+       ) do
+    stage_changeset =
+      AssetStage.seal_changeset(stage, %{
+        format_version: command.format_version,
+        plaintext_byte_size: command.plaintext_byte_size,
+        ciphertext_byte_size: command.ciphertext_byte_size,
+        lookup_digest: command.lookup_digest,
+        ciphertext_hash: command.ciphertext_hash,
+        sealed_at: command.sealed_at
+      })
+
+    asset_changeset =
+      asset
+      |> StoredAsset.transition_changeset(%{
+        state: :uploaded,
+        state_revision: asset.state_revision
+      })
+      |> Ecto.Changeset.optimistic_lock(:state_revision)
+
+    metadata =
+      AssetMetadata.upsert_changeset(%AssetMetadata{}, %{
+        id: Ecto.UUID.generate(),
+        asset_id: asset.id,
+        resource_version_id: asset.resource_version_id,
+        vault_id: asset.vault_id,
+        classification: asset.classification,
+        projection_version: 1,
+        original_filename: grant.filename,
+        declared_media_type: grant.declared_media_type,
+        plaintext_byte_size: grant.byte_size,
+        extraction_state: :pending
+      })
+
+    audit =
+      audit_changeset(%{
+        operation: "asset.uploaded",
+        vault_id: asset.vault_id,
+        principal_id: grant.principal_id,
+        classification: asset.classification,
+        correlation_id: correlation_id,
+        target_id: asset.id,
+        metadata: %{
+          "stage_id" => stage.id,
+          "state" => "uploaded"
+        },
+        occurred_at: command.sealed_at
+      })
+
+    outbox =
+      outbox_changeset(
+        %{
+          event_type: "asset.verify_requested",
+          idempotency_key: "asset-verify:#{asset.id}:#{command.expected_asset_revision + 1}",
+          vault_id: asset.vault_id,
+          principal_id: grant.principal_id,
+          required_capability: "asset.write",
+          classification: asset.classification,
+          correlation_id: correlation_id,
+          causation_id: grant.id,
+          expected_entity_revision: command.expected_asset_revision + 1,
+          payload: %{"asset_id" => asset.id},
+          occurred_at: command.sealed_at
+        },
+        authorization_epochs
+      )
+
+    Multi.new()
+    |> Multi.update(:checkpoint_stage, stage_changeset)
+    |> Multi.update(:checkpoint_asset, asset_changeset)
+    |> Multi.insert(:checkpoint_metadata, metadata)
+    |> Multi.insert(:checkpoint_audit, audit)
+    |> Multi.insert(:checkpoint_outbox, outbox)
   end
 
   defp validate_sealed_stage_ids(%{
@@ -664,6 +2817,539 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   defp validate_tombstone_ids(_intent), do: {:error, Error.new(:invalid)}
+
+  defp validate_grant_stage_command(%{
+         grant_id: grant_id,
+         token: token,
+         session_id: session_id,
+         principal_id: principal_id,
+         vault_id: vault_id,
+         asset_id: asset_id,
+         filename: filename,
+         byte_size: byte_size,
+         declared_media_type: declared_media_type,
+         idempotency_key: idempotency_key,
+         classification: classification,
+         principal_authorization_epoch: principal_authorization_epoch,
+         vault_authorization_epoch: vault_authorization_epoch,
+         stage_id: stage_id,
+         candidate_object_id: candidate_object_id,
+         key_domain_id: key_domain_id,
+         domain_key_version_id: domain_key_version_id,
+         storage_ref: storage_ref,
+         wrapper_algorithm: wrapper_algorithm,
+         key_generation: key_generation,
+         dek_wrapper: dek_wrapper
+       }) do
+    with :ok <-
+           UUID.validate([
+             grant_id,
+             session_id,
+             principal_id,
+             vault_id,
+             asset_id,
+             stage_id,
+             candidate_object_id,
+             key_domain_id,
+             domain_key_version_id
+           ]),
+         true <- is_binary(token) and byte_size(token) == 32,
+         true <- valid_text?(filename),
+         true <- is_integer(byte_size) and byte_size >= 0,
+         true <- valid_text?(declared_media_type),
+         true <- valid_text?(idempotency_key),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <-
+           is_integer(principal_authorization_epoch) and
+             principal_authorization_epoch >= 0,
+         true <-
+           is_integer(vault_authorization_epoch) and
+             vault_authorization_epoch >= 0,
+         true <- valid_text?(storage_ref),
+         true <- valid_text?(wrapper_algorithm),
+         true <- is_integer(key_generation) and key_generation > 0,
+         true <- is_binary(dek_wrapper) and byte_size(dek_wrapper) > 0 do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_grant_stage_command(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_eligible_grant(repo, grant_id, principal_id) do
+    eligible =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^grant_id and
+            grant.principal_id == ^principal_id and
+            grant.principal_id ==
+              fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid") and
+            is_nil(grant.consumed_at) and
+            grant.expires_at > fragment("statement_timestamp()"),
+        lock: "FOR UPDATE"
+
+    case repo.one(eligible) do
+      %UploadGrant{} = grant -> {:ok, grant}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_grant_stage_binding(
+         grant,
+         command,
+         token_digest,
+         authorization_epochs
+       ) do
+    exact_binding? =
+      digest_matches?(grant.token_digest, token_digest) and
+        grant.id == command.grant_id and
+        grant.session_id == command.session_id and
+        grant.principal_id == command.principal_id and
+        grant.vault_id == command.vault_id and
+        grant.asset_id == command.asset_id and
+        grant.filename == command.filename and
+        grant.byte_size == command.byte_size and
+        grant.declared_media_type == command.declared_media_type and
+        grant.idempotency_key == command.idempotency_key and
+        grant.classification == command.classification and
+        grant.principal_authorization_epoch ==
+          command.principal_authorization_epoch and
+        grant.vault_authorization_epoch ==
+          command.vault_authorization_epoch and
+        grant.principal_authorization_epoch ==
+          authorization_epochs.principal_authorization_epoch and
+        grant.vault_authorization_epoch ==
+          authorization_epochs.vault_authorization_epoch
+
+    if exact_binding?,
+      do: {:ok, :exact},
+      else: {:error, Error.new(:conflict)}
+  end
+
+  defp consume_locked_grant(repo, grant_id) do
+    eligible =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^grant_id and
+            is_nil(grant.consumed_at) and
+            grant.expires_at > fragment("statement_timestamp()"),
+        update: [set: [consumed_at: fragment("statement_timestamp()")]]
+
+    case repo.update_all(eligible, []) do
+      {1, _rows} ->
+        {:ok, :consumed}
+
+      {0, _rows} ->
+        {:error, Error.new(:conflict)}
+
+      {_unexpected_count, _rows} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp stage_attrs(command) do
+    command
+    |> Map.take([
+      :asset_id,
+      :vault_id,
+      :key_domain_id,
+      :candidate_object_id,
+      :domain_key_version_id,
+      :classification,
+      :storage_ref,
+      :wrapper_algorithm,
+      :key_generation,
+      :dek_wrapper
+    ])
+    |> Map.put(:id, command.stage_id)
+    |> Map.put(:upload_grant_id, command.grant_id)
+    |> Map.put(:state_revision, 0)
+  end
+
+  defp digest_matches?(
+         <<_::binary-size(32)>> = expected,
+         <<_::binary-size(32)>> = candidate
+       ),
+       do: :crypto.hash_equals(expected, candidate)
+
+  defp digest_matches?(_expected, _candidate), do: false
+
+  defp valid_text?(value) when is_binary(value) do
+    String.valid?(value) and
+      not String.contains?(value, <<0>>) and
+      String.trim(value) != ""
+  end
+
+  defp valid_text?(_value), do: false
+
+  defp validate_upload_grant_command(
+         %{
+           grant_id: grant_id,
+           asset_id: asset_id,
+           source_reference_id: source_reference_id,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id,
+           resource_version_id: resource_version_id,
+           filename: filename,
+           byte_size: byte_size,
+           declared_media_type: declared_media_type,
+           idempotency_key: idempotency_key,
+           classification: classification,
+           token_digest: token_digest,
+           expires_at: expires_at,
+           observed_at: observed_at
+         } = command
+       ) do
+    with :ok <-
+           UUID.validate([
+             grant_id,
+             asset_id,
+             source_reference_id,
+             session_id,
+             principal_id,
+             vault_id,
+             resource_version_id
+           ]),
+         true <- valid_text?(filename),
+         true <-
+           is_integer(byte_size) and byte_size >= 0 and
+             byte_size <= @max_bigint,
+         true <- valid_text?(declared_media_type),
+         true <- valid_text?(idempotency_key),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <- is_binary(token_digest) and byte_size(token_digest) == 32,
+         {:ok, ^expires_at} <- Types.utc_datetime(command, :expires_at),
+         {:ok, ^observed_at} <- Types.utc_datetime(command, :observed_at),
+         :gt <- DateTime.compare(expires_at, observed_at) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_upload_grant_command(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_upload_grant_idempotency(repo, command) do
+    lock_key = command.vault_id <> ":" <> command.idempotency_key
+
+    case Ecto.Adapters.SQL.query(
+           repo,
+           "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+           [lock_key],
+           log: false
+         ) do
+      {:ok, %{rows: [[:void]]}} ->
+        {:ok, :locked}
+
+      {:ok, _unexpected_result} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+      {:error, _reason} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp lock_existing_upload_grant(repo, command) do
+    query =
+      from grant in UploadGrant,
+        where:
+          grant.vault_id == ^command.vault_id and
+            grant.idempotency_key == ^command.idempotency_key,
+        order_by: [desc: grant.inserted_at, desc: grant.id],
+        limit: 1,
+        lock: "FOR UPDATE"
+
+    {:ok, repo.one(query)}
+  end
+
+  defp new_upload_grant_multi(command) do
+    Multi.new()
+    |> Multi.run(:resource_classification, fn repo, _changes ->
+      lock_resource_version_classification(repo, command)
+    end)
+    |> Multi.run(:classification, fn _repo, %{resource_classification: canonical} ->
+      validate_upload_grant_classification(canonical, command.classification)
+    end)
+    |> Multi.run(:authorization_epochs, fn repo, _changes ->
+      authorization_epochs(repo, command.principal_id, command.vault_id)
+    end)
+    |> Multi.run(:valid_expiry, fn repo, _changes ->
+      validate_server_expiry(repo, command.expires_at)
+    end)
+    |> Multi.insert(
+      :asset,
+      StoredAsset.create_changeset(%StoredAsset{}, %{
+        id: command.asset_id,
+        vault_id: command.vault_id,
+        resource_version_id: command.resource_version_id,
+        classification: command.classification,
+        state: :staging,
+        state_revision: 0,
+        attempt: 0
+      })
+    )
+    |> Multi.insert(
+      :source,
+      SourceReference.create_changeset(%SourceReference{}, %{
+        id: command.source_reference_id,
+        vault_id: command.vault_id,
+        resource_version_id: command.resource_version_id,
+        principal_id: command.principal_id,
+        classification: command.classification,
+        kind: :browser_upload,
+        observed_at: command.observed_at,
+        original_filename: command.filename,
+        declared_media_type: command.declared_media_type,
+        byte_size: command.byte_size,
+        idempotency_key_digest: :crypto.hash(:sha256, command.idempotency_key)
+      })
+    )
+    |> Multi.insert(
+      :resource_asset,
+      ResourceAsset.create_changeset(%ResourceAsset{}, %{
+        resource_version_id: command.resource_version_id,
+        asset_id: command.asset_id,
+        vault_id: command.vault_id,
+        classification: command.classification
+      })
+    )
+    |> Multi.insert(:grant, fn %{authorization_epochs: authorization_epochs} ->
+      UploadGrant.create_changeset(
+        %UploadGrant{},
+        upload_grant_attrs(command, authorization_epochs)
+      )
+    end)
+  end
+
+  defp replay_upload_grant_multi(grant, command) do
+    Multi.new()
+    |> Multi.run(:replay_asset, fn repo, _changes ->
+      validate_upload_grant_replay(repo, grant, command)
+    end)
+    |> Multi.run(:resource_classification, fn repo, _changes ->
+      lock_resource_version_classification(repo, command)
+    end)
+    |> Multi.run(:classification, fn _repo, %{resource_classification: canonical} ->
+      validate_upload_grant_classification(canonical, command.classification)
+    end)
+    |> Multi.run(:authorization_epochs, fn repo, _changes ->
+      authorization_epochs(repo, command.principal_id, command.vault_id)
+    end)
+    |> Multi.run(:valid_expiry, fn repo, _changes ->
+      validate_server_expiry(repo, command.expires_at)
+    end)
+    |> Multi.run(:source, fn repo, _changes ->
+      fetch_upload_grant_source(repo, grant, command)
+    end)
+    |> Multi.run(:resource_asset, fn repo, _changes ->
+      validate_upload_grant_resource_asset(repo, grant, command)
+    end)
+    |> Multi.run(:grant, fn repo,
+                            %{
+                              authorization_epochs: authorization_epochs,
+                              replay_asset: replay
+                            } ->
+      replay_upload_grant(repo, grant, command, authorization_epochs, replay)
+    end)
+  end
+
+  defp validate_upload_grant_classification(canonical, requested) do
+    case Classification.assert_not_downgraded(canonical, requested) do
+      :ok -> {:ok, requested}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_server_expiry(repo, expires_at) do
+    case Ecto.Adapters.SQL.query(
+           repo,
+           "SELECT $1::timestamptz > statement_timestamp()",
+           [expires_at],
+           log: false
+         ) do
+      {:ok, %{rows: [[true]]}} ->
+        {:ok, expires_at}
+
+      {:ok, %{rows: [[false]]}} ->
+        {:error, Error.new(:invalid)}
+
+      {:ok, _unexpected_result} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+      {:error, _reason} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp validate_upload_grant_replay(repo, grant, command) do
+    exact_grant? =
+      grant.session_id == command.session_id and
+        grant.principal_id == command.principal_id and
+        grant.vault_id == command.vault_id and
+        grant.filename == command.filename and
+        grant.byte_size == command.byte_size and
+        grant.declared_media_type == command.declared_media_type and
+        grant.idempotency_key == command.idempotency_key and
+        grant.classification == command.classification
+
+    if exact_grant? do
+      query =
+        from asset in StoredAsset,
+          where:
+            asset.id == ^grant.asset_id and
+              asset.vault_id == ^command.vault_id,
+          lock: "FOR SHARE"
+
+      case repo.one(query) do
+        %StoredAsset{
+          resource_version_id: resource_version_id,
+          classification: classification,
+          state: :staging,
+          state_revision: 0
+        } = asset
+        when resource_version_id == command.resource_version_id and
+               classification == command.classification ->
+          upload_grant_replay_mode(repo, grant, command, asset)
+
+        %StoredAsset{} ->
+          {:error, Error.new(:conflict)}
+
+        nil ->
+          {:error, Error.new(:conflict)}
+      end
+    else
+      {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp upload_grant_replay_mode(_repo, %UploadGrant{consumed_at: nil}, _command, _asset),
+    do: {:error, Error.new(:conflict)}
+
+  defp upload_grant_replay_mode(repo, grant, command, asset) do
+    abandoned_attempt =
+      from stage in AssetStage,
+        where:
+          stage.upload_grant_id == ^grant.id and
+            stage.asset_id == ^grant.asset_id and
+            stage.vault_id == ^grant.vault_id and
+            stage.state == :abandoned
+
+    conflicting_attempt =
+      from other in UploadGrant,
+        left_join: stage in AssetStage,
+        on:
+          stage.upload_grant_id == other.id and
+            stage.vault_id == other.vault_id,
+        where:
+          other.id != ^grant.id and
+            other.vault_id == ^command.vault_id and
+            other.idempotency_key == ^command.idempotency_key and
+            (is_nil(other.consumed_at) or stage.state in [:open, :sealed])
+
+    if repo.exists?(abandoned_attempt) and not repo.exists?(conflicting_attempt) do
+      {:ok, %{asset: asset, mode: :replace}}
+    else
+      {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp fetch_upload_grant_source(repo, grant, command) do
+    idempotency_digest = :crypto.hash(:sha256, command.idempotency_key)
+
+    query =
+      from source in SourceReference,
+        where:
+          source.id == ^grant.source_reference_id and
+            source.vault_id == ^command.vault_id and
+            source.resource_version_id == ^command.resource_version_id and
+            source.principal_id == ^command.principal_id and
+            source.classification == ^command.classification and
+            source.kind == :browser_upload and
+            source.original_filename == ^command.filename and
+            source.declared_media_type == ^command.declared_media_type and
+            source.byte_size == ^command.byte_size and
+            source.idempotency_key_digest == ^idempotency_digest
+
+    case repo.one(query) do
+      %SourceReference{} = source -> {:ok, source}
+      nil -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_upload_grant_resource_asset(repo, grant, command) do
+    query =
+      from reference in ResourceAsset,
+        where:
+          reference.resource_version_id == ^command.resource_version_id and
+            reference.asset_id == ^grant.asset_id and
+            reference.vault_id == ^command.vault_id and
+            reference.classification == ^command.classification and
+            is_nil(reference.released_at)
+
+    if repo.exists?(query),
+      do: {:ok, :linked},
+      else: {:error, Error.new(:conflict)}
+  end
+
+  defp replay_upload_grant(
+         repo,
+         grant,
+         command,
+         authorization_epochs,
+         %{mode: :replace}
+       ) do
+    if command.grant_id == grant.id do
+      {:error, Error.new(:conflict)}
+    else
+      attrs =
+        command
+        |> upload_grant_attrs(authorization_epochs)
+        |> Map.merge(%{
+          asset_id: grant.asset_id,
+          source_reference_id: grant.source_reference_id
+        })
+
+      repo.insert(UploadGrant.create_changeset(%UploadGrant{}, attrs))
+    end
+  end
+
+  defp upload_grant_attrs(command, authorization_epochs) do
+    command
+    |> Map.take([
+      :grant_id,
+      :vault_id,
+      :session_id,
+      :principal_id,
+      :asset_id,
+      :source_reference_id,
+      :classification,
+      :token_digest,
+      :filename,
+      :byte_size,
+      :declared_media_type,
+      :idempotency_key,
+      :expires_at
+    ])
+    |> Map.put(:id, command.grant_id)
+    |> Map.delete(:grant_id)
+    |> Map.merge(authorization_epochs)
+  end
+
+  defp upload_grant_result(grant, source, command) do
+    grant
+    |> Map.from_struct()
+    |> Map.drop([:__meta__])
+    |> Map.merge(%{
+      source_reference_id: source.id,
+      resource_version_id: command.resource_version_id
+    })
+  end
 
   defp lock_resource_version_classification(repo, asset) do
     query =

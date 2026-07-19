@@ -18,14 +18,23 @@ defmodule Singularity.Storage.VaultLock do
 
   def with_shared(repo, vault_id, callback) do
     repo.checkout(fn ->
-      :ok = acquire_shared(repo, vault_id)
-
-      try do
-        callback.(repo)
-      after
-        release_shared(repo, vault_id)
-      end
+      with_shared_checked_out(repo, vault_id, callback)
     end)
+  end
+
+  @doc """
+  Takes a shared vault lock on a repository connection already checked out by
+  the current process.
+  """
+  def with_shared_checked_out(repo, vault_id, callback) do
+    assert_checked_out!(repo)
+    :ok = acquire_shared(repo, vault_id)
+
+    try do
+      callback.(repo)
+    after
+      release_shared(repo, vault_id)
+    end
   end
 
   def with_exclusive(repo, vault_id, callback) do
@@ -38,6 +47,13 @@ defmodule Singularity.Storage.VaultLock do
         release_exclusive(repo, vault_id)
       end
     end)
+  end
+
+  defp assert_checked_out!(repo) do
+    unless repo.checked_out?() do
+      raise ArgumentError,
+            "vault advisory lock requires an already checked-out repository connection"
+    end
   end
 
   defp acquire_shared(repo, vault_id) do

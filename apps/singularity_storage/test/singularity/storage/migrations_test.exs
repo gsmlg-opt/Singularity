@@ -298,6 +298,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 migration retires legacy pending events across principal revoke and regrant" do
+    rollback_task12!()
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
@@ -481,6 +482,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 downgrade refuses retirement markers before changing schema state" do
+    rollback_task12!()
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
@@ -558,7 +560,7 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [] =
+      assert [20_260_718_000_900] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -634,6 +636,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 downgrade refuses native pending events without changing state" do
+    rollback_task12!()
     %{one: fixture} = Fixtures.two_vaults!()
     event = Fixtures.outbox_event!(fixture)
 
@@ -658,7 +661,7 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [] =
+      assert [20_260_718_000_900] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -714,6 +717,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 downgrade locks out concurrent pending inserts before preflight" do
+    rollback_task12!()
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
@@ -839,6 +843,8 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 migration round-trips when no retirement markers exist" do
+    rollback_task12!()
+
     migrations_path =
       :singularity_storage
       |> :code.priv_dir()
@@ -952,6 +958,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 11 migration refuses to discard a rotated wrapper generation on downgrade" do
+    rollback_task12!()
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
@@ -1024,7 +1031,7 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [] =
+      assert [20_260_718_000_900] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -1144,6 +1151,8 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "rolling back the security migrations removes runtime grants before disabling RLS" do
+    rollback_task12!()
+
     migrations_path =
       :singularity_storage
       |> :code.priv_dir()
@@ -1196,6 +1205,39 @@ defmodule Singularity.Storage.MigrationsTest do
         Supervisor.stop(migration_repo)
         Code.compiler_options(compiler_options)
       end
+    end
+  end
+
+  defp rollback_task12! do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "TRUNCATE TABLE core.vaults, identity.people CASCADE"
+      )
+    end)
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert [20_260_718_000_900] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+    after
+      Supervisor.stop(migration_repo)
+      Code.compiler_options(compiler_options)
     end
   end
 

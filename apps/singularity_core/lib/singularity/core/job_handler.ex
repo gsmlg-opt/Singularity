@@ -7,4 +7,13 @@ defmodule Singularity.Core.JobHandler do
   @callback dependencies() :: map()
   @callback handle(map(), JobEnvelope.t()) ::
               :ok | {:ok, term()} | {:error, Error.t()} | {:snooze, pos_integer()}
+  @callback handle_failure(
+              map(),
+              JobEnvelope.t(),
+              Error.t(),
+              map()
+            ) ::
+              :ok | {:ok, term()} | {:error, Error.t()}
+
+  @optional_callbacks handle_failure: 4
 end

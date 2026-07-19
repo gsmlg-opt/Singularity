@@ -14,9 +14,18 @@ defmodule Singularity.Domains.AssetsTest do
   alias Singularity.Domains.Vaults.Repository, as: VaultRepository
 
   @asset_repository_callbacks [
+    acknowledge_finalization: 2,
+    consume_grant_and_create_stage: 2,
     consume_upload_grant: 2,
+    create_upload_grant: 2,
     create_upload_intent: 2,
+    mark_stage_abandoned: 2,
+    prepare_verification: 2,
+    record_job_failure: 3,
     record_sealed_stage: 2,
+    record_verified_stage: 2,
+    reserve_finalization: 2,
+    resolve_finalization: 2,
     tombstone_and_release: 2,
     transition: 2
   ]

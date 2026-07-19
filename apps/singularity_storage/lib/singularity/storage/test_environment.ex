@@ -3,6 +3,8 @@ defmodule Singularity.Storage.TestEnvironment do
 
   @suffix_bytes 12
   @database_prefix "singularity_test_"
+  @database_disconnect_attempts 500
+  @database_disconnect_interval_ms 10
   @migration_repo Singularity.Storage.MigrationRepo
   @runtime_repos [
     {Singularity.Storage.RequestRepo, "singularity_web"},
@@ -86,13 +88,43 @@ defmodule Singularity.Storage.TestEnvironment do
 
   defp drop_database!(database) do
     with_migration_repo("postgres", fn ->
+      wait_for_database_disconnects!(
+        database,
+        @database_disconnect_attempts
+      )
+
       Ecto.Adapters.SQL.query!(
         @migration_repo,
-        "DROP DATABASE IF EXISTS #{quoted_identifier(database)} WITH (FORCE)",
+        "DROP DATABASE IF EXISTS #{quoted_identifier(database)}",
         [],
         log: false
       )
     end)
+  end
+
+  defp wait_for_database_disconnects!(_database, 0) do
+    raise "integration database connections did not drain"
+  end
+
+  defp wait_for_database_disconnects!(database, attempts) do
+    %{rows: [[connection_count]]} =
+      Ecto.Adapters.SQL.query!(
+        @migration_repo,
+        """
+        SELECT count(*)
+        FROM pg_catalog.pg_stat_activity
+        WHERE datname = $1
+        """,
+        [database],
+        log: false
+      )
+
+    if connection_count == 0 do
+      :ok
+    else
+      Process.sleep(@database_disconnect_interval_ms)
+      wait_for_database_disconnects!(database, attempts - 1)
+    end
   end
 
   defp configure_repositories!(names) do

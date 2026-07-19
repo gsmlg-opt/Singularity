@@ -13,7 +13,7 @@ defmodule Singularity.Storage.Schema.Jobs.EffectReceipt do
     field :submission_id, Ecto.UUID
     field :classification, Ecto.Enum, values: [:private, :sensitive, :restricted]
     field :effect_key, :string
-    field :result, Ecto.Enum, values: [:applied, :stale]
+    field :result, Ecto.Enum, values: [:applied, :stale, :failed]
     field :entity_revision, :integer
     timestamps(updated_at: false, type: :utc_datetime_usec)
   end

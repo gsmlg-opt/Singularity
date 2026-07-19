@@ -2,13 +2,23 @@ defmodule Singularity.Runtime.ApplicationTest do
   use ExUnit.Case, async: false
 
   alias Singularity.Runtime.Application, as: RuntimeApplication
+  alias Singularity.Runtime.Assets.UploadReconciler
+  alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.AuthorizationDependencies
-  alias Singularity.Runtime.DeferredPlaintextAdapter
+  alias Singularity.Runtime.CustodyReader
   alias Singularity.Runtime.JobDispatcher
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.LockVault
+  alias Singularity.Runtime.StorageAdapter
+  alias Singularity.Storage.Crypto.KeyWrapper
   alias Singularity.Storage.Jobs.GenericWorker
+  alias Singularity.Storage.LocalFilesystemAdapter
+  alias Singularity.Storage.ObjectLock
+  alias Singularity.Storage.Postgres.AssetDeletionRepository
+  alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.CustodyRepository
+  alias Singularity.Storage.WorkerRepo
 
   test "pure tests opt out of every infrastructure child" do
     assert RuntimeApplication.infrastructure_children(%{
@@ -25,8 +35,11 @@ defmodule Singularity.Runtime.ApplicationTest do
              Singularity.Storage.PreAuthRepo,
              Singularity.Storage.DispatcherRepo,
              Singularity.Storage.WorkerRepo,
+             UploadReconciler,
+             Singularity.Runtime.UploadRecoveryTaskSupervisor,
              Singularity.Runtime.KeyLeaseSupervisor,
              Singularity.Runtime.KeyCustodian,
+             Singularity.Runtime.UploadSessionSupervisor,
              Singularity.Storage.Jobs.ObanAdapter,
              Singularity.Runtime.OutboxDispatcher
            ]
@@ -47,12 +60,17 @@ defmodule Singularity.Runtime.ApplicationTest do
         |> Keyword.fetch!(:singularity_runtime)
 
       assert %{
-               authorization: DeferredPlaintextAdapter,
-               clock: DeferredPlaintextAdapter,
-               context: %{},
+               authorization: CustodyReader,
+               clock: CustodyReader,
+               context: %{
+                 repo: WorkerRepo,
+                 repository_adapter: CustodyRepository,
+                 key_wrapper: KeyWrapper,
+                 storage: StorageAdapter
+               },
                idle_lock: LockVault,
-               key_reader: DeferredPlaintextAdapter,
-               object_key_loader: DeferredPlaintextAdapter
+               key_reader: CustodyReader,
+               object_key_loader: CustodyReader
              } = options = Keyword.fetch!(runtime_config, :key_custodian)
 
       lease_supervisor =
@@ -70,7 +88,7 @@ defmodule Singularity.Runtime.ApplicationTest do
       assert Process.alive?(custodian)
 
       assert {:error, :waiting_for_unlock} =
-               DeferredPlaintextAdapter.load_object_key(%{}, %{}, %{})
+               KeyCustodian.lease(custodian, lease_binding())
     end
   end
 
@@ -158,16 +176,38 @@ defmodule Singularity.Runtime.ApplicationTest do
     end
   end
 
-  test "runtime handler exposes only the explicit bundle and rejects all unregistered jobs" do
+  test "runtime handler exposes the explicit asset-job bundle and rejects all unregistered jobs" do
     assert %{
+             asset_deletions: AssetDeletionRepository,
+             assets: AssetRepository,
+             authorize: Authorize,
              authorization: %AuthorizationDependencies{
                store: Fake.Authorization,
                custodian: Singularity.Runtime.KeyCustodian
-             }
+             },
+             object_lock: ObjectLock,
+             storage: {LocalFilesystemAdapter, %{root: storage_root}}
            } = JobDispatcher.dependencies()
+
+    assert is_binary(storage_root)
 
     assert {:error, %{code: :job_failed}} =
              JobDispatcher.handle(JobDispatcher.dependencies(), :unregistered)
+  end
+
+  test "runtime handler dispatches only the four implemented asset job types" do
+    for job_type <- [
+          "asset_verify",
+          "asset_finalize",
+          "asset_cleanup",
+          "object_cleanup"
+        ] do
+      assert {:error, %{code: :invalid}} =
+               JobDispatcher.handle(%{}, %{job_type: job_type})
+    end
+
+    assert {:error, %{code: :job_failed}} =
+             JobDispatcher.handle(%{}, %{job_type: "metadata_extract"})
   end
 
   defp valid_composition do
@@ -194,6 +234,20 @@ defmodule Singularity.Runtime.ApplicationTest do
   defp child_id(module) when is_atom(module), do: module
   defp child_id({module, _options}) when is_atom(module), do: module
   defp child_id(%{id: id}), do: id
+
+  defp lease_binding do
+    %{
+      job_id: "job-1",
+      vault_id: "vault-1",
+      principal_id: "principal-1",
+      required_capability: "asset.read",
+      principal_authorization_epoch: 0,
+      vault_authorization_epoch: 0,
+      object_id: "object-1",
+      object_generation: 1,
+      session_id: "session-1"
+    }
+  end
 
   defp encoded_envelope do
     %{

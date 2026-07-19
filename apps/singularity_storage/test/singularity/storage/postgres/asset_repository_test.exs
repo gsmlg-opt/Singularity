@@ -594,7 +594,8 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
                      idempotency_key: "grant-#{grant_id}",
-                     authorization_epoch: 0,
+                     principal_authorization_epoch: 0,
+                     vault_authorization_epoch: 0,
                      expires_at: DateTime.add(consumed_at, 300, :second)
                    })
                  )
@@ -663,7 +664,8 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
                      idempotency_key: "expired-grant-#{grant_id}",
-                     authorization_epoch: 0,
+                     principal_authorization_epoch: 0,
+                     vault_authorization_epoch: 0,
                      expires_at: DateTime.add(now, -60, :second)
                    })
                  )
@@ -715,7 +717,8 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
                      idempotency_key: "expiring-grant-#{grant_id}",
-                     authorization_epoch: 0,
+                     principal_authorization_epoch: 0,
+                     vault_authorization_epoch: 0,
                      expires_at: DateTime.add(statement_time, 500, :millisecond)
                    })
                  )
@@ -751,7 +754,8 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
                      idempotency_key: "nil-consumed-at-#{grant_id}",
-                     authorization_epoch: 0,
+                     principal_authorization_epoch: 0,
+                     vault_authorization_epoch: 0,
                      expires_at: DateTime.add(now, 300, :second)
                    })
                  )

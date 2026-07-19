@@ -408,6 +408,11 @@ defmodule Singularity.Runtime.CustodyCompensationTest do
       vault_authorization_epoch: @vault_authorization_epoch,
       vault_key: :binary.copy(<<0xA1>>, 32),
       domain_key: :binary.copy(<<0xB2>>, 32),
+      domain_dedup_key: :binary.copy(<<0xD4>>, 32),
+      key_domain_id: "domain-1",
+      domain_key_version_id: "domain-version-1",
+      domain_key_generation: 5,
+      domain_classification: :private,
       object_keys: %{
         {"object-1", 1} => :binary.copy(<<0xC3>>, 32)
       }

@@ -98,8 +98,10 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
 
     assert %{
              owner_principals: 1,
+             cleanup_principals: 1,
+             cleanup_pointer: 1,
              personal_vaults: 1,
-             memberships: 1,
+             memberships: 2,
              key_domains: 1,
              vault_key_versions: 1,
              vault_key_wrappers: 1,
@@ -212,6 +214,15 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
     assert first_command.credential.normalized_login == "owner@example.test"
     assert first_command.person.display_name == "Primary Owner"
     assert first_command.principal.kind == :owner
+    assert first_command.cleanup_principal.kind == :system
+    assert first_command.cleanup_principal.account_id == first_command.account.id
+    assert first_command.cleanup_principal.metadata == %{"name" => "object_cleanup"}
+
+    assert first_command.cleanup_membership.principal_id ==
+             first_command.cleanup_principal.id
+
+    assert first_command.cleanup_membership.vault_id == first_command.vault.id
+    assert first_command.cleanup_capabilities == ["object.cleanup"]
     assert first_command.vault.kind == :personal
     assert first_command.membership.clearance == :restricted
     assert first_command.capabilities == ["asset.read", "asset.write", "vault.unlock"]
@@ -370,10 +381,21 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
           SELECT
             (SELECT count(*) FROM identity.principals
              WHERE id = $1 AND account_id = $2 AND kind = 'owner'),
+            (SELECT count(*) FROM identity.principals
+             WHERE account_id = $2
+               AND kind = 'system'
+               AND metadata ->> 'name' = 'object_cleanup'),
+            (SELECT count(*)
+             FROM core.vaults AS cleanup_vault
+             JOIN identity.principals AS cleanup_principal
+               ON cleanup_principal.id = cleanup_vault.object_cleanup_principal_id
+             WHERE cleanup_vault.id = $3
+               AND cleanup_principal.kind = 'system'
+               AND cleanup_principal.metadata ->> 'name' = 'object_cleanup'),
             (SELECT count(*) FROM core.vaults
              WHERE id = $3 AND kind = 'personal'),
             (SELECT count(*) FROM core.vault_members
-             WHERE principal_id = $1 AND vault_id = $3),
+             WHERE vault_id = $3),
             (SELECT count(*) FROM core.key_domains WHERE vault_id = $3),
             (SELECT count(*) FROM core.vault_key_versions WHERE vault_id = $3),
             (SELECT count(*) FROM core.vault_key_wrappers WHERE vault_id = $3),
@@ -390,6 +412,8 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
 
       [
         owner_principals,
+        cleanup_principals,
+        cleanup_pointer,
         personal_vaults,
         memberships,
         key_domains,
@@ -401,6 +425,8 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
 
       %{
         owner_principals: owner_principals,
+        cleanup_principals: cleanup_principals,
+        cleanup_pointer: cleanup_pointer,
         personal_vaults: personal_vaults,
         memberships: memberships,
         key_domains: key_domains,

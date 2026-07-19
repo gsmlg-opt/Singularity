@@ -21,10 +21,17 @@ defmodule Singularity.Storage.RolesTest do
     singularity_worker
   )
   @function_contract %{
+    "content.list_open_upload_stages()" => {"singularity_table_owner", ["singularity_worker"]},
+    "content.reconcile_open_upload_stage(uuid,text,timestamp with time zone,text)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
+    "content.upload_stage_recovery_status(uuid,text)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
     "core.acknowledge_outbox_event(uuid,uuid,text)" =>
       {"singularity_outbox_definer", ["singularity_dispatcher"]},
     "core.claim_outbox_events(integer,integer,uuid)" =>
       {"singularity_outbox_definer", ["singularity_dispatcher"]},
+    "core.current_principal_can_discover_classification(text)" =>
+      {"singularity_authorization_definer", ["singularity_web"]},
     "core.principal_is_authorized(uuid,uuid)" =>
       {"singularity_authorization_definer", ["singularity_web", "singularity_worker"]},
     "identity.authentication_candidate(text)" =>
@@ -403,6 +410,31 @@ defmodule Singularity.Storage.RolesTest do
           )
         """
       )
+  end
+
+  test "only the worker role can resolve object cleanup authority" do
+    assert %{rows: [[false, true, false]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT
+                 has_function_privilege(
+                   'singularity_web',
+                   'core.object_cleanup_authorization(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_worker',
+                   'core.object_cleanup_authorization(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'public',
+                   'core.object_cleanup_authorization(uuid)',
+                   'EXECUTE'
+                 )
+               """
+             )
   end
 
   defp grant_unexpected_role! do

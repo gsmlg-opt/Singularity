@@ -71,8 +71,16 @@ defmodule Singularity.Runtime.UnlockVaultTest do
          domain_key_version: %{
            id: "domain-version-1",
            key_domain_id: "domain-1",
+           classification: :private,
            generation: 5,
            wrapped_key: "wrapped-domain-key"
+         },
+         domain_dedup_key_wrapper: %{
+           id: "dedup-wrapper-1",
+           domain_key_version_id: "domain-version-1",
+           key_domain_id: "domain-1",
+           algorithm: "aes_256_gcm",
+           wrapped_key: "wrapped-dedup-key"
          }
        }}
     end
@@ -111,6 +119,16 @@ defmodule Singularity.Runtime.UnlockVaultTest do
 
       if key == :binary.copy(<<0xBB>>, 32) do
         {:ok, :binary.copy(<<0xCC>>, 32)}
+      else
+        {:error, Error.new(:integrity_failure)}
+      end
+    end
+
+    def unwrap(state, key, "wrapped-dedup-key", metadata) do
+      State.push(state, {:unwrap_dedup, key, metadata})
+
+      if key == :binary.copy(<<0xCC>>, 32) do
+        {:ok, :binary.copy(<<0xDD>>, 32)}
       else
         {:error, Error.new(:integrity_failure)}
       end
@@ -181,6 +199,7 @@ defmodule Singularity.Runtime.UnlockVaultTest do
              {:derive, "correct-password", _salt, _parameters},
              {:unwrap_vault, _kek, vault_metadata},
              {:unwrap_domain, _vault_key, domain_metadata},
+             {:unwrap_dedup, _domain_key, dedup_metadata},
              {:prepare, custody},
              {:shared_scope, shared_requirement},
              {:persist, persist_command},
@@ -217,6 +236,12 @@ defmodule Singularity.Runtime.UnlockVaultTest do
              aad: "vault-1:domain-1"
            }
 
+    assert dedup_metadata == %{
+             purpose: :domain_dedup_key,
+             generation: 5,
+             aad: "domain-1"
+           }
+
     assert custody.session_id == "session-1"
     assert custody.principal_id == "principal-1"
     assert custody.vault_id == "vault-1"
@@ -225,6 +250,11 @@ defmodule Singularity.Runtime.UnlockVaultTest do
     refute Map.has_key?(custody, :authorization_epoch)
     assert byte_size(custody.vault_key) == 32
     assert byte_size(custody.domain_key) == 32
+    assert byte_size(custody.domain_dedup_key) == 32
+    assert custody.key_domain_id == "domain-1"
+    assert custody.domain_key_version_id == "domain-version-1"
+    assert custody.domain_key_generation == 5
+    assert custody.domain_classification == :private
     refute Map.has_key?(custody, :object_dek)
 
     assert persist_command == %{
@@ -272,7 +302,7 @@ defmodule Singularity.Runtime.UnlockVaultTest do
              )
 
     assert [{:prepare, _custody}, {:shared_scope, _requirement}, {:persist, _}, {:discard, _}] =
-             Enum.drop(State.events(context.state), 5)
+             Enum.drop(State.events(context.state), 6)
 
     refute :committed in State.events(context.state)
     refute Enum.any?(State.events(context.state), &match?({:activate, _}, &1))

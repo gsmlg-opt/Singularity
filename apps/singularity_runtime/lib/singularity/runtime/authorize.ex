@@ -13,7 +13,8 @@ defmodule Singularity.Runtime.Authorize do
   @classification_rank %{private: 0, sensitive: 1, restricted: 2}
   @system_jobs %{
     "maintenance" => "maintenance.run",
-    "integrity_audit" => "integrity.audit"
+    "integrity_audit" => "integrity.audit",
+    "object_cleanup" => "object.cleanup"
   }
 
   @spec check(AuthorizationDependencies.t(), term(), map(), map()) ::
