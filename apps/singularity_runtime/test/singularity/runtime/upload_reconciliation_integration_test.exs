@@ -295,10 +295,14 @@ defmodule Singularity.Runtime.UploadReconciliationIntegrationTest do
       audits: 1
     )
 
-    assert :ok =
-             LocalFilesystemAdapter.abort_stage(
-               storage_context,
-               unrelated_ref
+    assert {:ok, %{state: :abandoned, applied?: true}} =
+             UploadReconciler.reconcile_stage(
+               context,
+               %{
+                 stage_id: unrelated.stage.id,
+                 storage_ref: unrelated.stage.storage_ref
+               },
+               :runtime_restarted
              )
   end
 

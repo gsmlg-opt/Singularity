@@ -5,6 +5,7 @@ defmodule Singularity.Storage.Jobs.Progress do
 
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
+  alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.Schema.Jobs.EffectReceipt
   alias Singularity.Storage.Schema.Jobs.JobProgress
 
@@ -16,6 +17,7 @@ defmodule Singularity.Storage.Jobs.Progress do
     :completed,
     :failed
   ]
+  @metadata_protocol "asset_metadata_v1"
 
   @spec record_effect(module(), JobEnvelope.t(), map()) ::
           {:ok, EffectReceipt.t()} | {:error, Error.t()}
@@ -112,6 +114,494 @@ defmodule Singularity.Storage.Jobs.Progress do
   end
 
   def put_state(_repo, _envelope, _state, _options), do: {:error, Error.new(:invalid)}
+
+  @spec begin_metadata(module(), JobEnvelope.t(), pos_integer(), map()) ::
+          {:ok, JobProgress.t()} | {:error, Error.t()}
+  def begin_metadata(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision,
+        %{"version" => 3, "processing_revision" => processing_revision} = checkpoint
+      )
+      when is_integer(processing_revision) and processing_revision > 0 do
+    with :ok <- validate_stored_metadata_checkpoint(checkpoint, envelope, processing_revision) do
+      case lock_metadata_progress(repo, envelope) do
+        nil ->
+          %JobProgress{}
+          |> JobProgress.create_changeset(%{
+            id: Ecto.UUID.generate(),
+            vault_id: envelope.vault_id,
+            submission_id: envelope.job_id,
+            classification: envelope.classification,
+            state: :running,
+            processing_revision: processing_revision,
+            checkpoint_version: 3,
+            checkpoint: checkpoint
+          })
+          |> repo.insert()
+          |> map_metadata_progress(envelope)
+
+        %JobProgress{} = progress ->
+          validate_metadata_progress(
+            progress,
+            envelope,
+            processing_revision,
+            checkpoint
+          )
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def begin_metadata(_repo, _envelope, _processing_revision, _checkpoint),
+    do: {:error, Error.new(:invalid)}
+
+  @spec resume_metadata(module(), JobEnvelope.t(), pos_integer()) ::
+          {:ok, JobProgress.t()} | {:error, Error.t()}
+  def resume_metadata(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision
+      )
+      when is_integer(processing_revision) and processing_revision > 0 do
+    with %JobProgress{} = progress <- lock_metadata_progress(repo, envelope),
+         :ok <-
+           validate_metadata_progress_binding(
+             progress,
+             envelope,
+             processing_revision
+           ),
+         true <- progress.state in [:running, :waiting_for_unlock],
+         {:ok, resumed} <-
+           progress
+           |> JobProgress.checkpoint_changeset(%{
+             state: :running,
+             processing_revision: processing_revision,
+             checkpoint_version: 3,
+             checkpoint: progress.checkpoint
+           })
+           |> repo.update() do
+      {:ok, resumed}
+    else
+      nil -> {:error, Error.new(:not_found)}
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Ecto.Changeset{}} -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def resume_metadata(_repo, _envelope, _processing_revision),
+    do: {:error, Error.new(:invalid)}
+
+  @spec lock_metadata(module(), JobEnvelope.t(), pos_integer()) ::
+          {:ok, JobProgress.t()} | {:error, Error.t()}
+  def lock_metadata(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision
+      )
+      when is_integer(processing_revision) and processing_revision > 0 do
+    with %JobProgress{} = progress <- lock_metadata_progress(repo, envelope),
+         :ok <-
+           validate_metadata_progress_binding(
+             progress,
+             envelope,
+             processing_revision
+           ),
+         true <- progress.state in [:running, :waiting_for_unlock] do
+      {:ok, progress}
+    else
+      nil -> {:error, Error.new(:not_found)}
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def lock_metadata(_repo, _envelope, _processing_revision),
+    do: {:error, Error.new(:invalid)}
+
+  @spec wait_metadata_for_unlock(module(), JobEnvelope.t(), pos_integer(), map()) ::
+          {:ok, JobProgress.t()} | {:error, Error.t()}
+  def wait_metadata_for_unlock(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision,
+        target
+      )
+      when is_integer(processing_revision) and processing_revision > 0 and is_map(target) do
+    with %JobProgress{} = progress <- lock_metadata_progress(repo, envelope),
+         :ok <-
+           validate_metadata_progress_binding(
+             progress,
+             envelope,
+             processing_revision
+           ),
+         :ok <-
+           validate_metadata_progress_target(
+             progress,
+             envelope,
+             processing_revision,
+             target
+           ),
+         true <- progress.state in [:running, :waiting_for_unlock],
+         {:ok, waiting} <-
+           progress
+           |> JobProgress.checkpoint_changeset(%{
+             state: :waiting_for_unlock,
+             processing_revision: processing_revision,
+             checkpoint_version: 3,
+             checkpoint: progress.checkpoint
+           })
+           |> repo.update() do
+      {:ok, waiting}
+    else
+      nil -> {:error, Error.new(:not_found)}
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Ecto.Changeset{}} -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def wait_metadata_for_unlock(_repo, _envelope, _processing_revision, _target),
+    do: {:error, Error.new(:invalid)}
+
+  @spec transition_metadata(
+          module(),
+          JobEnvelope.t(),
+          pos_integer(),
+          map(),
+          :running | :waiting_for_unlock | :completed | :failed
+        ) :: {:ok, JobProgress.t()} | {:error, Error.t()}
+  def transition_metadata(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision,
+        expected_checkpoint,
+        state
+      )
+      when is_integer(processing_revision) and processing_revision > 0 and
+             is_map(expected_checkpoint) and
+             state in [:running, :waiting_for_unlock, :completed, :failed] do
+    with %JobProgress{} = progress <- lock_metadata_progress(repo, envelope),
+         {:ok, ^progress} <-
+           validate_metadata_progress(
+             progress,
+             envelope,
+             processing_revision,
+             expected_checkpoint
+           ),
+         true <- valid_metadata_progress_transition?(progress.state, state),
+         {:ok, updated} <-
+           progress
+           |> JobProgress.checkpoint_changeset(%{
+             state: state,
+             processing_revision: processing_revision,
+             checkpoint_version: 3,
+             checkpoint: expected_checkpoint
+           })
+           |> repo.update() do
+      {:ok, updated}
+    else
+      nil -> {:error, Error.new(:conflict)}
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Ecto.Changeset{}} -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def transition_metadata(
+        _repo,
+        _envelope,
+        _processing_revision,
+        _expected_checkpoint,
+        _state
+      ),
+      do: {:error, Error.new(:invalid)}
+
+  defp lock_metadata_progress(repo, envelope) do
+    repo.one(
+      from(progress in JobProgress,
+        where:
+          progress.submission_id == ^envelope.job_id and
+            progress.vault_id == ^envelope.vault_id,
+        select: {
+          struct(progress, [
+            :id,
+            :vault_id,
+            :submission_id,
+            :classification,
+            :state,
+            :processing_revision,
+            :checkpoint_version,
+            :inserted_at,
+            :updated_at
+          ]),
+          fragment("jsonb_typeof(?)", progress.checkpoint),
+          fragment("?::text", progress.checkpoint)
+        },
+        lock: "FOR UPDATE"
+      )
+    )
+    |> load_metadata_checkpoint()
+  end
+
+  defp load_metadata_checkpoint(nil), do: nil
+
+  defp load_metadata_checkpoint({%JobProgress{} = progress, "object", encoded})
+       when is_binary(encoded) do
+    case JSON.decode(encoded) do
+      {:ok, checkpoint} when is_map(checkpoint) -> %{progress | checkpoint: checkpoint}
+      _malformed -> %{progress | checkpoint: nil}
+    end
+  end
+
+  defp load_metadata_checkpoint({%JobProgress{} = progress, _json_type, _encoded}),
+    do: %{progress | checkpoint: nil}
+
+  defp validate_metadata_progress(
+         progress,
+         envelope,
+         processing_revision,
+         checkpoint
+       ) do
+    with :ok <-
+           validate_metadata_progress_binding(
+             progress,
+             envelope,
+             processing_revision
+           ),
+         true <- progress.checkpoint == checkpoint do
+      {:ok, progress}
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_metadata_progress_binding(
+         %JobProgress{} = progress,
+         %JobEnvelope{} = envelope,
+         requested_processing_revision
+       ) do
+    with :ok <- validate_metadata_progress_storage(progress),
+         :ok <-
+           validate_stored_metadata_checkpoint_structure(
+             progress.checkpoint,
+             progress.processing_revision
+           ),
+         true <-
+           progress.submission_id == envelope.job_id and
+             progress.vault_id == envelope.vault_id and
+             progress.classification == envelope.classification and
+             progress.processing_revision == requested_processing_revision,
+         :ok <-
+           validate_stored_metadata_checkpoint(
+             progress.checkpoint,
+             envelope,
+             requested_processing_revision
+           ) do
+      :ok
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_metadata_progress_binding(_progress, _envelope, _processing_revision),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp validate_metadata_progress_storage(%JobProgress{
+         vault_id: vault_id,
+         submission_id: submission_id,
+         processing_revision: processing_revision,
+         checkpoint_version: 3,
+         checkpoint: %{
+           "version" => 3,
+           "protocol" => @metadata_protocol,
+           "processing_revision" => processing_revision,
+           "job_id" => submission_id,
+           "vault_id" => vault_id
+         }
+       })
+       when is_integer(processing_revision) and processing_revision > 0,
+       do: :ok
+
+  defp validate_metadata_progress_storage(_progress),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp validate_stored_metadata_checkpoint(
+         %{
+           "object_id" => object_id,
+           "object_generation" => object_generation,
+           "extractor_state" => extractor_state
+         } = checkpoint,
+         envelope,
+         processing_revision
+       ) do
+    with {:ok, target} <- stored_metadata_target(extractor_state) do
+      binding = %{
+        job_id: envelope.job_id,
+        vault_id: envelope.vault_id,
+        principal_id: envelope.principal_id,
+        required_capability: envelope.required_capability,
+        principal_authorization_epoch: envelope.principal_authorization_epoch,
+        vault_authorization_epoch: envelope.vault_authorization_epoch,
+        object_id: object_id,
+        object_generation: object_generation,
+        processing_revision: processing_revision,
+        declared_media_type: target.declared_media_type,
+        plaintext_byte_size: target.plaintext_byte_size
+      }
+
+      case CustodyRepository.validate_metadata_checkpoint(checkpoint, binding) do
+        :ok -> :ok
+        {:error, %Error{code: :invalid}} -> {:error, Error.new(:integrity_failure)}
+        {:error, %Error{}} = error -> error
+      end
+    end
+  end
+
+  defp validate_stored_metadata_checkpoint(_checkpoint, _envelope, _processing_revision),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp validate_stored_metadata_checkpoint_structure(
+         %{
+           "job_id" => job_id,
+           "vault_id" => vault_id,
+           "principal_id" => principal_id,
+           "required_capability" => required_capability,
+           "principal_authorization_epoch" => principal_authorization_epoch,
+           "vault_authorization_epoch" => vault_authorization_epoch,
+           "object_id" => object_id,
+           "object_generation" => object_generation,
+           "extractor_state" => extractor_state
+         } = checkpoint,
+         processing_revision
+       ) do
+    with {:ok, target} <- stored_metadata_target(extractor_state) do
+      binding = %{
+        job_id: job_id,
+        vault_id: vault_id,
+        principal_id: principal_id,
+        required_capability: required_capability,
+        principal_authorization_epoch: principal_authorization_epoch,
+        vault_authorization_epoch: vault_authorization_epoch,
+        object_id: object_id,
+        object_generation: object_generation,
+        processing_revision: processing_revision,
+        declared_media_type: target.declared_media_type,
+        plaintext_byte_size: target.plaintext_byte_size
+      }
+
+      case CustodyRepository.validate_metadata_checkpoint(checkpoint, binding) do
+        :ok -> :ok
+        {:error, %Error{}} -> {:error, Error.new(:integrity_failure)}
+      end
+    end
+  end
+
+  defp validate_stored_metadata_checkpoint_structure(_checkpoint, _processing_revision),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp stored_metadata_target(%{
+         "phase" => phase,
+         "declared_media_type" => declared_media_type,
+         "plaintext_bytes" => plaintext_byte_size
+       })
+       when phase in ["start", "jpeg_scan", "failed"],
+       do:
+         {:ok,
+          %{
+            declared_media_type: declared_media_type,
+            plaintext_byte_size: plaintext_byte_size
+          }}
+
+  defp stored_metadata_target(%{
+         "phase" => "done",
+         "result" => %{
+           "detected_media_type" => declared_media_type,
+           "plaintext_bytes" => plaintext_byte_size
+         }
+       }),
+       do:
+         {:ok,
+          %{
+            declared_media_type: declared_media_type,
+            plaintext_byte_size: plaintext_byte_size
+          }}
+
+  defp stored_metadata_target(_extractor_state),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp validate_metadata_progress_target(
+         %JobProgress{checkpoint: checkpoint},
+         envelope,
+         processing_revision,
+         %{
+           object_id: object_id,
+           object_generation: object_generation,
+           declared_media_type: declared_media_type,
+           plaintext_byte_size: plaintext_byte_size
+         }
+       ) do
+    binding = %{
+      job_id: envelope.job_id,
+      vault_id: envelope.vault_id,
+      principal_id: envelope.principal_id,
+      required_capability: envelope.required_capability,
+      principal_authorization_epoch: envelope.principal_authorization_epoch,
+      vault_authorization_epoch: envelope.vault_authorization_epoch,
+      object_id: object_id,
+      object_generation: object_generation,
+      processing_revision: processing_revision,
+      declared_media_type: declared_media_type,
+      plaintext_byte_size: plaintext_byte_size
+    }
+
+    case CustodyRepository.validate_metadata_checkpoint(checkpoint, binding) do
+      :ok -> :ok
+      {:error, %Error{code: :invalid}} -> {:error, Error.new(:integrity_failure)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_metadata_progress_target(
+         _progress,
+         _envelope,
+         _processing_revision,
+         _target
+       ),
+       do: {:error, Error.new(:invalid)}
+
+  defp valid_metadata_progress_transition?(current, current), do: true
+  defp valid_metadata_progress_transition?(:running, :waiting_for_unlock), do: true
+  defp valid_metadata_progress_transition?(:waiting_for_unlock, :running), do: true
+
+  defp valid_metadata_progress_transition?(state, terminal)
+       when state in [:running, :waiting_for_unlock] and terminal in [:completed, :failed],
+       do: true
+
+  defp valid_metadata_progress_transition?(_current, _next), do: false
+
+  defp map_metadata_progress({:ok, progress}, envelope),
+    do: validate_progress(progress, envelope)
+
+  defp map_metadata_progress({:error, %Ecto.Changeset{}} = _error, _envelope),
+    do: {:error, Error.new(:invalid)}
 
   defp validate_receipt(
          %EffectReceipt{

@@ -15,6 +15,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
   alias Singularity.Storage.LocalFilesystemAdapter
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.AssetDeletionRepository
+  alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.ScopedRepo
 
   defmodule AllowJobAuthorization do
@@ -196,6 +197,49 @@ defmodule Singularity.Storage.OrphanCleanupTest do
 
       :ok
     end)
+  end
+
+  test "tombstoning removes the ready asset from search before cleanup", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.asset_search_documents SET state = 'ready' WHERE asset_id = $1",
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    search = fn state ->
+      scoped(fixture, fn repo ->
+        AssetSearchStore.search(repo, %{
+          vault_id: fixture.vault_id,
+          query: "",
+          state: state,
+          media_type: nil,
+          limit: 20,
+          cursor: nil
+        })
+      end)
+    end
+
+    assert {:ok, {[visible], :done}} = search.(:ready)
+    assert visible.asset_id == fixture.asset_id
+
+    assert {:ok, %{state: :pending_delete, state_revision: 6}} =
+             scoped(fixture, fn repo ->
+               AssetDeletionRepository.tombstone_and_release(repo, %{
+                 asset_id: fixture.asset_id,
+                 vault_id: fixture.vault_id,
+                 principal_id: fixture.principal_id,
+                 classification: :private,
+                 expected_state_revision: 5
+               })
+             end)
+
+    for state <- [nil, :ready, :pending_delete] do
+      assert {:ok, {[], :done}} = search.(state)
+    end
   end
 
   test "logical cleanup removes the projection and records one durable effect", %{

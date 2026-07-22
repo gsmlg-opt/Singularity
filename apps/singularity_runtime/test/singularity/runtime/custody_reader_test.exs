@@ -31,6 +31,20 @@ defmodule Singularity.Runtime.CustodyReaderTest do
     def transact(repo, _binding, callback), do: callback.(repo)
   end
 
+  defmodule CheckpointScope do
+    def transact(owner, repo, binding, callback) do
+      send(owner, {:checkpoint_scope_binding, binding})
+      callback.(repo)
+    end
+  end
+
+  defmodule ReaderScope do
+    def transact(owner, repo, binding, callback) do
+      send(owner, {:reader_scope_binding, binding})
+      callback.(repo)
+    end
+  end
+
   defmodule Repository do
     use Agent
 
@@ -39,6 +53,7 @@ defmodule Singularity.Runtime.CustodyReaderTest do
     def start_link(options) do
       Agent.start_link(fn ->
         %{
+          cas_miss: Keyword.get(options, :cas_miss, {:error, Error.new(:conflict)}),
           checkpoint: Keyword.fetch!(options, :checkpoint),
           material: Keyword.fetch!(options, :material)
         }
@@ -79,7 +94,7 @@ defmodule Singularity.Runtime.CustodyReaderTest do
         if state.checkpoint == expected do
           {:ok, %{state | checkpoint: next}}
         else
-          {{:error, Error.new(:conflict)}, state}
+          {state.cas_miss, state}
         end
       end)
     end
@@ -198,6 +213,116 @@ defmodule Singularity.Runtime.CustodyReaderTest do
     refute context.domain_key in returned
     refute context.object_dek in returned
     refute unlocked_session(context.domain_key).vault_key in returned
+  end
+
+  test "preserves the internal checkpoint-advanced outcome", context do
+    Agent.update(context.repository, &Map.put(&1, :cas_miss, {:error, :checkpoint_advanced}))
+
+    metadata_binding =
+      context.request
+      |> Map.delete(:session_id)
+      |> Map.put(:processing_revision, 4)
+      |> Map.put(:declared_media_type, "application/octet-stream")
+      |> Map.put(:plaintext_byte_size, byte_size(context.plaintext))
+
+    checkpoint_context =
+      context.context
+      |> Map.take([:repo, :repository_adapter, :scope])
+      |> Map.put(:checkpoint_classification, :private)
+      |> Map.put(:scope, {CheckpointScope, self()})
+
+    stale = KeyLease.checkpoint(context.request, 1)
+    next = KeyLease.checkpoint(context.request, 2)
+
+    assert {:error, :checkpoint_advanced} =
+             CustodyReader.persist_checkpoint(
+               checkpoint_context,
+               metadata_binding,
+               stale,
+               next
+             )
+
+    assert_receive {:checkpoint_scope_binding, ^metadata_binding}
+  end
+
+  test "preserves the v2 session binding at checkpoint repository boundaries", context do
+    binding = Map.put(context.request, :processing_revision, 1)
+
+    checkpoint_context =
+      context.context
+      |> Map.take([:repo, :repository_adapter, :scope])
+      |> Map.put(:checkpoint_classification, :private)
+      |> Map.put(:scope, {CheckpointScope, self()})
+
+    expected = KeyLease.checkpoint(context.request, 0)
+    next = KeyLease.checkpoint(context.request, 1)
+
+    assert :ok =
+             CustodyReader.persist_checkpoint(
+               checkpoint_context,
+               binding,
+               expected,
+               next
+             )
+
+    assert_receive {:checkpoint_scope_binding, ^binding}
+  end
+
+  test "preserves the v2 session binding at reader repository boundaries", context do
+    binding = Map.put(context.request, :processing_revision, 1)
+    reader_context = Map.put(context.context, :scope, {ReaderScope, self()})
+    session = unlocked_session(context.domain_key)
+
+    hierarchy = %{
+      domain_key: session.domain_key,
+      cached_object_keys: %{},
+      key_domain_id: session.key_domain_id,
+      domain_key_version_id: session.domain_key_version_id,
+      domain_key_generation: session.domain_key_generation,
+      domain_classification: session.domain_classification
+    }
+
+    assert {:ok, %{reader_binding: _reader_binding}} =
+             CustodyReader.load_object_key(reader_context, binding, hierarchy)
+
+    assert_receive {:reader_scope_binding, ^binding}
+  end
+
+  test "keeps sessionless metadata bindings unchanged at reader repository boundaries", context do
+    checkpoint_binding =
+      context.request
+      |> Map.delete(:session_id)
+      |> Map.put(:processing_revision, 4)
+      |> Map.put(:declared_media_type, "application/octet-stream")
+      |> Map.put(:plaintext_byte_size, byte_size(context.plaintext))
+
+    reader_context =
+      context.context
+      |> Map.put(:scope, {ReaderScope, self()})
+
+    session = unlocked_session(context.domain_key)
+
+    hierarchy = %{
+      domain_key: session.domain_key,
+      cached_object_keys: %{},
+      key_domain_id: session.key_domain_id,
+      domain_key_version_id: session.domain_key_version_id,
+      domain_key_generation: session.domain_key_generation,
+      domain_classification: session.domain_classification
+    }
+
+    assert {:ok, %{reader_binding: object_binding}} =
+             CustodyReader.load_object_key(reader_context, checkpoint_binding, hierarchy)
+
+    assert_receive {:reader_scope_binding, ^checkpoint_binding}
+
+    assert :ok =
+             CustodyReader.revalidate(
+               Map.put(reader_context, :object_binding, object_binding),
+               checkpoint_binding
+             )
+
+    assert_receive {:reader_scope_binding, ^checkpoint_binding}
   end
 
   test "one-use download leases authenticate full and internally aligned range reads",

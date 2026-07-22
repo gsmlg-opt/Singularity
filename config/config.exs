@@ -42,7 +42,8 @@ config :singularity_runtime,
     },
     idle_lock: Singularity.Runtime.LockVault,
     key_reader: Singularity.Runtime.CustodyReader,
-    object_key_loader: Singularity.Runtime.CustodyReader
+    object_key_loader: Singularity.Runtime.CustodyReader,
+    wake_waiting: Singularity.Runtime.JobDispatcher
   },
   bootstrap_owner: %{
     repository: Singularity.Storage.Postgres.IdentityRepository,

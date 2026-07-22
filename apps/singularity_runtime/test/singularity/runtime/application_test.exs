@@ -195,10 +195,11 @@ defmodule Singularity.Runtime.ApplicationTest do
              JobDispatcher.handle(JobDispatcher.dependencies(), :unregistered)
   end
 
-  test "runtime handler dispatches only the four implemented asset job types" do
+  test "runtime handler dispatches only the exact five implemented job types" do
     for job_type <- [
           "asset_verify",
           "asset_finalize",
+          "asset_metadata",
           "asset_cleanup",
           "object_cleanup"
         ] do
@@ -206,8 +207,10 @@ defmodule Singularity.Runtime.ApplicationTest do
                JobDispatcher.handle(%{}, %{job_type: job_type})
     end
 
-    assert {:error, %{code: :job_failed}} =
-             JobDispatcher.handle(%{}, %{job_type: "metadata_extract"})
+    for alias_job_type <- ["metadata_extract", "asset_metadata_v1", "technical_metadata"] do
+      assert {:error, %{code: :job_failed}} =
+               JobDispatcher.handle(%{}, %{job_type: alias_job_type})
+    end
   end
 
   defp valid_composition do

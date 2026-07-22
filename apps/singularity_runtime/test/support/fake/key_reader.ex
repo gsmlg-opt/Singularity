@@ -71,10 +71,10 @@ defmodule Fake.KeyReader do
 
   @spec load_checkpoint(map(), map()) ::
           {:ok, map()} | {:error, Error.t()}
-  def load_checkpoint(%{key_reader: key_reader}, binding) do
+  def load_checkpoint(%{key_reader: key_reader} = context, binding) do
     Agent.get_and_update(key_reader, fn state ->
       checkpoint = Map.get(state.checkpoints, checkpoint_key(binding))
-      load = %{binding: binding, checkpoint: checkpoint}
+      load = %{binding: binding, checkpoint: checkpoint, context: context}
       state = %{state | checkpoint_loads: [load | state.checkpoint_loads]}
 
       result =
@@ -89,7 +89,7 @@ defmodule Fake.KeyReader do
   end
 
   @spec persist_checkpoint(map(), map(), map(), map()) ::
-          :ok | {:error, Error.t()}
+          :ok | {:error, :checkpoint_advanced | Error.t()}
   def persist_checkpoint(
         %{key_reader: key_reader} = context,
         binding,
@@ -209,7 +209,7 @@ defmodule Fake.KeyReader do
          %{state | fail_next_persist?: false}}
 
       Map.get(state.checkpoints, key) != expected ->
-        {{:error, Error.new(:conflict)}, state}
+        {{:error, :checkpoint_advanced}, state}
 
       true ->
         index = Map.fetch!(expected, "next_chunk_index")

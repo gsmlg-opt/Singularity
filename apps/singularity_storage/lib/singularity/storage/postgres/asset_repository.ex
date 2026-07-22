@@ -15,12 +15,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Core.StageRef
   alias Singularity.Core.Types
   alias Singularity.Storage.Jobs.Progress
+  alias Singularity.Storage.Crypto.Format
   alias Singularity.Storage.Schema.Audit.Event, as: AuditEvent
   alias Singularity.Storage.Schema.Content.Asset, as: StoredAsset
   alias Singularity.Storage.Schema.Content.AssetKeyEnvelope
   alias Singularity.Storage.Schema.Content.AssetMetadata
   alias Singularity.Storage.Schema.Content.AssetObject
   alias Singularity.Storage.Schema.Content.AssetStage
+  alias Singularity.Storage.Schema.Content.Resource
   alias Singularity.Storage.Schema.Content.ResourceAsset
   alias Singularity.Storage.Schema.Content.ResourceVersion
   alias Singularity.Storage.Schema.Content.SourceReference
@@ -29,9 +31,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Storage.Schema.Core.DomainKeyVersion
   alias Singularity.Storage.Schema.Core.OutboxEvent
   alias Singularity.Storage.Schema.Jobs.EffectReceipt
+  alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.Postgres.UUID
+  alias Singularity.Storage.Postgres.AssetSearchStore
 
   @max_bigint 9_223_372_036_854_775_807
+  @metadata_result_keys ~w[
+    detected_media_type plaintext_bytes width height pdf_version extractor_version
+  ]
 
   @impl true
   def create_upload_grant(repo, command) when is_map(command) do
@@ -682,6 +689,199 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   def status(_repo, _asset_id), do: {:error, Error.new(:invalid)}
 
+  @spec rebuild_search_document(module(), String.t()) ::
+          :ok | {:error, Error.t()}
+  def rebuild_search_document(repo, asset_id) when is_binary(asset_id) do
+    with :ok <- UUID.validate(asset_id),
+         {:ok, source} <- lock_search_document_source(repo, asset_id) do
+      rebuild_locked_search_document(repo, asset_id, source)
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def rebuild_search_document(_repo, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_search_document_source(repo, asset_id) do
+    case repo.one(
+           from(asset in StoredAsset,
+             where: asset.id == ^asset_id,
+             select: %{state: asset.state, vault_id: asset.vault_id},
+             lock: "FOR UPDATE"
+           )
+         ) do
+      nil -> {:error, Error.new(:not_found)}
+      source -> {:ok, source}
+    end
+  end
+
+  defp rebuild_locked_search_document(repo, asset_id, %{state: :ready, vault_id: vault_id}) do
+    case canonical_search_document(repo, asset_id) do
+      {:ok, attrs} ->
+        AssetSearchStore.upsert(repo, attrs)
+
+      {:error, %Error{code: :not_found}} ->
+        AssetSearchStore.delete(repo, %{asset_id: asset_id, vault_id: vault_id})
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp rebuild_locked_search_document(repo, asset_id, %{vault_id: vault_id}),
+    do: AssetSearchStore.delete(repo, %{asset_id: asset_id, vault_id: vault_id})
+
+  @spec begin_or_resume_processing(module(), JobEnvelope.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def begin_or_resume_processing(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope
+      ) do
+    with :ok <- validate_metadata_job(envelope),
+         {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{result: :failed} ->
+          completed_metadata_job_result(repo, envelope, receipt)
+
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          begin_or_resume_metadata(repo, envelope)
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def begin_or_resume_processing(_repo, _envelope),
+    do: {:error, Error.new(:invalid)}
+
+  @spec complete_metadata(module(), JobEnvelope.t(), pos_integer(), map(), map()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def complete_metadata(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision,
+        metadata,
+        final_checkpoint
+      )
+      when is_integer(processing_revision) and processing_revision > 0 and
+             is_map(metadata) and is_map(final_checkpoint) do
+    with :ok <- validate_metadata_job(envelope),
+         :ok <- validate_extracted_metadata(metadata),
+         :ok <-
+           validate_terminal_metadata_checkpoint(
+             final_checkpoint,
+             envelope,
+             processing_revision,
+             {:done, metadata}
+           ) do
+      transact_callback(repo, fn ->
+        do_complete_metadata(
+          repo,
+          envelope,
+          processing_revision,
+          metadata,
+          final_checkpoint
+        )
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def complete_metadata(_repo, _envelope, _processing_revision, _metadata, _checkpoint),
+    do: {:error, Error.new(:invalid)}
+
+  @spec record_metadata_failure(
+          module(),
+          JobEnvelope.t(),
+          pos_integer(),
+          Error.t(),
+          map()
+        ) :: {:ok, map()} | {:error, Error.t()}
+  def record_metadata_failure(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        processing_revision,
+        %Error{retryable?: false} = failure,
+        final_checkpoint
+      )
+      when is_integer(processing_revision) and processing_revision > 0 and
+             is_map(final_checkpoint) do
+    with :ok <- validate_metadata_job(envelope),
+         :ok <- validate_metadata_failure(failure),
+         :ok <-
+           validate_terminal_metadata_checkpoint(
+             final_checkpoint,
+             envelope,
+             processing_revision,
+             {:error, failure}
+           ) do
+      transact_callback(repo, fn ->
+        do_record_metadata_failure(
+          repo,
+          envelope,
+          processing_revision,
+          failure,
+          final_checkpoint
+        )
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def record_metadata_failure(
+        _repo,
+        _envelope,
+        _processing_revision,
+        _failure,
+        _checkpoint
+      ),
+      do: {:error, Error.new(:invalid)}
+
+  @spec record_metadata_exhaustion(module(), JobEnvelope.t(), Error.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def record_metadata_exhaustion(
+        repo,
+        %JobEnvelope{job_type: "asset_metadata"} = envelope,
+        %Error{} = failure
+      ) do
+    with :ok <- validate_metadata_job(envelope) do
+      transact_callback(repo, fn ->
+        do_record_metadata_exhaustion(repo, envelope, failure)
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.StaleEntryError] ->
+      {:error, Error.new(:conflict)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def record_metadata_exhaustion(_repo, _envelope, _failure),
+    do: {:error, Error.new(:invalid)}
+
   @spec authorized_object(module(), String.t()) ::
           {:ok, map()} | {:error, Error.t()}
   def authorized_object(repo, asset_id) when is_binary(asset_id) do
@@ -738,6 +938,846 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   def authorized_object(_repo, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
+  defp begin_or_resume_metadata(repo, envelope) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope) do
+      cond do
+        asset.state == :available and
+            asset.state_revision == envelope.expected_entity_revision ->
+          claim_metadata_processing(repo, asset, envelope)
+
+        asset.state == :processing and
+            asset.state_revision == envelope.expected_entity_revision + 1 ->
+          resume_metadata_processing(repo, asset, envelope)
+
+        true ->
+          record_stale_job(repo, envelope, asset)
+      end
+    end
+  end
+
+  defp claim_metadata_processing(repo, asset, envelope) do
+    with {:ok, target} <- metadata_target(repo, asset),
+         {:ok, processing_asset} <-
+           asset
+           |> StoredAsset.transition_changeset(%{
+             state: :processing,
+             state_revision: asset.state_revision
+           })
+           |> Ecto.Changeset.optimistic_lock(:state_revision)
+           |> repo.update()
+           |> map_changeset_result(),
+         checkpoint = metadata_checkpoint(envelope, processing_asset, target),
+         {:ok, _progress} <-
+           Progress.begin_metadata(
+             repo,
+             envelope,
+             processing_asset.state_revision,
+             checkpoint
+           ) do
+      {:ok,
+       metadata_processing_result(
+         processing_asset,
+         target,
+         checkpoint
+       )}
+    end
+  end
+
+  defp resume_metadata_processing(repo, asset, envelope) do
+    case Progress.lock_metadata(repo, envelope, asset.state_revision) do
+      {:ok, progress} ->
+        with {:ok, target} <- metadata_target(repo, asset),
+             :ok <-
+               validate_metadata_checkpoint_binding(
+                 progress.checkpoint,
+                 envelope,
+                 asset,
+                 target
+               ),
+             :ok <- validate_checkpoint_target(progress.checkpoint, target),
+             {:ok, resumed} <-
+               Progress.resume_metadata(repo, envelope, asset.state_revision) do
+          {:ok, metadata_processing_result(asset, target, resumed.checkpoint)}
+        end
+
+      {:error, %Error{code: :not_found}} ->
+        record_stale_job(repo, envelope, asset)
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp metadata_processing_result(asset, target, checkpoint) do
+    %{
+      status: :pending,
+      asset: asset,
+      processing_revision: asset.state_revision,
+      checkpoint: checkpoint,
+      object_id: target.object_id,
+      object_generation: target.object_generation,
+      original_filename: target.original_filename,
+      declared_media_type: target.declared_media_type,
+      plaintext_byte_size: target.plaintext_byte_size,
+      resource_version_id: asset.resource_version_id
+    }
+  end
+
+  defp metadata_target(repo, asset) do
+    query =
+      from object in AssetObject,
+        join: envelope in AssetKeyEnvelope,
+        on:
+          envelope.asset_object_id == object.id and
+            envelope.vault_id == object.vault_id and
+            envelope.key_domain_id == object.key_domain_id and
+            envelope.classification == object.classification,
+        join: domain_version in DomainKeyVersion,
+        on:
+          domain_version.id == envelope.domain_key_version_id and
+            domain_version.vault_id == envelope.vault_id and
+            domain_version.key_domain_id == envelope.key_domain_id,
+        join: metadata in AssetMetadata,
+        on:
+          metadata.asset_id == ^asset.id and
+            metadata.resource_version_id == ^asset.resource_version_id and
+            metadata.vault_id == object.vault_id and
+            metadata.classification == object.classification,
+        where: object.id == ^asset.asset_object_id,
+        where: object.vault_id == ^asset.vault_id,
+        where: object.classification == ^asset.classification,
+        where: object.lifecycle == :available,
+        where: domain_version.state == :active,
+        where: metadata.extraction_state == :pending,
+        order_by: [desc: envelope.key_generation],
+        limit: 2,
+        lock: "FOR SHARE",
+        select: %{
+          metadata_id: metadata.id,
+          object_id: object.id,
+          object_generation: envelope.key_generation,
+          object_classification: object.classification,
+          envelope_classification: envelope.classification,
+          metadata_classification: metadata.classification,
+          plaintext_byte_size: object.plaintext_byte_size,
+          metadata_byte_size: metadata.plaintext_byte_size,
+          original_filename: metadata.original_filename,
+          declared_media_type: metadata.declared_media_type
+        }
+
+    case repo.all(query) do
+      [target] -> validate_metadata_target(target, asset)
+      [] -> {:error, Error.new(:conflict)}
+      [_first, _second] -> {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp validate_metadata_target(
+         %{
+           object_id: object_id,
+           object_generation: object_generation,
+           object_classification: classification,
+           envelope_classification: classification,
+           metadata_classification: classification,
+           plaintext_byte_size: plaintext_byte_size,
+           metadata_byte_size: plaintext_byte_size,
+           original_filename: original_filename,
+           declared_media_type: declared_media_type
+         } = target,
+         %StoredAsset{classification: classification}
+       )
+       when is_integer(object_generation) and object_generation > 0 and
+              is_integer(plaintext_byte_size) and plaintext_byte_size >= 0 and
+              is_binary(original_filename) and byte_size(original_filename) > 0 and
+              is_binary(declared_media_type) and byte_size(declared_media_type) > 0 do
+    with :ok <- UUID.validate([target.metadata_id, object_id]) do
+      {:ok, target}
+    end
+  end
+
+  defp validate_metadata_target(_target, _asset),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp metadata_checkpoint(envelope, asset, target) do
+    %{
+      "version" => 3,
+      "protocol" => "asset_metadata_v1",
+      "next_chunk_index" => 0,
+      "processing_revision" => asset.state_revision,
+      "extractor_state" => %{
+        "phase" => "start",
+        "declared_media_type" => target.declared_media_type,
+        "plaintext_bytes" => target.plaintext_byte_size
+      },
+      "job_id" => envelope.job_id,
+      "vault_id" => envelope.vault_id,
+      "principal_id" => envelope.principal_id,
+      "required_capability" => envelope.required_capability,
+      "principal_authorization_epoch" => envelope.principal_authorization_epoch,
+      "vault_authorization_epoch" => envelope.vault_authorization_epoch,
+      "object_id" => target.object_id,
+      "object_generation" => target.object_generation
+    }
+  end
+
+  defp validate_metadata_checkpoint_binding(
+         checkpoint,
+         %JobEnvelope{
+           job_id: job_id,
+           vault_id: vault_id,
+           principal_id: principal_id,
+           required_capability: required_capability,
+           principal_authorization_epoch: principal_epoch,
+           vault_authorization_epoch: vault_epoch
+         },
+         %StoredAsset{state_revision: processing_revision},
+         %{
+           object_id: object_id,
+           object_generation: object_generation,
+           declared_media_type: declared_media_type,
+           plaintext_byte_size: plaintext_byte_size
+         }
+       ) do
+    CustodyRepository.validate_metadata_checkpoint(checkpoint, %{
+      job_id: job_id,
+      vault_id: vault_id,
+      principal_id: principal_id,
+      required_capability: required_capability,
+      principal_authorization_epoch: principal_epoch,
+      vault_authorization_epoch: vault_epoch,
+      object_id: object_id,
+      object_generation: object_generation,
+      processing_revision: processing_revision,
+      declared_media_type: declared_media_type,
+      plaintext_byte_size: plaintext_byte_size
+    })
+  end
+
+  defp validate_metadata_checkpoint_binding(_checkpoint, _envelope, _asset, _target),
+    do: {:error, Error.new(:conflict)}
+
+  defp do_complete_metadata(
+         repo,
+         envelope,
+         processing_revision,
+         metadata,
+         final_checkpoint
+       ) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          apply_metadata_completion(
+            repo,
+            envelope,
+            processing_revision,
+            metadata,
+            final_checkpoint
+          )
+      end
+    end
+  end
+
+  defp apply_metadata_completion(
+         repo,
+         envelope,
+         processing_revision,
+         metadata,
+         final_checkpoint
+       ) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope),
+         true <-
+           asset.state == :processing and
+             asset.state_revision == processing_revision,
+         {:ok, target} <- metadata_target(repo, asset),
+         :ok <-
+           validate_metadata_checkpoint_binding(
+             final_checkpoint,
+             envelope,
+             asset,
+             target
+           ),
+         :ok <- validate_checkpoint_target(final_checkpoint, target),
+         :ok <- validate_metadata_matches_target(metadata, target),
+         {:ok, stored_metadata} <- lock_pending_metadata(repo, asset, target),
+         {:ok, ready} <-
+           persist_metadata_completion(
+             repo,
+             asset,
+             stored_metadata,
+             envelope,
+             processing_revision,
+             metadata,
+             final_checkpoint
+           ) do
+      {:ok,
+       %{
+         status: :complete,
+         effect_result: :applied,
+         asset: ready
+       }}
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp persist_metadata_completion(
+         repo,
+         asset,
+         stored_metadata,
+         envelope,
+         processing_revision,
+         metadata,
+         final_checkpoint
+       ) do
+    now = DateTime.utc_now(:microsecond)
+
+    with {:ok, _completed_metadata} <-
+           stored_metadata
+           |> AssetMetadata.upsert_changeset(%{
+             detected_media_type: metadata.detected_media_type,
+             pdf_header_version: metadata.pdf_version,
+             image_width: metadata.width,
+             image_height: metadata.height,
+             extraction_state: :completed,
+             extractor_version: Integer.to_string(metadata.extractor_version),
+             completed_at: now
+           })
+           |> repo.update()
+           |> map_changeset_result(),
+         {:ok, ready} <-
+           asset
+           |> StoredAsset.transition_changeset(%{
+             state: :ready,
+             state_revision: processing_revision
+           })
+           |> Ecto.Changeset.optimistic_lock(:state_revision)
+           |> repo.update()
+           |> map_changeset_result(),
+         :ok <- rebuild_search_document(repo, asset.id),
+         {:ok, _audit} <-
+           repo.insert(
+             audit_changeset(%{
+               operation: "asset.metadata_completed",
+               vault_id: asset.vault_id,
+               principal_id: envelope.principal_id,
+               classification: asset.classification,
+               correlation_id: envelope.correlation_id,
+               target_id: asset.id,
+               metadata: %{
+                 "detected_media_type" => metadata.detected_media_type,
+                 "extractor_version" => metadata.extractor_version,
+                 "job_id" => envelope.job_id,
+                 "state" => "ready"
+               },
+               occurred_at: now
+             })
+           ),
+         {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :applied,
+             entity_revision: ready.state_revision
+           }),
+         {:ok, _progress} <-
+           Progress.transition_metadata(
+             repo,
+             envelope,
+             processing_revision,
+             final_checkpoint,
+             :completed
+           ) do
+      {:ok, ready}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset_error(changeset)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp do_record_metadata_failure(
+         repo,
+         envelope,
+         processing_revision,
+         failure,
+         final_checkpoint
+       ) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          apply_metadata_failure(
+            repo,
+            envelope,
+            processing_revision,
+            failure,
+            final_checkpoint
+          )
+      end
+    end
+  end
+
+  defp do_record_metadata_exhaustion(repo, envelope, failure) do
+    with {:ok, receipt} <- lock_effect_receipt(repo, envelope) do
+      case receipt do
+        %EffectReceipt{result: :failed} ->
+          completed_metadata_job_result(repo, envelope, receipt)
+
+        %EffectReceipt{} ->
+          completed_job_result(repo, envelope, receipt)
+
+        nil ->
+          apply_metadata_exhaustion(repo, envelope, failure)
+      end
+    end
+  end
+
+  defp apply_metadata_exhaustion(repo, envelope, failure) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope),
+         true <-
+           asset.state == :processing and
+             asset.state_revision == envelope.expected_entity_revision + 1,
+         {:ok, target} <- metadata_target(repo, asset),
+         {:ok, progress} <-
+           Progress.lock_metadata(repo, envelope, asset.state_revision),
+         :ok <-
+           validate_metadata_checkpoint_binding(
+             progress.checkpoint,
+             envelope,
+             asset,
+             target
+           ),
+         :ok <- validate_checkpoint_target(progress.checkpoint, target),
+         {:ok, stored_metadata} <- lock_pending_metadata(repo, asset, target),
+         terminal_failure = %{failure | retryable?: false},
+         {:ok, failed_asset} <-
+           persist_metadata_failure(
+             repo,
+             asset,
+             stored_metadata,
+             envelope,
+             asset.state_revision,
+             terminal_failure,
+             progress.checkpoint
+           ) do
+      {:ok,
+       %{
+         status: :complete,
+         effect_result: :failed,
+         asset: failed_asset
+       }}
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp apply_metadata_failure(
+         repo,
+         envelope,
+         processing_revision,
+         failure,
+         final_checkpoint
+       ) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope),
+         true <-
+           asset.state == :processing and
+             asset.state_revision == processing_revision,
+         {:ok, target} <- metadata_target(repo, asset),
+         :ok <-
+           validate_metadata_checkpoint_binding(
+             final_checkpoint,
+             envelope,
+             asset,
+             target
+           ),
+         :ok <- validate_checkpoint_target(final_checkpoint, target),
+         {:ok, stored_metadata} <- lock_pending_metadata(repo, asset, target),
+         {:ok, failed_asset} <-
+           persist_metadata_failure(
+             repo,
+             asset,
+             stored_metadata,
+             envelope,
+             processing_revision,
+             failure,
+             final_checkpoint
+           ) do
+      {:ok,
+       %{
+         status: :complete,
+         effect_result: :failed,
+         asset: failed_asset
+       }}
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp persist_metadata_failure(
+         repo,
+         asset,
+         stored_metadata,
+         envelope,
+         processing_revision,
+         failure,
+         final_checkpoint
+       ) do
+    now = DateTime.utc_now(:microsecond)
+
+    with {:ok, _failed_metadata} <-
+           stored_metadata
+           |> AssetMetadata.upsert_changeset(%{
+             extraction_state: :failed,
+             completed_at: now
+           })
+           |> repo.update()
+           |> map_changeset_result(),
+         {:ok, failed_asset} <-
+           asset
+           |> StoredAsset.record_failure_changeset(%{
+             failure_code: Atom.to_string(failure.code),
+             retryable?: false,
+             failed_operation: "asset_metadata",
+             attempt: asset.attempt
+           })
+           |> repo.update()
+           |> map_changeset_result(),
+         :ok <- AssetSearchStore.delete(repo, %{asset_id: asset.id, vault_id: asset.vault_id}),
+         {:ok, _audit} <-
+           repo.insert(
+             audit_changeset(%{
+               operation: "asset.metadata_failed",
+               result: :failed,
+               vault_id: asset.vault_id,
+               principal_id: envelope.principal_id,
+               classification: asset.classification,
+               correlation_id: envelope.correlation_id,
+               target_id: asset.id,
+               metadata: %{
+                 "failure_code" => Atom.to_string(failure.code),
+                 "job_id" => envelope.job_id,
+                 "operation" => "asset_metadata",
+                 "retryable" => false
+               },
+               occurred_at: now
+             })
+           ),
+         {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :failed,
+             entity_revision: processing_revision
+           }),
+         {:ok, _progress} <-
+           Progress.transition_metadata(
+             repo,
+             envelope,
+             processing_revision,
+             final_checkpoint,
+             :failed
+           ) do
+      {:ok, failed_asset}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset_error(changeset)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp lock_pending_metadata(repo, asset, target) do
+    query =
+      from metadata in AssetMetadata,
+        where:
+          metadata.id == ^target.metadata_id and
+            metadata.asset_id == ^asset.id and
+            metadata.resource_version_id == ^asset.resource_version_id and
+            metadata.vault_id == ^asset.vault_id and
+            metadata.classification == ^asset.classification and
+            metadata.extraction_state == :pending,
+        lock: "FOR UPDATE"
+
+    case repo.all(query) do
+      [%AssetMetadata{} = metadata] -> {:ok, metadata}
+      [] -> {:error, Error.new(:conflict)}
+      [_first, _second] -> {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp validate_metadata_matches_target(metadata, target) do
+    if metadata.plaintext_bytes == target.plaintext_byte_size and
+         metadata.detected_media_type == target.declared_media_type do
+      :ok
+    else
+      {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_checkpoint_target(
+         %{
+           "extractor_state" => %{
+             "declared_media_type" => declared_media_type,
+             "plaintext_bytes" => plaintext_bytes
+           }
+         },
+         %{
+           declared_media_type: declared_media_type,
+           plaintext_byte_size: plaintext_bytes
+         }
+       ),
+       do: :ok
+
+  defp validate_checkpoint_target(
+         %{
+           "extractor_state" => %{
+             "phase" => "done",
+             "result" => %{
+               "detected_media_type" => detected_media_type,
+               "plaintext_bytes" => plaintext_bytes
+             }
+           }
+         },
+         %{
+           declared_media_type: detected_media_type,
+           plaintext_byte_size: plaintext_bytes
+         }
+       ),
+       do: :ok
+
+  defp validate_checkpoint_target(_checkpoint, _target),
+    do: {:error, Error.new(:conflict)}
+
+  defp validate_extracted_metadata(metadata) do
+    exact_keys? =
+      Enum.sort(Map.keys(metadata)) ==
+        Enum.sort([
+          :detected_media_type,
+          :plaintext_bytes,
+          :width,
+          :height,
+          :pdf_version,
+          :extractor_version
+        ])
+
+    common? =
+      exact_keys? and is_integer(metadata.plaintext_bytes) and
+        metadata.plaintext_bytes >= 0 and metadata.plaintext_bytes <= @max_bigint and
+        metadata.extractor_version == 1
+
+    typed? =
+      case metadata do
+        %{
+          detected_media_type: "application/pdf",
+          width: nil,
+          height: nil,
+          pdf_version: version
+        } ->
+          valid_pdf_version?(version)
+
+        %{
+          detected_media_type: "image/jpeg",
+          width: width,
+          height: height,
+          pdf_version: nil
+        } ->
+          metadata_dimension?(width, 65_535) and metadata_dimension?(height, 65_535)
+
+        %{
+          detected_media_type: "image/png",
+          width: width,
+          height: height,
+          pdf_version: nil
+        } ->
+          metadata_dimension?(width, 2_147_483_647) and
+            metadata_dimension?(height, 2_147_483_647)
+
+        _other ->
+          false
+      end
+
+    if common? and typed?,
+      do: :ok,
+      else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp validate_terminal_metadata_checkpoint(
+         checkpoint,
+         envelope,
+         processing_revision,
+         terminal
+       ) do
+    with :ok <- validate_terminal_checkpoint_binding(checkpoint, envelope, processing_revision),
+         :ok <- validate_terminal_extractor_state(checkpoint["extractor_state"], terminal),
+         plaintext_bytes <-
+           terminal_plaintext_bytes(terminal, checkpoint["extractor_state"]),
+         true <-
+           valid_terminal_chunk_index?(
+             checkpoint["next_chunk_index"],
+             plaintext_bytes
+           ) do
+      :ok
+    else
+      false -> {:error, Error.new(:integrity_failure)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp validate_terminal_checkpoint_binding(
+         %{
+           "object_id" => object_id,
+           "object_generation" => object_generation,
+           "extractor_state" => extractor_state
+         } = checkpoint,
+         envelope,
+         processing_revision
+       ) do
+    with {:ok, target} <- terminal_checkpoint_target(extractor_state) do
+      binding = %{
+        job_id: envelope.job_id,
+        vault_id: envelope.vault_id,
+        principal_id: envelope.principal_id,
+        required_capability: envelope.required_capability,
+        principal_authorization_epoch: envelope.principal_authorization_epoch,
+        vault_authorization_epoch: envelope.vault_authorization_epoch,
+        object_id: object_id,
+        object_generation: object_generation,
+        processing_revision: processing_revision,
+        declared_media_type: target.declared_media_type,
+        plaintext_byte_size: target.plaintext_byte_size
+      }
+
+      case CustodyRepository.validate_metadata_checkpoint(checkpoint, binding) do
+        :ok -> :ok
+        {:error, %Error{code: :invalid}} -> {:error, Error.new(:integrity_failure)}
+        {:error, %Error{}} = error -> error
+      end
+    end
+  end
+
+  defp validate_terminal_checkpoint_binding(_checkpoint, _envelope, _processing_revision),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp terminal_checkpoint_target(%{
+         "phase" => "done",
+         "result" => %{
+           "detected_media_type" => declared_media_type,
+           "plaintext_bytes" => plaintext_byte_size
+         }
+       }),
+       do:
+         {:ok,
+          %{
+            declared_media_type: declared_media_type,
+            plaintext_byte_size: plaintext_byte_size
+          }}
+
+  defp terminal_checkpoint_target(%{
+         "phase" => "failed",
+         "declared_media_type" => declared_media_type,
+         "plaintext_bytes" => plaintext_byte_size
+       }),
+       do:
+         {:ok,
+          %{
+            declared_media_type: declared_media_type,
+            plaintext_byte_size: plaintext_byte_size
+          }}
+
+  defp terminal_checkpoint_target(_extractor_state),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp valid_pdf_version?(<<major, ?., minor>>),
+    do: major in ?0..?9 and minor in ?0..?9
+
+  defp valid_pdf_version?(_version), do: false
+
+  defp metadata_dimension?(value, maximum),
+    do: is_integer(value) and value in 1..maximum
+
+  defp validate_terminal_extractor_state(
+         %{"phase" => "done", "result" => result} = state,
+         {:done, metadata}
+       )
+       when is_map(result) do
+    expected = %{
+      "detected_media_type" => metadata.detected_media_type,
+      "plaintext_bytes" => metadata.plaintext_bytes,
+      "width" => metadata.width,
+      "height" => metadata.height,
+      "pdf_version" => metadata.pdf_version,
+      "extractor_version" => metadata.extractor_version
+    }
+
+    if Enum.sort(Map.keys(state)) == ["phase", "result"] and
+         Enum.sort(Map.keys(result)) == Enum.sort(@metadata_result_keys) and
+         result == expected,
+       do: :ok,
+       else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp validate_terminal_extractor_state(
+         %{
+           "phase" => "failed",
+           "error_code" => error_code,
+           "declared_media_type" => declared_media_type,
+           "plaintext_bytes" => plaintext_bytes
+         } = state,
+         {:error, %Error{code: error_code_atom}}
+       ) do
+    if Enum.sort(Map.keys(state)) ==
+         Enum.sort([
+           "phase",
+           "error_code",
+           "declared_media_type",
+           "plaintext_bytes"
+         ]) and
+         error_code == Atom.to_string(error_code_atom) and
+         is_binary(declared_media_type) and declared_media_type != "" and
+         byte_size(declared_media_type) <= 255 and
+         is_integer(plaintext_bytes) and plaintext_bytes >= 0 and
+         plaintext_bytes <= @max_bigint,
+       do: :ok,
+       else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp validate_terminal_extractor_state(_state, _terminal),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp terminal_plaintext_bytes({:done, metadata}, _state), do: metadata.plaintext_bytes
+
+  defp terminal_plaintext_bytes(
+         {:error, _failure},
+         %{"plaintext_bytes" => plaintext_bytes}
+       ),
+       do: plaintext_bytes
+
+  defp terminal_plaintext_bytes({:error, _failure}, _state), do: :invalid
+
+  defp valid_terminal_chunk_index?(next_chunk_index, plaintext_bytes)
+       when is_integer(next_chunk_index) and next_chunk_index > 0 and
+              is_integer(plaintext_bytes) and plaintext_bytes >= 0 do
+    next_chunk_index <= max(1, chunk_count(plaintext_bytes))
+  end
+
+  defp valid_terminal_chunk_index?(_next_chunk_index, _plaintext_bytes), do: false
+
+  defp validate_metadata_failure(%Error{code: code, retryable?: false})
+       when code in [:integrity_failure, :unsupported_media_type],
+       do: :ok
+
+  defp validate_metadata_failure(_failure),
     do: {:error, Error.new(:invalid)}
 
   @impl true
@@ -1134,6 +2174,21 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         false -> {:error, Error.new(:conflict)}
         {:error, %Error{}} = error -> error
       end
+    end
+  end
+
+  defp completed_metadata_job_result(repo, envelope, %EffectReceipt{result: :failed} = receipt) do
+    with {:ok, asset} <- lock_job_asset(repo, envelope),
+         true <- receipt.entity_revision == asset.state_revision do
+      {:ok,
+       %{
+         status: :complete,
+         effect_result: :failed,
+         asset: asset
+       }}
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
     end
   end
 
@@ -1712,6 +2767,37 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     end
   end
 
+  defp validate_metadata_job(
+         %JobEnvelope{
+           job_type: "asset_metadata",
+           required_capability: "asset.read",
+           payload: %{"asset_id" => asset_id} = payload,
+           classification: classification,
+           expected_entity_revision: expected_revision
+         } = envelope
+       ) do
+    with true <- Map.keys(payload) == ["asset_id"],
+         :ok <-
+           UUID.validate([
+             envelope.job_id,
+             envelope.vault_id,
+             envelope.principal_id,
+             envelope.correlation_id,
+             envelope.causation_id,
+             asset_id
+           ]),
+         true <- classification in [:private, :sensitive, :restricted],
+         true <- is_integer(expected_revision) and expected_revision >= 0,
+         true <- valid_text?(envelope.idempotency_key) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_metadata_job(_envelope), do: {:error, Error.new(:invalid)}
+
   defp validate_asset_job(
          %JobEnvelope{
            job_type: job_type,
@@ -1763,7 +2849,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp chunk_count(plaintext_byte_size)
        when is_integer(plaintext_byte_size) and plaintext_byte_size > 0,
-       do: div(plaintext_byte_size + 4_194_303, 4_194_304)
+       do:
+         div(
+           plaintext_byte_size + Format.chunk_size() - 1,
+           Format.chunk_size()
+         )
 
   defp validate_retry_command(
          %{
@@ -2229,6 +3319,77 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
       stored ->
         stored_asset(stored)
+    end
+  end
+
+  defp canonical_search_document(repo, asset_id) do
+    query =
+      from asset in StoredAsset,
+        join: resource_version in ResourceVersion,
+        on:
+          resource_version.id == asset.resource_version_id and
+            resource_version.vault_id == asset.vault_id,
+        join: resource in Resource,
+        on:
+          resource.id == resource_version.resource_id and
+            resource.vault_id == resource_version.vault_id,
+        join: metadata in AssetMetadata,
+        on:
+          metadata.asset_id == asset.id and
+            metadata.resource_version_id == asset.resource_version_id and
+            metadata.vault_id == asset.vault_id,
+        where: asset.id == ^asset_id,
+        where: asset.state == :ready,
+        where: metadata.extraction_state == :completed,
+        select: %{
+          asset_id: asset.id,
+          resource_version_id: resource_version.id,
+          vault_id: asset.vault_id,
+          classification_chain: [
+            resource.classification,
+            resource_version.classification,
+            asset.classification,
+            metadata.classification
+          ],
+          state: asset.state,
+          detected_media_type: metadata.detected_media_type,
+          resource_title: resource.title,
+          original_filename: metadata.original_filename,
+          updated_at:
+            fragment(
+              "GREATEST(?, ?, ?, ?)",
+              asset.updated_at,
+              resource_version.updated_at,
+              resource.updated_at,
+              metadata.updated_at
+            )
+        }
+
+    case repo.one(query) do
+      nil ->
+        {:error, Error.new(:not_found)}
+
+      %{classification_chain: classifications} = attrs ->
+        with {:ok, classification} <- strictest_classification(classifications) do
+          {:ok,
+           attrs
+           |> Map.delete(:classification_chain)
+           |> Map.put(:classification, classification)}
+        end
+    end
+  end
+
+  defp strictest_classification(classifications) when is_list(classifications) do
+    ranks =
+      Classification.values()
+      |> Enum.with_index()
+      |> Map.new()
+
+    if classifications != [] and
+         Enum.all?(classifications, &Map.has_key?(ranks, &1)) do
+      {:ok, Enum.max_by(classifications, &Map.fetch!(ranks, &1))}
+    else
+      {:error, Error.new(:integrity_failure)}
     end
   end
 

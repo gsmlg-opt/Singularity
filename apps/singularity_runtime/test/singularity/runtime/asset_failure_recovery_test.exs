@@ -22,7 +22,10 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
   alias Singularity.Runtime.UploadSessionSupervisor
   alias Singularity.Storage.AuthorizationLock
   alias Singularity.Storage.Crypto.KeyWrapper
+  alias Singularity.Storage.Crypto.Format
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.Jobs.EnvelopeCodec
+  alias Singularity.Storage.Jobs.GenericWorker
   alias Singularity.Storage.Jobs.ObanAdapter
   alias Singularity.Storage.Jobs.WorkerScope
   alias Singularity.Storage.LocalFilesystemAdapter
@@ -258,6 +261,73 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     end
   end
 
+  defmodule MetadataReadGateStorage do
+    @moduledoc false
+
+    use Agent
+
+    alias Singularity.Storage.LocalFilesystemAdapter
+
+    def start_link(options) do
+      Agent.start_link(fn ->
+        %{
+          completed: %{},
+          owner: Keyword.fetch!(options, :owner),
+          targets: Keyword.fetch!(options, :targets)
+        }
+      end)
+    end
+
+    def stat(context, object_ref),
+      do: LocalFilesystemAdapter.stat(delegate_context(context), object_ref)
+
+    def open(context, object_ref),
+      do: LocalFilesystemAdapter.open(delegate_context(context), object_ref)
+
+    def read_range(%{read_gate: gate} = context, handle, %Range{} = range) do
+      case before_read(gate, range.first) do
+        {:block, owner, token} ->
+          send(owner, {:metadata_ciphertext_read_blocked, self(), token, range})
+
+          receive do
+            {:continue_metadata_ciphertext_read, ^token} -> :ok
+          end
+
+        :continue ->
+          :ok
+      end
+
+      result = LocalFilesystemAdapter.read_range(delegate_context(context), handle, range)
+
+      if match?({:ok, _bytes}, result) do
+        Agent.update(gate, fn state ->
+          update_in(
+            state,
+            [:completed],
+            &Map.update(&1, range.first, 1, fn count -> count + 1 end)
+          )
+        end)
+      end
+
+      result
+    end
+
+    def completed(gate), do: Agent.get(gate, & &1.completed)
+
+    defp before_read(gate, offset) do
+      Agent.get_and_update(gate, fn
+        %{targets: [^offset | rest]} = state ->
+          token = make_ref()
+          {{:block, state.owner, token}, %{state | targets: rest}}
+
+        state ->
+          {:continue, state}
+      end)
+    end
+
+    defp delegate_context(context), do: Map.delete(context, :read_gate)
+  end
+
   setup do
     %{one: raw_fixture} = Fixtures.two_vaults!()
     fixture = load_ids(raw_fixture)
@@ -362,6 +432,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     {:ok,
      custodian: custodian,
      fixture: fixture,
+     keys: keys,
      runtime: runtime,
      session: session,
      storage_root: storage_root}
@@ -398,6 +469,250 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}
 
     assert :ok = OneShotCrashGate.trip(gate, %{call: 3})
+  end
+
+  test "real metadata worker resumes after claim and checkpoint crashes with once-only effects",
+       %{
+         fixture: fixture,
+         keys: keys,
+         runtime: runtime,
+         session: session,
+         storage_root: storage_root
+       } do
+    jpeg = jpeg_with_sof_after_first_chunk()
+
+    available =
+      prepare_available_asset!(
+        fixture,
+        runtime,
+        session,
+        storage_root,
+        :metadata_two_crash,
+        jpeg,
+        "image/jpeg"
+      )
+
+    envelope =
+      submitted_envelope!(
+        fixture,
+        available.asset_id,
+        "asset.metadata_requested",
+        "asset_metadata"
+      )
+
+    assert {:ok, encoded} = EnvelopeCodec.encode(envelope)
+
+    first_data_offset = Format.header_size()
+    second_data_offset = Format.header_size() + Format.chunk_size() + 24
+
+    read_gate =
+      start_supervised!(
+        {MetadataReadGateStorage,
+         owner: self(), targets: [first_data_offset, second_data_offset]},
+        id: make_ref()
+      )
+
+    crash_custodian = start_metadata_gate_custodian!(storage_root, read_gate)
+
+    activate_custody!(crash_custodian, session, keys)
+
+    with_generic_worker_runtime(crash_custodian, storage_root, fn ->
+      job = %Oban.Job{args: encoded, attempt: 1, max_attempts: 20}
+      first = Task.async(fn -> GenericWorker.perform(job) end)
+
+      assert_receive {
+                       :metadata_ciphertext_read_blocked,
+                       _reader,
+                       _token,
+                       %Range{first: ^first_data_offset}
+                     },
+                     5_000
+
+      assert %{rows: [["processing", 4, "running", "0"]]} =
+               owner_query(
+                 """
+                 SELECT
+                   asset.state,
+                   asset.state_revision,
+                   progress.state,
+                   progress.checkpoint ->> 'next_chunk_index'
+                 FROM content.assets AS asset
+                 JOIN jobs.job_progress AS progress
+                   ON progress.submission_id = $2
+                 WHERE asset.id = $1
+                 """,
+                 [Ecto.UUID.dump!(available.asset_id), Ecto.UUID.dump!(envelope.job_id)]
+               )
+
+      assert Task.shutdown(first, :brutal_kill) == nil
+      revoke_and_reactivate_custody!(crash_custodian, session, keys)
+
+      second = Task.async(fn -> GenericWorker.perform(job) end)
+
+      assert_receive {
+                       :metadata_ciphertext_read_blocked,
+                       _reader,
+                       _token,
+                       %Range{first: ^second_data_offset}
+                     },
+                     5_000
+
+      assert %{rows: [["processing", 4, "running", "1"]]} =
+               owner_query(
+                 """
+                 SELECT
+                   asset.state,
+                   asset.state_revision,
+                   progress.state,
+                   progress.checkpoint ->> 'next_chunk_index'
+                 FROM content.assets AS asset
+                 JOIN jobs.job_progress AS progress
+                   ON progress.submission_id = $2
+                 WHERE asset.id = $1
+                 """,
+                 [Ecto.UUID.dump!(available.asset_id), Ecto.UUID.dump!(envelope.job_id)]
+               )
+
+      assert Task.shutdown(second, :brutal_kill) == nil
+      revoke_and_reactivate_custody!(crash_custodian, session, keys)
+
+      assert {:ok, %{state: :ready, state_revision: 5}} = GenericWorker.perform(job)
+      completed_reads = MetadataReadGateStorage.completed(read_gate)
+      assert completed_reads[first_data_offset] == 1
+      assert completed_reads[second_data_offset] == 1
+
+      assert {:ok, %{state: :ready, state_revision: 5}} = GenericWorker.perform(job)
+      assert MetadataReadGateStorage.completed(read_gate) == completed_reads
+    end)
+
+    assert %{rows: [["ready", 5, "completed", "2", 1, 1, 0, 0]]} =
+             owner_query(
+               """
+               SELECT
+                 asset.state,
+                 asset.state_revision,
+                 progress.state,
+                 progress.checkpoint ->> 'next_chunk_index',
+                 (SELECT count(*) FROM audit.events
+                    WHERE target_id = asset.id
+                      AND operation = 'asset.metadata_completed'),
+                 (SELECT count(*) FROM jobs.effect_receipts
+                    WHERE submission_id = $2 AND result = 'applied'),
+                 (SELECT count(*) FROM jobs.effect_receipts
+                    WHERE submission_id = $2 AND result = 'failed'),
+                 (SELECT count(*) FROM audit.events
+                    WHERE target_id = asset.id
+                      AND operation = 'asset.metadata_failed')
+               FROM content.assets AS asset
+               JOIN jobs.job_progress AS progress
+                 ON progress.submission_id = $2
+               WHERE asset.id = $1
+               """,
+               [Ecto.UUID.dump!(available.asset_id), Ecto.UUID.dump!(envelope.job_id)]
+             )
+  end
+
+  test "live authorization revocation after a metadata read prevents checkpoint CAS", %{
+    fixture: fixture,
+    keys: keys,
+    runtime: runtime,
+    session: session,
+    storage_root: storage_root
+  } do
+    available =
+      prepare_available_asset!(
+        fixture,
+        runtime,
+        session,
+        storage_root,
+        :metadata_checkpoint_authorization,
+        "%PDF-1.7\ncheckpoint authorization",
+        "application/pdf"
+      )
+
+    envelope =
+      submitted_envelope!(
+        fixture,
+        available.asset_id,
+        "asset.metadata_requested",
+        "asset_metadata"
+      )
+
+    assert {:ok, encoded} = EnvelopeCodec.encode(envelope)
+    first_data_offset = Format.header_size()
+
+    read_gate =
+      start_supervised!(
+        {MetadataReadGateStorage, owner: self(), targets: [first_data_offset]},
+        id: make_ref()
+      )
+
+    custodian = start_metadata_gate_custodian!(storage_root, read_gate)
+    activate_custody!(custodian, session, keys)
+
+    with_generic_worker_runtime(custodian, storage_root, fn ->
+      job = %Oban.Job{args: encoded, attempt: 1, max_attempts: 20}
+      worker = Task.async(fn -> GenericWorker.perform(job) end)
+
+      assert_receive {
+                       :metadata_ciphertext_read_blocked,
+                       reader,
+                       token,
+                       %Range{first: ^first_data_offset}
+                     },
+                     5_000
+
+      assert %{rows: [["processing", 4, "running", "0"]]} =
+               owner_query(
+                 """
+                 SELECT
+                   asset.state,
+                   asset.state_revision,
+                   progress.state,
+                   progress.checkpoint ->> 'next_chunk_index'
+                 FROM content.assets AS asset
+                 JOIN jobs.job_progress AS progress
+                   ON progress.submission_id = $2
+                 WHERE asset.id = $1
+                 """,
+                 [Ecto.UUID.dump!(available.asset_id), Ecto.UUID.dump!(envelope.job_id)]
+               )
+
+      assert %{num_rows: 1} =
+               owner_query(
+                 """
+                 UPDATE identity.principals
+                 SET authorization_epoch = authorization_epoch + 1
+                 WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(fixture.principal_id)]
+               )
+
+      send(reader, {:continue_metadata_ciphertext_read, token})
+      assert {:cancel, %{code: :job_failed}} = Task.await(worker, 5_000)
+
+      assert MetadataReadGateStorage.completed(read_gate)[first_data_offset] == 1
+    end)
+
+    assert %{rows: [["processing", 4, "running", "0", 0, 0]]} =
+             owner_query(
+               """
+               SELECT
+                 asset.state,
+                 asset.state_revision,
+                 progress.state,
+                 progress.checkpoint ->> 'next_chunk_index',
+                 (SELECT count(*) FROM jobs.effect_receipts WHERE submission_id = $2),
+                 (SELECT count(*) FROM audit.events
+                    WHERE target_id = asset.id
+                      AND operation IN ('asset.metadata_completed', 'asset.metadata_failed'))
+               FROM content.assets AS asset
+               JOIN jobs.job_progress AS progress
+                 ON progress.submission_id = $2
+               WHERE asset.id = $1
+               """,
+               [Ecto.UUID.dump!(available.asset_id), Ecto.UUID.dump!(envelope.job_id)]
+             )
   end
 
   test ":during_stage kills a real append after the stage file is opened" do
@@ -1300,11 +1615,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     )
   end
 
-  defp upload_request(fixture, boundary, plaintext) do
+  defp upload_request(
+         fixture,
+         boundary,
+         plaintext,
+         declared_media_type \\ "application/pdf"
+       ) do
+    extension = if declared_media_type == "image/jpeg", do: "jpg", else: "pdf"
+
     %{
       classification: :private,
-      declared_media_type: "application/pdf",
-      filename: "#{boundary}-recovery.pdf",
+      declared_media_type: declared_media_type,
+      filename: "#{boundary}-recovery.#{extension}",
       idempotency_key: "asset-recovery:#{boundary}:#{Ecto.UUID.generate()}",
       resource_version_id: fixture.resource_version_id,
       size: byte_size(plaintext)
@@ -1449,9 +1771,10 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
          session,
          storage_root,
          boundary,
-         plaintext
+         plaintext,
+         declared_media_type \\ "application/pdf"
        ) do
-    request = upload_request(fixture, boundary, plaintext)
+    request = upload_request(fixture, boundary, plaintext, declared_media_type)
 
     {grant, uploaded, finalize} =
       prepare_verified_asset!(
@@ -1864,6 +2187,103 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     uploaded
   end
 
+  defp activate_custody!(custodian, session, keys) do
+    assert {:ok, pending} =
+             KeyCustodian.prepare_unlock(
+               custodian,
+               custody_session(session, keys)
+             )
+
+    assert :ok = KeyCustodian.activate_unlock(custodian, pending)
+  end
+
+  defp revoke_and_reactivate_custody!(custodian, session, keys) do
+    assert {:ok, token} =
+             KeyCustodian.begin_revoke(custodian, %{session_id: session.session_id})
+
+    assert :ok = KeyCustodian.finish_revoke(custodian, token)
+    activate_custody!(custodian, session, keys)
+  end
+
+  defp start_metadata_gate_custodian!(storage_root, read_gate) do
+    lease_supervisor =
+      start_supervised!(
+        {KeyLeaseSupervisor, name: nil},
+        id: make_ref()
+      )
+
+    start_supervised!(
+      {KeyCustodian,
+       %{
+         authorization: CustodyReader,
+         clock: CustodyReader,
+         context: %{
+           key_wrapper: KeyWrapper,
+           repo: WorkerRepo,
+           repository_adapter: CustodyRepository,
+           scope: ScopedRepo,
+           storage: %{
+             adapter: MetadataReadGateStorage,
+             context: %{root: storage_root, read_gate: read_gate}
+           }
+         },
+         idle_lock: fn _session -> :ok end,
+         idle_timeout_ms: :timer.minutes(10),
+         key_reader: CustodyReader,
+         key_wrapper: KeyWrapper,
+         lease_supervisor: lease_supervisor,
+         object_key_loader: CustodyReader
+       }},
+      id: make_ref()
+    )
+  end
+
+  defp with_generic_worker_runtime(custodian, storage_root, callback) do
+    previous_handler = Application.get_env(:singularity_storage, :job_handler)
+    previous_root = Application.fetch_env!(:singularity_storage, :storage_root)
+
+    previous_authorization =
+      Application.fetch_env!(:singularity_runtime, :authorization_dependencies)
+
+    Application.put_env(:singularity_storage, :job_handler, JobDispatcher)
+    Application.put_env(:singularity_storage, :storage_root, storage_root)
+
+    Application.put_env(:singularity_runtime, :authorization_dependencies, %{
+      store: IdentityRepository,
+      custodian: {KeyCustodian, custodian}
+    })
+
+    try do
+      callback.()
+    after
+      Application.put_env(:singularity_storage, :storage_root, previous_root)
+
+      Application.put_env(
+        :singularity_runtime,
+        :authorization_dependencies,
+        previous_authorization
+      )
+
+      if previous_handler do
+        Application.put_env(:singularity_storage, :job_handler, previous_handler)
+      else
+        Application.delete_env(:singularity_storage, :job_handler)
+      end
+    end
+  end
+
+  defp jpeg_with_sof_after_first_chunk do
+    segment =
+      <<0xFF, 0xE0, 65_535::unsigned-big-16>> <>
+        :binary.copy(<<0>>, 65_533)
+
+    sof =
+      <<0xFF, 0xC0, 11::unsigned-big-16, 8, 2::unsigned-big-16, 3::unsigned-big-16, 1, 1, 0x11,
+        0>>
+
+    <<0xFF, 0xD8>> <> :binary.copy(segment, 64) <> sof
+  end
+
   defp verify_and_finalize!(
          fixture,
          runtime,
@@ -2173,6 +2593,10 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       },
       callback
     )
+  end
+
+  defp owner_query(statement, parameters) do
+    Fixtures.with_owner(fn -> query!(MigrationRepo, statement, parameters) end)
   end
 
   defp install_vertical_security!(fixture) do

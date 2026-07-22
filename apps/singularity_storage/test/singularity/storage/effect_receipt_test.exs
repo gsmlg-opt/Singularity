@@ -257,6 +257,42 @@ defmodule Singularity.Storage.EffectReceiptTest do
     assert_context_absent()
   end
 
+  test "wake_vault honors the caller's bounded limit", %{fixture: fixture} do
+    first =
+      submitted_envelope(fixture, 0, %{
+        "wait_for_unlock" => true,
+        "checkpoint" => %{"next_chunk_index" => 1}
+      })
+
+    second =
+      submitted_envelope(fixture, 0, %{
+        "wait_for_unlock" => true,
+        "checkpoint" => %{"next_chunk_index" => 2}
+      })
+
+    for envelope <- [first, second] do
+      assert {:ok, encoded} = EnvelopeCodec.encode(envelope)
+      assert {:snooze, 60} = GenericWorker.perform(%Oban.Job{args: encoded})
+      put_oban_state(runner_id(envelope), "scheduled")
+    end
+
+    assert :ok = ObanAdapter.wake_vault(%{limit: 1}, first.vault_id)
+
+    first_runner_id = runner_id(first)
+    second_runner_id = runner_id(second)
+    expected_woken = min(first_runner_id, second_runner_id)
+    expected_waiting = max(first_runner_id, second_runner_id)
+
+    assert %{rows: [[^expected_woken, "available"], [^expected_waiting, "scheduled"]]} =
+             query!(
+               WorkerRepo,
+               "SELECT id, state FROM jobs.oban_jobs WHERE id IN ($1, $2) ORDER BY id",
+               [expected_woken, expected_waiting]
+             )
+
+    assert_context_absent()
+  end
+
   test "wake while the worker is executing prevents a full-interval lost snooze",
        %{external_effects: external_effects, fixture: fixture} do
     ref = make_ref()

@@ -117,13 +117,17 @@ defmodule Singularity.Storage.Jobs.ObanAdapter do
   def wake_vault(context, vault_id) when is_binary(vault_id) do
     with {:ok, vault_id} <- Ecto.UUID.cast(vault_id),
          {:ok, %{oban_name: oban_name, prefix: prefix, repo: repo}} <-
-           adapter_context(context) do
+           adapter_context(context),
+         limit when is_integer(limit) and limit > 0 and limit <= 100 <-
+           context_value(context, :limit, 25) do
       query =
         from(job in Oban.Job,
           where:
             job.state in ["executing", "scheduled", "retryable"] and
               job.worker == ^Oban.Worker.to_string(GenericWorker) and
-              fragment("?->>'vault_id' = ?", job.args, ^vault_id)
+              fragment("?->>'vault_id' = ?", job.args, ^vault_id),
+          order_by: [asc: job.id],
+          limit: ^limit
         )
 
       query
@@ -137,6 +141,7 @@ defmodule Singularity.Storage.Jobs.ObanAdapter do
     else
       :error -> {:error, Error.new(:invalid)}
       {:error, %Error{}} = error -> error
+      _invalid_limit -> {:error, Error.new(:invalid)}
     end
   rescue
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}

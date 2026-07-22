@@ -23,9 +23,11 @@ defmodule Singularity.Runtime.CustodyReader do
           | {:error, :waiting_for_unlock | Error.t()}
   def load_object_key(context, binding, hierarchy)
       when is_map(context) and is_map(binding) and is_map(hierarchy) do
+    repository_binding = reader_repository_binding(binding)
+
     with {:ok, material} <-
-           with_scope(context, binding, fn repository, repo ->
-             repository.load_reader_material(repo, binding)
+           with_scope(context, repository_binding, fn repository, repo ->
+             repository.load_reader_material(repo, repository_binding)
            end),
          :ok <- validate_material(material, binding, hierarchy),
          {:ok, <<_::binary-size(32)>> = object_dek} <-
@@ -53,8 +55,10 @@ defmodule Singularity.Runtime.CustodyReader do
           :ok | {:error, :waiting_for_unlock | Error.t()}
   def revalidate(%{object_binding: reader_binding} = context, binding)
       when is_map(reader_binding) and is_map(binding) do
-    with_scope(context, binding, fn repository, repo ->
-      repository.revalidate_reader(repo, binding, reader_binding)
+    repository_binding = reader_repository_binding(binding)
+
+    with_scope(context, repository_binding, fn repository, repo ->
+      repository.revalidate_reader(repo, repository_binding, reader_binding)
     end)
     |> normalize_status()
   rescue
@@ -66,10 +70,13 @@ defmodule Singularity.Runtime.CustodyReader do
   def revalidate(_context, _binding), do: {:error, Error.new(:invalid)}
 
   @spec load_checkpoint(map(), map()) :: {:ok, map()} | {:error, Error.t()}
-  def load_checkpoint(%{object_binding: reader_binding} = context, binding)
-      when is_map(reader_binding) and is_map(binding) do
+  def load_checkpoint(
+        %{checkpoint_classification: classification} = context,
+        binding
+      )
+      when classification in @classifications and is_map(binding) do
     with_scope(context, binding, fn repository, repo ->
-      repository.load_checkpoint(repo, binding, reader_binding.classification)
+      repository.load_checkpoint(repo, binding, classification)
     end)
     |> normalize_value()
   rescue
@@ -81,20 +88,20 @@ defmodule Singularity.Runtime.CustodyReader do
   def load_checkpoint(_context, _binding), do: {:error, Error.new(:invalid)}
 
   @spec persist_checkpoint(map(), map(), map(), map()) ::
-          :ok | {:error, Error.t()}
+          :ok | {:error, :checkpoint_advanced | Error.t()}
   def persist_checkpoint(
-        %{object_binding: reader_binding} = context,
+        %{checkpoint_classification: classification} = context,
         binding,
         expected,
         next
       )
-      when is_map(reader_binding) and is_map(binding) and is_map(expected) and
+      when classification in @classifications and is_map(binding) and is_map(expected) and
              is_map(next) do
     with_scope(context, binding, fn repository, repo ->
       repository.persist_checkpoint(
         repo,
         binding,
-        reader_binding.classification,
+        classification,
         expected,
         next
       )
@@ -330,6 +337,13 @@ defmodule Singularity.Runtime.CustodyReader do
     ])
   end
 
+  defp reader_repository_binding(%{session_id: _session_id} = binding), do: binding
+
+  defp reader_repository_binding(%{processing_revision: _revision} = binding),
+    do: Map.drop(binding, [:session_id, "session_id"])
+
+  defp reader_repository_binding(binding), do: binding
+
   defp call_adapter(module, function, arguments)
        when is_atom(module) and not is_nil(module) do
     apply(module, function, arguments)
@@ -342,6 +356,7 @@ defmodule Singularity.Runtime.CustodyReader do
 
   defp normalize_status(:ok), do: :ok
   defp normalize_status({:error, :waiting_for_unlock} = waiting), do: waiting
+  defp normalize_status({:error, :checkpoint_advanced} = advanced), do: advanced
   defp normalize_status({:error, %Error{}} = error), do: error
   defp normalize_status(_invalid), do: integrity_failure()
 

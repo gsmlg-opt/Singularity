@@ -17,6 +17,12 @@ defmodule Singularity.Runtime.KeyCustodian do
     principal_authorization_epoch vault_authorization_epoch object_id
     object_generation session_id
   ]a
+  @metadata_request_fields ~w[
+    job_id vault_id principal_id required_capability
+    principal_authorization_epoch vault_authorization_epoch object_id
+    object_generation processing_revision declared_media_type plaintext_byte_size
+  ]a
+  @checkpoint_context_fields [:key_reader, :repo, :repository_adapter, :scope]
   @upload_request_fields ~w[
     grant_id asset_id session_id principal_id vault_id
     principal_authorization_epoch vault_authorization_epoch classification
@@ -505,6 +511,41 @@ defmodule Singularity.Runtime.KeyCustodian do
     end
   end
 
+  def handle_call({:lease, %{purpose: :metadata} = request}, _from, state) do
+    with :ok <- validate_metadata_request(request),
+         %{} = session <- metadata_session(state, request),
+         checkpoint_binding = Map.take(request, @metadata_request_fields),
+         binding = Map.put(checkpoint_binding, :session_id, session.session_id),
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         reader_context =
+           Map.put(state.context, :object_binding, reader_binding),
+         checkpoint_context = checkpoint_context(state.context, reader_binding),
+         {:ok, checkpoint} <-
+           state.adapters.key_reader.load_checkpoint(checkpoint_context, checkpoint_binding),
+         {:ok, _next_index, _extractor_state} <-
+           KeyLease.validate_metadata_checkpoint(checkpoint, checkpoint_binding),
+         {:ok, lease} <-
+           start_metadata_lease(
+             state,
+             binding,
+             checkpoint_binding,
+             session.session_id,
+             checkpoint,
+             object_dek,
+             reader_context,
+             checkpoint_context,
+             session.expires_at
+           ) do
+      {:reply, {:ok, lease}, register_lease(state, session.session_id, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
   def handle_call({:lease, request}, _from, state) do
     with :ok <- validate_request(request),
          binding = Map.take(request, @request_fields),
@@ -528,16 +569,21 @@ defmodule Singularity.Runtime.KeyCustodian do
            object_key(state, session, binding),
          reader_context =
            Map.put(state.context, :object_binding, reader_binding),
+         checkpoint_binding = binding,
+         checkpoint_context = checkpoint_context(state.context, reader_binding),
          {:ok, checkpoint} <-
-           state.adapters.key_reader.load_checkpoint(reader_context, binding),
-         {:ok, _next_index} <- KeyLease.validate_checkpoint(checkpoint, binding),
+           state.adapters.key_reader.load_checkpoint(checkpoint_context, checkpoint_binding),
+         {:ok, _next_index} <- KeyLease.validate_checkpoint(checkpoint, checkpoint_binding),
          {:ok, lease} <-
            start_lease(
              state,
              binding,
+             checkpoint_binding,
              checkpoint,
              object_dek,
-             reader_context
+             reader_context,
+             checkpoint_context,
+             Map.get(session, :expires_at)
            ) do
       {:reply, {:ok, lease}, register_lease(state, binding, lease)}
     else
@@ -949,20 +995,53 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   defp start_lease(
          state,
-         request,
+         binding,
+         checkpoint_binding,
          checkpoint,
          object_dek,
-         reader_context
+         reader_context,
+         checkpoint_context,
+         session_expires_at
        ) do
     KeyLeaseSupervisor.start_lease(state.lease_supervisor, %{
       authorization: state.adapters.authorization,
-      binding: request,
+      binding: binding,
       checkpoint: checkpoint,
+      checkpoint_binding: checkpoint_binding,
+      checkpoint_context: checkpoint_context,
       clock: state.adapters.clock,
       context: reader_context,
       custodian: self(),
       key_material: object_dek,
-      key_reader: state.adapters.key_reader
+      key_reader: state.adapters.key_reader,
+      maximum_expires_at: session_expires_at
+    })
+  end
+
+  defp start_metadata_lease(
+         state,
+         binding,
+         checkpoint_binding,
+         session_id,
+         checkpoint,
+         object_dek,
+         reader_context,
+         checkpoint_context,
+         session_expires_at
+       ) do
+    KeyLeaseSupervisor.start_lease(state.lease_supervisor, %{
+      authorization: state.adapters.authorization,
+      binding: binding,
+      checkpoint: checkpoint,
+      checkpoint_binding: checkpoint_binding,
+      checkpoint_context: checkpoint_context,
+      clock: state.adapters.clock,
+      context: reader_context,
+      custodian: self(),
+      key_material: object_dek,
+      key_reader: state.adapters.key_reader,
+      maximum_expires_at: session_expires_at,
+      session_id: session_id
     })
   end
 
@@ -1083,6 +1162,36 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   defp validate_request(_request), do: {:error, Error.new(:invalid)}
+
+  defp validate_metadata_request(%{purpose: :metadata} = request) do
+    with true <- Enum.all?(@metadata_request_fields, &Map.has_key?(request, &1)),
+         true <- Enum.sort(Map.keys(request)) == Enum.sort([:purpose | @metadata_request_fields]),
+         false <- Map.has_key?(request, :session_id),
+         false <- Map.has_key?(request, "session_id"),
+         false <- Map.has_key?(request, :authorization_epoch),
+         false <- Map.has_key?(request, "authorization_epoch"),
+         true <- nonempty_binary?(request.job_id),
+         true <- nonempty_binary?(request.vault_id),
+         true <- nonempty_binary?(request.principal_id),
+         true <- request.required_capability == "asset.read",
+         true <- nonempty_binary?(request.object_id),
+         true <- nonempty_binary?(request.declared_media_type),
+         true <-
+           is_integer(request.principal_authorization_epoch) and
+             request.principal_authorization_epoch >= 0,
+         true <-
+           is_integer(request.vault_authorization_epoch) and
+             request.vault_authorization_epoch >= 0,
+         true <- is_integer(request.object_generation) and request.object_generation > 0,
+         true <- is_integer(request.processing_revision) and request.processing_revision > 0,
+         true <- is_integer(request.plaintext_byte_size) and request.plaintext_byte_size >= 0 do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_metadata_request(_request), do: {:error, Error.new(:invalid)}
 
   defp validate_download_request(request) do
     with :ok <- validate_request(request),
@@ -1226,6 +1335,41 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   defp active_session?(state, session_id), do: Map.has_key?(state.sessions, session_id)
+
+  defp metadata_session(state, request) do
+    now = state.adapters.clock.utc_now(state.context)
+
+    state.sessions
+    |> Enum.sort_by(fn {session_id, _session} -> session_id end)
+    |> Enum.find_value(fn {_session_id, session} ->
+      if metadata_session_matches?(state, session, request, now),
+        do: session,
+        else: nil
+    end)
+  end
+
+  defp metadata_session_matches?(
+         state,
+         %{
+           principal_id: principal_id,
+           vault_id: vault_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch,
+           expires_at: %DateTime{} = expires_at
+         } = session,
+         %{
+           principal_id: principal_id,
+           vault_id: vault_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch
+         },
+         %DateTime{} = now
+       ) do
+    DateTime.compare(now, expires_at) == :lt and
+      not matching_revocation?(state, session)
+  end
+
+  defp metadata_session_matches?(_state, _session, _request, _now), do: false
 
   defp matching_revocation?(state, session) do
     Enum.any?(state.revoking, fn {_token, selector} ->
@@ -2387,13 +2531,16 @@ defmodule Singularity.Runtime.KeyCustodian do
     maybe_start_upload_recovery(state, revocation_ref)
   end
 
-  defp register_lease(state, binding, lease) do
+  defp register_lease(state, %{session_id: session_id}, lease),
+    do: register_lease(state, session_id, lease)
+
+  defp register_lease(state, session_id, lease) when is_binary(session_id) do
     monitor = Process.monitor(lease)
 
     leases =
       Map.update(
         state.leases,
-        binding.session_id,
+        session_id,
         MapSet.new([lease]),
         &MapSet.put(&1, lease)
       )
@@ -2402,9 +2549,21 @@ defmodule Singularity.Runtime.KeyCustodian do
     |> Map.put(:leases, leases)
     |> Map.put(
       :monitors,
-      Map.put(state.monitors, monitor, {binding.session_id, lease})
+      Map.put(state.monitors, monitor, {session_id, lease})
     )
-    |> touch_session(binding.session_id)
+    |> touch_session(session_id)
+  end
+
+  defp checkpoint_context(context, reader_binding) do
+    context = Map.take(context, @checkpoint_context_fields)
+
+    case Map.get(reader_binding, :classification) do
+      classification when classification in [:private, :sensitive, :restricted] ->
+        Map.put(context, :checkpoint_classification, classification)
+
+      _missing ->
+        context
+    end
   end
 
   defp object_key(state, session, binding) do
@@ -2554,8 +2713,6 @@ defmodule Singularity.Runtime.KeyCustodian do
   defp wake_waiting(state, session) do
     call_optional_adapter(state.wake_waiting, :wake_waiting, [
       %{
-        session_id: session.session_id,
-        principal_id: session.principal_id,
         vault_id: session.vault_id,
         limit: state.wake_limit
       }
