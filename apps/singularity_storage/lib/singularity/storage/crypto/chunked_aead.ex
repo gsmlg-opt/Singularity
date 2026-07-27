@@ -299,6 +299,20 @@ defmodule Singularity.Storage.Crypto.ChunkedAEAD do
 
   def decrypt_final_record(_record, _context), do: {:error, :integrity_failure}
 
+  @doc """
+  Extracts the authentication tag from one exact reserved final record.
+
+  This is a structural operation only; it does not authenticate the record.
+  """
+  @spec final_tag(binary()) :: {:ok, <<_::128>>} | {:error, :integrity_failure}
+  def final_tag(
+        <<@final_counter::unsigned-big-32, @final_plaintext_size::unsigned-big-32,
+          _ciphertext::binary-size(@final_plaintext_size), tag::binary-size(@tag_size)>>
+      ),
+      do: {:ok, tag}
+
+  def final_tag(_record), do: {:error, :integrity_failure}
+
   @spec decode(binary(), map()) :: {:ok, binary()} | {:error, :integrity_failure}
   def decode(
         encoded,

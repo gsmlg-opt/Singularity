@@ -6,13 +6,20 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.Assets.UploadReconciler
   alias Singularity.Runtime.Authorize
+  alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Runtime.UploadSessionSupervisor
+  alias Singularity.Storage.Backup.BundleReader
+  alias Singularity.Storage.Backup.BundleWriter
+  alias Singularity.Storage.Backup.Exporter
+  alias Singularity.Storage.Backup.LocalDestination
+  alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.ObjectLock
   alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.BackupRepository
 
   @impl true
   def start(_type, _args) do
@@ -80,13 +87,24 @@ defmodule Singularity.Runtime.Application do
       |> Application.fetch_env!(:authorization_dependencies)
       |> build_authorization!()
 
+    storage = StorageAdapter.configured()
+
     %{
       asset_deletions: AssetDeletionRepository,
       assets: AssetRepository,
       authorization: dependencies,
       authorize: Authorize,
+      backups: BackupRepository,
+      bundle_reader: BundleReader,
+      bundle_verifier: LogicalBundleVerifier,
+      bundle_writer: BundleWriter,
+      destination:
+        {LocalDestination,
+         %{backup_root: Application.fetch_env!(:singularity_storage, :backup_root)}},
+      exporter: Exporter,
       object_lock: ObjectLock,
-      storage: StorageAdapter.configured()
+      object_storage: {Exporter, storage},
+      storage: storage
     }
   end
 
@@ -149,16 +167,15 @@ defmodule Singularity.Runtime.Application do
     Enum.all?(
       [
         :authorization,
+        :backup_cipher,
         :clock,
         :context,
         :idle_lock,
         :key_reader,
         :object_key_loader
       ],
-      fn key ->
-        Map.has_key?(options, key) and Map.fetch!(options, key) not in [nil, false]
-      end
-    )
+      fn key -> Map.has_key?(options, key) and Map.fetch!(options, key) not in [nil, false] end
+    ) and BackupKeyLease.valid_cipher_adapter?(Map.get(options, :backup_cipher))
   end
 
   defp valid_custodian_options?(_options), do: false

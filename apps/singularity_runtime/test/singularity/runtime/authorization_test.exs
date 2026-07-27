@@ -547,9 +547,13 @@ defmodule Singularity.Runtime.OperationScopeTest do
     runtime: runtime,
     session: session
   } do
-    callback = fn ->
+    callback = fn run_scoped ->
       Recorder.record(recorder, :after_commit)
-      {:ok, :activated}
+
+      run_scoped.(fn :scoped_repo ->
+        Recorder.record(recorder, :after_commit_cas)
+        {:ok, :activated}
+      end)
     end
 
     assert {:ok, :activated} =
@@ -559,7 +563,7 @@ defmodule Singularity.Runtime.OperationScopeTest do
                requirement(),
                fn :scoped_repo ->
                  Recorder.record(recorder, :effect)
-                 {:after_commit, callback}
+                 {:after_commit_scoped, callback}
                end
              )
 
@@ -571,9 +575,119 @@ defmodule Singularity.Runtime.OperationScopeTest do
              :effect,
              :transaction_commit,
              :after_commit,
+             :transaction_begin,
+             :after_commit_cas,
+             :transaction_commit,
              {:release, :authorization_shared},
              {:release, :vault_shared}
            ]
+  end
+
+  test "after-commit failure rolls back its second scoped transaction while locks remain held", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    assert {:error, %Error{code: :conflict}} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn :scoped_repo ->
+                 {:after_commit_scoped,
+                  fn run_scoped ->
+                    Recorder.record(recorder, :after_commit_failure)
+
+                    run_scoped.(fn :scoped_repo ->
+                      {:error, Error.new(:conflict)}
+                    end)
+                  end}
+               end
+             )
+
+    assert Recorder.events(recorder) == [
+             {:acquire, :vault_shared},
+             {:acquire, :authorization_shared},
+             :transaction_begin,
+             :authorize,
+             :transaction_commit,
+             :after_commit_failure,
+             :transaction_begin,
+             :transaction_rollback,
+             {:release, :authorization_shared},
+             {:release, :vault_shared}
+           ]
+  end
+
+  test "scoped compensation commits its state while returning the public error", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    public_error = Error.new(:storage_unavailable, retryable?: true)
+
+    assert {:error, ^public_error} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn :scoped_repo ->
+                 {:after_commit_scoped,
+                  fn run_scoped ->
+                    run_scoped.(fn :scoped_repo ->
+                      Recorder.record(recorder, :compensate)
+                      {:commit, {:error, public_error}}
+                    end)
+                  end}
+               end
+             )
+
+    assert Enum.slice(Recorder.events(recorder), 5, 3) == [
+             :transaction_begin,
+             :compensate,
+             :transaction_commit
+           ]
+  end
+
+  test "zero-arity scoped after-commit callbacks are rejected instead of running unscoped", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    assert {:error, %Error{code: :invalid}} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn :scoped_repo ->
+                 {:after_commit_scoped, fn -> Recorder.record(recorder, :unscoped) end}
+               end
+             )
+
+    refute :unscoped in Recorder.events(recorder)
+  end
+
+  test "legacy zero-arity after-commit work remains outside a second transaction", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    assert {:ok, :activated} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn :scoped_repo ->
+                 {:after_commit,
+                  fn ->
+                    Recorder.record(recorder, :legacy_after_commit)
+                    {:ok, :activated}
+                  end}
+               end
+             )
+
+    assert Enum.count(Recorder.events(recorder), &(&1 == :transaction_begin)) == 1
+    assert :legacy_after_commit in Recorder.events(recorder)
   end
 
   test "transaction denial never executes an after-commit callback", %{

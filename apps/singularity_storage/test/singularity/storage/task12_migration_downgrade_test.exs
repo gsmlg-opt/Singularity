@@ -29,11 +29,10 @@ defmodule Singularity.Storage.Task12MigrationDowngradeTest do
 
     try do
       assert_raise Postgrex.Error, ~r/cannot downgrade.*unsealed asset stages/i, fn ->
-        Ecto.Migrator.run(
+        Ecto.Migrator.down(
           MigrationRepo,
-          migrations_path,
-          :down,
-          step: 1,
+          20_260_718_000_900,
+          Singularity.Storage.Migrations.CompleteAssetLifecycleEvidence,
           log: false
         )
       end

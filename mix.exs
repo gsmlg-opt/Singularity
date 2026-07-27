@@ -10,7 +10,8 @@ defmodule Singularity.Umbrella.MixProject do
       elixir: Singularity.Build.elixir_requirement(),
       start_permanent: Mix.env() == :prod,
       preferred_cli_env: [
-        "singularity.test.integration": :test
+        "singularity.test.integration": :test,
+        "singularity.test.restore": :test
       ],
       deps: deps()
     ]

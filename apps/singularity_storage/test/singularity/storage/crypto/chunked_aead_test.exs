@@ -216,6 +216,35 @@ defmodule Singularity.Storage.Crypto.ChunkedAEADTest do
     assert {:error, :already_finalized} = ChunkedAEAD.finalize(finalized_state)
   end
 
+  test "extracts only the authentication tag from an exact reserved final record" do
+    context = vector("")
+    assert {:ok, _header, state} = ChunkedAEAD.init_encrypt(context)
+    assert {:ok, final_record, _summary, _state} = ChunkedAEAD.finalize(state)
+
+    assert <<_::binary-size(52), expected_tag::binary-size(16)>> = final_record
+    assert {:ok, ^expected_tag} = ChunkedAEAD.final_tag(final_record)
+  end
+
+  test "final tag extraction rejects malformed, non-final, and non-exact records" do
+    context = vector("one data record")
+    assert {:ok, _header, state} = ChunkedAEAD.init_encrypt(context)
+    assert {:ok, "", state} = ChunkedAEAD.encrypt_chunk(state, context.plaintext)
+    assert {:ok, data_and_final, _summary, _state} = ChunkedAEAD.finalize(state)
+
+    exact_final = binary_part(data_and_final, byte_size(data_and_final) - 68, 68)
+    <<_counter::unsigned-big-32, _size::unsigned-big-32, rest::binary>> = exact_final
+
+    for malformed <- [
+          data_and_final,
+          binary_part(exact_final, 0, 67),
+          exact_final <> <<0>>,
+          <<0::unsigned-big-32, 44::unsigned-big-32, rest::binary>>,
+          <<0xFFFFFFFF::unsigned-big-32, 43::unsigned-big-32, rest::binary>>
+        ] do
+      assert {:error, :integrity_failure} = ChunkedAEAD.final_tag(malformed)
+    end
+  end
+
   test "the same open state cannot sequentially encrypt two different chunks" do
     context = vector("linear state")
     assert {:ok, _header, state} = ChunkedAEAD.init_encrypt(context)

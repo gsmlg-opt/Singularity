@@ -21,6 +21,22 @@ defmodule Singularity.Storage.RolesTest do
     singularity_worker
   )
   @function_contract %{
+    "audit.activate_backup_manifest(uuid,uuid,text)" =>
+      {"singularity_table_owner", ["singularity_web"]},
+    "audit.backup_scope_authorized(uuid)" => {"singularity_table_owner", []},
+    "audit.claim_backup_manifest(uuid,uuid)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
+    "audit.create_backup_request(uuid,uuid,text,text,integer,bytea,jsonb,bytea,text,uuid,uuid,uuid,bigint,bigint,uuid,uuid,timestamp with time zone)" =>
+      {"singularity_table_owner", ["singularity_web"]},
+    "audit.lock_backup_manifest(uuid,uuid)" =>
+      {"singularity_table_owner", ["singularity_web", "singularity_worker"]},
+    "audit.mark_backup_waiting(uuid,uuid,text)" =>
+      {"singularity_table_owner", ["singularity_web", "singularity_worker"]},
+    "audit.replace_backup_custody(uuid,uuid,text,text,uuid,uuid,uuid,timestamp with time zone)" =>
+      {"singularity_table_owner", ["singularity_web"]},
+    "audit.reject_backup_inventory_mutation()" => {"singularity_table_owner", []},
+    "audit.seal_backup_manifest(uuid,uuid,text,uuid,bigint,bytea,bytea,jsonb)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
     "content.list_open_upload_stages()" => {"singularity_table_owner", ["singularity_worker"]},
     "content.reconcile_open_upload_stage(uuid,text,timestamp with time zone,text)" =>
       {"singularity_table_owner", ["singularity_worker"]},
@@ -38,6 +54,8 @@ defmodule Singularity.Storage.RolesTest do
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>
       {"singularity_auth_definer", ["singularity_web"]},
+    "identity.export_current_vault_owner(uuid)" =>
+      {"singularity_authorization_definer", ["singularity_worker"]},
     "identity.record_auth_attempt(bytea,bytea,text,uuid,uuid)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.resolve_session(bytea)" => {"singularity_auth_definer", ["singularity_pre_auth"]}
@@ -410,6 +428,44 @@ defmodule Singularity.Storage.RolesTest do
           )
         """
       )
+  end
+
+  test "backup persistence uses narrow table columns and definer transitions" do
+    for role <- ["singularity_web", "singularity_worker"],
+        table <- ["audit.backup_manifests", "audit.backup_manifest_objects"] do
+      assert %{rows: [[true, false, false, false]]} =
+               query!(
+                 RequestRepo,
+                 """
+                 SELECT
+                   has_table_privilege($1, $2, 'SELECT'),
+                   has_table_privilege($1, $2, 'INSERT'),
+                   has_table_privilege($1, $2, 'UPDATE'),
+                   has_table_privilege($1, $2, 'DELETE')
+                 """,
+                 [role, table]
+               )
+    end
+
+    %{rows: insert_columns} =
+      query!(
+        RequestRepo,
+        """
+        SELECT grantee.rolname, relation.relname, attribute.attname
+        FROM pg_catalog.pg_attribute AS attribute
+        JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS privilege
+        JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = privilege.grantee
+        WHERE namespace.nspname = 'audit'
+          AND relation.relname IN ('backup_manifests', 'backup_manifest_objects')
+          AND grantee.rolname IN ('singularity_web', 'singularity_worker')
+          AND privilege.privilege_type = 'INSERT'
+        ORDER BY grantee.rolname, relation.relname, attribute.attname
+        """
+      )
+
+    assert insert_columns == []
   end
 
   test "only the worker role can resolve object cleanup authority" do

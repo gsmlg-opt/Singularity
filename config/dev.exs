@@ -1,6 +1,11 @@
 import Config
 
 config :singularity_storage,
+  backup_root:
+    System.get_env(
+      "SINGULARITY_BACKUP_ROOT",
+      Path.expand("../var/backups", __DIR__)
+    ),
   storage_root:
     System.get_env(
       "SINGULARITY_STORAGE_ROOT",

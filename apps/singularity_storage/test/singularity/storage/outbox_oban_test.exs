@@ -102,6 +102,22 @@ defmodule Singularity.Storage.OutboxObanTest do
     end
   end
 
+  test "rejects the unsupported durable integrity audit job type" do
+    assert {:ok, integrity_audit} =
+             valid_envelope()
+             |> Map.put(:job_type, "integrity_audit")
+             |> JobEnvelope.new()
+
+    assert {:error, %{code: :job_failed}} = EnvelopeCodec.encode(integrity_audit)
+
+    assert {:error, %{code: :job_failed}} =
+             encoded_envelope()
+             |> Map.put("job_type", "integrity_audit")
+             |> EnvelopeCodec.decode()
+
+    refute EnvelopeCodec.known_job_type?("integrity_audit")
+  end
+
   test "generic worker fails closed before checkout when callback configuration is missing" do
     Application.delete_env(:singularity_storage, @handler_key)
 

@@ -9,6 +9,7 @@ test_database_url = fn role, database ->
 end
 
 config :singularity_storage,
+  backup_root: Path.join([System.tmp_dir!(), "singularity-backups", "test", test_run_id]),
   storage_root: Path.join([System.tmp_dir!(), "singularity", "test", test_run_id])
 
 config :singularity_runtime,
@@ -20,6 +21,7 @@ config :singularity_runtime,
   },
   key_custodian: %{
     authorization: Fake.Authorization,
+    backup_cipher: Singularity.Storage.Crypto.ChunkedAEAD,
     clock: Fake.Clock,
     context: %{},
     idle_lock: fn _session -> :ok end,

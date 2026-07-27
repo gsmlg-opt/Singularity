@@ -24,6 +24,7 @@ if config_env() == :prod do
         end
     end
 
+  backup_root = System.fetch_env!("SINGULARITY_BACKUP_ROOT")
   storage_root = System.fetch_env!("SINGULARITY_STORAGE_ROOT")
 
   audit_fingerprint_secret =
@@ -42,6 +43,7 @@ if config_env() == :prod do
     max_concurrent_uploads: max_concurrent_uploads
 
   config :singularity_storage,
+    backup_root: backup_root,
     storage_root: storage_root
 
   config :singularity_storage, Singularity.Storage.MigrationRepo,

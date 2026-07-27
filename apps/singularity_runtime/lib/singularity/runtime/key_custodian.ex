@@ -9,6 +9,7 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   alias Singularity.Core.Error
   alias Singularity.Runtime.Assets.UploadReconciler
+  alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
 
@@ -28,6 +29,7 @@ defmodule Singularity.Runtime.KeyCustodian do
     principal_authorization_epoch vault_authorization_epoch classification
   ]a
   @default_pending_ttl_ms :timer.seconds(30)
+  @default_backup_active_ttl_ms :timer.seconds(60)
   @default_idle_timeout_ms :timer.minutes(15)
   @default_upload_revoke_timeout_ms :timer.seconds(5)
   @default_upload_revoke_retry_ms :timer.seconds(1)
@@ -37,7 +39,7 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(adapters) do
-    GenServer.start_link(__MODULE__, adapters)
+    GenServer.start_link(__MODULE__, configured_backup_cipher(adapters))
   end
 
   @spec prepare_unlock(GenServer.server(), map()) ::
@@ -59,12 +61,40 @@ defmodule Singularity.Runtime.KeyCustodian do
   @spec activate_unlock(reference()) :: :ok | {:error, Error.t()}
   def activate_unlock(pending), do: activate_unlock(__MODULE__, pending)
 
-  @spec discard_pending(GenServer.server(), reference()) :: :ok
+  @spec discard_pending(GenServer.server(), reference() | binary()) :: :ok
   def discard_pending(server, pending),
     do: GenServer.call(server, {:discard_pending, pending}, :infinity)
 
-  @spec discard_pending(reference()) :: :ok
+  @spec discard_pending(reference() | binary()) :: :ok
   def discard_pending(pending), do: discard_pending(__MODULE__, pending)
+
+  @spec prepare_backup_key(GenServer.server(), map()) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def prepare_backup_key(server, prepared),
+    do: GenServer.call(server, {:prepare_backup_key, prepared}, :infinity)
+
+  @spec activate_backup_key(GenServer.server(), binary()) ::
+          :ok | {:error, Error.t()}
+  def activate_backup_key(server, opaque_ref),
+    do: GenServer.call(server, {:activate_backup_key, opaque_ref}, :infinity)
+
+  @spec revoke_backup_key(GenServer.server(), binary()) :: :ok
+  def revoke_backup_key(server, opaque_ref),
+    do: GenServer.call(server, {:revoke_backup_key, opaque_ref}, :infinity)
+
+  @spec revoke_backup_key(binary()) :: :ok
+  def revoke_backup_key(opaque_ref), do: revoke_backup_key(__MODULE__, opaque_ref)
+
+  @spec backup_crypto(GenServer.server(), binary(), binary()) ::
+          {:ok, map()} | {:error, :lease_missing | Error.t()}
+  def backup_crypto(server, manifest_id, opaque_ref),
+    do: GenServer.call(server, {:backup_crypto, manifest_id, opaque_ref}, :infinity)
+
+  @spec backup_key_state(GenServer.server()) :: %{
+          active_refs: [binary()],
+          pending_refs: [binary()]
+        }
+  def backup_key_state(server), do: GenServer.call(server, :backup_key_state)
 
   @spec unlocked?(GenServer.server(), String.t()) :: boolean()
   def unlocked?(server, session_id),
@@ -180,6 +210,7 @@ defmodule Singularity.Runtime.KeyCustodian do
   def init(
         %{
           authorization: authorization,
+          backup_cipher: backup_cipher,
           clock: clock,
           context: context,
           idle_lock: idle_lock,
@@ -188,135 +219,157 @@ defmodule Singularity.Runtime.KeyCustodian do
           lease_supervisor: lease_supervisor
         } = adapters
       ) do
-    {:ok,
-     %{
-       adapters: %{
-         authorization: authorization,
-         clock: clock,
-         idle_lock: idle_lock,
-         key_reader: key_reader,
-         key_wrapper:
-           Map.get(
-             adapters,
-             :key_wrapper,
-             Singularity.Storage.Crypto.KeyWrapper
+    with true <- BackupKeyLease.valid_cipher_adapter?(backup_cipher) do
+      {:ok,
+       %{
+         adapters: %{
+           authorization: authorization,
+           backup_cipher: backup_cipher,
+           backup_key_observer: Map.get(adapters, :backup_key_observer),
+           clock: clock,
+           idle_lock: idle_lock,
+           key_reader: key_reader,
+           key_wrapper:
+             Map.get(
+               adapters,
+               :key_wrapper,
+               Singularity.Storage.Crypto.KeyWrapper
+             ),
+           object_key_loader: object_key_loader
+         },
+         context: context,
+         idle_timeout_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :idle_timeout_ms,
+               Application.get_env(
+                 :singularity_runtime,
+                 :vault_idle_timeout_ms,
+                 @default_idle_timeout_ms
+               )
+             ),
+             @default_idle_timeout_ms
            ),
-         object_key_loader: object_key_loader
-       },
-       context: context,
-       idle_timeout_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :idle_timeout_ms,
-             Application.get_env(
-               :singularity_runtime,
-               :vault_idle_timeout_ms,
-               @default_idle_timeout_ms
-             )
-           ),
-           @default_idle_timeout_ms
-         ),
-       idle_timers: %{},
-       idle_lock_retry_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :idle_lock_retry_ms,
+         idle_timers: %{},
+         idle_lock_retry_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :idle_lock_retry_ms,
+               @default_idle_lock_retry_ms
+             ),
              @default_idle_lock_retry_ms
            ),
-           @default_idle_lock_retry_ms
-         ),
-       lease_supervisor: lease_supervisor,
-       leases: %{},
-       monitors: %{},
-       pending: %{},
-       pending_monitors: %{},
-       pending_ttl_ms:
-         positive_option(
-           Map.get(adapters, :pending_ttl_ms, @default_pending_ttl_ms),
-           @default_pending_ttl_ms
-         ),
-       upload_material_ttl_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :upload_material_ttl_ms,
+         lease_supervisor: lease_supervisor,
+         leases: %{},
+         monitors: %{},
+         backup_active: %{},
+         backup_active_monitors: %{},
+         backup_active_ttl_ms:
+           positive_option(
+             Map.get(adapters, :backup_active_ttl_ms, @default_backup_active_ttl_ms),
+             @default_backup_active_ttl_ms
+           ),
+         backup_pending: %{},
+         backup_pending_monitors: %{},
+         backup_pending_ttl_ms:
+           positive_option(
+             Map.get(adapters, :backup_pending_ttl_ms, @default_pending_ttl_ms),
              @default_pending_ttl_ms
            ),
-           @default_pending_ttl_ms
-         ),
-       upload_materials: %{},
-       upload_monitors: %{},
-       upload_recovery_monitors: %{},
-       upload_recovery:
-         Map.get(
-           adapters,
-           :upload_recovery,
-           UploadReconciler.configured_context()
-         ),
-       upload_reconciler:
-         Map.get(
-           adapters,
-           :upload_reconciler,
-           UploadReconciler
-         ),
-       upload_recovery_supervisor:
-         Map.get(
-           adapters,
-           :upload_recovery_supervisor,
-           Singularity.Runtime.UploadRecoveryTaskSupervisor
-         ),
-       upload_recovery_timeout_ms:
-         positive_option(
+         pending: %{},
+         pending_monitors: %{},
+         pending_ttl_ms:
+           positive_option(
+             Map.get(adapters, :pending_ttl_ms, @default_pending_ttl_ms),
+             @default_pending_ttl_ms
+           ),
+         upload_material_ttl_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :upload_material_ttl_ms,
+               @default_pending_ttl_ms
+             ),
+             @default_pending_ttl_ms
+           ),
+         upload_materials: %{},
+         upload_monitors: %{},
+         upload_recovery_monitors: %{},
+         upload_recovery:
            Map.get(
              adapters,
-             :upload_recovery_timeout_ms,
+             :upload_recovery,
+             UploadReconciler.configured_context()
+           ),
+         upload_reconciler:
+           Map.get(
+             adapters,
+             :upload_reconciler,
+             UploadReconciler
+           ),
+         upload_recovery_supervisor:
+           Map.get(
+             adapters,
+             :upload_recovery_supervisor,
+             Singularity.Runtime.UploadRecoveryTaskSupervisor
+           ),
+         upload_recovery_timeout_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :upload_recovery_timeout_ms,
+               @default_upload_recovery_timeout_ms
+             ),
              @default_upload_recovery_timeout_ms
            ),
-           @default_upload_recovery_timeout_ms
-         ),
-       upload_revocations: %{},
-       upload_revoke_retry_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :upload_revoke_retry_ms,
+         upload_revocations: %{},
+         upload_revoke_retry_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :upload_revoke_retry_ms,
+               @default_upload_revoke_retry_ms
+             ),
              @default_upload_revoke_retry_ms
            ),
-           @default_upload_revoke_retry_ms
-         ),
-       upload_revoke_timeout_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :upload_revoke_timeout_ms,
+         upload_revoke_timeout_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :upload_revoke_timeout_ms,
+               @default_upload_revoke_timeout_ms
+             ),
              @default_upload_revoke_timeout_ms
            ),
-           @default_upload_revoke_timeout_ms
-         ),
-       upload_kill_timeout_ms:
-         positive_option(
-           Map.get(
-             adapters,
-             :upload_kill_timeout_ms,
+         upload_kill_timeout_ms:
+           positive_option(
+             Map.get(
+               adapters,
+               :upload_kill_timeout_ms,
+               @default_upload_kill_timeout_ms
+             ),
              @default_upload_kill_timeout_ms
            ),
-           @default_upload_kill_timeout_ms
-         ),
-       uploads: %{},
-       revoking: %{},
-       revocation_waiter_monitors: %{},
-       revocation_waiters: %{},
-       sessions: %{},
-       wake_limit:
-         adapters
-         |> Map.get(:wake_limit, 25)
-         |> positive_option(25)
-         |> min(100),
-       wake_waiting: Map.get(adapters, :wake_waiting)
-     }}
+         uploads: %{},
+         revoking: %{},
+         revocation_waiter_monitors: %{},
+         revocation_waiters: %{},
+         sessions: %{},
+         wake_limit:
+           adapters
+           |> Map.get(:wake_limit, 25)
+           |> positive_option(25)
+           |> min(100),
+         wake_waiting: Map.get(adapters, :wake_waiting)
+       }}
+    else
+      false -> {:stop, :invalid_backup_cipher}
+    end
   end
+
+  def init(_adapters), do: {:stop, :invalid_backup_cipher}
 
   @impl true
   def handle_call({:prepare_unlock, session}, {owner, _tag}, state) do
@@ -376,8 +429,137 @@ defmodule Singularity.Runtime.KeyCustodian do
     end
   end
 
+  def handle_call({:prepare_backup_key, prepared}, {owner, _tag}, state) do
+    case validate_backup_prepared(prepared) do
+      {:ok, opaque_ref, entry} ->
+        if Map.has_key?(state.backup_pending, opaque_ref) or
+             Map.has_key?(state.backup_active, opaque_ref) do
+          {:reply, {:error, Error.new(:conflict)}, state}
+        else
+          monitor = Process.monitor(owner)
+
+          timer =
+            Process.send_after(
+              self(),
+              {:expire_pending, opaque_ref},
+              state.backup_pending_ttl_ms
+            )
+
+          pending_entry =
+            entry
+            |> Map.put(:monitor, monitor)
+            |> Map.put(:owner, owner)
+            |> Map.put(:timer, timer)
+
+          next_state =
+            state
+            |> put_in([:backup_pending, opaque_ref], pending_entry)
+            |> put_in([:backup_pending_monitors, monitor], opaque_ref)
+
+          notify_backup_prepared(state.adapters.backup_key_observer, opaque_ref)
+          {:reply, {:ok, opaque_ref}, next_state}
+        end
+
+      {:error, %Error{}} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:activate_backup_key, opaque_ref}, {owner, _tag}, state)
+      when is_binary(opaque_ref) do
+    case Map.get(state.backup_pending, opaque_ref) do
+      %{owner: ^owner} = entry ->
+        state = remove_backup_pending(state, opaque_ref, false)
+
+        case start_backup_lease(state, entry) do
+          {:ok, lease} ->
+            monitor = Process.monitor(lease)
+
+            active_entry = %{
+              lease: lease,
+              manifest_id: entry.binding.manifest_id,
+              monitor: monitor,
+              public_header: backup_public_header(entry)
+            }
+
+            next_state =
+              state
+              |> put_in([:backup_active, opaque_ref], active_entry)
+              |> put_in([:backup_active_monitors, monitor], {opaque_ref, lease})
+
+            {:reply, :ok, next_state}
+
+          {:error, _reason} ->
+            _cleared = overwrite(entry.key_material)
+            {:reply, {:error, Error.new(:conflict)}, state}
+        end
+
+      _missing_or_foreign ->
+        {:reply, {:error, Error.new(:conflict)}, state}
+    end
+  end
+
+  def handle_call({:activate_backup_key, _opaque_ref}, _from, state),
+    do: {:reply, {:error, Error.new(:conflict)}, state}
+
+  def handle_call({:revoke_backup_key, opaque_ref}, _from, state)
+      when is_binary(opaque_ref) do
+    next_state =
+      state
+      |> remove_backup_pending(opaque_ref)
+      |> revoke_backup_active(opaque_ref)
+
+    {:reply, :ok, next_state}
+  end
+
+  def handle_call({:revoke_backup_key, _opaque_ref}, _from, state),
+    do: {:reply, :ok, state}
+
+  def handle_call({:backup_crypto, manifest_id, opaque_ref}, _from, state)
+      when is_binary(manifest_id) and is_binary(opaque_ref) do
+    case Map.get(state.backup_active, opaque_ref) do
+      %{lease: lease, manifest_id: ^manifest_id, public_header: public_header}
+      when is_pid(lease) ->
+        if Process.alive?(lease) do
+          {:reply,
+           {:ok,
+            %{
+              adapter: BackupKeyLease.StorageAdapter,
+              capability: lease,
+              public_header: public_header
+            }}, state}
+        else
+          {:reply, {:error, :lease_missing}, state}
+        end
+
+      %{lease: _lease} ->
+        {:reply, {:error, Error.new(:backup_invalid)}, state}
+
+      nil ->
+        {:reply, {:error, :lease_missing}, state}
+    end
+  end
+
+  def handle_call({:backup_crypto, _manifest_id, _opaque_ref}, _from, state),
+    do: {:reply, {:error, :lease_missing}, state}
+
+  def handle_call(:backup_key_state, _from, state) do
+    {:reply,
+     %{
+       active_refs: state.backup_active |> Map.keys() |> Enum.sort(),
+       pending_refs: state.backup_pending |> Map.keys() |> Enum.sort()
+     }, state}
+  end
+
   def handle_call({:discard_pending, pending}, _from, state) do
-    {:reply, :ok, discard_pending_entry(state, pending)}
+    next_state =
+      if is_binary(pending) do
+        remove_backup_pending(state, pending)
+      else
+        discard_pending_entry(state, pending)
+      end
+
+    {:reply, :ok, next_state}
   end
 
   def handle_call({:unlocked?, session_id}, _from, state) do
@@ -753,24 +935,30 @@ defmodule Singularity.Runtime.KeyCustodian do
   @impl true
   def handle_info({:DOWN, monitor, :process, process, reason}, state) do
     next_state =
-      case Map.pop(state.pending_monitors, monitor) do
-        {pending, pending_monitors} when is_reference(pending) ->
+      case handle_backup_down(state, monitor, process) do
+        {:handled, state} ->
           state
-          |> Map.put(:pending_monitors, pending_monitors)
-          |> discard_pending_entry(pending, false)
 
-        {nil, _pending_monitors} ->
-          state
-          |> handle_revocation_waiter_down(monitor, process)
-          |> handle_upload_recovery_down(
-            monitor,
-            process,
-            reason
-          )
-          |> handle_custody_owner_down(
-            monitor,
-            process
-          )
+        :unhandled ->
+          case Map.pop(state.pending_monitors, monitor) do
+            {pending, pending_monitors} when is_reference(pending) ->
+              state
+              |> Map.put(:pending_monitors, pending_monitors)
+              |> discard_pending_entry(pending, false)
+
+            {nil, _pending_monitors} ->
+              state
+              |> handle_revocation_waiter_down(monitor, process)
+              |> handle_upload_recovery_down(
+                monitor,
+                process,
+                reason
+              )
+              |> handle_custody_owner_down(
+                monitor,
+                process
+              )
+          end
       end
 
     {:noreply,
@@ -911,7 +1099,14 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   def handle_info({:expire_pending, pending}, state) do
-    {:noreply, discard_pending_entry(state, pending)}
+    next_state =
+      if is_binary(pending) do
+        remove_backup_pending(state, pending)
+      else
+        discard_pending_entry(state, pending)
+      end
+
+    {:noreply, next_state}
   end
 
   def handle_info({:expire_upload_material, material_ref}, state) do
@@ -1479,6 +1674,149 @@ defmodule Singularity.Runtime.KeyCustodian do
   defp normalize_selector({:principal, value}), do: normalize_selector(%{principal_id: value})
   defp normalize_selector({:vault, value}), do: normalize_selector(%{vault_id: value})
   defp normalize_selector(_selector), do: :error
+
+  defp validate_backup_prepared(%{
+         binding: %{manifest_id: manifest_id, vault_id: vault_id} = binding,
+         key_material: <<_::binary-size(32)>> = key_material,
+         opaque_ref: opaque_ref,
+         public_metadata:
+           %{
+             "kdf" => kdf,
+             "recovery" => %{
+               "binding" => %{
+                 "manifest_id" => manifest_id,
+                 "vault_id" => vault_id
+               },
+               "label" => "backup_recovery",
+               "wrapper" => recovery_wrapper
+             }
+           } = public_metadata
+       })
+       when is_binary(manifest_id) and manifest_id != "" and is_binary(vault_id) and
+              vault_id != "" and is_binary(opaque_ref) and opaque_ref != "" and is_map(kdf) and
+              is_binary(recovery_wrapper) and recovery_wrapper != "" do
+    if Map.keys(binding) |> Enum.sort() == [:manifest_id, :vault_id] do
+      {:ok, opaque_ref,
+       %{
+         binding: binding,
+         key_material: key_material,
+         public_metadata: public_metadata,
+         recovery_wrapper: recovery_wrapper
+       }}
+    else
+      {:error, Error.new(:backup_invalid)}
+    end
+  end
+
+  defp validate_backup_prepared(_prepared),
+    do: {:error, Error.new(:backup_invalid)}
+
+  defp backup_public_header(entry) do
+    %{
+      version: 1,
+      manifest_id: entry.binding.manifest_id,
+      vault_id: entry.binding.vault_id,
+      kdf: entry.public_metadata["kdf"]
+    }
+  end
+
+  defp start_backup_lease(state, entry) do
+    DynamicSupervisor.start_child(
+      state.lease_supervisor,
+      {BackupKeyLease,
+       %{
+         active_ttl_ms: state.backup_active_ttl_ms,
+         binding: entry.binding,
+         cipher: state.adapters.backup_cipher,
+         custodian: self(),
+         key_material: entry.key_material,
+         public_header: backup_public_header(entry),
+         recovery_wrapper: entry.recovery_wrapper
+       }}
+    )
+  rescue
+    _exception -> {:error, :lease_unavailable}
+  catch
+    :exit, _reason -> {:error, :lease_unavailable}
+  end
+
+  defp notify_backup_prepared(nil, _opaque_ref), do: :ok
+
+  defp notify_backup_prepared(observer, opaque_ref) do
+    _result = call_adapter(observer, :pending_prepared, [opaque_ref])
+    :ok
+  rescue
+    _exception -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp handle_backup_down(state, monitor, process) do
+    case Map.pop(state.backup_pending_monitors, monitor) do
+      {opaque_ref, monitors} when is_binary(opaque_ref) ->
+        next_state =
+          state
+          |> Map.put(:backup_pending_monitors, monitors)
+          |> remove_backup_pending(opaque_ref, true, false)
+
+        {:handled, next_state}
+
+      {nil, _monitors} ->
+        case Map.pop(state.backup_active_monitors, monitor) do
+          {{opaque_ref, ^process}, monitors} ->
+            {:handled,
+             %{
+               state
+               | backup_active: Map.delete(state.backup_active, opaque_ref),
+                 backup_active_monitors: monitors
+             }}
+
+          {nil, _monitors} ->
+            :unhandled
+        end
+    end
+  end
+
+  defp remove_backup_pending(state, opaque_ref, clear? \\ true, demonitor? \\ true) do
+    case Map.pop(state.backup_pending, opaque_ref) do
+      {nil, _pending} ->
+        state
+
+      {%{key_material: key_material, monitor: monitor, timer: timer}, pending} ->
+        Process.cancel_timer(timer)
+
+        if demonitor? do
+          Process.demonitor(monitor, [:flush])
+        end
+
+        if clear? do
+          _cleared = overwrite(key_material)
+        end
+
+        %{
+          state
+          | backup_pending: pending,
+            backup_pending_monitors: Map.delete(state.backup_pending_monitors, monitor)
+        }
+    end
+  end
+
+  defp revoke_backup_active(state, opaque_ref) do
+    case Map.pop(state.backup_active, opaque_ref) do
+      {nil, _active} ->
+        state
+
+      {%{lease: lease, monitor: monitor}, active} ->
+        Process.demonitor(monitor, [:flush])
+        _revoked = BackupKeyLease.revoke(lease)
+
+        %{
+          state
+          | backup_active: active,
+            backup_active_monitors: Map.delete(state.backup_active_monitors, monitor)
+        }
+    end
+  end
 
   defp discard_pending_for_session(state, session_id) do
     Enum.reduce(Map.keys(state.pending), state, fn pending, current ->
@@ -2768,6 +3106,19 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   defp positive_option(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_option(_value, default), do: default
+
+  defp configured_backup_cipher(adapters) when is_map(adapters) do
+    if Map.has_key?(adapters, :backup_cipher) do
+      adapters
+    else
+      case Application.get_env(:singularity_runtime, :key_custodian) do
+        %{backup_cipher: backup_cipher} -> Map.put(adapters, :backup_cipher, backup_cipher)
+        _missing -> adapters
+      end
+    end
+  end
+
+  defp configured_backup_cipher(adapters), do: adapters
 
   defp merge_key_material(session, key_material) when is_map(key_material),
     do: Map.merge(session, key_material)

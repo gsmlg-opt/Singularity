@@ -98,6 +98,7 @@ defmodule Singularity.Storage.Schema.Audit.BackupManifest do
       name: :backup_manifests_outbox_high_water_check
     )
     |> check_constraint(:manifest_hash, name: :backup_manifests_hash_check)
+    |> check_constraint(:manifest_tag, name: :backup_manifests_tag_check)
   end
 
   defp string_keyed_json(field, value) do

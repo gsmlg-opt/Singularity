@@ -55,6 +55,9 @@ defmodule Singularity.Storage.Schema.Audit.BackupManifestObject do
     |> unique_constraint([:manifest_id, :asset_object_id],
       name: :backup_manifest_objects_manifest_id_asset_object_id_key
     )
+    |> unique_constraint([:manifest_id, :inventory_position],
+      name: :backup_manifest_objects_manifest_id_inventory_position_key
+    )
     |> check_constraint(:classification,
       name: :backup_manifest_objects_classification_check
     )

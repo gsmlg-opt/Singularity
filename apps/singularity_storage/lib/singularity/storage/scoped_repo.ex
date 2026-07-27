@@ -13,9 +13,13 @@ defmodule Singularity.Storage.ScopedRepo do
         transaction_options,
         fun
       ) do
+    {transaction_isolation, repo_transaction_options} =
+      split_transaction_options!(transaction_options)
+
     result =
       case repo.transaction(
              fn ->
+               set_transaction_isolation!(repo, transaction_isolation)
                assert_context_absent!(repo)
 
                principal_id = normalize_uuid!(principal_id, :principal_id)
@@ -33,7 +37,7 @@ defmodule Singularity.Storage.ScopedRepo do
                  success -> success
                end
              end,
-             transaction_options
+             repo_transaction_options
            ) do
         {:ok, success} -> success
         {:error, reason} -> {:error, reason}
@@ -41,6 +45,38 @@ defmodule Singularity.Storage.ScopedRepo do
 
     assert_context_absent!(repo)
     result
+  end
+
+  defp split_transaction_options!(options) do
+    unless Keyword.keyword?(options) do
+      raise ArgumentError, "transaction options must be a keyword list"
+    end
+
+    case Keyword.get_values(options, :isolation) do
+      [] ->
+        {nil, options}
+
+      [:repeatable_read] ->
+        {:repeatable_read, Keyword.delete(options, :isolation)}
+
+      [_unsupported] ->
+        raise ArgumentError, "unsupported transaction isolation option"
+
+      _duplicates ->
+        raise ArgumentError, "transaction isolation option must be provided exactly once"
+    end
+  end
+
+  defp set_transaction_isolation!(_repo, nil), do: :ok
+
+  defp set_transaction_isolation!(repo, :repeatable_read) do
+    Ecto.Adapters.SQL.query!(
+      repo,
+      "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+      []
+    )
+
+    :ok
   end
 
   defp assert_context_absent!(repo) do

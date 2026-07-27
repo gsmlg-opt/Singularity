@@ -4,6 +4,7 @@ defmodule Singularity.Storage.MigrationsTest do
   @moduletag :integration
 
   alias Singularity.Storage.{Fixtures, MigrationRepo}
+  alias Singularity.Storage.Schema.Audit.BackupManifest
 
   @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
   @schemas ~w(identity core content jobs audit)
@@ -46,7 +47,8 @@ defmodule Singularity.Storage.MigrationsTest do
     {"jobs", "effect_receipts"},
     {"audit", "events"},
     {"audit", "backup_manifests"},
-    {"audit", "backup_manifest_objects"}
+    {"audit", "backup_manifest_objects"},
+    {"audit", "restore_import_sagas"}
   ]
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
 
@@ -68,6 +70,8 @@ defmodule Singularity.Storage.MigrationsTest do
           OR retirement_reason IS NOT NULL
         """
       )
+
+      query!(MigrationRepo, "DELETE FROM audit.restore_import_sagas")
     end)
 
     :ok
@@ -560,7 +564,15 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [20_260_718_000_900] =
+      assert [
+               20_260_718_000_900,
+               20_260_722_000_100,
+               20_260_722_000_200,
+               20_260_722_000_300,
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -661,7 +673,15 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [20_260_718_000_900] =
+      assert [
+               20_260_718_000_900,
+               20_260_722_000_100,
+               20_260_722_000_200,
+               20_260_722_000_300,
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -1031,7 +1051,15 @@ defmodule Singularity.Storage.MigrationsTest do
         )
       end
 
-      assert [20_260_718_000_900] =
+      assert [
+               20_260_718_000_900,
+               20_260_722_000_100,
+               20_260_722_000_200,
+               20_260_722_000_300,
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
@@ -1085,6 +1113,487 @@ defmodule Singularity.Storage.MigrationsTest do
       after
         Supervisor.stop(migration_repo)
         Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 14 backup manifest tag constraint is named, reversible, and schema-aware" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert backup_manifest_seal_constraints() == [
+               ["backup_manifests_hash_check", "manifest_hash"],
+               ["backup_manifests_tag_check", "manifest_tag"]
+             ]
+
+      changeset =
+        BackupManifest.seal_changeset(%BackupManifest{}, %{
+          manifest_hash: :binary.copy(<<0xA1>>, 32),
+          manifest_tag: :binary.copy(<<0xB1>>, 16),
+          outbox_high_water: 0,
+          sealed_at: DateTime.utc_now(),
+          snapshot_id: Ecto.UUID.generate()
+        })
+
+      assert Enum.any?(changeset.constraints, fn constraint ->
+               constraint.constraint == "backup_manifests_tag_check" and
+                 constraint.field == :manifest_tag
+             end)
+
+      for manifest_tag <- [nil, :binary.copy(<<0xC1>>, 16)] do
+        assert {:ok, manifest_id} = insert_backup_manifest(fixture.vault_id, manifest_tag)
+        delete_backup_manifest!(manifest_id)
+      end
+
+      for invalid_length <- [15, 17] do
+        error =
+          assert_raise Postgrex.Error, fn ->
+            insert_backup_manifest(
+              fixture.vault_id,
+              :binary.copy(<<0xD1>>, invalid_length)
+            )
+          end
+
+        assert error.postgres.constraint == "backup_manifests_tag_check"
+      end
+
+      assert [
+               20_260_722_000_600,
+               20_260_722_000_500,
+               20_260_722_000_400,
+               20_260_722_000_300
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 4,
+                 log: false
+               )
+
+      assert backup_manifest_seal_constraints() == [
+               ["backup_manifests_hash_check", "manifest_hash"]
+             ]
+
+      assert [
+               20_260_722_000_300,
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 4,
+                 log: false
+               )
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 14 identity export migration round-trips without weakening Task 11" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert [
+               20_260_722_000_600,
+               20_260_722_000_500,
+               20_260_722_000_400,
+               20_260_722_000_300,
+               20_260_722_000_200
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 5,
+                 log: false
+               )
+
+      %{rows: down_contract} = task14_identity_contract()
+
+      assert down_contract == [
+               [nil, true, true, false, false, false]
+             ]
+
+      assert task14_identity_column_privileges() == []
+      assert %{rows: [[true]]} = query!(MigrationRepo, "SELECT current_user = session_user")
+
+      assert [
+               20_260_722_000_200,
+               20_260_722_000_300,
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 5,
+                 log: false
+               )
+
+      %{rows: up_contract} = task14_identity_contract()
+
+      assert up_contract == [
+               [
+                 "identity.export_current_vault_owner(uuid)",
+                 true,
+                 true,
+                 true,
+                 false,
+                 false
+               ]
+             ]
+
+      assert task14_identity_column_privileges() == [
+               ["accounts", "inserted_at", "SELECT"],
+               ["accounts", "metadata", "SELECT"],
+               ["accounts", "person_id", "SELECT"],
+               ["accounts", "updated_at", "SELECT"],
+               ["credentials", "inserted_at", "SELECT"],
+               ["credentials", "normalized_login", "SELECT"],
+               ["people", "display_name", "SELECT"],
+               ["people", "id", "SELECT"],
+               ["people", "inserted_at", "SELECT"],
+               ["people", "metadata", "SELECT"],
+               ["people", "updated_at", "SELECT"],
+               ["principals", "inserted_at", "SELECT"],
+               ["principals", "metadata", "SELECT"],
+               ["principals", "updated_at", "SELECT"]
+             ]
+
+      assert %{rows: [[true]]} = query!(MigrationRepo, "SELECT current_user = session_user")
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 14 backup repository hardening migration round-trips its boundary" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert task14_backup_repository_contract() == [
+               [9, true, true, true, true, false, false]
+             ]
+
+      assert [
+               20_260_722_000_600,
+               20_260_722_000_500,
+               20_260_722_000_400
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 3,
+                 log: false
+               )
+
+      assert task14_backup_repository_contract() == [
+               [0, false, false, true, true, true, true]
+             ]
+
+      assert [
+               20_260_722_000_400,
+               20_260_722_000_500,
+               20_260_722_000_600
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 3,
+                 log: false
+               )
+
+      assert task14_backup_repository_contract() == [
+               [9, true, true, true, true, false, false]
+             ]
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 14 restore import saga marker guards downgrade and round-trips security" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    manifest_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    vault_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO audit.restore_import_sagas (
+          singleton,
+          manifest_id,
+          vault_id,
+          manifest_hash,
+          manifest_tag,
+          inventory_hash,
+          destination_root_hash,
+          object_count,
+          state
+        ) VALUES (
+          TRUE,
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          0,
+          'pending'
+        )
+        """,
+        [
+          manifest_id,
+          vault_id,
+          :binary.copy(<<0xA1>>, 32),
+          :binary.copy(<<0xB1>>, 16),
+          :binary.copy(<<0xC1>>, 32),
+          :binary.copy(<<0xD1>>, 32)
+        ]
+      )
+    end)
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert restore_import_saga_contract() == [
+               ["singularity_table_owner", true, true, false, false, true, true, 9]
+             ]
+
+      assert_raise Postgrex.Error, ~r/cannot downgrade.*restore import saga marker/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert restore_import_saga_contract() == [
+               ["singularity_table_owner", true, true, false, false, true, true, 9]
+             ]
+
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+        query!(MigrationRepo, "DELETE FROM audit.restore_import_sagas")
+      end)
+
+      assert [20_260_722_000_600] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert {:ok, nil} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 %{rows: [[relation]]} =
+                   query!(MigrationRepo, "SELECT to_regclass('audit.restore_import_sagas')")
+
+                 relation
+               end)
+
+      assert [20_260_722_000_600] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert restore_import_saga_contract() == [
+               ["singularity_table_owner", true, true, false, false, true, true, 9]
+             ]
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "DELETE FROM audit.restore_import_sagas")
+        end)
+      after
+        Supervisor.stop(migration_repo)
+        Code.compiler_options(compiler_options)
+      end
+    end
+  end
+
+  test "Task 14 restore import saga permits only contiguous crash-resume phases" do
+    valid_shapes = [
+      {"pending", [], nil, nil},
+      {"imported", [:imported], nil, nil},
+      {"rewrapped", [:imported, :rewrapped], Ecto.UUID.generate(), 2},
+      {"reconciled", [:imported, :rewrapped, :reconciled], Ecto.UUID.generate(), 2},
+      {"verified", [:imported, :rewrapped, :reconciled, :verified], Ecto.UUID.generate(), 2},
+      {
+        "completed",
+        [:imported, :rewrapped, :reconciled, :verified, :completed],
+        Ecto.UUID.generate(),
+        2
+      }
+    ]
+
+    for {state, timestamps, integrity_principal_id, wrapper_generation} <- valid_shapes do
+      Fixtures.with_owner(fn ->
+        insert_restore_import_saga!(
+          state,
+          timestamps,
+          integrity_principal_id,
+          wrapper_generation
+        )
+
+        query!(MigrationRepo, "DELETE FROM audit.restore_import_sagas")
+      end)
+    end
+
+    for wrapper_generation <- [1, 2_147_483_647, 2_147_483_648, 4_294_967_295] do
+      Fixtures.with_owner(fn ->
+        insert_restore_import_saga!(
+          "rewrapped",
+          [:imported, :rewrapped],
+          Ecto.UUID.generate(),
+          wrapper_generation
+        )
+
+        query!(MigrationRepo, "DELETE FROM audit.restore_import_sagas")
+      end)
+    end
+
+    invalid_shapes = [
+      {"pending", [:imported], nil, nil},
+      {"pending", [], Ecto.UUID.generate(), 2},
+      {"imported", [], nil, nil},
+      {"imported", [:imported, :rewrapped], nil, nil},
+      {"imported", [:imported], Ecto.UUID.generate(), 2},
+      {"rewrapped", [:imported], Ecto.UUID.generate(), 2},
+      {"rewrapped", [:imported, :rewrapped], nil, 2},
+      {"rewrapped", [:imported, :rewrapped], Ecto.UUID.generate(), nil},
+      {
+        "rewrapped",
+        [:imported, :rewrapped, :reconciled],
+        Ecto.UUID.generate(),
+        2
+      },
+      {"reconciled", [:imported, :reconciled], Ecto.UUID.generate(), 2},
+      {
+        "reconciled",
+        [:imported, :rewrapped, :reconciled, :verified],
+        Ecto.UUID.generate(),
+        2
+      },
+      {"verified", [:imported, :rewrapped, :verified], Ecto.UUID.generate(), 2},
+      {
+        "verified",
+        [:imported, :rewrapped, :reconciled, :verified, :completed],
+        Ecto.UUID.generate(),
+        2
+      },
+      {
+        "completed",
+        [:imported, :rewrapped, :reconciled, :completed],
+        Ecto.UUID.generate(),
+        2
+      },
+      {"rewrapped", [:imported, :rewrapped], Ecto.UUID.generate(), 0},
+      {"rewrapped", [:imported, :rewrapped], Ecto.UUID.generate(), 4_294_967_296}
+    ]
+
+    for {state, timestamps, integrity_principal_id, wrapper_generation} <- invalid_shapes do
+      assert_raise Postgrex.Error, fn ->
+        Fixtures.with_owner(fn ->
+          insert_restore_import_saga!(
+            state,
+            timestamps,
+            integrity_principal_id,
+            wrapper_generation
+          )
+        end)
       end
     end
   end
@@ -1227,18 +1736,389 @@ defmodule Singularity.Storage.MigrationsTest do
     Code.compiler_options(ignore_module_conflict: true)
 
     try do
-      assert [20_260_718_000_900] =
+      assert [
+               20_260_722_000_600,
+               20_260_722_000_500,
+               20_260_722_000_400,
+               20_260_722_000_300,
+               20_260_722_000_200,
+               20_260_722_000_100,
+               20_260_718_000_900
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 1,
+                 step: 7,
                  log: false
                )
     after
       Supervisor.stop(migration_repo)
       Code.compiler_options(compiler_options)
     end
+  end
+
+  defp backup_manifest_seal_constraints do
+    %{rows: rows} =
+      query!(
+        RequestRepo,
+        """
+        SELECT
+          conname,
+          CASE
+            WHEN pg_get_constraintdef(oid) LIKE '%manifest_hash%' THEN 'manifest_hash'
+            WHEN pg_get_constraintdef(oid) LIKE '%manifest_tag%' THEN 'manifest_tag'
+          END
+        FROM pg_catalog.pg_constraint
+        WHERE conrelid = 'audit.backup_manifests'::regclass
+          AND conname IN (
+            'backup_manifests_hash_check',
+            'backup_manifests_tag_check'
+          )
+        ORDER BY conname
+        """
+      )
+
+    rows
+  end
+
+  defp restore_import_saga_contract do
+    %{rows: rows} =
+      query!(
+        RequestRepo,
+        """
+        SELECT
+          owner.rolname,
+          relation.relrowsecurity,
+          relation.relforcerowsecurity,
+          has_table_privilege('singularity_web', relation.oid, 'SELECT'),
+          has_table_privilege('singularity_worker', relation.oid, 'SELECT'),
+          NOT (
+            has_table_privilege('singularity_web', relation.oid, 'INSERT')
+            OR has_table_privilege('singularity_web', relation.oid, 'UPDATE')
+            OR has_table_privilege('singularity_web', relation.oid, 'DELETE')
+            OR has_table_privilege('singularity_worker', relation.oid, 'INSERT')
+            OR has_table_privilege('singularity_worker', relation.oid, 'UPDATE')
+            OR has_table_privilege('singularity_worker', relation.oid, 'DELETE')
+            OR EXISTS (
+              SELECT 1
+              FROM aclexplode(
+                COALESCE(
+                  relation.relacl,
+                  acldefault('r', relation.relowner)
+                )
+              ) AS privilege
+              WHERE privilege.grantee = 0
+                AND privilege.privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
+            )
+          ),
+          EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_policies AS policy
+            WHERE policy.schemaname = 'audit'
+              AND policy.tablename = 'restore_import_sagas'
+              AND policy.policyname = 'restore_import_sagas_table_owner'
+              AND policy.roles = ARRAY['singularity_table_owner']::name[]
+              AND policy.cmd = 'ALL'
+              AND policy.qual = 'true'
+              AND policy.with_check = 'true'
+          ),
+          (
+            SELECT count(*)
+            FROM pg_catalog.pg_constraint AS table_constraint
+            WHERE table_constraint.conrelid = relation.oid
+              AND table_constraint.conname = ANY($1)
+          )
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        JOIN pg_catalog.pg_roles AS owner
+          ON owner.oid = relation.relowner
+        WHERE namespace.nspname = 'audit'
+          AND relation.relname = 'restore_import_sagas'
+        """,
+        [
+          [
+            "restore_import_sagas_singleton_check",
+            "restore_import_sagas_manifest_hash_check",
+            "restore_import_sagas_manifest_tag_check",
+            "restore_import_sagas_inventory_hash_check",
+            "restore_import_sagas_destination_root_hash_check",
+            "restore_import_sagas_object_count_check",
+            "restore_import_sagas_wrapper_generation_check",
+            "restore_import_sagas_state_check",
+            "restore_import_sagas_state_shape_check"
+          ]
+        ]
+      )
+
+    rows
+  end
+
+  defp insert_restore_import_saga!(
+         state,
+         timestamps,
+         integrity_principal_id,
+         wrapper_generation
+       ) do
+    timestamp = DateTime.utc_now()
+
+    query!(
+      MigrationRepo,
+      """
+      INSERT INTO audit.restore_import_sagas (
+        singleton,
+        manifest_id,
+        vault_id,
+        manifest_hash,
+        manifest_tag,
+        inventory_hash,
+        destination_root_hash,
+        object_count,
+        state,
+        imported_at,
+        rewrapped_at,
+        reconciled_at,
+        verified_at,
+        completed_at,
+        integrity_principal_id,
+        wrapper_generation
+      ) VALUES (
+        TRUE,
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        0,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        $12,
+        $13,
+        $14
+      )
+      """,
+      [
+        Ecto.UUID.generate() |> Ecto.UUID.dump!(),
+        Ecto.UUID.generate() |> Ecto.UUID.dump!(),
+        :binary.copy(<<0xA1>>, 32),
+        :binary.copy(<<0xB1>>, 16),
+        :binary.copy(<<0xC1>>, 32),
+        :binary.copy(<<0xD1>>, 32),
+        state,
+        timestamp_if_present(timestamps, :imported, timestamp),
+        timestamp_if_present(timestamps, :rewrapped, timestamp),
+        timestamp_if_present(timestamps, :reconciled, timestamp),
+        timestamp_if_present(timestamps, :verified, timestamp),
+        timestamp_if_present(timestamps, :completed, timestamp),
+        dump_uuid(integrity_principal_id),
+        wrapper_generation
+      ]
+    )
+  end
+
+  defp timestamp_if_present(timestamps, phase, timestamp) do
+    if phase in timestamps, do: timestamp, else: nil
+  end
+
+  defp dump_uuid(nil), do: nil
+  defp dump_uuid(uuid), do: Ecto.UUID.dump!(uuid)
+
+  defp insert_backup_manifest(vault_id, manifest_tag) do
+    manifest_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    case MigrationRepo.transaction(fn ->
+           query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+           query!(
+             MigrationRepo,
+             """
+             INSERT INTO audit.backup_manifests (
+               id,
+               vault_id,
+               classification,
+               status,
+               destination_ref,
+               kdf_version,
+               kdf_salt,
+               kdf_parameters,
+               recovery_wrapper,
+               manifest_tag
+             ) VALUES (
+               $1,
+               $2,
+               'private',
+               'pending',
+               'migration-test.bundle',
+               1,
+               decode('00112233445566778899aabbccddeeff', 'hex'),
+               '{}'::jsonb,
+               decode('aabbccdd', 'hex'),
+               $3
+             )
+             """,
+             [manifest_id, vault_id, manifest_tag]
+           )
+         end) do
+      {:ok, _result} -> {:ok, manifest_id}
+      {:error, %Postgrex.Error{} = error} -> {:error, error}
+    end
+  end
+
+  defp delete_backup_manifest!(manifest_id) do
+    {:ok, _result} =
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+        query!(MigrationRepo, "DELETE FROM audit.backup_manifests WHERE id = $1", [manifest_id])
+      end)
+
+    :ok
+  end
+
+  defp task14_identity_contract do
+    query!(
+      RequestRepo,
+      """
+      SELECT
+        to_regprocedure('identity.export_current_vault_owner(uuid)')::text,
+        to_regprocedure('core.live_principal_authorization()') IS NOT NULL,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_policies
+          WHERE schemaname = 'identity'
+            AND tablename = 'accounts'
+            AND policyname = 'task11_authorization_reads_accounts'
+        ),
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_policies
+          WHERE schemaname = 'identity'
+            AND tablename = 'people'
+            AND policyname = 'task14_authorization_reads_people'
+        ),
+        has_schema_privilege(
+          'singularity_authorization_definer',
+          'identity',
+          'CREATE'
+        ),
+        has_table_privilege(
+          'singularity_authorization_definer',
+          'identity.people',
+          'SELECT'
+        )
+      """
+    )
+  end
+
+  defp task14_identity_column_privileges do
+    %{rows: rows} =
+      query!(
+        RequestRepo,
+        """
+        SELECT relation.relname, attribute.attname, privilege.privilege_type
+        FROM pg_catalog.pg_attribute AS attribute
+        JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS privilege
+        JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = privilege.grantee
+        WHERE namespace.nspname = 'identity'
+          AND grantee.rolname = 'singularity_authorization_definer'
+          AND relation.relname || '.' || attribute.attname = ANY($1)
+        ORDER BY relation.relname, attribute.attname, privilege.privilege_type
+        """,
+        [
+          ~w(
+            accounts.person_id
+            accounts.metadata
+            accounts.inserted_at
+            accounts.updated_at
+            credentials.normalized_login
+            credentials.inserted_at
+            people.id
+            people.display_name
+            people.metadata
+            people.inserted_at
+            people.updated_at
+            principals.metadata
+            principals.inserted_at
+            principals.updated_at
+          )
+        ]
+      )
+
+    rows
+  end
+
+  defp task14_backup_repository_contract do
+    %{rows: rows} =
+      query!(
+        RequestRepo,
+        """
+        SELECT
+          (
+            SELECT count(*)
+            FROM pg_catalog.pg_proc AS procedure
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = procedure.pronamespace
+            WHERE namespace.nspname = 'audit'
+              AND procedure.proname = ANY($1)
+          ),
+          EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_trigger
+            WHERE tgrelid = 'audit.backup_manifest_objects'::regclass
+              AND tgname = 'backup_manifest_objects_immutable'
+              AND NOT tgisinternal
+          ),
+          EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_constraint
+            WHERE conrelid = 'audit.backup_manifest_objects'::regclass
+              AND conname =
+                'backup_manifest_objects_manifest_id_inventory_position_key'
+          ),
+          has_table_privilege(
+            'singularity_web',
+            'audit.backup_manifests',
+            'SELECT'
+          ),
+          has_table_privilege(
+            'singularity_worker',
+            'audit.backup_manifest_objects',
+            'SELECT'
+          ),
+          has_table_privilege(
+            'singularity_web',
+            'audit.backup_manifests',
+            'INSERT, UPDATE, DELETE'
+          ),
+          has_table_privilege(
+            'singularity_worker',
+            'audit.backup_manifest_objects',
+            'INSERT, UPDATE, DELETE'
+          )
+        """,
+        [
+          ~w(
+            activate_backup_manifest
+            backup_scope_authorized
+            claim_backup_manifest
+            create_backup_request
+            lock_backup_manifest
+            mark_backup_waiting
+            reject_backup_inventory_mutation
+            replace_backup_custody
+            seal_backup_manifest
+          )
+        ]
+      )
+
+    rows
   end
 
   defp await_outbox_exclusive_wait!(attempts \\ 250)

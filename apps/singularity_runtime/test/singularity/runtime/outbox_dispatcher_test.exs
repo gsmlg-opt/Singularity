@@ -200,6 +200,21 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
              )
   end
 
+  test "does not dispatch unsupported durable integrity audit events", %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+
+    owner_query(
+      "UPDATE core.outbox_events SET event_type = 'integrity.audit_requested' WHERE id = $1",
+      [event.id]
+    )
+
+    assert {:ok, %{submitted: 0, skipped: 0, failed: 1}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    refute_receive {:runner_submit, _envelope, _runner_id}
+  end
+
   test "an AssetRepository job becomes stale when either live authorization axis changes", %{
     runner: runner
   } do
@@ -430,7 +445,7 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
   test "an exclusive backup lock skips its vault without stalling another vault",
        %{runner: runner} do
     %{one: one, two: two} = Fixtures.two_vaults!()
-    one_event = Fixtures.outbox_event!(one)
+    Fixtures.outbox_event!(one)
     _two_event = Fixtures.outbox_event!(two)
     parent = self()
 
@@ -447,7 +462,7 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
 
     assert_receive :backup_lock_acquired
 
-    assert {:ok, %{submitted: 1, skipped: 1}} =
+    assert {:ok, %{submitted: 1, skipped: 0}} =
              OutboxDispatcher.dispatch_once(dispatcher_options(runner))
 
     assert_receive {:runner_submit, %{vault_id: submitted_vault}, _runner_id}
@@ -457,7 +472,6 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
 
     send(lock.pid, :release_backup_lock)
     assert :ok = Task.await(lock)
-    expire_claim!(one_event.id)
 
     assert {:ok, %{submitted: 1, skipped: 0}} =
              OutboxDispatcher.dispatch_once(dispatcher_options(runner))

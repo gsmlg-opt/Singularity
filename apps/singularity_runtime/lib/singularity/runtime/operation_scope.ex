@@ -2,8 +2,14 @@ defmodule Singularity.Runtime.OperationScope do
   @moduledoc """
   Pins request work to the global vault/authorization lock order.
 
-  A trusted `{:after_commit, callback}` result is executed after the scoped
-  transaction commits while the advisory locks are still held.
+  A trusted `{:after_commit, callback}` result executes its zero-arity callback
+  after the scoped transaction commits while the advisory locks are still held.
+
+  `{:after_commit_scoped, callback}` also executes after that commit, but passes
+  the callback a runner which can open a second scoped transaction on the same
+  pinned connection under the same locks. This keeps non-database activation
+  outside the transaction while allowing its resulting compare-and-swap to be
+  committed and observed before the callback continues.
   """
 
   alias Singularity.Core.Error
@@ -86,31 +92,78 @@ defmodule Singularity.Runtime.OperationScope do
       session.principal_id,
       requirement.vault_id,
       fn locked_repo ->
-        values.scoped_repo
-        |> call_adapter(:transact, [
-          locked_repo,
-          %{principal_id: session.principal_id, vault_id: session.vault_id},
-          fn scoped_repo ->
-            with :ok <-
-                   call_adapter(values.authorizer, :check, [
-                     values.authorization,
-                     scoped_repo,
-                     session,
-                     requirement
-                   ]) do
-              callback.(scoped_repo)
+        scope = %{principal_id: session.principal_id, vault_id: session.vault_id}
+
+        transaction_result =
+          call_adapter(values.scoped_repo, :transact, [
+            locked_repo,
+            scope,
+            fn scoped_repo ->
+              with :ok <-
+                     call_adapter(values.authorizer, :check, [
+                       values.authorization,
+                       scoped_repo,
+                       session,
+                       requirement
+                     ]) do
+                callback.(scoped_repo)
+              end
             end
-          end
-        ])
-        |> run_after_commit()
+          ])
+
+        run_after_commit(transaction_result, values, locked_repo, scope)
       end
     ])
   end
 
-  defp run_after_commit({:after_commit, callback}) when is_function(callback, 0),
-    do: callback.()
+  defp run_after_commit({:after_commit, callback}, _values, _locked_repo, _scope)
+       when is_function(callback, 0),
+       do: callback.()
 
-  defp run_after_commit(result), do: result
+  defp run_after_commit({:after_commit_scoped, callback}, values, locked_repo, scope)
+       when is_function(callback, 1) do
+    run_scoped = fn scoped_callback ->
+      run_scoped_after_commit(scoped_callback, values, locked_repo, scope)
+    end
+
+    normalize_after_commit_result(callback.(run_scoped))
+  end
+
+  defp run_after_commit({tag, _invalid_callback}, _values, _locked_repo, _scope)
+       when tag in [:after_commit, :after_commit_scoped],
+       do: {:error, Error.new(:invalid)}
+
+  defp run_after_commit(result, _values, _locked_repo, _scope), do: result
+
+  defp run_scoped_after_commit(callback, values, locked_repo, scope)
+       when is_function(callback, 1) do
+    values.scoped_repo
+    |> call_adapter(:transact, [
+      locked_repo,
+      scope,
+      fn scoped_repo -> normalize_after_commit(callback.(scoped_repo)) end
+    ])
+    |> unwrap_after_commit()
+  end
+
+  defp run_scoped_after_commit(_invalid_callback, _values, _locked_repo, _scope),
+    do: {:error, Error.new(:invalid)}
+
+  defp normalize_after_commit({:commit, result}),
+    do: {:operation_scope_committed_result, result}
+
+  defp normalize_after_commit({:ok, _value} = result), do: result
+  defp normalize_after_commit(:ok), do: :ok
+  defp normalize_after_commit({:error, %Error{}} = error), do: error
+  defp normalize_after_commit(_invalid), do: {:error, Error.new(:invalid)}
+
+  defp unwrap_after_commit({:operation_scope_committed_result, result}), do: result
+  defp unwrap_after_commit(result), do: result
+
+  defp normalize_after_commit_result({:ok, _value} = result), do: result
+  defp normalize_after_commit_result(:ok), do: :ok
+  defp normalize_after_commit_result({:error, %Error{}} = error), do: error
+  defp normalize_after_commit_result(_invalid), do: {:error, Error.new(:invalid)}
 
   defp values(runtime, %{principal_id: principal_id, vault_id: vault_id})
        when is_binary(principal_id) and byte_size(principal_id) > 0 and

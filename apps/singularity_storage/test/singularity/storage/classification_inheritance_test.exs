@@ -8,8 +8,8 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.Postgres.AuditSink
+  alias Singularity.Storage.Postgres.BackupRepository
   alias Singularity.Storage.Postgres.Outbox
-  alias Singularity.Storage.Schema.Audit.BackupManifest
   alias Singularity.Storage.Schema.Audit.BackupManifestObject
   alias Singularity.Storage.Schema.Audit.Event, as: StoredAuditEvent
   alias Singularity.Storage.Schema.Content.Asset
@@ -21,6 +21,10 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
   alias Singularity.Storage.Schema.Core.OutboxEvent, as: StoredOutboxEvent
   alias Singularity.Storage.Schema.Jobs.JobSubmission
   alias Singularity.Storage.ScopedRepo
+
+  @backup_kdf_domain "singularity.backup.bundle.v1"
+  @backup_salt :binary.copy(<<0xB1>>, 16)
+  @backup_wrapper :binary.copy(<<0xB2>>, 48)
 
   @schemas [
     {Singularity.Storage.Schema.Identity.Person, "identity", "people"},
@@ -74,11 +78,13 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
     fixture = load_ids(fixture)
 
     chain =
-      ScopedRepo.transact(
+      scoped(
         RequestRepo,
-        %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+        fixture,
         fn repo -> persist_chain(repo, fixture) end
       )
+
+    backup_entry = persist_backup_entry!(fixture, chain.backup_manifest, chain.object)
 
     assert Enum.all?(
              [
@@ -90,7 +96,7 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
                chain.outbox_event,
                chain.job_submission,
                chain.audit_event,
-               chain.backup_entry
+               backup_entry
              ],
              &(&1.vault_id == fixture.vault_id and &1.classification == :private)
            )
@@ -101,8 +107,8 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
     object_id = Ecto.UUID.generate()
     outbox_event_id = Ecto.UUID.generate()
     audit_event_id = Ecto.UUID.generate()
-    manifest_id = Ecto.UUID.generate()
     digest = :crypto.hash(:sha256, "classification-chain")
+    backup_request = backup_request_command(fixture)
 
     {:ok, _key_domain} =
       repo.insert(
@@ -216,35 +222,8 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
 
     :ok = AuditSink.append(repo, audit_value)
 
-    {:ok, _manifest} =
-      repo.insert(
-        BackupManifest.create_changeset(%BackupManifest{}, %{
-          id: manifest_id,
-          vault_id: fixture.vault_id,
-          classification: :private,
-          status: :pending,
-          destination_ref: "backup/classification-chain",
-          kdf_version: 1,
-          kdf_salt: <<0::128>>,
-          kdf_parameters: %{"memory" => 1},
-          recovery_wrapper: <<0::128>>
-        })
-      )
-
-    {:ok, backup_entry} =
-      repo.insert(
-        BackupManifestObject.create_changeset(%BackupManifestObject{}, %{
-          id: Ecto.UUID.generate(),
-          manifest_id: manifest_id,
-          asset_object_id: object.id,
-          vault_id: fixture.vault_id,
-          classification: :private,
-          inventory_position: 0,
-          storage_ref: object.storage_ref,
-          ciphertext_byte_size: object.ciphertext_byte_size,
-          ciphertext_hash: object.ciphertext_hash
-        })
-      )
+    {:ok, backup_manifest} =
+      BackupRepository.insert_pending_and_enqueue(repo, backup_request)
 
     %{
       resource_version: repo.get!(ResourceVersion, fixture.resource_version_id),
@@ -255,8 +234,127 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
       outbox_event: repo.get!(StoredOutboxEvent, outbox_event_id),
       job_submission: job_submission,
       audit_event: repo.get!(StoredAuditEvent, audit_event_id),
-      backup_entry: backup_entry
+      backup_manifest: backup_manifest
     }
+  end
+
+  defp persist_backup_entry!(fixture, manifest, object) do
+    transition = %{
+      custody_ref: manifest.backup_key_lease_id,
+      manifest_id: manifest.id,
+      vault_id: fixture.vault_id
+    }
+
+    assert {:ok, %{status: :pending}} =
+             scoped(
+               RequestRepo,
+               fixture,
+               &BackupRepository.mark_pending(&1, transition)
+             )
+
+    assert {:ok, %{status: :copying} = copying} =
+             scoped(
+               WorkerRepo,
+               fixture,
+               &BackupRepository.load_pending(
+                 &1,
+                 Map.take(transition, [:manifest_id, :vault_id])
+               )
+             )
+
+    inventory = %{
+      asset_object_id: object.id,
+      ciphertext_byte_size: object.ciphertext_byte_size,
+      ciphertext_hash: object.ciphertext_hash,
+      classification: object.classification,
+      inventory_position: 0,
+      storage_ref: object.storage_ref,
+      vault_id: object.vault_id
+    }
+
+    assert {:ok, %{status: :sealed}} =
+             scoped(
+               WorkerRepo,
+               fixture,
+               &BackupRepository.acknowledge_sealed(
+                 &1,
+                 %{
+                   cut: %{
+                     object_inventory: [inventory],
+                     outbox_high_water_mark: 1,
+                     snapshot_id: Ecto.UUID.generate(),
+                     vault_id: fixture.vault_id
+                   },
+                   expected_custody_ref: copying.backup_key_lease_id,
+                   manifest_id: copying.id,
+                   sealed: %{
+                     destination_ref: copying.destination_ref,
+                     inventory: [],
+                     manifest_hash: :binary.copy(<<0xA1>>, 32),
+                     manifest_id: copying.id,
+                     manifest_tag: :binary.copy(<<0xA2>>, 16),
+                     path: "backups/#{copying.id}.sgkc"
+                   },
+                   vault_id: fixture.vault_id
+                 }
+               )
+             )
+
+    scoped(WorkerRepo, fixture, fn repo ->
+      repo.get_by!(
+        BackupManifestObject,
+        manifest_id: copying.id,
+        asset_object_id: object.id
+      )
+    end)
+  end
+
+  defp backup_request_command(fixture) do
+    manifest_id = Ecto.UUID.generate()
+
+    %{
+      audit_event_id: Ecto.UUID.generate(),
+      causation_id: manifest_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      custody_ref: "custody-#{Ecto.UUID.generate()}",
+      destination_ref: "backup/#{manifest_id}.sgkc",
+      manifest_id: manifest_id,
+      occurred_at: DateTime.utc_now(:microsecond),
+      outbox_event_id: Ecto.UUID.generate(),
+      principal_authorization_epoch: 0,
+      principal_id: fixture.principal_id,
+      public_metadata: %{
+        "kdf" => %{
+          "domain" => @backup_kdf_domain,
+          "parameters" => %{
+            "m_cost" => 65_536,
+            "parallelism" => 2,
+            "t_cost" => 5,
+            "version" => 1
+          },
+          "salt" => Base.encode64(@backup_salt)
+        },
+        "recovery" => %{
+          "binding" => %{
+            "manifest_id" => manifest_id,
+            "vault_id" => fixture.vault_id
+          },
+          "label" => "backup_recovery",
+          "wrapper" => @backup_wrapper
+        }
+      },
+      vault_authorization_epoch: 0,
+      vault_id: fixture.vault_id
+    }
+  end
+
+  defp scoped(repo, fixture, callback) do
+    ScopedRepo.transact(
+      repo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      callback
+    )
   end
 
   defp load_ids(fixture) do

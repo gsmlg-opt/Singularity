@@ -11,12 +11,19 @@ defmodule Singularity.Runtime.ApplicationTest do
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.LockVault
   alias Singularity.Runtime.StorageAdapter
+  alias Singularity.Storage.Backup.BundleReader
+  alias Singularity.Storage.Backup.BundleWriter
+  alias Singularity.Storage.Backup.Exporter
+  alias Singularity.Storage.Backup.LocalDestination
+  alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.Crypto.KeyWrapper
+  alias Singularity.Storage.Crypto.ChunkedAEAD
   alias Singularity.Storage.Jobs.GenericWorker
   alias Singularity.Storage.LocalFilesystemAdapter
   alias Singularity.Storage.ObjectLock
   alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.BackupRepository
   alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.WorkerRepo
 
@@ -61,6 +68,7 @@ defmodule Singularity.Runtime.ApplicationTest do
 
       assert %{
                authorization: CustodyReader,
+               backup_cipher: ChunkedAEAD,
                clock: CustodyReader,
                context: %{
                  repo: WorkerRepo,
@@ -101,6 +109,16 @@ defmodule Singularity.Runtime.ApplicationTest do
             valid_composition(),
             [:key_custodian],
             &Map.delete(&1, :object_key_loader)
+          ),
+          update_in(
+            valid_composition(),
+            [:key_custodian],
+            &Map.delete(&1, :backup_cipher)
+          ),
+          put_in(
+            valid_composition(),
+            [:key_custodian, :backup_cipher],
+            :not_a_cipher_adapter
           )
         ] do
       assert_raise ArgumentError, ~r/runtime job composition is invalid/, fn ->
@@ -176,7 +194,7 @@ defmodule Singularity.Runtime.ApplicationTest do
     end
   end
 
-  test "runtime handler exposes the explicit asset-job bundle and rejects all unregistered jobs" do
+  test "runtime handler exposes the explicit asset and backup job bundle" do
     assert %{
              asset_deletions: AssetDeletionRepository,
              assets: AssetRepository,
@@ -185,31 +203,46 @@ defmodule Singularity.Runtime.ApplicationTest do
                store: Fake.Authorization,
                custodian: Singularity.Runtime.KeyCustodian
              },
+             backups: BackupRepository,
+             bundle_reader: BundleReader,
+             bundle_verifier: LogicalBundleVerifier,
+             bundle_writer: BundleWriter,
+             destination: {LocalDestination, %{backup_root: backup_root}},
+             exporter: Exporter,
              object_lock: ObjectLock,
+             object_storage: {Exporter, {LocalFilesystemAdapter, %{root: storage_root}}},
              storage: {LocalFilesystemAdapter, %{root: storage_root}}
            } = JobDispatcher.dependencies()
 
     assert is_binary(storage_root)
+    assert is_binary(backup_root)
+    refute Path.expand(backup_root) == Path.expand(storage_root)
 
     assert {:error, %{code: :job_failed}} =
              JobDispatcher.handle(JobDispatcher.dependencies(), :unregistered)
   end
 
-  test "runtime handler dispatches only the exact five implemented job types" do
+  test "runtime handler dispatches only the exact six implemented durable job types" do
     for job_type <- [
           "asset_verify",
           "asset_finalize",
           "asset_metadata",
           "asset_cleanup",
-          "object_cleanup"
+          "object_cleanup",
+          "backup"
         ] do
       assert {:error, %{code: :invalid}} =
                JobDispatcher.handle(%{}, %{job_type: job_type})
     end
 
-    for alias_job_type <- ["metadata_extract", "asset_metadata_v1", "technical_metadata"] do
+    for unregistered_job_type <- [
+          "integrity_audit",
+          "metadata_extract",
+          "asset_metadata_v1",
+          "technical_metadata"
+        ] do
       assert {:error, %{code: :job_failed}} =
-               JobDispatcher.handle(%{}, %{job_type: alias_job_type})
+               JobDispatcher.handle(%{}, %{job_type: unregistered_job_type})
     end
   end
 
@@ -223,6 +256,7 @@ defmodule Singularity.Runtime.ApplicationTest do
       },
       key_custodian: %{
         authorization: Fake.Authorization,
+        backup_cipher: ChunkedAEAD,
         clock: Fake.Clock,
         context: %{},
         idle_lock: fn _session -> :ok end,

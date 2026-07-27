@@ -165,8 +165,143 @@ defmodule Singularity.Storage.LocalFilesystemAdapter do
 
   def delete(_context, _object_ref), do: invalid()
 
+  @doc false
+  @spec rollback_finalize(map(), StageRef.t(), ObjectRef.t()) ::
+          :ok | {:error, Error.t()}
+  def rollback_finalize(context, %StageRef{} = stage_ref, %ObjectRef{} = object_ref) do
+    with {:ok, stage_path} <- Stage.path(context, stage_ref),
+         {:ok, object_path} <- object_path(context, object_ref),
+         {:ok, receipt_path} <-
+           PathGuard.finalization_receipt_path(context.root, stage_ref.stage_id) do
+      Stage.with_lock(context, stage_ref, fn ->
+        lock_id = {{__MODULE__, object_path}, self()}
+
+        case :global.trans(
+               lock_id,
+               fn ->
+                 rollback_finalize_locked(
+                   context,
+                   stage_ref,
+                   stage_path,
+                   object_path,
+                   receipt_path
+                 )
+               end,
+               [node()]
+             ) do
+          {:aborted, _reason} -> unavailable()
+          result -> result
+        end
+      end)
+    else
+      {:error, %Error{} = error} -> {:error, error}
+      _invalid -> invalid()
+    end
+  end
+
+  def rollback_finalize(_context, _stage_ref, _object_ref), do: invalid()
+
   @impl true
   def list_staged(context), do: Stage.list(context)
+
+  defp rollback_finalize_locked(
+         context,
+         stage_ref,
+         stage_path,
+         object_path,
+         receipt_path
+       ) do
+    with {:ok, <<_::binary-size(32)>> = expected_hash} <- required_ciphertext_hash(context),
+         {:ok, object_present?} <- rollback_object_state(object_path, expected_hash),
+         {:ok, receipt_present?} <-
+           rollback_receipt_state(context, receipt_path, object_path, expected_hash),
+         true <- not object_present? or receipt_present? or conflict(),
+         :ok <- rollback_stage_state(stage_path),
+         :ok <- remove_verified_artifact(object_path, object_present?),
+         :ok <- Sync.directory_if_present(Path.dirname(object_path), sync_options(context)),
+         :ok <- remove_verified_artifact(receipt_path, receipt_present?),
+         :ok <- Sync.directory_if_present(Path.dirname(receipt_path), sync_options(context)),
+         :ok <- Stage.abort_locked(context, stage_ref) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      {:error, _reason} -> unavailable()
+      _invalid -> invalid()
+    end
+  end
+
+  defp required_ciphertext_hash(context) do
+    case expected_ciphertext_hash(context) do
+      {:ok, <<_::binary-size(32)>> = hash} -> {:ok, hash}
+      {:ok, nil} -> invalid()
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp rollback_object_state(path, expected_hash) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        with {:ok, digest} <- Stage.digest(path),
+             true <- secure_compare(digest, expected_hash) or integrity_failure() do
+          {:ok, true}
+        else
+          {:error, %Error{}} = error -> error
+          {:error, _reason} -> unavailable()
+        end
+
+      {:ok, _other} ->
+        invalid()
+
+      {:error, :enoent} ->
+        {:ok, false}
+
+      {:error, _reason} ->
+        unavailable()
+    end
+  end
+
+  defp rollback_receipt_state(context, path, object_path, expected_hash) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        with {:ok, payload} <- File.read(path),
+             true <-
+               secure_compare(payload, receipt_payload(context.root, object_path, expected_hash)) or
+                 conflict() do
+          {:ok, true}
+        else
+          {:error, %Error{}} = error -> error
+          {:error, _reason} -> unavailable()
+        end
+
+      {:ok, _other} ->
+        invalid()
+
+      {:error, :enoent} ->
+        {:ok, false}
+
+      {:error, _reason} ->
+        unavailable()
+    end
+  end
+
+  defp rollback_stage_state(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:ok, _other} -> invalid()
+      {:error, :enoent} -> :ok
+      {:error, _reason} -> unavailable()
+    end
+  end
+
+  defp remove_verified_artifact(_path, false), do: :ok
+
+  defp remove_verified_artifact(path, true) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, _reason} -> unavailable()
+    end
+  end
 
   defp finalize_locked(context, stage_ref, stage_path, object_ref, object_path) do
     with :ok <- PathGuard.assert_safe_path(context.root, stage_path),
@@ -616,6 +751,7 @@ defmodule Singularity.Storage.LocalFilesystemAdapter do
   end
 
   defp invalid, do: {:error, Error.new(:invalid)}
+  defp conflict, do: {:error, Error.new(:conflict)}
   defp not_found, do: {:error, Error.new(:not_found)}
   defp integrity_failure, do: {:error, Error.new(:integrity_failure)}
   defp unavailable, do: {:error, Error.new(:storage_unavailable, retryable?: true)}

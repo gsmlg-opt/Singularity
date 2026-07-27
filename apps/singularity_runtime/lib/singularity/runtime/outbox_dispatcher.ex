@@ -15,8 +15,7 @@ defmodule Singularity.Runtime.OutboxDispatcher do
     "asset.cleanup_requested" => "asset_cleanup",
     "object.cleanup_requested" => "object_cleanup",
     "backup.requested" => "backup",
-    "maintenance.requested" => "maintenance",
-    "integrity.audit_requested" => "integrity_audit"
+    "maintenance.requested" => "maintenance"
   }
 
   @default_interval_ms 1_000

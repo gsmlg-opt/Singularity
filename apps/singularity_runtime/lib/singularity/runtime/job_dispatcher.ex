@@ -11,6 +11,7 @@ defmodule Singularity.Runtime.JobDispatcher do
   alias Singularity.Runtime.Assets.Finalize
   alias Singularity.Runtime.Assets.ObjectCleanup
   alias Singularity.Runtime.Assets.Verify
+  alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
   alias Singularity.Storage.Jobs.Progress
@@ -42,6 +43,9 @@ defmodule Singularity.Runtime.JobDispatcher do
 
   def handle(context, %{job_type: "object_cleanup"} = envelope),
     do: ObjectCleanup.run(context, envelope)
+
+  def handle(context, %{job_type: "backup"} = envelope),
+    do: BackupVault.run(context, envelope)
 
   def handle(_context, _envelope), do: {:error, Error.new(:job_failed)}
 

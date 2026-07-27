@@ -115,6 +115,17 @@ defmodule Singularity.Storage.Jobs.Progress do
 
   def put_state(_repo, _envelope, _state, _options), do: {:error, Error.new(:invalid)}
 
+  @spec wait_for_backup_key(module(), JobEnvelope.t()) ::
+          {:ok, JobProgress.t()} | {:error, Error.t()}
+  def wait_for_backup_key(
+        repo,
+        %JobEnvelope{job_type: "backup"} = envelope
+      ) do
+    put_state(repo, envelope, :waiting_for_backup_key)
+  end
+
+  def wait_for_backup_key(_repo, _envelope), do: {:error, Error.new(:invalid)}
+
   @spec begin_metadata(module(), JobEnvelope.t(), pos_integer(), map()) ::
           {:ok, JobProgress.t()} | {:error, Error.t()}
   def begin_metadata(
@@ -661,7 +672,7 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
         request_generation(repo, job)
 
       %Oban.Job{} = job ->
-        if waiting_for_unlock?(repo, envelope, runner_job_id) do
+        if waiting?(repo, envelope, runner_job_id) do
           request_generation(repo, job)
         else
           :skipped
@@ -681,7 +692,7 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
       when is_binary(prefix) and is_integer(runner_job_id) and runner_job_id > 0 do
     with %Oban.Job{} = job <-
            lock_job(repo, prefix, envelope, runner_job_id, @wakeable_states),
-         true <- waiting_for_unlock?(repo, envelope, runner_job_id) do
+         true <- waiting?(repo, envelope, runner_job_id) do
       requested = generation(job.meta, @requested_key)
       consumed = generation(job.meta, @consumed_key)
 
@@ -722,7 +733,7 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
           job.state == "executing" ->
             :wait
 
-          not waiting_for_unlock?(repo, envelope, runner_job_id) ->
+          not waiting?(repo, envelope, runner_job_id) ->
             consume_generation(repo, job, wake_generation, :done)
 
           consumed >= wake_generation ->
@@ -762,7 +773,7 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
     repo.one(query, prefix: prefix)
   end
 
-  defp waiting_for_unlock?(repo, envelope, runner_job_id) do
+  defp waiting?(repo, envelope, runner_job_id) do
     query =
       from(progress in JobProgress,
         join: submission in JobSubmission,
@@ -772,16 +783,19 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
         where:
           progress.submission_id == ^envelope.job_id and
             progress.vault_id == ^envelope.vault_id and
-            progress.state == :waiting_for_unlock and
             submission.runner_job_id == ^Integer.to_string(runner_job_id) and
             submission.job_type == ^envelope.job_type and
             submission.classification == ^envelope.classification,
-        select: progress.id,
+        select: progress.state,
         limit: 1,
         lock: "FOR UPDATE"
       )
 
-    not is_nil(repo.one(query))
+    case {envelope.job_type, repo.one(query)} do
+      {"backup", :waiting_for_backup_key} -> true
+      {_job_type, :waiting_for_unlock} -> true
+      _not_waiting -> false
+    end
   end
 
   defp consume_generation(repo, job, wake_generation, result) do

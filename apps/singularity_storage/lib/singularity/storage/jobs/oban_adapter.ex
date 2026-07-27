@@ -81,8 +81,7 @@ defmodule Singularity.Storage.Jobs.ObanAdapter do
     "asset_cleanup" => :asset_cleanup,
     "object_cleanup" => :object_cleanup,
     "backup" => :backup,
-    "maintenance" => :maintenance,
-    "integrity_audit" => :maintenance
+    "maintenance" => :maintenance
   }
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()

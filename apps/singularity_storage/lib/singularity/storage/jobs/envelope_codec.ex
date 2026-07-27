@@ -14,7 +14,6 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
     object_cleanup
     backup
     maintenance
-    integrity_audit
   ]
 
   @spec encode(JobEnvelope.t()) :: {:ok, map()} | {:error, Error.t()}

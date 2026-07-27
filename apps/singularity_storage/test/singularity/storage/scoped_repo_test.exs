@@ -44,6 +44,45 @@ defmodule Singularity.Storage.ScopedRepoTest do
     end)
   end
 
+  test "applies repeatable-read isolation before scoped context queries", %{context: context} do
+    RequestRepo.checkout(fn ->
+      assert {:ok, "repeatable read"} =
+               ScopedRepo.transact(
+                 RequestRepo,
+                 context,
+                 [isolation: :repeatable_read],
+                 fn repo ->
+                   %{rows: [[isolation]]} = query!(repo, "SHOW transaction_isolation")
+                   {:ok, isolation}
+                 end
+               )
+
+      assert_context_absent!(RequestRepo)
+    end)
+  end
+
+  test "rejects unsupported transaction isolation", %{context: context} do
+    assert_raise ArgumentError, ~r/unsupported transaction isolation/, fn ->
+      ScopedRepo.transact(
+        RequestRepo,
+        context,
+        [isolation: :serializable],
+        fn _repo -> :ok end
+      )
+    end
+  end
+
+  test "rejects duplicate transaction isolation options", %{context: context} do
+    assert_raise ArgumentError, ~r/exactly once/, fn ->
+      ScopedRepo.transact(
+        RequestRepo,
+        context,
+        [isolation: :repeatable_read, isolation: :repeatable_read],
+        fn _repo -> :ok end
+      )
+    end
+  end
+
   test "rejects a checked-out connection with pre-existing nonempty context", %{
     context: context
   } do
