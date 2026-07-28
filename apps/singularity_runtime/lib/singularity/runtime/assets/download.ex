@@ -9,6 +9,60 @@ defmodule Singularity.Runtime.Assets.Download do
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.AuditSink
 
+  @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
+  @download_media_types @safe_media_types ++ ["application/octet-stream"]
+  @download_descriptor_keys MapSet.new([
+                              :asset_id,
+                              :vault_id,
+                              :classification,
+                              :plaintext_byte_size,
+                              :detected_media_type
+                            ])
+
+  @spec describe(map(), SessionContext.t(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def describe(
+        runtime,
+        %SessionContext{} = session,
+        asset_id
+      )
+      when is_map(runtime) do
+    with true <- session.unlocked? and valid_uuid?(asset_id),
+         {:ok, adapters} <- descriptor_adapters(runtime) do
+      case load_descriptor(
+             adapters,
+             runtime,
+             session,
+             asset_id,
+             :private
+           ) do
+        {:reauthorize, object} ->
+          reauthorize_descriptor(
+            adapters,
+            runtime,
+            session,
+            asset_id,
+            object
+          )
+
+        result ->
+          result
+      end
+    else
+      false -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  rescue
+    _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  catch
+    _kind, _reason ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def describe(_runtime, _session, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
   @spec run(
           map(),
           SessionContext.t(),
@@ -129,6 +183,71 @@ defmodule Singularity.Runtime.Assets.Download do
           else
             {:reauthorize, object}
           end
+        end
+      end
+    ])
+  end
+
+  defp load_descriptor(
+         adapters,
+         runtime,
+         session,
+         asset_id,
+         classification
+       ) do
+    call_adapter(adapters.operation_scope, :with_read_request, [
+      runtime,
+      session,
+      requirement(session, classification),
+      fn repo ->
+        with {:ok, object} <-
+               call_adapter(
+                 adapters.assets,
+                 :authorized_download_descriptor,
+                 [
+                   repo,
+                   asset_id
+                 ]
+               ),
+             :ok <- validate_download_descriptor(object, session, asset_id),
+             {:ok, descriptor} <- descriptor(object) do
+          if object.classification == classification,
+            do: {:ok, descriptor},
+            else: {:reauthorize, object}
+        end
+      end
+    ])
+  end
+
+  defp reauthorize_descriptor(
+         adapters,
+         runtime,
+         session,
+         asset_id,
+         discovered
+       ) do
+    call_adapter(adapters.operation_scope, :with_read_request, [
+      runtime,
+      session,
+      requirement(session, discovered.classification),
+      fn repo ->
+        with {:ok, object} <-
+               call_adapter(
+                 adapters.assets,
+                 :authorized_download_descriptor,
+                 [
+                   repo,
+                   asset_id
+                 ]
+               ),
+             :ok <- validate_download_descriptor(object, session, asset_id),
+             true <- object == discovered,
+             {:ok, descriptor} <- descriptor(object) do
+          {:ok, descriptor}
+        else
+          false -> {:error, Error.new(:conflict)}
+          {:error, %Error{}} = error -> error
+          _invalid -> {:error, Error.new(:integrity_failure)}
         end
       end
     ])
@@ -294,6 +413,28 @@ defmodule Singularity.Runtime.Assets.Download do
   defp validate_object(_object, _session, _asset_id),
     do: {:error, Error.new(:integrity_failure)}
 
+  defp validate_download_descriptor(
+         %{
+           asset_id: asset_id,
+           vault_id: vault_id,
+           classification: classification,
+           plaintext_byte_size: plaintext_byte_size,
+           detected_media_type: detected_media_type
+         } = descriptor,
+         %{vault_id: vault_id},
+         asset_id
+       )
+       when classification in [:private, :sensitive, :restricted] and
+              is_integer(plaintext_byte_size) and plaintext_byte_size >= 0 and
+              detected_media_type in @download_media_types do
+    if descriptor |> Map.keys() |> MapSet.new() == @download_descriptor_keys,
+      do: :ok,
+      else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp validate_download_descriptor(_descriptor, _session, _asset_id),
+    do: {:error, Error.new(:integrity_failure)}
+
   defp lease_request(session, object) do
     %{
       job_id: object.asset_id,
@@ -327,6 +468,33 @@ defmodule Singularity.Runtime.Assets.Download do
       do: {:ok, values},
       else: {:error, Error.new(:invalid)}
   end
+
+  defp descriptor_adapters(runtime) do
+    values = %{
+      assets: Map.get(runtime, :assets, AssetRepository),
+      operation_scope: Map.get(runtime, :operation_scope, OperationScope)
+    }
+
+    if Enum.all?(Map.values(values), &concrete?/1),
+      do: {:ok, values},
+      else: {:error, Error.new(:invalid)}
+  end
+
+  defp descriptor(%{
+         plaintext_byte_size: plaintext_byte_size,
+         detected_media_type: detected_media_type
+       })
+       when is_integer(plaintext_byte_size) and plaintext_byte_size >= 0 and
+              detected_media_type in @download_media_types do
+    {:ok,
+     %{
+       plaintext_byte_size: plaintext_byte_size,
+       detected_media_type: detected_media_type
+     }}
+  end
+
+  defp descriptor(_object),
+    do: {:error, Error.new(:integrity_failure)}
 
   defp valid_uuid?(value),
     do: match?({:ok, _uuid}, Ecto.UUID.cast(value))

@@ -155,6 +155,11 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp search_query(vault_id, search, cursor) do
     query =
       from document in AssetSearchDocument,
+        join: asset in StoredAsset,
+        on:
+          asset.id == document.asset_id and
+            asset.resource_version_id == document.resource_version_id and
+            asset.vault_id == document.vault_id,
         where: document.vault_id == ^vault_id,
         where:
           fragment(
@@ -172,27 +177,32 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp state_filter(query, nil), do: query
 
   defp state_filter(query, state) do
-    from document in query, where: document.state == ^state
+    from [_document, asset] in query, where: asset.state == ^state
   end
 
   defp media_type_filter(query, nil), do: query
 
   defp media_type_filter(query, media_type) do
-    from document in query,
+    from [document, _asset] in query,
       where: document.detected_media_type == ^media_type
   end
 
   defp text_search(query, %{query: ""}, cursor) do
     query = keyset_without_rank(query, cursor)
 
-    from document in query,
+    from [document, asset] in query,
       order_by: [desc: document.updated_at, asc: document.asset_id],
       select: %{
         asset_id: document.asset_id,
         resource_version_id: document.resource_version_id,
         vault_id: document.vault_id,
         classification: document.classification,
-        state: document.state,
+        state: asset.state,
+        state_revision: asset.state_revision,
+        failure_code: asset.failure_code,
+        failure_retryable: asset.retryable?,
+        failed_operation: asset.failed_operation,
+        failure_attempt: asset.attempt,
         detected_media_type: document.detected_media_type,
         resource_title: document.resource_title,
         original_filename: document.original_filename,
@@ -203,7 +213,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
 
   defp text_search(query, %{query: query_text}, cursor) do
     query =
-      from document in query,
+      from [document, _asset] in query,
         where:
           fragment(
             "search_vector @@ websearch_to_tsquery('simple', ?)",
@@ -212,7 +222,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
 
     query = keyset_with_rank(query, query_text, cursor)
 
-    from document in query,
+    from [document, asset] in query,
       order_by: [
         desc:
           fragment(
@@ -227,7 +237,12 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
         resource_version_id: document.resource_version_id,
         vault_id: document.vault_id,
         classification: document.classification,
-        state: document.state,
+        state: asset.state,
+        state_revision: asset.state_revision,
+        failure_code: asset.failure_code,
+        failure_retryable: asset.retryable?,
+        failed_operation: asset.failed_operation,
+        failure_attempt: asset.attempt,
         detected_media_type: document.detected_media_type,
         resource_title: document.resource_title,
         original_filename: document.original_filename,
@@ -243,7 +258,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp keyset_without_rank(query, nil), do: query
 
   defp keyset_without_rank(query, cursor) do
-    from document in query,
+    from [document, _asset] in query,
       where:
         document.updated_at < ^cursor.updated_at or
           (document.updated_at == ^cursor.updated_at and
@@ -253,7 +268,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp keyset_with_rank(query, _query_text, nil), do: query
 
   defp keyset_with_rank(query, query_text, cursor) do
-    from document in query,
+    from [document, _asset] in query,
       where:
         fragment(
           """
@@ -592,16 +607,35 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   end
 
   defp document_result(document) do
-    Map.take(document, [
+    document
+    |> Map.take([
       :asset_id,
       :resource_version_id,
       :vault_id,
       :classification,
       :state,
+      :state_revision,
       :detected_media_type,
       :resource_title,
       :original_filename,
       :updated_at
     ])
+    |> Map.put(:failure, failure_result(document))
+  end
+
+  defp failure_result(%{
+         failure_code: nil,
+         failure_retryable: nil,
+         failed_operation: nil
+       }),
+       do: nil
+
+  defp failure_result(document) do
+    %{
+      code: document.failure_code,
+      retryable: document.failure_retryable,
+      operation: document.failed_operation,
+      attempt: document.failure_attempt
+    }
   end
 end

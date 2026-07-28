@@ -40,6 +40,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   @metadata_result_keys ~w[
     detected_media_type plaintext_bytes width height pdf_version extractor_version
   ]
+  @raw_upload_secret_aliases [
+    :token,
+    :upload_token,
+    :csrf_token,
+    "token",
+    "upload_token",
+    "csrf_token"
+  ]
 
   @impl true
   def create_upload_grant(repo, command) when is_map(command) do
@@ -82,6 +90,38 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   def create_upload_grant(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def load_upload_grant_descriptor(repo, selector) when is_map(selector) do
+    with :ok <- validate_upload_grant_selector(selector),
+         {:ok, grant, expired?} <- find_upload_grant_descriptor(repo, selector),
+         {:ok, authorization_epochs} <-
+           authorization_epochs(repo, grant.principal_id, grant.vault_id),
+         :ok <-
+           validate_upload_grant_selector_binding(
+             grant,
+             selector,
+             authorization_epochs,
+             expired?
+           ) do
+      {:ok, upload_grant_descriptor(grant)}
+    else
+      {:error, %Error{code: code}} when code in [:forbidden, :not_found] ->
+        {:error, Error.new(:not_found)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def load_upload_grant_descriptor(_repo, _selector),
     do: {:error, Error.new(:invalid)}
 
   @impl true
@@ -195,7 +235,8 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   @impl true
   def consume_upload_grant(repo, %{grant_id: grant_id, consumed_at: consumed_at} = intent) do
-    with :ok <- UUID.validate(grant_id),
+    with :ok <- reject_raw_upload_secrets(intent),
+         :ok <- UUID.validate(grant_id),
          {:ok, ^consumed_at} <- Types.utc_datetime(intent, :consumed_at) do
       eligible =
         from(grant in UploadGrant,
@@ -233,18 +274,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     with :ok <- validate_grant_stage_command(command) do
       Multi.new()
       |> Multi.run(:grant, fn transaction_repo, _changes ->
-        lock_eligible_grant(
-          transaction_repo,
-          command.grant_id,
-          command.principal_id
-        )
-      end)
-      |> Multi.run(:asset, fn transaction_repo, %{grant: grant} ->
-        lock_upload_asset(transaction_repo, grant, command)
+        lock_scoped_upload_grant(transaction_repo, command.grant_id)
       end)
       |> Multi.run(
         :authorization_epochs,
-        fn transaction_repo, %{grant: grant} ->
+        fn transaction_repo, %{grant: {grant, _expired?}} ->
           authorization_epochs(
             transaction_repo,
             grant.principal_id,
@@ -254,15 +288,23 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       )
       |> Multi.run(
         :binding,
-        fn _transaction_repo, %{grant: grant, authorization_epochs: authorization_epochs} ->
+        fn _transaction_repo,
+           %{
+             grant: {grant, expired?},
+             authorization_epochs: authorization_epochs
+           } ->
           validate_grant_stage_binding(
             grant,
             command,
-            authorization_epochs
+            authorization_epochs,
+            expired?
           )
         end
       )
-      |> Multi.run(:consumed_grant, fn transaction_repo, %{grant: grant} ->
+      |> Multi.run(:asset, fn transaction_repo, %{grant: {grant, _expired?}} ->
+        lock_upload_asset(transaction_repo, grant, command)
+      end)
+      |> Multi.run(:consumed_grant, fn transaction_repo, %{grant: {grant, _expired?}} ->
         consume_locked_grant(transaction_repo, grant.id)
       end)
       |> Multi.insert(:stage, fn _changes ->
@@ -922,9 +964,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
           }
 
       case repo.all(query) do
-        [binding] -> {:ok, binding}
-        [] -> {:error, Error.new(:not_found)}
-        [_first, _second] -> {:error, Error.new(:integrity_failure)}
+        [binding] ->
+          {:ok, binding}
+
+        [] ->
+          {:error, Error.new(:not_found)}
+
+        [_first, _second] ->
+          {:error, Error.new(:integrity_failure)}
       end
     end
   rescue
@@ -937,6 +984,129 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   def authorized_object(_repo, _asset_id),
     do: {:error, Error.new(:invalid)}
+
+  @impl true
+  @spec authorized_download_descriptor(module(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def authorized_download_descriptor(repo, asset_id) when is_binary(asset_id) do
+    with :ok <- UUID.validate(asset_id) do
+      query =
+        from asset in StoredAsset,
+          join: object in AssetObject,
+          on:
+            object.id == asset.asset_object_id and
+              object.vault_id == asset.vault_id and
+              object.classification == asset.classification,
+          join: envelope in AssetKeyEnvelope,
+          on:
+            envelope.asset_object_id == object.id and
+              envelope.vault_id == object.vault_id and
+              envelope.key_domain_id == object.key_domain_id and
+              envelope.classification == object.classification,
+          join: domain_version in DomainKeyVersion,
+          on:
+            domain_version.id == envelope.domain_key_version_id and
+              domain_version.vault_id == envelope.vault_id and
+              domain_version.key_domain_id == envelope.key_domain_id,
+          left_join: metadata in AssetMetadata,
+          on: metadata.asset_id == asset.id,
+          where: asset.id == ^asset_id,
+          where:
+            fragment(
+              "core.current_principal_can_discover_classification(?)",
+              asset.classification
+            ),
+          where: asset.state in [:available, :processing, :ready],
+          where: object.lifecycle == :available,
+          where: domain_version.state == :active,
+          order_by: [desc: envelope.key_generation, desc: envelope.inserted_at],
+          limit: 2,
+          select: %{
+            asset_id: asset.id,
+            resource_version_id: asset.resource_version_id,
+            vault_id: asset.vault_id,
+            classification: asset.classification,
+            plaintext_byte_size: object.plaintext_byte_size,
+            metadata_asset_id: metadata.asset_id,
+            metadata_resource_version_id: metadata.resource_version_id,
+            metadata_vault_id: metadata.vault_id,
+            metadata_classification: metadata.classification,
+            metadata_plaintext_byte_size: metadata.plaintext_byte_size,
+            metadata_detected_media_type: metadata.detected_media_type,
+            metadata_extraction_state: metadata.extraction_state,
+            metadata_completed_at: metadata.completed_at
+          }
+
+      case repo.all(query) do
+        [binding] ->
+          download_descriptor(binding)
+
+        [] ->
+          {:error, Error.new(:not_found)}
+
+        [_first, _second] ->
+          {:error, Error.new(:integrity_failure)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def authorized_download_descriptor(_repo, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
+  defp download_descriptor(%{metadata_asset_id: nil} = binding) do
+    {:ok, safe_download_descriptor(binding, "application/octet-stream")}
+  end
+
+  defp download_descriptor(binding) do
+    if consistent_download_metadata?(binding) do
+      case binding do
+        %{
+          metadata_extraction_state: :completed,
+          metadata_completed_at: %DateTime{},
+          metadata_detected_media_type: detected_media_type
+        } ->
+          if safe_media_type?(detected_media_type),
+            do: {:ok, safe_download_descriptor(binding, detected_media_type)},
+            else: {:error, Error.new(:not_found)}
+
+        %{
+          metadata_extraction_state: :pending,
+          metadata_completed_at: nil,
+          metadata_detected_media_type: nil
+        } ->
+          {:ok, safe_download_descriptor(binding, "application/octet-stream")}
+
+        _incomplete_or_inconsistent ->
+          {:error, Error.new(:not_found)}
+      end
+    else
+      {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp consistent_download_metadata?(binding) do
+    binding.metadata_asset_id == binding.asset_id and
+      binding.metadata_resource_version_id == binding.resource_version_id and
+      binding.metadata_vault_id == binding.vault_id and
+      binding.metadata_classification == binding.classification and
+      binding.metadata_plaintext_byte_size == binding.plaintext_byte_size
+  end
+
+  defp safe_download_descriptor(binding, detected_media_type) do
+    %{
+      asset_id: binding.asset_id,
+      vault_id: binding.vault_id,
+      classification: binding.classification,
+      plaintext_byte_size: binding.plaintext_byte_size,
+      detected_media_type: detected_media_type
+    }
+  end
 
   defp begin_or_resume_metadata(repo, envelope) do
     with {:ok, asset} <- lock_job_asset(repo, envelope) do
@@ -3977,10 +4147,122 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp validate_tombstone_ids(_intent), do: {:error, Error.new(:invalid)}
 
+  defp validate_upload_grant_selector(
+         %{
+           grant_id: grant_id,
+           token_digest: token_digest,
+           csrf_token_digest: csrf_token_digest,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id,
+           request_content_length: request_content_length,
+           request_declared_media_type: request_declared_media_type
+         } = selector
+       ) do
+    with :ok <- UUID.validate([grant_id, session_id, principal_id, vault_id]),
+         true <- is_binary(token_digest) and byte_size(token_digest) == 32,
+         true <-
+           is_binary(csrf_token_digest) and byte_size(csrf_token_digest) == 32,
+         :ok <- reject_raw_upload_secrets(selector),
+         true <-
+           is_integer(request_content_length) and request_content_length >= 0 and
+             request_content_length <= @max_bigint,
+         true <- valid_text?(request_declared_media_type) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_upload_grant_selector(_selector),
+    do: {:error, Error.new(:invalid)}
+
+  defp find_upload_grant_descriptor(repo, selector) do
+    query =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^selector.grant_id and
+            grant.session_id == ^selector.session_id and
+            grant.principal_id == ^selector.principal_id and
+            grant.vault_id == ^selector.vault_id and
+            grant.principal_id ==
+              fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid") and
+            grant.vault_id ==
+              fragment("NULLIF(current_setting('singularity.vault_id', true), '')::uuid"),
+        select: {grant, fragment("? <= statement_timestamp()", grant.expires_at)}
+
+    case repo.one(query) do
+      {%UploadGrant{} = grant, expired?} -> {:ok, grant, expired?}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp validate_upload_grant_selector_binding(
+         grant,
+         selector,
+         authorization_epochs,
+         expired?
+       ) do
+    token_matches? = digest_matches?(grant.token_digest, selector.token_digest)
+
+    csrf_token_matches? =
+      digest_matches?(grant.csrf_token_digest, selector.csrf_token_digest)
+
+    authorization_matches? =
+      grant.principal_authorization_epoch ==
+        authorization_epochs.principal_authorization_epoch and
+        grant.vault_authorization_epoch ==
+          authorization_epochs.vault_authorization_epoch
+
+    cond do
+      not token_matches? or not csrf_token_matches? ->
+        {:error, Error.new(:not_found)}
+
+      not authorization_matches? ->
+        {:error, Error.new(:not_found)}
+
+      not is_nil(grant.consumed_at) ->
+        {:error, Error.new(:conflict)}
+
+      expired? ->
+        {:error, Error.new(:upload_expired)}
+
+      grant.byte_size != selector.request_content_length ->
+        {:error, Error.new(:invalid, details: %{reason: "size_mismatch"})}
+
+      grant.declared_media_type != selector.request_declared_media_type ->
+        {:error, Error.new(:unsupported_media_type)}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp upload_grant_descriptor(grant) do
+    %{
+      grant_id: grant.id,
+      session_id: grant.session_id,
+      principal_id: grant.principal_id,
+      vault_id: grant.vault_id,
+      asset_id: grant.asset_id,
+      source_reference_id: grant.source_reference_id,
+      filename: grant.filename,
+      byte_size: grant.byte_size,
+      declared_media_type: grant.declared_media_type,
+      idempotency_key: grant.idempotency_key,
+      classification: grant.classification,
+      principal_authorization_epoch: grant.principal_authorization_epoch,
+      vault_authorization_epoch: grant.vault_authorization_epoch,
+      expires_at: grant.expires_at
+    }
+  end
+
   defp validate_grant_stage_command(
          %{
            grant_id: grant_id,
            token_digest: token_digest,
+           csrf_token_digest: csrf_token_digest,
            session_id: session_id,
            principal_id: principal_id,
            vault_id: vault_id,
@@ -3988,6 +4270,8 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
            filename: filename,
            byte_size: byte_size,
            declared_media_type: declared_media_type,
+           request_content_length: request_content_length,
+           request_declared_media_type: request_declared_media_type,
            idempotency_key: idempotency_key,
            classification: classification,
            principal_authorization_epoch: principal_authorization_epoch,
@@ -4015,10 +4299,16 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
              domain_key_version_id
            ]),
          true <- is_binary(token_digest) and byte_size(token_digest) == 32,
-         false <- Map.has_key?(command, :token),
+         true <-
+           is_binary(csrf_token_digest) and byte_size(csrf_token_digest) == 32,
+         :ok <- reject_raw_upload_secrets(command),
          true <- valid_text?(filename),
          true <- is_integer(byte_size) and byte_size >= 0,
          true <- valid_text?(declared_media_type),
+         true <-
+           is_integer(request_content_length) and request_content_length >= 0 and
+             request_content_length <= @max_bigint,
+         true <- valid_text?(request_declared_media_type),
          true <- valid_text?(idempotency_key),
          true <- classification in [:private, :sensitive, :restricted],
          true <-
@@ -4041,20 +4331,20 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   defp validate_grant_stage_command(_command),
     do: {:error, Error.new(:invalid)}
 
-  defp lock_eligible_grant(repo, grant_id, principal_id) do
-    eligible =
+  defp lock_scoped_upload_grant(repo, grant_id) do
+    scoped =
       from grant in UploadGrant,
         where:
           grant.id == ^grant_id and
-            grant.principal_id == ^principal_id and
             grant.principal_id ==
               fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid") and
-            is_nil(grant.consumed_at) and
-            grant.expires_at > fragment("statement_timestamp()"),
+            grant.vault_id ==
+              fragment("NULLIF(current_setting('singularity.vault_id', true), '')::uuid"),
+        select: {grant, fragment("? <= statement_timestamp()", grant.expires_at)},
         lock: "FOR UPDATE"
 
-    case repo.one(eligible) do
-      %UploadGrant{} = grant -> {:ok, grant}
+    case repo.one(scoped) do
+      {%UploadGrant{} = grant, expired?} -> {:ok, {grant, expired?}}
       nil -> {:error, Error.new(:conflict)}
     end
   end
@@ -4062,10 +4352,17 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   defp validate_grant_stage_binding(
          grant,
          command,
-         authorization_epochs
+         authorization_epochs,
+         expired?
        ) do
-    exact_binding? =
-      digest_matches?(grant.token_digest, command.token_digest) and
+    token_matches? = digest_matches?(grant.token_digest, command.token_digest)
+
+    csrf_token_matches? =
+      digest_matches?(grant.csrf_token_digest, command.csrf_token_digest)
+
+    exact_identity_binding? =
+      token_matches? and
+        csrf_token_matches? and
         grant.id == command.grant_id and
         grant.session_id == command.session_id and
         grant.principal_id == command.principal_id and
@@ -4085,9 +4382,25 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         grant.vault_authorization_epoch ==
           authorization_epochs.vault_authorization_epoch
 
-    if exact_binding?,
-      do: {:ok, :exact},
-      else: {:error, Error.new(:conflict)}
+    cond do
+      not exact_identity_binding? ->
+        {:error, Error.new(:conflict)}
+
+      not is_nil(grant.consumed_at) ->
+        {:error, Error.new(:conflict)}
+
+      expired? ->
+        {:error, Error.new(:upload_expired)}
+
+      grant.byte_size != command.request_content_length ->
+        {:error, Error.new(:invalid, details: %{reason: "size_mismatch"})}
+
+      grant.declared_media_type != command.request_declared_media_type ->
+        {:error, Error.new(:unsupported_media_type)}
+
+      true ->
+        {:ok, :exact}
+    end
   end
 
   defp consume_locked_grant(repo, grant_id) do
@@ -4104,10 +4417,31 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         {:ok, :consumed}
 
       {0, _rows} ->
-        {:error, Error.new(:conflict)}
+        classify_grant_consume_miss(repo, grant_id)
 
       {_unexpected_count, _rows} ->
         {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp classify_grant_consume_miss(repo, grant_id) do
+    state =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^grant_id and
+            grant.principal_id ==
+              fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid") and
+            grant.vault_id ==
+              fragment("NULLIF(current_setting('singularity.vault_id', true), '')::uuid"),
+        select:
+          {not is_nil(grant.consumed_at),
+           fragment("? <= statement_timestamp()", grant.expires_at)}
+
+    case repo.one(state) do
+      {true, _expired?} -> {:error, Error.new(:conflict)}
+      {false, true} -> {:error, Error.new(:upload_expired)}
+      {false, false} -> {:error, Error.new(:conflict)}
+      nil -> {:error, Error.new(:conflict)}
     end
   end
 
@@ -4146,6 +4480,21 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp valid_text?(_value), do: false
 
+  defp safe_media_type?(value) when is_binary(value) do
+    Regex.match?(
+      ~r/\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\/[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/,
+      value
+    )
+  end
+
+  defp safe_media_type?(_value), do: false
+
+  defp reject_raw_upload_secrets(command) do
+    if Enum.any?(@raw_upload_secret_aliases, &Map.has_key?(command, &1)),
+      do: {:error, Error.new(:invalid)},
+      else: :ok
+  end
+
   defp validate_upload_grant_command(
          %{
            grant_id: grant_id,
@@ -4161,6 +4510,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
            idempotency_key: idempotency_key,
            classification: classification,
            token_digest: token_digest,
+           csrf_token_digest: csrf_token_digest,
            expires_at: expires_at,
            observed_at: observed_at
          } = command
@@ -4183,6 +4533,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
          true <- valid_text?(idempotency_key),
          true <- classification in [:private, :sensitive, :restricted],
          true <- is_binary(token_digest) and byte_size(token_digest) == 32,
+         true <-
+           is_binary(csrf_token_digest) and byte_size(csrf_token_digest) == 32,
+         :ok <- reject_raw_upload_secrets(command),
          {:ok, ^expires_at} <- Types.utc_datetime(command, :expires_at),
          {:ok, ^observed_at} <- Types.utc_datetime(command, :observed_at),
          :gt <- DateTime.compare(expires_at, observed_at) do
@@ -4491,6 +4844,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       :source_reference_id,
       :classification,
       :token_digest,
+      :csrf_token_digest,
       :filename,
       :byte_size,
       :declared_media_type,

@@ -20,6 +20,36 @@ config :phoenix, :json_library, JSON
 config :logger_json, :encoder, JSON
 config :postgrex, :json_library, JSON
 
+config :singularity_web,
+  ecto_repos: [],
+  generators: [context_app: false]
+
+config :singularity_web, Singularity.Web.Endpoint,
+  url: [host: "localhost"],
+  adapter: Bandit.PhoenixAdapter,
+  render_errors: [
+    formats: [
+      html: Singularity.Web.ErrorHTML,
+      json: Singularity.Web.ErrorJSON
+    ],
+    layout: false
+  ],
+  pubsub_server: Singularity.Web.PubSub,
+  live_view: [signing_salt: "singularity-live"]
+
+config :singularity_web, :runtime_api, Singularity.Runtime.Api
+
+config :phoenix, :filter_parameters, [
+  "password",
+  "passphrase",
+  "token",
+  "csrf",
+  "csrf_token",
+  "upload_token",
+  "x-csrf-token",
+  "x-upload-token"
+]
+
 config :logger, :default_handler,
   formatter:
     {LoggerJSON.Formatters.Basic,

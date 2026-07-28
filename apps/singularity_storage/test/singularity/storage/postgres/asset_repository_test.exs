@@ -590,6 +590,7 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      asset_id: fixture.asset_id,
                      classification: :private,
                      token_digest: :crypto.hash(:sha256, "grant-#{grant_id}"),
+                     csrf_token_digest: :crypto.hash(:sha256, "csrf-grant-#{grant_id}"),
                      filename: "evidence.bin",
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
@@ -660,6 +661,7 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      asset_id: fixture.asset_id,
                      classification: :private,
                      token_digest: :crypto.hash(:sha256, "expired-grant-#{grant_id}"),
+                     csrf_token_digest: :crypto.hash(:sha256, "csrf-expired-grant-#{grant_id}"),
                      filename: "evidence.bin",
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
@@ -713,6 +715,7 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      asset_id: fixture.asset_id,
                      classification: :private,
                      token_digest: :crypto.hash(:sha256, "expiring-grant-#{grant_id}"),
+                     csrf_token_digest: :crypto.hash(:sha256, "csrf-expiring-grant-#{grant_id}"),
                      filename: "evidence.bin",
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
@@ -750,6 +753,7 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                      asset_id: fixture.asset_id,
                      classification: :private,
                      token_digest: :crypto.hash(:sha256, "nil-consumed-at-#{grant_id}"),
+                     csrf_token_digest: :crypto.hash(:sha256, "csrf-nil-consumed-at-#{grant_id}"),
                      filename: "evidence.bin",
                      byte_size: 4,
                      declared_media_type: "application/octet-stream",
@@ -884,20 +888,45 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
   test "search projection upserts, searches, and deletes inside the vault scope", %{
     fixture: fixture
   } do
+    assert :ok =
+             scoped(fixture, fn repo ->
+               assert %{num_rows: 1} =
+                        query!(
+                          repo,
+                          """
+                          UPDATE content.assets
+                          SET
+                            state = 'uploaded',
+                            state_revision = 1,
+                            failure_code = 'storage_unavailable',
+                            retryable = true,
+                            failed_operation = 'asset_verify',
+                            attempt = 2
+                          WHERE id = $1 AND vault_id = $2
+                          """,
+                          [
+                            Ecto.UUID.dump!(fixture.asset_id),
+                            Ecto.UUID.dump!(fixture.vault_id)
+                          ]
+                        )
+
+               :ok
+             end)
+
     attrs = %{
       asset_id: fixture.asset_id,
       resource_version_id: fixture.resource_version_id,
       vault_id: fixture.vault_id,
       classification: :private,
       state: :ready,
-      detected_media_type: "application/pdf",
+      detected_media_type: nil,
       resource_title: "Quarterly Evidence",
       original_filename: "evidence.pdf"
     }
 
     assert :ok = scoped(fixture, &AssetSearchStore.upsert(&1, attrs))
 
-    assert {:ok, {[%{asset_id: asset_id, classification: :private}], :done}} =
+    assert {:ok, {[result], :done}} =
              scoped(fixture, fn repo ->
                AssetSearchStore.search(repo, %{
                  vault_id: fixture.vault_id,
@@ -906,7 +935,25 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                })
              end)
 
-    assert asset_id == fixture.asset_id
+    assert %DateTime{} = result.updated_at
+
+    assert Map.delete(result, :updated_at) == %{
+             asset_id: fixture.asset_id,
+             resource_version_id: fixture.resource_version_id,
+             vault_id: fixture.vault_id,
+             classification: :private,
+             state: :uploaded,
+             state_revision: 1,
+             detected_media_type: nil,
+             resource_title: "Quarterly Evidence",
+             original_filename: "evidence.pdf",
+             failure: %{
+               code: "storage_unavailable",
+               retryable: true,
+               operation: "asset_verify",
+               attempt: 2
+             }
+           }
 
     assert :ok =
              scoped(fixture, fn repo ->

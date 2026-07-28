@@ -97,6 +97,12 @@ defmodule Singularity.Runtime.Assets.UploadSession do
     :principal_authorization_epoch,
     :vault_authorization_epoch
   ]
+  @request_binding_fields [
+    :token_digest,
+    :csrf_token_digest,
+    :request_content_length,
+    :request_declared_media_type
+  ]
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options) do
@@ -1043,10 +1049,10 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          %DateTime{} = expires_at <- Map.get(grant, :expires_at),
          :gt <- DateTime.compare(expires_at, now),
          :ok <- validate_binding(session, grant),
+         :ok <- raw_credentials_absent(grant),
          {:ok, signature_bytes} <-
            signature_bytes(Map.get(grant, :declared_media_type)),
-         {:ok, token} <- token(Map.get(grant, :token)),
-         {:ok, consume_command} <- consume_command(grant, upload, token),
+         {:ok, consume_command} <- consume_command(grant, upload),
          {:ok, expiry_ms} <- expiry_ms(now, expires_at) do
       {:ok,
        %{
@@ -1127,25 +1133,57 @@ defmodule Singularity.Runtime.Assets.UploadSession do
     end
   end
 
-  defp consume_command(grant, upload, token) do
+  defp consume_command(grant, upload) do
     grant_id = Map.get(grant, :grant_id, Map.get(grant, :id))
 
     command =
       upload
       |> Map.take(@stage_fields)
-      |> Map.merge(Map.take(grant, @grant_fields))
+      |> Map.merge(
+        Map.take(
+          grant,
+          @grant_fields ++ @request_binding_fields
+        )
+      )
       |> Map.put(:grant_id, grant_id)
-      |> Map.put(:token_digest, :crypto.hash(:sha256, token))
 
     required =
-      [:grant_id, :token_digest] ++ @grant_fields ++ @stage_fields
+      [:grant_id] ++
+        @grant_fields ++ @request_binding_fields ++ @stage_fields
 
-    if Enum.all?(required, &concrete?(Map.get(command, &1))) do
+    valid? =
+      Enum.all?(required, &concrete?(Map.get(command, &1))) and
+        valid_digest?(command.token_digest) and
+        valid_digest?(command.csrf_token_digest) and
+        command.request_content_length == command.byte_size and
+        command.request_declared_media_type ==
+          command.declared_media_type
+
+    if valid? do
       {:ok, command}
     else
       {:error, Error.new(:invalid)}
     end
   end
+
+  defp raw_credentials_absent(grant) do
+    if Enum.all?(
+         [
+           :token,
+           "token",
+           :upload_token,
+           "upload_token",
+           :csrf_token,
+           "csrf_token"
+         ],
+         &(not Map.has_key?(grant, &1))
+       ),
+       do: :ok,
+       else: {:error, Error.new(:invalid)}
+  end
+
+  defp valid_digest?(value),
+    do: is_binary(value) and byte_size(value) == 32
 
   defp requirement(session, grant) do
     %{
@@ -1233,17 +1271,6 @@ defmodule Singularity.Runtime.Assets.UploadSession do
       _expired -> {:error, Error.new(:upload_expired)}
     end
   end
-
-  defp token(<<_::binary-size(32)>> = token), do: {:ok, token}
-
-  defp token(encoded) when is_binary(encoded) do
-    case Base.url_decode64(encoded, padding: false) do
-      {:ok, <<_::binary-size(32)>> = token} -> {:ok, token}
-      _invalid -> {:error, Error.new(:invalid)}
-    end
-  end
-
-  defp token(_invalid), do: {:error, Error.new(:invalid)}
 
   defp signature_bytes("application/pdf"), do: {:ok, 5}
   defp signature_bytes("image/jpeg"), do: {:ok, 3}

@@ -20,6 +20,24 @@ defmodule Singularity.Runtime.AssetDownloadTest do
   end
 
   defmodule Assets do
+    def authorized_download_descriptor(owner, :scoped_repo, asset_id) do
+      send(owner, {:authorized_download_descriptor, asset_id})
+
+      object = Process.get(:download_object, %{})
+
+      descriptor =
+        %{
+          asset_id: asset_id,
+          vault_id: Map.get(object, :vault_id),
+          classification: Map.get(object, :classification, :private),
+          plaintext_byte_size: Map.get(object, :plaintext_byte_size),
+          detected_media_type: Map.get(object, :detected_media_type)
+        }
+        |> Map.merge(Map.get(object, :descriptor_extras, %{}))
+
+      {:ok, descriptor}
+    end
+
     def authorized_object(owner, :scoped_repo, asset_id) do
       send(owner, {:authorized_object, asset_id})
 
@@ -34,7 +52,17 @@ defmodule Singularity.Runtime.AssetDownloadTest do
              :private
            ),
          object_id: Map.get(Process.get(:download_object, %{}), :object_id),
-         object_generation: 3
+         object_generation: 3,
+         plaintext_byte_size:
+           Map.get(
+             Process.get(:download_object, %{}),
+             :plaintext_byte_size
+           ),
+         detected_media_type:
+           Map.get(
+             Process.get(:download_object, %{}),
+             :detected_media_type
+           )
        }}
     end
   end
@@ -71,7 +99,9 @@ defmodule Singularity.Runtime.AssetDownloadTest do
   setup do
     Process.put(:download_object, %{
       vault_id: @vault_id,
-      object_id: @object_id
+      object_id: @object_id,
+      plaintext_byte_size: 19,
+      detected_media_type: "application/pdf"
     })
 
     on_exit(fn ->
@@ -118,6 +148,65 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     assert audit.target_type == "asset"
     assert audit.target_id == @asset_id
     assert audit.metadata == %{}
+  end
+
+  test "describes only the authoritative plaintext size and safe detected media type" do
+    runtime = runtime()
+    session = session()
+
+    assert {:ok,
+            %{
+              plaintext_byte_size: 19,
+              detected_media_type: "application/pdf"
+            } = descriptor} =
+             Download.describe(runtime, session, @asset_id)
+
+    assert map_size(descriptor) == 2
+    assert_receive {:scope, ^runtime, ^session, _requirement}
+    assert_receive {:authorized_download_descriptor, @asset_id}
+    refute_received {:authorized_object, @asset_id}
+    refute_received {:lease, _request}
+    refute_received {:read, _lease, _range}
+  end
+
+  test "allows the safe generic media fallback before extraction completes" do
+    Process.put(:download_object, %{
+      vault_id: @vault_id,
+      object_id: @object_id,
+      plaintext_byte_size: 19,
+      detected_media_type: "application/octet-stream"
+    })
+
+    assert {:ok,
+            %{
+              plaintext_byte_size: 19,
+              detected_media_type: "application/octet-stream"
+            }} =
+             Download.describe(runtime(), session(), @asset_id)
+
+    assert_receive {:authorized_download_descriptor, @asset_id}
+    refute_received {:authorized_object, @asset_id}
+  end
+
+  test "rejects otherwise-valid download descriptors containing custody fields" do
+    Process.put(:download_object, %{
+      vault_id: @vault_id,
+      object_id: @object_id,
+      plaintext_byte_size: 19,
+      detected_media_type: "application/pdf",
+      descriptor_extras: %{
+        object_id: @object_id,
+        storage_ref: "must-not-cross-runtime-boundary"
+      }
+    })
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             Download.describe(runtime(), session(), @asset_id)
+
+    assert_receive {:authorized_download_descriptor, @asset_id}
+    refute_received {:authorized_object, @asset_id}
+    refute_received {:lease, _request}
+    refute_received {:read, _lease, _range}
   end
 
   test "maps unavailable custody to the stable locked result without reading" do

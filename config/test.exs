@@ -1,5 +1,13 @@
 import Config
 
+config :singularity_web, Singularity.Web.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4002],
+  secret_key_base:
+    "test-secret-key-base-for-singularity-web-vault-shell-00000000000000000000000000000",
+  server: false
+
+config :logger, level: :warning
+
 test_run_id =
   System.get_env("SINGULARITY_TEST_RUN_ID", "default")
   |> String.replace(~r/[^[:alnum:]_]/u, "_")

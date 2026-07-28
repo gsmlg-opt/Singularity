@@ -5,6 +5,8 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
   alias Singularity.Runtime.Assets.CreateUploadGrant
   alias Singularity.Runtime.SessionContext
 
+  @csrf_token "exact-issued-csrf-token"
+
   defmodule Scope do
     def with_shared_request(owner, _runtime, _session, requirement, callback) do
       send(owner, {:requirement, requirement})
@@ -35,7 +37,12 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
     }
 
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert grant.token == Base.url_encode64(token, padding: false)
     assert DateTime.diff(grant.expires_at, now, :second) == 300
@@ -53,6 +60,11 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
     assert command.principal_id == session.principal_id
     assert command.vault_id == session.vault_id
     assert command.token_digest == :crypto.hash(:sha256, token)
+
+    assert command.csrf_token_digest ==
+             :crypto.hash(:sha256, @csrf_token)
+
+    refute Map.has_key?(command, :csrf_token)
     assert command.filename == "report.pdf"
     assert command.byte_size == 12
     assert command.declared_media_type == "application/pdf"
@@ -75,7 +87,12 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
     }
 
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, attrs())
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               attrs(),
+               @csrf_token
+             )
 
     assert grant.expires_at == session.expires_at
   end
@@ -93,7 +110,8 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
              CreateUploadGrant.run(
                runtime,
                session(),
-               %{attrs() | declared_media_type: "text/plain"}
+               %{attrs() | declared_media_type: "text/plain"},
+               @csrf_token
              )
 
     refute_received {:requirement, _}
@@ -115,7 +133,8 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
                session(),
                attrs()
                |> Map.put(:size, 512 * 1024 * 1024 + 1)
-               |> Map.put(:max_bytes, 1024 * 1024 * 1024)
+               |> Map.put(:max_bytes, 1024 * 1024 * 1024),
+               @csrf_token
              )
 
     refute_received {:requirement, _}
@@ -135,7 +154,8 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
              CreateUploadGrant.run(
                runtime,
                %{session() | expires_at: nil},
-               attrs()
+               attrs(),
+               @csrf_token
              )
 
     refute_received {:requirement, _}

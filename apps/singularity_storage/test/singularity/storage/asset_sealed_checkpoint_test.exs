@@ -368,6 +368,7 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
 
   defp open_stage!(fixture) do
     token = :crypto.strong_rand_bytes(32)
+    csrf_token = :crypto.strong_rand_bytes(32)
     observed_at = DateTime.utc_now(:microsecond)
 
     grant_command = %{
@@ -384,6 +385,7 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
       idempotency_key: "sealed-checkpoint-#{Ecto.UUID.generate()}",
       classification: :private,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, csrf_token),
       expires_at: DateTime.add(observed_at, 300, :second),
       observed_at: observed_at
     }
@@ -396,6 +398,7 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
     stage_command = %{
       grant_id: grant.id,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, csrf_token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,
@@ -403,6 +406,8 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
       filename: grant.filename,
       byte_size: grant.byte_size,
       declared_media_type: grant.declared_media_type,
+      request_content_length: grant.byte_size,
+      request_declared_media_type: grant.declared_media_type,
       idempotency_key: grant.idempotency_key,
       classification: grant.classification,
       principal_authorization_epoch: grant.principal_authorization_epoch,

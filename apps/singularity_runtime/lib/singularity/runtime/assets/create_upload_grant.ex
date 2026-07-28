@@ -8,11 +8,12 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
 
   @grant_ttl_seconds 300
 
-  @spec run(map(), SessionContext.t(), map()) ::
+  @spec run(map(), SessionContext.t(), map(), binary()) ::
           {:ok, map()} | {:error, Error.t()}
-  def run(runtime, %SessionContext{} = session, attrs)
-      when is_map(runtime) and is_map(attrs) do
+  def run(runtime, %SessionContext{} = session, attrs, csrf_token)
+      when is_map(runtime) and is_map(attrs) and is_binary(csrf_token) do
     with {:ok, adapters} <- adapters(runtime),
+         {:ok, csrf_token_digest} <- csrf_token_digest(csrf_token),
          {:ok, request} <-
            attrs
            |> Map.put(:max_bytes, max_upload_bytes())
@@ -44,6 +45,7 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
                    idempotency_key: request.idempotency_key,
                    classification: request.classification,
                    token_digest: :crypto.hash(:sha256, token),
+                   csrf_token_digest: csrf_token_digest,
                    expires_at: expires_at,
                    observed_at: now
                  }
@@ -59,6 +61,11 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
+  def run(_runtime, _session, _attrs, _csrf_token),
+    do: {:error, Error.new(:invalid)}
+
+  @spec run(map(), SessionContext.t(), map()) ::
+          {:error, Error.t()}
   def run(_runtime, _session, _attrs), do: {:error, Error.new(:invalid)}
 
   defp requirement(request) do
@@ -85,6 +92,13 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
       _invalid -> {:error, Error.new(:storage_unavailable)}
     end
   end
+
+  defp csrf_token_digest(csrf_token)
+       when byte_size(csrf_token) > 0 and byte_size(csrf_token) <= 1_024,
+       do: {:ok, :crypto.hash(:sha256, csrf_token)}
+
+  defp csrf_token_digest(_csrf_token),
+    do: {:error, Error.new(:invalid)}
 
   defp ids(id_generator) do
     ids = %{

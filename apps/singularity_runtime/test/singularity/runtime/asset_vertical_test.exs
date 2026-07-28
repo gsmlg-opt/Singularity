@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.AssetVerticalTest do
   use Singularity.Storage.DataCase, async: false
 
   @moduletag :integration
+  @csrf_token "asset-vertical-csrf-token"
 
   alias Singularity.Core.JobEnvelope
   alias Singularity.Core.ObjectRef
@@ -147,7 +148,12 @@ defmodule Singularity.Runtime.AssetVerticalTest do
       1..2
       |> Task.async_stream(
         fn _attempt ->
-          CreateUploadGrant.run(runtime, session, grant_request)
+          CreateUploadGrant.run(
+            runtime,
+            session,
+            grant_request,
+            @csrf_token
+          )
         end,
         max_concurrency: 2,
         timeout: 5_000
@@ -164,7 +170,12 @@ defmodule Singularity.Runtime.AssetVerticalTest do
              )
 
     assert {:ok, upload} =
-             AcceptUpload.begin(runtime, session, grant, self())
+             AcceptUpload.begin(
+               runtime,
+               session,
+               digest_bound_grant(grant),
+               self()
+             )
 
     assert :ok = UploadSession.append(upload, plaintext)
 
@@ -296,10 +307,20 @@ defmodule Singularity.Runtime.AssetVerticalTest do
     }
 
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
-             AcceptUpload.begin(runtime, session, grant, self())
+             AcceptUpload.begin(
+               runtime,
+               session,
+               digest_bound_grant(grant),
+               self()
+             )
 
     assert :ok = UploadSession.append(upload, plaintext)
 
@@ -994,6 +1015,24 @@ defmodule Singularity.Runtime.AssetVerticalTest do
       {:ok, uuid} -> uuid
       :error -> value
     end
+  end
+
+  defp digest_bound_grant(grant) do
+    {:ok, token} =
+      Base.url_decode64(grant.token, padding: false)
+
+    grant
+    |> Map.delete(:token)
+    |> Map.put(:token_digest, :crypto.hash(:sha256, token))
+    |> Map.put(
+      :csrf_token_digest,
+      :crypto.hash(:sha256, @csrf_token)
+    )
+    |> Map.put(:request_content_length, grant.byte_size)
+    |> Map.put(
+      :request_declared_media_type,
+      grant.declared_media_type
+    )
   end
 
   defp vertical_storage_root do

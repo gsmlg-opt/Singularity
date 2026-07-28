@@ -155,6 +155,7 @@ defmodule Singularity.Storage.Task12MigrationDowngradeTest do
           asset_id,
           classification,
           token_digest,
+          csrf_token_digest,
           filename,
           byte_size,
           declared_media_type,
@@ -163,8 +164,8 @@ defmodule Singularity.Storage.Task12MigrationDowngradeTest do
           vault_authorization_epoch,
           expires_at
         ) VALUES (
-          $1, $2, $3, $4, $5, 'private', $6, 'open.pdf', 12,
-          'application/pdf', $7, 0, 0, CURRENT_TIMESTAMP + interval '5 minutes'
+          $1, $2, $3, $4, $5, 'private', $6, $7, 'open.pdf', 12,
+          'application/pdf', $8, 0, 0, CURRENT_TIMESTAMP + interval '5 minutes'
         )
         """,
         [
@@ -173,6 +174,7 @@ defmodule Singularity.Storage.Task12MigrationDowngradeTest do
           fixture.session_id,
           fixture.principal_id,
           fixture.asset_id,
+          :crypto.strong_rand_bytes(32),
           :crypto.strong_rand_bytes(32),
           "downgrade-open-stage-#{Ecto.UUID.generate()}"
         ]

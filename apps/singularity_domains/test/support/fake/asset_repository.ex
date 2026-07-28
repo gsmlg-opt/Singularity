@@ -29,6 +29,20 @@ defmodule Fake.AssetRepository do
   end
 
   @impl true
+  def load_upload_grant_descriptor(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{state | calls: [{:load_upload_grant_descriptor, intent} | state.calls]}
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
+  def authorized_download_descriptor(context, asset_id) do
+    record_passthrough(context, :authorized_download_descriptor, asset_id)
+  end
+
+  @impl true
   def create_upload_intent(context, intent) do
     Agent.get_and_update(repository(context), fn state ->
       state = %{

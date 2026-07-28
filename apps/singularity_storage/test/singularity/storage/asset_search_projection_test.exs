@@ -224,7 +224,7 @@ defmodule Singularity.Storage.AssetSearchProjectionTest do
     assert after_rebuild.resource_version_id == fixture.resource_version_id
   end
 
-  test "canonical rebuild keeps a logically deleted asset out of search", %{
+  test "canonical state keeps a logically deleted asset out of stale search results", %{
     fixture: fixture,
     raw_fixture: raw_fixture
   } do
@@ -238,10 +238,8 @@ defmodule Singularity.Storage.AssetSearchProjectionTest do
       )
     end)
 
-    assert {:ok, {[stale], :done}} =
+    assert {:ok, {[], :done}} =
              search(fixture, %{query: "annual", state: :ready})
-
-    assert stale.asset_id == fixture.asset_id
 
     assert :ok =
              scoped(fixture, fn repo ->

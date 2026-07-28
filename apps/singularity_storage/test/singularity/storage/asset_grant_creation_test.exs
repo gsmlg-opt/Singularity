@@ -2,9 +2,18 @@ defmodule Singularity.Storage.AssetGrantCreationTest do
   use Singularity.Storage.DataCase, async: false
 
   @moduletag :integration
+  @raw_secret_aliases [
+    :token,
+    :upload_token,
+    :csrf_token,
+    "token",
+    "upload_token",
+    "csrf_token"
+  ]
 
   alias Singularity.Core.Error
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Schema.Content.UploadGrant
   alias Singularity.Storage.ScopedRepo
@@ -27,6 +36,7 @@ defmodule Singularity.Storage.AssetGrantCreationTest do
     assert grant.id == command.grant_id
     assert grant.asset_id == command.asset_id
     assert grant.token_digest == command.token_digest
+    assert Map.fetch!(grant, :csrf_token_digest) == command.csrf_token_digest
 
     scoped(fixture, fn repo ->
       assert %UploadGrant{} = stored = repo.get!(UploadGrant, command.grant_id)
@@ -41,6 +51,7 @@ defmodule Singularity.Storage.AssetGrantCreationTest do
       assert stored.idempotency_key == command.idempotency_key
       assert stored.classification == command.classification
       assert stored.token_digest == command.token_digest
+      assert Map.fetch!(stored, :csrf_token_digest) == command.csrf_token_digest
       assert stored.expires_at == command.expires_at
       assert stored.consumed_at == nil
 
@@ -115,6 +126,182 @@ defmodule Singularity.Storage.AssetGrantCreationTest do
 
       :ok
     end)
+  end
+
+  test "rejects raw upload and CSRF tokens before persistence", %{fixture: fixture} do
+    for raw_field <- @raw_secret_aliases do
+      command =
+        fixture
+        |> grant_command()
+        |> Map.put(raw_field, :crypto.strong_rand_bytes(32))
+
+      assert {:error, %Error{code: :invalid}} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.create_upload_grant(repo, command)
+               end)
+
+      scoped(fixture, fn repo ->
+        assert repo.get(UploadGrant, command.grant_id) == nil
+        :ok
+      end)
+    end
+  end
+
+  test "loads a scoped canonical descriptor without secret digests", %{fixture: fixture} do
+    command = grant_command(fixture)
+
+    assert {:ok, grant} =
+             scoped(fixture, fn repo ->
+               AssetRepository.create_upload_grant(repo, command)
+             end)
+
+    context = grant_selector(grant, command)
+
+    assert {:ok,
+            %{
+              grant_id: grant_id,
+              session_id: session_id,
+              principal_id: principal_id,
+              vault_id: vault_id,
+              asset_id: asset_id,
+              filename: filename,
+              byte_size: byte_size,
+              declared_media_type: declared_media_type,
+              classification: classification,
+              expires_at: %DateTime{}
+            } = descriptor} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(repo, context)
+             end)
+
+    assert grant_id == grant.id
+    assert session_id == command.session_id
+    assert principal_id == command.principal_id
+    assert vault_id == command.vault_id
+    assert asset_id == command.asset_id
+    assert filename == command.filename
+    assert byte_size == command.byte_size
+    assert declared_media_type == command.declared_media_type
+    assert classification == command.classification
+    refute Map.has_key?(descriptor, :token_digest)
+    refute Map.has_key?(descriptor, :csrf_token_digest)
+
+    for raw_field <- @raw_secret_aliases do
+      assert {:error, %Error{code: :invalid}} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.load_upload_grant_descriptor(
+                   repo,
+                   Map.put(context, raw_field, :crypto.strong_rand_bytes(32))
+                 )
+               end)
+    end
+
+    opaque_failures = [
+      %{context | token_digest: :crypto.strong_rand_bytes(32)},
+      %{context | csrf_token_digest: :crypto.strong_rand_bytes(32)},
+      %{context | session_id: Ecto.UUID.generate()}
+    ]
+
+    for changed <- opaque_failures do
+      assert {:error, %Error{code: :not_found}} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.load_upload_grant_descriptor(repo, changed)
+               end)
+    end
+
+    assert {:error,
+            %Error{
+              code: :invalid,
+              details: %{reason: "size_mismatch"}
+            }} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(
+                 repo,
+                 %{context | request_content_length: context.request_content_length + 1}
+               )
+             end)
+
+    assert {:error, %Error{code: :unsupported_media_type}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(
+                 repo,
+                 %{context | request_declared_media_type: "image/png"}
+               )
+             end)
+  end
+
+  test "only exact live credentials observe a consumed grant conflict", %{fixture: fixture} do
+    command = grant_command(fixture)
+
+    assert {:ok, grant} =
+             scoped(fixture, fn repo ->
+               AssetRepository.create_upload_grant(repo, command)
+             end)
+
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 UPDATE content.upload_grants
+                 SET consumed_at = statement_timestamp()
+                 WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(grant.id)]
+               )
+    end)
+
+    selector = grant_selector(grant, command)
+
+    assert {:error, %Error{code: :conflict}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(repo, selector)
+             end)
+
+    assert_lifecycle_hidden_from_wrong_bindings!(fixture, selector)
+    advance_principal_authorization_epoch!(fixture)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(repo, selector)
+             end)
+  end
+
+  test "only exact live credentials observe a database-expired grant", %{fixture: fixture} do
+    command = grant_command(fixture)
+
+    assert {:ok, grant} =
+             scoped(fixture, fn repo ->
+               AssetRepository.create_upload_grant(repo, command)
+             end)
+
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 UPDATE content.upload_grants
+                 SET expires_at = statement_timestamp() - interval '1 second'
+                 WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(grant.id)]
+               )
+    end)
+
+    selector = grant_selector(grant, command)
+
+    assert {:error, %Error{code: :upload_expired}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(repo, selector)
+             end)
+
+    assert_lifecycle_hidden_from_wrong_bindings!(fixture, selector)
+    advance_principal_authorization_epoch!(fixture)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.load_upload_grant_descriptor(repo, selector)
+             end)
   end
 
   test "changed metadata under the same idempotency key conflicts without partial rows", %{
@@ -332,9 +519,53 @@ defmodule Singularity.Storage.AssetGrantCreationTest do
       idempotency_key: "grant-create-#{Ecto.UUID.generate()}",
       classification: :private,
       token_digest: :crypto.hash(:sha256, :crypto.strong_rand_bytes(32)),
+      csrf_token_digest: :crypto.hash(:sha256, :crypto.strong_rand_bytes(32)),
       expires_at: DateTime.add(now, 300, :second),
       observed_at: now
     }
+  end
+
+  defp grant_selector(grant, command) do
+    %{
+      grant_id: grant.id,
+      token_digest: command.token_digest,
+      csrf_token_digest: command.csrf_token_digest,
+      session_id: grant.session_id,
+      principal_id: grant.principal_id,
+      vault_id: grant.vault_id,
+      request_content_length: command.byte_size,
+      request_declared_media_type: command.declared_media_type
+    }
+  end
+
+  defp assert_lifecycle_hidden_from_wrong_bindings!(fixture, selector) do
+    changed_bindings = [
+      %{selector | token_digest: :crypto.strong_rand_bytes(32)},
+      %{selector | csrf_token_digest: :crypto.strong_rand_bytes(32)},
+      %{selector | session_id: Ecto.UUID.generate()}
+    ]
+
+    for changed <- changed_bindings do
+      assert {:error, %Error{code: :not_found}} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.load_upload_grant_descriptor(repo, changed)
+               end)
+    end
+  end
+
+  defp advance_principal_authorization_epoch!(fixture) do
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 UPDATE identity.principals
+                 SET authorization_epoch = authorization_epoch + 1
+                 WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(fixture.principal_id)]
+               )
+    end)
   end
 
   defp scoped(fixture, callback) do

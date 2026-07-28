@@ -16,6 +16,7 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
     field :source_reference_id, Ecto.UUID
     field :classification, Ecto.Enum, values: [:private, :sensitive, :restricted]
     field :token_digest, :binary
+    field :csrf_token_digest, :binary
     field :filename, :string
     field :byte_size, :integer
     field :declared_media_type, :string
@@ -38,6 +39,7 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
       :source_reference_id,
       :classification,
       :token_digest,
+      :csrf_token_digest,
       :filename,
       :byte_size,
       :declared_media_type,
@@ -54,6 +56,7 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
       :asset_id,
       :classification,
       :token_digest,
+      :csrf_token_digest,
       :filename,
       :byte_size,
       :declared_media_type,
@@ -77,6 +80,7 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
     )
     |> check_constraint(:classification, name: :upload_grants_classification_check)
     |> check_constraint(:token_digest, name: :upload_grants_token_digest_check)
+    |> check_constraint(:csrf_token_digest, name: :upload_grants_csrf_token_digest_check)
     |> check_constraint(:byte_size, name: :upload_grants_byte_size_check)
     |> check_constraint(:principal_authorization_epoch,
       name: :upload_grants_principal_authorization_epoch_check

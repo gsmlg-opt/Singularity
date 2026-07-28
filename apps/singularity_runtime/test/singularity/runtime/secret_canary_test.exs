@@ -23,6 +23,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   @password "CANARY_PASSWORD_8e4a"
   @audit_fingerprint_secret "CANARY_AUDIT_FINGERPRINT_SECRET_32B"
   @upload_token "CANARY_UPLOAD_TOKEN_6b21_1234567"
+  @csrf_token "CANARY_CSRF_c091"
   @backup_passphrase "CANARY_BACKUP_1d0c"
   @vault_key "CANARY_VAULT_KEY_d112_1234567890"
   @domain_key "CANARY_DOMAIN_KEY_a477_123456789"
@@ -32,7 +33,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     password: @password,
     audit_fingerprint_secret: @audit_fingerprint_secret,
     upload_token: @upload_token,
-    csrf_token: "CANARY_CSRF_c091",
+    csrf_token: @csrf_token,
     vault_key: @vault_key,
     domain_key: @domain_key,
     dek: "CANARY_DEK_f862",
@@ -576,7 +577,16 @@ defmodule Singularity.Runtime.SecretCanaryTest do
 
     logs =
       capture_log(fn ->
-        send(self(), {:upload_result, CreateUploadGrant.run(runtime, session, attrs)})
+        send(
+          self(),
+          {:upload_result,
+           CreateUploadGrant.run(
+             runtime,
+             session,
+             attrs,
+             @csrf_token
+           )}
+        )
       end)
 
     assert_receive {:upload_surface, :entropy, @upload_token} = entropy
@@ -586,14 +596,21 @@ defmodule Singularity.Runtime.SecretCanaryTest do
 
     assert encoded_token == Base.url_encode64(@upload_token, padding: false)
     assert command.token_digest == :crypto.hash(:sha256, @upload_token)
+
+    assert command.csrf_token_digest ==
+             :crypto.hash(:sha256, @csrf_token)
+
     refute Map.has_key?(command, :token)
+    refute Map.has_key?(command, :csrf_token)
 
     assert Canary.leaks(entropy, @upload_token) == [{[2], @upload_token}]
     assert Canary.leaks(result, @upload_token) != []
     assert Canary.leaks(result, @upload_token, [[1, :token]]) == []
+    assert Canary.leaks(result, @csrf_token) == []
 
     for surface <- [scope, persistence, logs] do
       assert Canary.leaks(surface, @upload_token) == []
+      assert Canary.leaks(surface, @csrf_token) == []
     end
   end
 

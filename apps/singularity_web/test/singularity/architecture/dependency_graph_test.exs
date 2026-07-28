@@ -53,6 +53,26 @@ defmodule Singularity.Architecture.DependencyGraphTest do
     end)
   end
 
+  test "web production source references only Runtime.Api and Runtime DTOs" do
+    runtime_references =
+      @repo_root
+      |> Path.join("apps/singularity_web/lib/**/*.{ex,exs,heex}")
+      |> Path.wildcard()
+      |> Enum.flat_map(fn path ->
+        path
+        |> File.read!()
+        |> then(&Regex.scan(~r/\bSingularity\.Runtime(?:\.[A-Z][A-Za-z0-9_]*)+/, &1))
+        |> List.flatten()
+      end)
+      |> Enum.uniq()
+
+    assert Enum.all?(runtime_references, fn reference ->
+             reference == "Singularity.Runtime.Api" or
+               String.starts_with?(reference, "Singularity.Runtime.Api.") or
+               String.starts_with?(reference, "Singularity.Runtime.DTO.")
+           end)
+  end
+
   test "web source rejects forbidden modules in grouped aliases" do
     source = "alias Singularity.{Core, Runtime}"
 

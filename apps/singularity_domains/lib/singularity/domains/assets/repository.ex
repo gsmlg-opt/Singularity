@@ -16,6 +16,10 @@ defmodule Singularity.Domains.Assets.Repository do
               {:ok, map()} | {:error, Error.t()}
   @callback create_upload_grant(context(), intent()) ::
               {:ok, map()} | {:error, Error.t()}
+  @callback load_upload_grant_descriptor(context(), intent()) ::
+              {:ok, map()} | {:error, Error.t()}
+  @callback authorized_download_descriptor(context(), String.t()) ::
+              {:ok, map()} | {:error, Error.t()}
   @callback consume_upload_grant(context(), intent()) ::
               {:ok, map()} | {:error, Error.t()}
   @callback consume_grant_and_create_stage(context(), intent()) ::

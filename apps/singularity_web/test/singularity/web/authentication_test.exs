@@ -1,0 +1,192 @@
+defmodule Singularity.Web.AuthenticationTest do
+  use Singularity.Web.ConnCase, async: false
+
+  describe "browser authentication" do
+    test "unauthenticated routes redirect to login", %{conn: conn} do
+      for path <- ~w(/vault/unlock /assets /activity /audit /backups /settings) do
+        response = get(conn, path)
+        assert redirected_to(response) == "/login"
+      end
+    end
+
+    test "authenticated locked routes redirect to vault unlock", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "opaque-session" => {:ok, session(false)}
+      })
+
+      for path <- ~w(/assets /activity /audit /backups /settings) do
+        response = conn |> put_session_id("opaque-session") |> get(path)
+        assert redirected_to(response) == "/vault/unlock"
+      end
+    end
+
+    test "authenticated unlocked routes render the vault shell", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "opaque-session" => {:ok, session(true)}
+      })
+
+      for path <- ~w(/assets /activity /audit /backups /settings) do
+        response = conn |> put_session_id("opaque-session") |> get(path)
+        assert html_response(response, 200) =~ "<main>"
+      end
+    end
+
+    test "login stores only the opaque session id and never renders credentials", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      password = "PASSWORD_CANARY_84f4"
+
+      TestRuntimeApi.put(
+        runtime_api,
+        :login,
+        {:ok, "opaque-session", session(false)}
+      )
+
+      response =
+        post(conn, "/login", %{
+          "login" => "owner@example.test",
+          "password" => password
+        })
+
+      assert redirected_to(response) == "/vault/unlock"
+      assert get_session(response) == %{"session_id" => "opaque-session"}
+      refute response.resp_body =~ password
+      refute response.resp_body =~ "owner@example.test"
+
+      assert Enum.any?(TestRuntimeApi.calls(runtime_api), fn
+               {:login, attrs} ->
+                 attrs.source == "127.0.0.1" and
+                   not Map.has_key?(attrs, :correlation_id) and
+                   not Map.has_key?(attrs, :request_id)
+
+               _other ->
+                 false
+             end)
+    end
+
+    test "browser mutations reject missing CSRF before calling runtime", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      conn =
+        update_in(
+          conn.private,
+          &Map.delete(&1, :plug_skip_csrf_protection)
+        )
+
+      assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+        post(conn, "/login", %{
+          "login" => "owner@example.test",
+          "password" => "secret"
+        })
+      end
+
+      refute Enum.any?(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:login, _attrs}, &1)
+             )
+    end
+
+    test "logout revokes the resolved session and clears the cookie", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      current_session = session(true)
+
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "opaque-session" => {:ok, current_session}
+      })
+
+      response =
+        conn
+        |> put_session_id("opaque-session")
+        |> delete("/logout")
+
+      assert redirected_to(response) == "/login"
+      assert get_session(response, "session_id") == nil
+
+      assert Enum.any?(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:logout, ^current_session}, &1)
+             )
+    end
+
+    test "unlock delegates the password and redirects only after runtime success", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      locked_session = session(false)
+      unlocked_session = %{locked_session | unlocked?: true}
+
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "opaque-session" => {:ok, locked_session}
+      })
+
+      TestRuntimeApi.put(runtime_api, :unlock, {:ok, unlocked_session})
+
+      {conn, csrf_token} =
+        conn
+        |> put_session_id("opaque-session")
+        |> put_issued_csrf()
+
+      response =
+        conn
+        |> update_in(
+          [Access.key!(:private)],
+          &Map.delete(&1, :plug_skip_csrf_protection)
+        )
+        |> post("/vault/unlock", %{
+          "_csrf_token" => csrf_token,
+          "password" => "unlock-password"
+        })
+
+      assert redirected_to(response) == "/assets"
+
+      assert Enum.any?(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:unlock, ^locked_session, "unlock-password"}, &1)
+             )
+    end
+  end
+
+  describe "API authentication" do
+    test "unauthenticated API requests return stable JSON and never redirect", %{conn: conn} do
+      response = get(conn, "/api/v1/assets/asset-1/content")
+
+      assert response.status == 401
+      assert get_resp_header(response, "location") == []
+
+      assert json_response(response, 401) == %{
+               "error" => %{"code" => "unauthenticated"}
+             }
+    end
+
+    test "locked API requests return stable JSON and never redirect", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "opaque-session" => {:ok, session(false)}
+      })
+
+      response =
+        conn
+        |> put_session_id("opaque-session")
+        |> get("/api/v1/assets/asset-1/content")
+
+      assert response.status == 403
+      assert get_resp_header(response, "location") == []
+
+      assert json_response(response, 403) == %{
+               "error" => %{"code" => "vault_locked"}
+             }
+    end
+  end
+end

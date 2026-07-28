@@ -915,6 +915,7 @@ defmodule Singularity.Runtime.AssetVerificationFinalizationTest do
       idempotency_key: "verify-#{Ecto.UUID.generate()}",
       classification: :private,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, "verification-csrf-token"),
       expires_at: DateTime.add(observed_at, 300, :second),
       observed_at: observed_at
     }
@@ -927,6 +928,9 @@ defmodule Singularity.Runtime.AssetVerificationFinalizationTest do
     stage_command = %{
       grant_id: grant.id,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, "verification-csrf-token"),
+      request_content_length: grant.byte_size,
+      request_declared_media_type: grant.declared_media_type,
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

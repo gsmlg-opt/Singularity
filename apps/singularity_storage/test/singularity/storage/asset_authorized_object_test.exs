@@ -30,7 +30,7 @@ defmodule Singularity.Storage.AssetAuthorizedObjectTest do
               classification: :private,
               object_id: object_id,
               object_generation: 3
-            }} =
+            } = binding} =
              scoped(fixture, fn repo ->
                AssetRepository.authorized_object(repo, fixture.asset_id)
              end)
@@ -38,6 +38,146 @@ defmodule Singularity.Storage.AssetAuthorizedObjectTest do
     assert asset_id == fixture.asset_id
     assert vault_id == fixture.vault_id
     assert object_id == object.object_id
+
+    assert Map.keys(binding) |> Enum.sort() ==
+             [:asset_id, :classification, :object_generation, :object_id, :vault_id]
+  end
+
+  test "returns a completed download descriptor without custody fields", %{
+    fixture: fixture
+  } do
+    assert {:ok,
+            %{
+              asset_id: asset_id,
+              vault_id: vault_id,
+              classification: :private,
+              plaintext_byte_size: 12,
+              detected_media_type: "application/pdf"
+            } = descriptor} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+
+    assert asset_id == fixture.asset_id
+    assert vault_id == fixture.vault_id
+
+    assert Map.keys(descriptor) |> Enum.sort() ==
+             [
+               :asset_id,
+               :classification,
+               :detected_media_type,
+               :plaintext_byte_size,
+               :vault_id
+             ]
+  end
+
+  test "uses an application/octet-stream fallback when metadata is absent", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "DELETE FROM content.asset_metadata WHERE asset_id = $1",
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    assert {:ok, %{asset_id: asset_id}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_object(repo, fixture.asset_id)
+             end)
+
+    assert asset_id == fixture.asset_id
+
+    assert {:ok,
+            %{
+              asset_id: descriptor_asset_id,
+              vault_id: vault_id,
+              classification: :private,
+              plaintext_byte_size: 12,
+              detected_media_type: "application/octet-stream"
+            } = descriptor} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+
+    assert descriptor_asset_id == fixture.asset_id
+    assert vault_id == fixture.vault_id
+    assert map_size(descriptor) == 5
+  end
+
+  test "inconsistent metadata receives no download descriptor", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE content.asset_metadata
+        SET plaintext_byte_size = plaintext_byte_size + 1
+        WHERE asset_id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+  end
+
+  test "unsafe detected metadata receives no download descriptor", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE content.asset_metadata
+        SET detected_media_type = E'application/pdf\\nX-Unsafe: yes'
+        WHERE asset_id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+  end
+
+  test "consistently bound pending metadata uses the safe fallback", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE content.asset_metadata
+        SET extraction_state = 'pending', detected_media_type = NULL, completed_at = NULL
+        WHERE asset_id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    assert {:ok,
+            %{
+              asset_id: asset_id,
+              vault_id: vault_id,
+              classification: :private,
+              plaintext_byte_size: 12,
+              detected_media_type: "application/octet-stream"
+            } = descriptor} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+
+    assert asset_id == fixture.asset_id
+    assert vault_id == fixture.vault_id
+    assert map_size(descriptor) == 5
   end
 
   test "other vaults and non-downloadable states receive no object binding", %{
@@ -47,6 +187,11 @@ defmodule Singularity.Storage.AssetAuthorizedObjectTest do
     assert {:error, %Error{code: :not_found}} =
              scoped(other, fn repo ->
                AssetRepository.authorized_object(repo, fixture.asset_id)
+             end)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(other, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
              end)
 
     Fixtures.with_owner(fn ->
@@ -65,6 +210,58 @@ defmodule Singularity.Storage.AssetAuthorizedObjectTest do
              scoped(fixture, fn repo ->
                AssetRepository.authorized_object(repo, fixture.asset_id)
              end)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+             end)
+  end
+
+  test "download descriptors accept existing canonical object states", %{
+    fixture: fixture
+  } do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE content.asset_metadata
+        SET extraction_state = 'pending', detected_media_type = NULL, completed_at = NULL
+        WHERE asset_id = $1
+        """,
+        [Ecto.UUID.dump!(fixture.asset_id)]
+      )
+    end)
+
+    for {state, revision} <- [{"processing", 4}, {"ready", 5}] do
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          """
+          UPDATE content.assets
+          SET state = $2, state_revision = $3
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(fixture.asset_id), state, revision]
+        )
+      end)
+
+      assert {:ok, %{asset_id: asset_id}} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.authorized_object(repo, fixture.asset_id)
+               end)
+
+      assert asset_id == fixture.asset_id
+
+      assert {:ok,
+              %{
+                asset_id: ^asset_id,
+                detected_media_type: "application/octet-stream",
+                plaintext_byte_size: 12
+              }} =
+               scoped(fixture, fn repo ->
+                 AssetRepository.authorized_download_descriptor(repo, fixture.asset_id)
+               end)
+    end
   end
 
   defp insert_available_object!(raw_fixture) do
@@ -188,6 +385,36 @@ defmodule Singularity.Storage.AssetAuthorizedObjectTest do
         WHERE id = $1
         """,
         [raw_fixture.asset_id, Ecto.UUID.dump!(object_id)]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.asset_metadata (
+          id,
+          asset_id,
+          resource_version_id,
+          vault_id,
+          classification,
+          projection_version,
+          original_filename,
+          declared_media_type,
+          detected_media_type,
+          plaintext_byte_size,
+          extraction_state,
+          completed_at
+        ) VALUES (
+          $1, $2, $3, $4, 'private', 1, 'evidence.pdf',
+          'application/octet-stream', 'application/pdf', 12, 'completed',
+          CURRENT_TIMESTAMP
+        )
+        """,
+        [
+          Ecto.UUID.dump!(Ecto.UUID.generate()),
+          raw_fixture.asset_id,
+          raw_fixture.resource_version_id,
+          raw_fixture.vault_id
+        ]
       )
     end)
 

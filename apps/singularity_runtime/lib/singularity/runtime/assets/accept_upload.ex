@@ -9,8 +9,10 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
 
   alias Singularity.Core.Error
   alias Singularity.Runtime.KeyCustodian
+  alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
   alias Singularity.Runtime.UploadSessionSupervisor
+  alias Singularity.Storage.Postgres.AssetRepository
 
   @binding_fields [
     :grant_id,
@@ -22,6 +24,62 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
     :vault_authorization_epoch,
     :classification
   ]
+  @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
+
+  @spec load_grant_descriptor(map(), SessionContext.t(), map()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def load_grant_descriptor(
+        runtime,
+        %SessionContext{} = session,
+        selector
+      )
+      when is_map(runtime) and is_map(selector) do
+    with :ok <- validate_selector(session, selector),
+         {:ok, adapters} <- descriptor_adapters(runtime) do
+      case load_descriptor(
+             adapters,
+             runtime,
+             session,
+             selector,
+             :private
+           ) do
+        {:ok, %{classification: :private}} = result ->
+          result
+
+        {:ok, %{classification: classification} = discovered}
+        when classification in [:sensitive, :restricted] ->
+          with {:ok, reloaded} <-
+                 load_descriptor(
+                   adapters,
+                   runtime,
+                   session,
+                   selector,
+                   classification
+                 ),
+               true <- reloaded == discovered do
+            {:ok, reloaded}
+          else
+            false -> {:error, Error.new(:conflict)}
+            {:error, %Error{}} = error -> error
+            _invalid -> {:error, Error.new(:integrity_failure)}
+          end
+
+        result ->
+          result
+      end
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  rescue
+    _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  catch
+    _kind, _reason ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def load_grant_descriptor(_runtime, _session, _selector),
+    do: {:error, Error.new(:invalid)}
 
   @spec begin(map(), SessionContext.t(), map(), pid()) ::
           {:ok, pid()} | {:error, Error.t()}
@@ -32,7 +90,8 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
         controller
       )
       when is_map(runtime) and is_map(grant) and is_pid(controller) do
-    with {:ok, normalized_grant} <- normalize_grant(grant),
+    with :ok <- raw_credentials_absent(grant),
+         {:ok, normalized_grant} <- normalize_grant(grant),
          :ok <- validate_binding(session, normalized_grant),
          {:ok, adapters} <- adapters(runtime),
          request = Map.take(normalized_grant, @binding_fields),
@@ -91,10 +150,35 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
          true <-
            valid_epoch?(Map.get(grant, :principal_authorization_epoch)),
          true <- valid_epoch?(Map.get(grant, :vault_authorization_epoch)) do
-      {:ok, Map.put(grant, :grant_id, grant_id)}
+      validate_request_binding(Map.put(grant, :grant_id, grant_id))
     else
       false -> {:error, Error.new(:invalid)}
     end
+  end
+
+  defp validate_request_binding(grant) do
+    valid? =
+      valid_digest?(Map.get(grant, :token_digest)) and
+        valid_digest?(Map.get(grant, :csrf_token_digest)) and
+        valid_content_length?(Map.get(grant, :request_content_length)) and
+        Map.get(grant, :request_declared_media_type) in @safe_media_types
+
+    if valid?, do: {:ok, grant}, else: {:error, Error.new(:invalid)}
+  end
+
+  defp validate_selector(session, selector) do
+    valid? =
+      raw_credential_fields_absent?(selector) and session.unlocked? and
+        valid_uuid?(Map.get(selector, :grant_id)) and
+        Map.get(selector, :session_id) == session.session_id and
+        Map.get(selector, :principal_id) == session.principal_id and
+        Map.get(selector, :vault_id) == session.vault_id and
+        valid_digest?(Map.get(selector, :token_digest)) and
+        valid_digest?(Map.get(selector, :csrf_token_digest)) and
+        valid_content_length?(Map.get(selector, :request_content_length)) and
+        Map.get(selector, :request_declared_media_type) in @safe_media_types
+
+    if valid?, do: :ok, else: {:error, Error.new(:invalid)}
   end
 
   defp validate_binding(session, grant) do
@@ -122,6 +206,96 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
     else
       {:error, Error.new(:invalid)}
     end
+  end
+
+  defp descriptor_adapters(runtime) do
+    values = %{
+      assets: Map.get(runtime, :assets, AssetRepository),
+      operation_scope: Map.get(runtime, :operation_scope, OperationScope)
+    }
+
+    if Enum.all?(Map.values(values), &concrete?/1),
+      do: {:ok, values},
+      else: {:error, Error.new(:invalid)}
+  end
+
+  defp load_descriptor(
+         adapters,
+         runtime,
+         session,
+         selector,
+         classification
+       ) do
+    call_adapter(adapters.operation_scope, :with_read_request, [
+      runtime,
+      session,
+      %{
+        vault_id: session.vault_id,
+        required_capability: "asset.write",
+        classification: classification,
+        requires_unlocked?: true
+      },
+      fn repo ->
+        call_adapter(
+          adapters.assets,
+          :load_upload_grant_descriptor,
+          [repo, selector]
+        )
+      end
+    ])
+    |> normalize_descriptor_result()
+  end
+
+  defp normalize_descriptor_result({:ok, descriptor})
+       when is_map(descriptor) do
+    if credential_fields_absent?(descriptor) and
+         Map.get(descriptor, :classification) in [
+           :private,
+           :sensitive,
+           :restricted
+         ] do
+      {:ok, descriptor}
+    else
+      {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp normalize_descriptor_result({:error, %Error{}} = error), do: error
+
+  defp normalize_descriptor_result(_result),
+    do: {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+  defp raw_credentials_absent(grant) do
+    if raw_credential_fields_absent?(grant),
+      do: :ok,
+      else: {:error, Error.new(:invalid)}
+  end
+
+  defp raw_credential_fields_absent?(value) do
+    Enum.all?(
+      [
+        :token,
+        "token",
+        :upload_token,
+        "upload_token",
+        :csrf_token,
+        "csrf_token"
+      ],
+      &(not Map.has_key?(value, &1))
+    )
+  end
+
+  defp credential_fields_absent?(descriptor) do
+    raw_credential_fields_absent?(descriptor) and
+      Enum.all?(
+        [
+          :token_digest,
+          "token_digest",
+          :csrf_token_digest,
+          "csrf_token_digest"
+        ],
+        &(not Map.has_key?(descriptor, &1))
+      )
   end
 
   defp discard(custodian, %{material_ref: material_ref})
@@ -163,6 +337,20 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
   defp compatible_id?(value, grant_id), do: value == grant_id
 
   defp valid_epoch?(value), do: is_integer(value) and value >= 0
+  defp valid_digest?(value), do: is_binary(value) and byte_size(value) == 32
+
+  defp valid_content_length?(value),
+    do:
+      is_integer(value) and value >= 0 and
+        value <= max_upload_bytes()
+
+  defp max_upload_bytes do
+    Application.get_env(
+      :singularity_runtime,
+      :max_upload_bytes,
+      512 * 1024 * 1024
+    )
+  end
 
   defp call_adapter(module, function, arguments)
        when is_atom(module) and not is_nil(module) do

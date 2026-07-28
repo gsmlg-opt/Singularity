@@ -11,6 +11,20 @@ defmodule Singularity.Runtime.AcceptUploadTest do
   @grant_id "00000000-0000-4000-8000-000000000304"
   @asset_id "00000000-0000-4000-8000-000000000305"
 
+  defmodule Scope do
+    def with_read_request(owner, runtime, session, requirement, callback) do
+      send(owner, {:scope, runtime, session, requirement})
+      callback.(:repo)
+    end
+  end
+
+  defmodule Assets do
+    def load_upload_grant_descriptor(owner, :repo, selector) do
+      send(owner, {:load_upload_grant_descriptor, selector})
+      {:ok, Process.get(:upload_grant_descriptor)}
+    end
+  end
+
   defmodule Custodian do
     def prepare_upload(owner, request) do
       send(owner, {:prepare_upload, request})
@@ -78,6 +92,10 @@ defmodule Singularity.Runtime.AcceptUploadTest do
     assert controller == self()
     assert internal_grant.id == @grant_id
     assert is_reference(internal_grant.upload.material_ref)
+    assert internal_grant.token_digest == :binary.copy(<<0xD1>>, 32)
+    assert internal_grant.csrf_token_digest == :binary.copy(<<0xD2>>, 32)
+    assert internal_grant.request_content_length == 12
+    assert internal_grant.request_declared_media_type == "application/pdf"
     refute Map.has_key?(internal_grant.upload, :object_dek)
     refute Map.has_key?(internal_grant.upload, :domain_dedup_key)
     refute_received {:discard_upload, _material_ref}
@@ -120,6 +138,159 @@ defmodule Singularity.Runtime.AcceptUploadTest do
     refute_received {:begin_upload, _runtime, _session, _grant, _controller}
   end
 
+  test "rejects raw credential fields before custody instead of sanitizing them" do
+    for field <- [:token, :upload_token, :csrf_token] do
+      assert {:error, %Error{code: :invalid}} =
+               AcceptUpload.begin(
+                 runtime(),
+                 session(),
+                 Map.put(grant(), field, "RAW_CREDENTIAL_CANARY"),
+                 self()
+               )
+    end
+
+    refute_received {:prepare_upload, _request}
+    refute_received {:begin_upload, _runtime, _session, _grant, _controller}
+  end
+
+  test "loads the canonical descriptor with the complete digest-only selector before custody" do
+    selector = %{
+      grant_id: @grant_id,
+      session_id: @session_id,
+      principal_id: @principal_id,
+      vault_id: @vault_id,
+      token_digest: :binary.copy(<<0xD1>>, 32),
+      csrf_token_digest: :binary.copy(<<0xD2>>, 32),
+      request_content_length: 12,
+      request_declared_media_type: "application/pdf"
+    }
+
+    Process.put(:upload_grant_descriptor, descriptor())
+    on_exit(fn -> Process.delete(:upload_grant_descriptor) end)
+
+    runtime = %{
+      assets: {Assets, self()},
+      operation_scope: {Scope, self()}
+    }
+
+    assert {:ok, descriptor} =
+             AcceptUpload.load_grant_descriptor(
+               runtime,
+               session(),
+               selector
+             )
+
+    assert descriptor.grant_id == @grant_id
+
+    assert_receive {:scope, ^runtime, _session,
+                    %{
+                      required_capability: "asset.write",
+                      classification: :private,
+                      requires_unlocked?: true
+                    }}
+
+    assert_receive {:load_upload_grant_descriptor, ^selector}
+  end
+
+  test "reauthorizes a non-private descriptor and compares an exact reload" do
+    Process.put(
+      :upload_grant_descriptor,
+      %{descriptor() | classification: :sensitive}
+    )
+
+    on_exit(fn -> Process.delete(:upload_grant_descriptor) end)
+
+    selector = %{
+      grant_id: @grant_id,
+      session_id: @session_id,
+      principal_id: @principal_id,
+      vault_id: @vault_id,
+      token_digest: :binary.copy(<<0xD1>>, 32),
+      csrf_token_digest: :binary.copy(<<0xD2>>, 32),
+      request_content_length: 12,
+      request_declared_media_type: "application/pdf"
+    }
+
+    runtime = %{
+      assets: {Assets, self()},
+      operation_scope: {Scope, self()}
+    }
+
+    assert {:ok, %{classification: :sensitive}} =
+             AcceptUpload.load_grant_descriptor(
+               runtime,
+               session(),
+               selector
+             )
+
+    assert_receive {:scope, ^runtime, _session, %{classification: :private}}
+    assert_receive {:scope, ^runtime, _session, %{classification: :sensitive}}
+    assert_receive {:load_upload_grant_descriptor, ^selector}
+    assert_receive {:load_upload_grant_descriptor, ^selector}
+  end
+
+  test "fails closed if a descriptor leaks credential material" do
+    on_exit(fn -> Process.delete(:upload_grant_descriptor) end)
+
+    selector = %{
+      grant_id: @grant_id,
+      session_id: @session_id,
+      principal_id: @principal_id,
+      vault_id: @vault_id,
+      token_digest: :binary.copy(<<0xD1>>, 32),
+      csrf_token_digest: :binary.copy(<<0xD2>>, 32),
+      request_content_length: 12,
+      request_declared_media_type: "application/pdf"
+    }
+
+    for {field, value} <- [
+          token: "RAW_TOKEN_CANARY",
+          token_digest: :binary.copy(<<0xD1>>, 32),
+          csrf_token_digest: :binary.copy(<<0xD2>>, 32)
+        ] do
+      Process.put(
+        :upload_grant_descriptor,
+        Map.put(descriptor(), field, value)
+      )
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               AcceptUpload.load_grant_descriptor(
+                 %{
+                   assets: {Assets, self()},
+                   operation_scope: {Scope, self()}
+                 },
+                 session(),
+                 selector
+               )
+    end
+  end
+
+  test "rejects raw credential fields in a descriptor selector before repo access" do
+    selector = %{
+      grant_id: @grant_id,
+      session_id: @session_id,
+      principal_id: @principal_id,
+      vault_id: @vault_id,
+      token_digest: :binary.copy(<<0xD1>>, 32),
+      csrf_token_digest: :binary.copy(<<0xD2>>, 32),
+      request_content_length: 12,
+      request_declared_media_type: "application/pdf",
+      token: "RAW_TOKEN_CANARY"
+    }
+
+    assert {:error, %Error{code: :invalid}} =
+             AcceptUpload.load_grant_descriptor(
+               %{
+                 assets: {Assets, self()},
+                 operation_scope: {Scope, self()}
+               },
+               session(),
+               selector
+             )
+
+    refute_received {:scope, _runtime, _session, _requirement}
+  end
+
   defp runtime do
     %{
       custodian: {Custodian, self()},
@@ -150,7 +321,15 @@ defmodule Singularity.Runtime.AcceptUploadTest do
       vault_id: @vault_id,
       classification: :private,
       principal_authorization_epoch: 7,
-      vault_authorization_epoch: 11
+      vault_authorization_epoch: 11,
+      token_digest: :binary.copy(<<0xD1>>, 32),
+      csrf_token_digest: :binary.copy(<<0xD2>>, 32),
+      request_content_length: 12,
+      request_declared_media_type: "application/pdf"
     }
+  end
+
+  defp descriptor do
+    Map.drop(grant(), [:token_digest, :csrf_token_digest])
   end
 end

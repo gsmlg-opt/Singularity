@@ -20,6 +20,7 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
   @resource_version_id "00000000-0000-4000-8000-000000000110"
   @storage_ref "00000000-0000-4000-8000-000000000111"
   @raw_token "CANARY_UPLOAD_TOKEN_6b21_1234567"
+  @csrf_token "CANARY_CSRF_TOKEN_7c32"
 
   defmodule RequestRepo do
     def checkout(test, callback) do
@@ -224,16 +225,26 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     end
   end
 
-  test "initialized upload state retains neither raw nor encoded grant tokens" do
+  test "initialized upload state accepts only digests and retains no raw credentials" do
     encoded_token = Base.url_encode64(@raw_token, padding: false)
 
-    raw_state = initial_state(@raw_token)
-    encoded_state = initial_state(encoded_token)
+    state = initial_state()
 
-    for state <- [raw_state, encoded_state],
-        secret <- [@raw_token, encoded_token] do
+    for secret <- [@raw_token, encoded_token, @csrf_token] do
       refute retained_binary?(state, secret)
     end
+
+    assert state.consume_command.token_digest ==
+             :crypto.hash(:sha256, @raw_token)
+
+    assert state.consume_command.csrf_token_digest ==
+             :crypto.hash(:sha256, @csrf_token)
+
+    assert state.consume_command.request_content_length ==
+             byte_size("%PDF-pinned")
+
+    assert state.consume_command.request_declared_media_type ==
+             "application/pdf"
   end
 
   test "pins both locks across streaming and acknowledges finish only after the second commit" do
@@ -261,6 +272,16 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     refute Map.has_key?(consume_command, :token)
     refute inspect(consume_command, limit: :infinity) =~ @raw_token
     assert consume_command.token_digest == :crypto.hash(:sha256, @raw_token)
+
+    assert consume_command.csrf_token_digest ==
+             :crypto.hash(:sha256, @csrf_token)
+
+    assert consume_command.request_content_length ==
+             byte_size("%PDF-pinned")
+
+    assert consume_command.request_declared_media_type ==
+             "application/pdf"
+
     assert consume_command.stage_id == @stage_id
     assert consume_command.candidate_object_id == @object_id
     refute Map.has_key?(consume_command, :object_dek)
@@ -543,12 +564,12 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     )
   end
 
-  defp initial_state(token) do
+  defp initial_state do
     assert {:ok, state} =
              UploadSession.initial_state(
                runtime: runtime(),
                session: session_context(),
-               grant: Map.put(grant(), :token, token),
+               grant: grant(),
                owner: self(),
                storage: storage(self()),
                upload: upload_material()
@@ -616,7 +637,10 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     %{
       id: @grant_id,
       grant_id: @grant_id,
-      token: @raw_token,
+      token_digest: :crypto.hash(:sha256, @raw_token),
+      csrf_token_digest: :crypto.hash(:sha256, @csrf_token),
+      request_content_length: byte_size("%PDF-pinned"),
+      request_declared_media_type: "application/pdf",
       session_id: @session_id,
       principal_id: @principal_id,
       vault_id: @vault_id,
@@ -820,7 +844,10 @@ defmodule Singularity.Runtime.UploadSessionRealLockTest do
     %{
       id: ids.grant_id,
       grant_id: ids.grant_id,
-      token: :binary.copy(<<0xC7>>, 32),
+      token_digest: :crypto.hash(:sha256, :binary.copy(<<0xC7>>, 32)),
+      csrf_token_digest: :crypto.hash(:sha256, "real-lock-csrf-token"),
+      request_content_length: byte_size("%PDF-real-lock"),
+      request_declared_media_type: "application/pdf",
       session_id: ids.session_id,
       principal_id: ids.principal_id,
       vault_id: ids.vault_id,

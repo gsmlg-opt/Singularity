@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
   use Singularity.Storage.DataCase, async: false
 
   @moduletag :integration
+  @csrf_token "asset-failure-recovery-csrf-token"
 
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
@@ -791,13 +792,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       )
 
     assert {:ok, first_grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
              AcceptUpload.begin(
                faulting_runtime,
                session,
-               first_grant,
+               digest_bound_grant(first_grant),
                self()
              )
 
@@ -855,7 +861,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     end)
 
     assert {:ok, replacement_grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     refute replacement_grant.id == first_grant.id
     assert replacement_grant.asset_id == first_grant.asset_id
@@ -895,13 +906,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     request = upload_request(fixture, :custody_revoked, plaintext)
 
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
              AcceptUpload.begin(
                runtime,
                session,
-               grant,
+               digest_bound_grant(grant),
                self()
              )
 
@@ -974,13 +990,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     faulting_runtime = Map.put(runtime, :stage_writer, {AfterStageSyncWriter, gate})
 
     assert {:ok, first_grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
              AcceptUpload.begin(
                faulting_runtime,
                session,
-               first_grant,
+               digest_bound_grant(first_grant),
                self()
              )
 
@@ -1034,13 +1055,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       )
 
     assert {:ok, first_grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
              AcceptUpload.begin(
                faulting_runtime,
                session,
-               first_grant,
+               digest_bound_grant(first_grant),
                self()
              )
 
@@ -1094,13 +1120,18 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       )
 
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     assert {:ok, upload} =
              AcceptUpload.begin(
                faulting_runtime,
                session,
-               grant,
+               digest_bound_grant(grant),
                self()
              )
 
@@ -1128,7 +1159,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
              })
 
     assert {:error, %Singularity.Core.Error{code: :conflict}} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     available =
       verify_and_finalize!(
@@ -1700,7 +1736,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     )
 
     assert {:ok, replacement_grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     refute replacement_grant.id == first_grant.id
     assert replacement_grant.asset_id == first_grant.asset_id
@@ -1739,7 +1780,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
          plaintext
        ) do
     assert {:ok, grant} =
-             CreateUploadGrant.run(runtime, session, request)
+             CreateUploadGrant.run(
+               runtime,
+               session,
+               request,
+               @csrf_token
+             )
 
     uploaded = complete_upload!(runtime, session, grant, plaintext)
 
@@ -2174,7 +2220,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
 
   defp complete_upload!(runtime, session, grant, plaintext) do
     assert {:ok, upload} =
-             AcceptUpload.begin(runtime, session, grant, self())
+             AcceptUpload.begin(
+               runtime,
+               session,
+               digest_bound_grant(grant),
+               self()
+             )
 
     assert :ok = UploadSession.append(upload, plaintext)
 
@@ -2827,5 +2878,23 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       {:ok, uuid} -> uuid
       :error -> value
     end
+  end
+
+  defp digest_bound_grant(grant) do
+    {:ok, token} =
+      Base.url_decode64(grant.token, padding: false)
+
+    grant
+    |> Map.delete(:token)
+    |> Map.put(:token_digest, :crypto.hash(:sha256, token))
+    |> Map.put(
+      :csrf_token_digest,
+      :crypto.hash(:sha256, @csrf_token)
+    )
+    |> Map.put(:request_content_length, grant.byte_size)
+    |> Map.put(
+      :request_declared_media_type,
+      grant.declared_media_type
+    )
   end
 end

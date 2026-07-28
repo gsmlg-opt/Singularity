@@ -1,5 +1,14 @@
 import Config
 
+config :singularity_web, Singularity.Web.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4000],
+  check_origin: false,
+  code_reloader: false,
+  debug_errors: true,
+  secret_key_base:
+    "dev-secret-key-base-for-singularity-web-vault-shell-000000000000000000000000000000",
+  server: true
+
 config :singularity_storage,
   backup_root:
     System.get_env(

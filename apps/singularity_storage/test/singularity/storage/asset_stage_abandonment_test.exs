@@ -196,6 +196,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
              end)
 
     replacement_token = :crypto.strong_rand_bytes(32)
+    replacement_csrf_token = :crypto.strong_rand_bytes(32)
 
     replacement_command =
       upload.grant_command
@@ -204,6 +205,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
         asset_id: Ecto.UUID.generate(),
         source_reference_id: Ecto.UUID.generate(),
         token_digest: :crypto.hash(:sha256, replacement_token),
+        csrf_token_digest: :crypto.hash(:sha256, replacement_csrf_token),
         expires_at: DateTime.add(DateTime.utc_now(:microsecond), 300, :second)
       })
 
@@ -267,6 +269,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
       |> Map.merge(%{
         grant_id: replacement.id,
         token_digest: :crypto.hash(:sha256, replacement_token),
+        csrf_token_digest: :crypto.hash(:sha256, replacement_csrf_token),
         stage_id: Ecto.UUID.generate(),
         candidate_object_id: Ecto.UUID.generate(),
         storage_ref: Ecto.UUID.generate(),
@@ -354,6 +357,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
 
   defp open_stage!(fixture) do
     token = :crypto.strong_rand_bytes(32)
+    csrf_token = :crypto.strong_rand_bytes(32)
     observed_at = DateTime.utc_now(:microsecond)
 
     grant_command = %{
@@ -370,6 +374,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
       idempotency_key: "stage-abandonment-#{Ecto.UUID.generate()}",
       classification: :private,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, csrf_token),
       expires_at: DateTime.add(observed_at, 300, :second),
       observed_at: observed_at
     }
@@ -382,6 +387,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
     stage_command = %{
       grant_id: grant.id,
       token_digest: :crypto.hash(:sha256, token),
+      csrf_token_digest: :crypto.hash(:sha256, csrf_token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,
@@ -389,6 +395,8 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
       filename: grant.filename,
       byte_size: grant.byte_size,
       declared_media_type: grant.declared_media_type,
+      request_content_length: grant.byte_size,
+      request_declared_media_type: grant.declared_media_type,
       idempotency_key: grant.idempotency_key,
       classification: grant.classification,
       principal_authorization_epoch: grant.principal_authorization_epoch,

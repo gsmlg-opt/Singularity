@@ -15,10 +15,12 @@ defmodule Singularity.Domains.AssetsTest do
 
   @asset_repository_callbacks [
     acknowledge_finalization: 2,
+    authorized_download_descriptor: 2,
     consume_grant_and_create_stage: 2,
     consume_upload_grant: 2,
     create_upload_grant: 2,
     create_upload_intent: 2,
+    load_upload_grant_descriptor: 2,
     mark_stage_abandoned: 2,
     prepare_verification: 2,
     record_job_failure: 3,
