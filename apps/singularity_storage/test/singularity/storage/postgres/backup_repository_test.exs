@@ -81,6 +81,17 @@ defmodule Singularity.Storage.Postgres.BackupRepositoryTest do
 
       assert metadata == %{}
       assert load!(target_id) == command.manifest_id
+
+      assert_persisted_audit!(
+        repo,
+        "backup.requested",
+        [correlation_id: command.correlation_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "backup_manifest",
+        target_id: command.manifest_id
+      )
+
       :ok
     end)
 

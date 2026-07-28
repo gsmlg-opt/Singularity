@@ -3,7 +3,11 @@ defmodule Singularity.Storage.ScopedRepoTest do
 
   @moduletag :integration
 
+  import Ecto.Query
+
   alias Singularity.Storage.ScopedRepo
+  alias Singularity.Storage.SafeSQL
+  alias Singularity.Storage.Schema.Content.Asset
 
   setup do
     principal_id = Ecto.UUID.generate()
@@ -108,6 +112,61 @@ defmodule Singularity.Storage.ScopedRepoTest do
         )
       end
     end)
+  end
+
+  test "database boundaries suppress raw query telemetry and emit only safe RLS denials" do
+    request_raw_event = [:singularity, :storage, :request_repo, :query]
+    worker_raw_event = [:singularity, :storage, :worker_repo, :query]
+    safe_event = [:singularity, :authorization, :rls_denial]
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [request_raw_event, worker_raw_event, safe_event],
+        fn event, measurements, metadata, owner ->
+          send(owner, {:database_telemetry, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    canary = "CANARY_DATABASE_TELEMETRY_SECRET_f12a"
+
+    assert %{rows: [[^canary]]} =
+             SafeSQL.query!(RequestRepo, "SELECT $1::text", [canary])
+
+    assert [] =
+             RequestRepo.all(
+               from asset in Asset,
+                 where: false
+             )
+
+    refute_receive {:database_telemetry, ^request_raw_event, _, _}
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
+             SafeSQL.query(
+               WorkerRepo,
+               "SELECT * FROM identity.people",
+               []
+             )
+
+    assert_receive {:database_telemetry, ^safe_event, %{count: 1}, metadata}
+    refute_receive {:database_telemetry, ^worker_raw_event, _, _}
+    assert metadata == %{repo: :worker}
+    refute inspect(metadata) =~ canary
+
+    assert_raise Postgrex.Error, fn ->
+      WorkerRepo.transaction(fn ->
+        WorkerRepo
+        |> SafeSQL.stream("SELECT * FROM identity.people")
+        |> Enum.to_list()
+      end)
+    end
+
+    assert_receive {:database_telemetry, ^safe_event, %{count: 1}, %{repo: :worker}}
+    refute_receive {:database_telemetry, ^worker_raw_event, _, _}
   end
 
   defp assert_context_absent!(repo) do

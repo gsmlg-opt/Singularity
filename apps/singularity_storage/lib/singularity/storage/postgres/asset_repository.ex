@@ -33,6 +33,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Storage.Schema.Jobs.EffectReceipt
   alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.Postgres.UUID
+  alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.Postgres.AssetSearchStore
 
   @max_bigint 9_223_372_036_854_775_807
@@ -230,8 +231,6 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   @impl true
   def consume_grant_and_create_stage(repo, command) when is_map(command) do
     with :ok <- validate_grant_stage_command(command) do
-      token_digest = :crypto.hash(:sha256, command.token)
-
       Multi.new()
       |> Multi.run(:grant, fn transaction_repo, _changes ->
         lock_eligible_grant(
@@ -259,7 +258,6 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
           validate_grant_stage_binding(
             grant,
             command,
-            token_digest,
             authorization_epochs
           )
         end
@@ -3979,29 +3977,31 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp validate_tombstone_ids(_intent), do: {:error, Error.new(:invalid)}
 
-  defp validate_grant_stage_command(%{
-         grant_id: grant_id,
-         token: token,
-         session_id: session_id,
-         principal_id: principal_id,
-         vault_id: vault_id,
-         asset_id: asset_id,
-         filename: filename,
-         byte_size: byte_size,
-         declared_media_type: declared_media_type,
-         idempotency_key: idempotency_key,
-         classification: classification,
-         principal_authorization_epoch: principal_authorization_epoch,
-         vault_authorization_epoch: vault_authorization_epoch,
-         stage_id: stage_id,
-         candidate_object_id: candidate_object_id,
-         key_domain_id: key_domain_id,
-         domain_key_version_id: domain_key_version_id,
-         storage_ref: storage_ref,
-         wrapper_algorithm: wrapper_algorithm,
-         key_generation: key_generation,
-         dek_wrapper: dek_wrapper
-       }) do
+  defp validate_grant_stage_command(
+         %{
+           grant_id: grant_id,
+           token_digest: token_digest,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id,
+           asset_id: asset_id,
+           filename: filename,
+           byte_size: byte_size,
+           declared_media_type: declared_media_type,
+           idempotency_key: idempotency_key,
+           classification: classification,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch,
+           stage_id: stage_id,
+           candidate_object_id: candidate_object_id,
+           key_domain_id: key_domain_id,
+           domain_key_version_id: domain_key_version_id,
+           storage_ref: storage_ref,
+           wrapper_algorithm: wrapper_algorithm,
+           key_generation: key_generation,
+           dek_wrapper: dek_wrapper
+         } = command
+       ) do
     with :ok <-
            UUID.validate([
              grant_id,
@@ -4014,7 +4014,8 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
              key_domain_id,
              domain_key_version_id
            ]),
-         true <- is_binary(token) and byte_size(token) == 32,
+         true <- is_binary(token_digest) and byte_size(token_digest) == 32,
+         false <- Map.has_key?(command, :token),
          true <- valid_text?(filename),
          true <- is_integer(byte_size) and byte_size >= 0,
          true <- valid_text?(declared_media_type),
@@ -4061,11 +4062,10 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   defp validate_grant_stage_binding(
          grant,
          command,
-         token_digest,
          authorization_epochs
        ) do
     exact_binding? =
-      digest_matches?(grant.token_digest, token_digest) and
+      digest_matches?(grant.token_digest, command.token_digest) and
         grant.id == command.grant_id and
         grant.session_id == command.session_id and
         grant.principal_id == command.principal_id and
@@ -4199,7 +4199,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   defp lock_upload_grant_idempotency(repo, command) do
     lock_key = command.vault_id <> ":" <> command.idempotency_key
 
-    case Ecto.Adapters.SQL.query(
+    case SafeSQL.query(
            repo,
            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
            [lock_key],
@@ -4328,7 +4328,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   defp validate_server_expiry(repo, expires_at) do
-    case Ecto.Adapters.SQL.query(
+    case SafeSQL.query(
            repo,
            "SELECT $1::timestamptz > statement_timestamp()",
            [expires_at],
@@ -4530,7 +4530,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   defp authorization_epochs(repo, principal_id, vault_id) do
     with {:ok, dumped_principal_id} <- UUID.dump(principal_id),
          {:ok, dumped_vault_id} <- UUID.dump(vault_id) do
-      case Ecto.Adapters.SQL.query(
+      case SafeSQL.query(
              repo,
              """
              SELECT

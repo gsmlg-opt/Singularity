@@ -65,6 +65,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   alias Singularity.Ingest.UploadRequest
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.Assets.UploadSession.MessageStream
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Storage.AuthorizationLock
   alias Singularity.Storage.EncryptedStageWriter
   alias Singularity.Storage.Postgres.AssetRepository
@@ -148,7 +149,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
     do: call(session, {:abandon, reason}, timeout)
 
   defp run(options) do
-    case state(options) do
+    case initial_state(options) do
       {:ok, state} ->
         state = monitor_lifecycle(state)
 
@@ -666,13 +667,31 @@ defmodule Singularity.Runtime.Assets.UploadSession do
 
   defp acknowledge_sealed(state, sealed) do
     with {:ok, checkpoint} <- checkpoint(state, sealed) do
-      transact_authorized(state, state.repo, fn scoped_repo ->
-        call_adapter(state.adapters.assets, :record_sealed_stage, [
-          scoped_repo,
-          checkpoint
-        ])
-        |> normalize_repository_result()
-      end)
+      result =
+        transact_authorized(state, state.repo, fn scoped_repo ->
+          call_adapter(state.adapters.assets, :record_sealed_stage, [
+            scoped_repo,
+            checkpoint
+          ])
+          |> normalize_repository_result()
+        end)
+
+      case result do
+        {:ok, _uploaded} ->
+          Telemetry.execute(
+            [:upload, :stop],
+            %{
+              bytes: checkpoint.plaintext_byte_size,
+              duration: System.monotonic_time() - state.telemetry_started_at
+            },
+            %{result: :ok}
+          )
+
+          result
+
+        _failure ->
+          result
+      end
     end
   end
 
@@ -1001,7 +1020,10 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   defp checkpoint(_state, _sealed),
     do: {:error, Error.new(:integrity_failure)}
 
-  defp state(options) do
+  @doc false
+  @spec initial_state(keyword()) ::
+          {:ok, map()} | {:error, Error.t(), pid() | nil}
+  def initial_state(options) do
     owner = Keyword.get(options, :owner)
 
     with runtime when is_map(runtime) <- Keyword.get(options, :runtime),
@@ -1033,7 +1055,6 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          expires_at: expires_at,
          expiry_ms: expiry_ms,
          expiry_timer: nil,
-         grant: grant,
          declared_media_type: Map.get(grant, :declared_media_type),
          magic_prefix: "",
          media_validated?: false,
@@ -1046,6 +1067,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          stage: nil,
          storage: storage,
          pending_magic_chunks: [],
+         telemetry_started_at: System.monotonic_time(),
          upload: upload,
          custody: :direct,
          writer: nil,
@@ -1113,10 +1135,10 @@ defmodule Singularity.Runtime.Assets.UploadSession do
       |> Map.take(@stage_fields)
       |> Map.merge(Map.take(grant, @grant_fields))
       |> Map.put(:grant_id, grant_id)
-      |> Map.put(:token, token)
+      |> Map.put(:token_digest, :crypto.hash(:sha256, token))
 
     required =
-      [:grant_id, :token] ++ @grant_fields ++ @stage_fields
+      [:grant_id, :token_digest] ++ @grant_fields ++ @stage_fields
 
     if Enum.all?(required, &concrete?(Map.get(command, &1))) do
       {:ok, command}

@@ -10,6 +10,7 @@ defmodule Singularity.Runtime.AssetDownloadTest do
   @vault_id "00000000-0000-4000-8000-000000000403"
   @asset_id "00000000-0000-4000-8000-000000000404"
   @object_id "00000000-0000-4000-8000-000000000405"
+  @correlation_id "00000000-0000-4000-8000-000000000406"
 
   defmodule Scope do
     def with_read_request(owner, runtime, session, requirement, callback) do
@@ -56,6 +57,17 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     end
   end
 
+  defmodule Audit do
+    def append(owner, repo, event) do
+      send(owner, {:audit, repo, event})
+
+      case Process.get(:download_audit_result) do
+        nil -> :ok
+        result -> result
+      end
+    end
+  end
+
   setup do
     Process.put(:download_object, %{
       vault_id: @vault_id,
@@ -65,6 +77,7 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     on_exit(fn ->
       Process.delete(:download_object)
       Process.delete(:download_lease_result)
+      Process.delete(:download_audit_result)
     end)
   end
 
@@ -73,7 +86,7 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     session = session()
 
     assert {:ok, "authenticated bytes"} =
-             Download.run(runtime, session, @asset_id, 2..8)
+             Download.run(runtime, session, @asset_id, 2..8, @correlation_id)
 
     assert_receive {:scope, ^runtime, ^session, requirement}
     assert requirement.required_capability == "asset.read"
@@ -95,6 +108,16 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     assert_receive {:read, lease, 2..8}
     assert match?({:opaque_lease, _reference}, lease)
     refute_received {:read, %{object_dek: _secret}, _range}
+
+    assert_receive {:audit, :scoped_repo, audit}
+    assert audit.action == "asset.downloaded"
+    assert audit.result == :completed
+    assert audit.correlation_id == @correlation_id
+    assert audit.principal_id == @principal_id
+    assert audit.vault_id == @vault_id
+    assert audit.target_type == "asset"
+    assert audit.target_id == @asset_id
+    assert audit.metadata == %{}
   end
 
   test "maps unavailable custody to the stable locked result without reading" do
@@ -123,6 +146,33 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     assert_receive {:scope, ^runtime, ^session, %{classification: :sensitive}}
     assert_receive {:lease, _lease_request}
     assert_receive {:read, _lease, :all}
+
+    assert_receive {:audit, :scoped_repo, download_audit}
+    assert download_audit.action == "asset.downloaded"
+    assert download_audit.classification == :sensitive
+
+    assert_receive {:audit, :scoped_repo, sensitive_audit}
+    assert sensitive_audit.action == "asset.sensitive_read"
+    assert sensitive_audit.classification == :sensitive
+  end
+
+  test "never returns plaintext when the immutable audit append fails" do
+    Process.put(
+      :download_audit_result,
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+    )
+
+    assert {:error, %Error{code: :storage_unavailable}} =
+             Download.run(
+               runtime(),
+               session(),
+               @asset_id,
+               :all,
+               @correlation_id
+             )
+
+    assert_receive {:read, _lease, :all}
+    assert_receive {:audit, :scoped_repo, _event}
   end
 
   test "fails closed if the authorized object crosses the session vault" do
@@ -142,6 +192,7 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     %{
       assets: {Assets, self()},
       authenticated_reader: {Reader, self()},
+      audit: {Audit, self()},
       custodian: {Custodian, self()},
       operation_scope: {Scope, self()}
     }

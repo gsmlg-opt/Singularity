@@ -3,7 +3,7 @@ defmodule Singularity.Storage.Postgres.VaultRepository do
 
   @behaviour Singularity.Domains.Vaults.Repository
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Storage.Postgres.UUID
 

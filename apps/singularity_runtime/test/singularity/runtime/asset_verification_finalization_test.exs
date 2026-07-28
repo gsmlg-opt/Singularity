@@ -181,6 +181,15 @@ defmodule Singularity.Runtime.AssetVerificationFinalizationTest do
                  ]
                )
 
+      assert_persisted_audit!(
+        repo,
+        "asset.verified",
+        [target_id: upload.asset_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "asset"
+      )
+
       assert %{rows: [["asset.write"]]} =
                query!(
                  repo,
@@ -917,7 +926,7 @@ defmodule Singularity.Runtime.AssetVerificationFinalizationTest do
 
     stage_command = %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

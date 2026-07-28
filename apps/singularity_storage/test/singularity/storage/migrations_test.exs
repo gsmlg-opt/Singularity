@@ -3,7 +3,7 @@ defmodule Singularity.Storage.MigrationsTest do
 
   @moduletag :integration
 
-  alias Singularity.Storage.{Fixtures, MigrationRepo}
+  alias Singularity.Storage.{Fixtures, MigrationRepo, ScopedRepo}
   alias Singularity.Storage.Schema.Audit.BackupManifest
 
   @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
@@ -237,6 +237,659 @@ defmodule Singularity.Storage.MigrationsTest do
       )
 
     assert trigger_count == 1
+  end
+
+  test "Task 15 audit contract deterministically migrates legacy actor and target rows" do
+    %{one: one, two: two} = Fixtures.two_vaults!()
+
+    {fixture, decoy_principal_id} =
+      if one.principal_id > two.principal_id do
+        {one, two.principal_id}
+      else
+        {two, one.principal_id}
+      end
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.vault_members (principal_id, vault_id)
+        VALUES ($1, $2)
+        """,
+        [decoy_principal_id, fixture.vault_id]
+      )
+    end)
+
+    assert fixture.principal_id > decoy_principal_id
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    system_event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    anonymous_event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    system_correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    anonymous_correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    anonymous_fingerprint = :crypto.hash(:sha256, "legacy-anonymous")
+    fixture_principal_id = fixture.principal_id
+    fixture_vault_id = fixture.vault_id
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert [
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800,
+               20_260_722_000_700
+             ] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 4,
+                 log: false
+               )
+
+      {:ok, :ok} =
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            """
+            INSERT INTO audit.events (
+              id,
+              vault_id,
+              actor_kind,
+              principal_id,
+              operation,
+              result,
+              classification,
+              correlation_id,
+              occurred_at
+            ) VALUES (
+              $1, $2, 'system', $3, 'outbox.claim', 'completed',
+              'private', $4, CURRENT_TIMESTAMP
+            )
+            """,
+            [
+              system_event_id,
+              fixture.vault_id,
+              fixture.principal_id,
+              system_correlation_id
+            ]
+          )
+
+          query!(
+            MigrationRepo,
+            """
+            INSERT INTO audit.events (
+              id,
+              actor_kind,
+              anonymous_fingerprint,
+              operation,
+              result,
+              classification,
+              correlation_id,
+              occurred_at
+            ) VALUES (
+              $1, 'anonymous', $2, 'identity.authentication_attempt',
+              'denied', 'private', $3, CURRENT_TIMESTAMP
+            )
+            """,
+            [
+              anonymous_event_id,
+              anonymous_fingerprint,
+              anonymous_correlation_id
+            ]
+          )
+
+          :ok
+        end)
+
+      assert [20_260_722_000_700] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{
+               rows: [
+                 [
+                   nil,
+                   ^fixture_vault_id,
+                   nil,
+                   "singularity.system",
+                   "audit_event",
+                   ^system_event_id,
+                   %{"initiating_principal_id" => initiating_principal_id}
+                 ]
+               ]
+             } =
+               owner_query!(
+                 """
+                 SELECT
+                   principal_id,
+                   vault_id,
+                   anonymous_fingerprint,
+                   system_principal_name,
+                   target_type,
+                   target_id,
+                   metadata
+                 FROM audit.events
+                 WHERE id = $1
+                 """,
+                 [system_event_id]
+               )
+
+      assert initiating_principal_id == Ecto.UUID.load!(fixture.principal_id)
+
+      assert %{
+               rows: [
+                 [
+                   nil,
+                   nil,
+                   ^anonymous_fingerprint,
+                   nil,
+                   "audit_event",
+                   ^anonymous_event_id
+                 ]
+               ]
+             } =
+               owner_query!(
+                 """
+                 SELECT
+                   principal_id,
+                   vault_id,
+                   anonymous_fingerprint,
+                   system_principal_name,
+                   target_type,
+                   target_id
+                 FROM audit.events
+                 WHERE id = $1
+                 """,
+                 [anonymous_event_id]
+               )
+
+      assert [20_260_722_000_700] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{rows: [[^fixture_principal_id, "audit_event", ^system_event_id]]} =
+               owner_query!(
+                 """
+                 SELECT principal_id, target_type, target_id
+                 FROM audit.events
+                 WHERE id = $1
+                 """,
+                 [system_event_id]
+               )
+
+      assert [20_260_722_000_700] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 15 audit downgrade rejects named system attribution without an initiating principal" do
+    %{one: fixture} = Fixtures.two_vaults!()
+    event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    fixture_vault_id = fixture.vault_id
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      {:ok, :ok} =
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            """
+            INSERT INTO audit.events (
+              id,
+              vault_id,
+              actor_kind,
+              system_principal_name,
+              operation,
+              result,
+              classification,
+              correlation_id,
+              target_type,
+              target_id,
+              occurred_at
+            ) VALUES (
+              $1,
+              $2,
+              'system',
+              'integrity_audit',
+              'integrity.audit_completed',
+              'completed',
+              'private',
+              $3,
+              'vault',
+              $2,
+              CURRENT_TIMESTAMP
+            )
+            """,
+            [event_id, fixture.vault_id, correlation_id]
+          )
+
+          :ok
+        end)
+
+      assert_raise Postgrex.Error,
+                   ~r/cannot downgrade Task 15.*initiating principal/i,
+                   fn ->
+                     Ecto.Migrator.down(
+                       MigrationRepo,
+                       20_260_722_000_700,
+                       Singularity.Storage.Migrations.HardenAuditEventContract,
+                       log: false
+                     )
+                   end
+
+      assert %{
+               rows: [
+                 [
+                   nil,
+                   "integrity_audit",
+                   %{},
+                   "vault",
+                   ^fixture_vault_id
+                 ]
+               ]
+             } =
+               owner_query!(
+                 """
+                 SELECT
+                   principal_id,
+                   system_principal_name,
+                   metadata,
+                   target_type,
+                   target_id
+                 FROM audit.events
+                 WHERE id = $1
+                 """,
+                 [event_id]
+               )
+    after
+      try do
+        Ecto.Migrator.up(
+          MigrationRepo,
+          20_260_722_000_700,
+          Singularity.Storage.Migrations.HardenAuditEventContract,
+          log: false
+        )
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+          query!(MigrationRepo, "ALTER TABLE audit.events DISABLE TRIGGER events_immutable")
+          query!(MigrationRepo, "DELETE FROM audit.events WHERE id = $1", [event_id])
+          query!(MigrationRepo, "ALTER TABLE audit.events ENABLE TRIGGER events_immutable")
+        end)
+      after
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 15 anonymous audit migration binds one combined fingerprint to the final attempt" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    login_fingerprint = :crypto.hash(:sha256, "bound-login-#{Ecto.UUID.generate()}")
+    source_fingerprint = :crypto.hash(:sha256, "bound-source-#{Ecto.UUID.generate()}")
+    audit_fingerprint = :crypto.hash(:sha256, login_fingerprint <> source_fingerprint)
+    correlation_id = Ecto.UUID.generate()
+    dumped_correlation_id = Ecto.UUID.dump!(correlation_id)
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert %{rows: [[attempt_id, true]]} =
+               record_auth_attempt!(
+                 login_fingerprint,
+                 source_fingerprint,
+                 "started",
+                 correlation_id,
+                 nil
+               )
+
+      assert %{rows: [[0]]} =
+               owner_query!(
+                 "SELECT count(*) FROM audit.events WHERE correlation_id = $1",
+                 [dumped_correlation_id]
+               )
+
+      assert %{rows: [[^attempt_id, false]]} =
+               record_auth_attempt!(
+                 login_fingerprint,
+                 source_fingerprint,
+                 "failed",
+                 correlation_id,
+                 attempt_id
+               )
+
+      assert %{
+               rows: [
+                 [
+                   ^audit_fingerprint,
+                   "authentication_attempt",
+                   ^attempt_id,
+                   "denied"
+                 ]
+               ]
+             } =
+               owner_query!(
+                 """
+                 SELECT anonymous_fingerprint, target_type, target_id, result
+                 FROM audit.events
+                 WHERE correlation_id = $1
+                 """,
+                 [dumped_correlation_id]
+               )
+
+      assert [20_260_722_001_000, 20_260_722_000_900, 20_260_722_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 3,
+                 log: false
+               )
+
+      assert auth_definer_audit_insert_column_privileges() == [
+               ["actor_kind", "INSERT"],
+               ["anonymous_fingerprint", "INSERT"],
+               ["classification", "INSERT"],
+               ["correlation_id", "INSERT"],
+               ["id", "INSERT"],
+               ["occurred_at", "INSERT"],
+               ["operation", "INSERT"],
+               ["principal_id", "INSERT"],
+               ["result", "INSERT"],
+               ["vault_id", "INSERT"]
+             ]
+
+      legacy_login_fingerprint =
+        :crypto.hash(:sha256, "legacy-login-#{Ecto.UUID.generate()}")
+
+      legacy_source_fingerprint =
+        :crypto.hash(:sha256, "legacy-source-#{Ecto.UUID.generate()}")
+
+      legacy_correlation_id = Ecto.UUID.generate()
+      dumped_legacy_correlation_id = Ecto.UUID.dump!(legacy_correlation_id)
+
+      assert %{rows: [[legacy_attempt_id, true]]} =
+               record_auth_attempt!(
+                 legacy_login_fingerprint,
+                 legacy_source_fingerprint,
+                 "started",
+                 legacy_correlation_id,
+                 nil
+               )
+
+      assert %{rows: [[^legacy_attempt_id, false]]} =
+               record_auth_attempt!(
+                 legacy_login_fingerprint,
+                 legacy_source_fingerprint,
+                 "failed",
+                 legacy_correlation_id,
+                 legacy_attempt_id
+               )
+
+      assert %{
+               rows: [
+                 ["allowed", ^legacy_login_fingerprint, "audit_event", false],
+                 ["denied", ^legacy_login_fingerprint, "audit_event", false]
+               ]
+             } =
+               owner_query!(
+                 """
+                 SELECT
+                   result,
+                   anonymous_fingerprint,
+                   target_type,
+                   target_id = $2
+                 FROM audit.events
+                 WHERE correlation_id = $1
+                 ORDER BY result
+                 """,
+                 [dumped_legacy_correlation_id, legacy_attempt_id]
+               )
+
+      assert [20_260_722_000_800] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert auth_definer_audit_insert_column_privileges() == [
+               ["actor_kind", "INSERT"],
+               ["anonymous_fingerprint", "INSERT"],
+               ["classification", "INSERT"],
+               ["correlation_id", "INSERT"],
+               ["id", "INSERT"],
+               ["occurred_at", "INSERT"],
+               ["operation", "INSERT"],
+               ["principal_id", "INSERT"],
+               ["result", "INSERT"],
+               ["target_id", "INSERT"],
+               ["target_type", "INSERT"],
+               ["vault_id", "INSERT"]
+             ]
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 15 upload recovery timestamp migration preserves its least-privilege boundary" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    expected_boundary = [
+      [
+        "singularity_table_owner",
+        true,
+        "s",
+        ["search_path=pg_catalog, content, audit"],
+        true,
+        false
+      ]
+    ]
+
+    try do
+      assert %{rows: [["stage_id", "uuid"], ["storage_ref", "text"], ["stage_inserted_at", type]]} =
+               recovery_result_columns()
+
+      assert type =~ "timestamp with time zone"
+      assert %{rows: ^expected_boundary} = recovery_function_boundary()
+
+      assert [20_260_722_001_000, 20_260_722_000_900] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 2,
+                 log: false
+               )
+
+      assert %{rows: [["stage_id", "uuid"], ["storage_ref", "text"]]} =
+               recovery_result_columns()
+
+      assert %{rows: ^expected_boundary} = recovery_function_boundary()
+
+      assert [20_260_722_000_900] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{rows: [["stage_id", "uuid"], ["storage_ref", "text"], ["stage_inserted_at", _]]} =
+               recovery_result_columns()
+
+      assert %{rows: ^expected_boundary} = recovery_function_boundary()
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 15 active domain envelope guard is role-safe and round-trips" do
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    expected_boundary = [
+      [
+        "singularity_table_owner",
+        true,
+        "v",
+        ["search_path=pg_catalog, core, content"],
+        23,
+        "O",
+        ["domain_key_version_id", "key_domain_id", "key_generation", "vault_id"],
+        false,
+        false
+      ]
+    ]
+
+    try do
+      assert %{rows: ^expected_boundary} = active_domain_envelope_guard_boundary()
+
+      assert [20_260_722_001_000] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{rows: [[0, 0]]} = active_domain_envelope_guard_counts()
+
+      assert [20_260_722_001_000] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{rows: ^expected_boundary} = active_domain_envelope_guard_boundary()
+    after
+      try do
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 15 active domain envelope guard preserves independent generations" do
+    fixture = active_domain_envelope_fixture!()
+
+    assert :ok =
+             insert_scoped_asset_key_envelope!(
+               fixture,
+               fixture.active_domain_key_version_id,
+               3
+             )
+
+    for invalid_version_id <- [
+          fixture.mismatched_domain_key_version_id,
+          fixture.retired_domain_key_version_id
+        ] do
+      error =
+        assert_raise Postgrex.Error, fn ->
+          insert_scoped_asset_key_envelope!(fixture, invalid_version_id, 4)
+        end
+
+      assert error.postgres.constraint == "asset_key_envelopes_active_domain_key_check"
+    end
   end
 
   test "Task 11 stores distinct principal and vault authorization epochs on outbox events" do
@@ -571,7 +1224,11 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_300,
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -680,7 +1337,11 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_300,
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1058,7 +1719,11 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_300,
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1168,6 +1833,10 @@ defmodule Singularity.Storage.MigrationsTest do
       end
 
       assert [
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800,
+               20_260_722_000_700,
                20_260_722_000_600,
                20_260_722_000_500,
                20_260_722_000_400,
@@ -1177,7 +1846,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 4,
+                 step: 8,
                  log: false
                )
 
@@ -1189,13 +1858,17 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_300,
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 step: 4,
+                 step: 8,
                  log: false
                )
     after
@@ -1227,6 +1900,10 @@ defmodule Singularity.Storage.MigrationsTest do
 
     try do
       assert [
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800,
+               20_260_722_000_700,
                20_260_722_000_600,
                20_260_722_000_500,
                20_260_722_000_400,
@@ -1237,7 +1914,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 5,
+                 step: 9,
                  log: false
                )
 
@@ -1255,13 +1932,17 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_300,
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 step: 5,
+                 step: 9,
                  log: false
                )
 
@@ -1329,6 +2010,10 @@ defmodule Singularity.Storage.MigrationsTest do
              ]
 
       assert [
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800,
+               20_260_722_000_700,
                20_260_722_000_600,
                20_260_722_000_500,
                20_260_722_000_400
@@ -1337,7 +2022,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 3,
+                 step: 7,
                  log: false
                )
 
@@ -1348,13 +2033,17 @@ defmodule Singularity.Storage.MigrationsTest do
       assert [
                20_260_722_000_400,
                20_260_722_000_500,
-               20_260_722_000_600
+               20_260_722_000_600,
+               20_260_722_000_700,
+               20_260_722_000_800,
+               20_260_722_000_900,
+               20_260_722_001_000
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 step: 3,
+                 step: 7,
                  log: false
                )
 
@@ -1438,7 +2127,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :down,
-          step: 1,
+          step: 5,
           log: false
         )
       end
@@ -1737,6 +2426,10 @@ defmodule Singularity.Storage.MigrationsTest do
 
     try do
       assert [
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800,
+               20_260_722_000_700,
                20_260_722_000_600,
                20_260_722_000_500,
                20_260_722_000_400,
@@ -1749,13 +2442,61 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 7,
+                 step: 11,
                  log: false
                )
     after
       Supervisor.stop(migration_repo)
       Code.compiler_options(compiler_options)
     end
+  end
+
+  defp owner_query!(statement, parameters) do
+    {:ok, result} =
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+        query!(MigrationRepo, statement, parameters)
+      end)
+
+    result
+  end
+
+  defp record_auth_attempt!(
+         login_fingerprint,
+         source_fingerprint,
+         result,
+         correlation_id,
+         attempt_id
+       ) do
+    query!(
+      PreAuthRepo,
+      "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
+      [
+        login_fingerprint,
+        source_fingerprint,
+        result,
+        Ecto.UUID.dump!(correlation_id),
+        attempt_id
+      ]
+    )
+  end
+
+  defp auth_definer_audit_insert_column_privileges do
+    %{rows: rows} =
+      owner_query!(
+        """
+        SELECT column_name, privilege_type
+        FROM information_schema.column_privileges
+        WHERE table_schema = 'audit'
+          AND table_name = 'events'
+          AND grantee = 'singularity_auth_definer'
+          AND privilege_type = 'INSERT'
+        ORDER BY column_name, privilege_type
+        """,
+        []
+      )
+
+    rows
   end
 
   defp backup_manifest_seal_constraints do
@@ -2119,6 +2860,229 @@ defmodule Singularity.Storage.MigrationsTest do
       )
 
     rows
+  end
+
+  defp recovery_result_columns do
+    query!(
+      RequestRepo,
+      """
+      SELECT argument.name, pg_catalog.format_type(argument.type_oid, NULL)
+      FROM pg_catalog.pg_proc AS procedure
+      CROSS JOIN LATERAL unnest(
+        procedure.proallargtypes,
+        procedure.proargmodes,
+        procedure.proargnames
+      ) WITH ORDINALITY AS argument(type_oid, mode, name, position)
+      WHERE procedure.oid =
+        'content.list_open_upload_stages()'::regprocedure
+        AND argument.mode IN ('o', 't')
+      ORDER BY argument.position
+      """
+    )
+  end
+
+  defp recovery_function_boundary do
+    query!(
+      RequestRepo,
+      """
+      SELECT
+        owner.rolname,
+        procedure.prosecdef,
+        procedure.provolatile::text,
+        procedure.proconfig,
+        has_function_privilege(
+          'singularity_worker',
+          procedure.oid,
+          'EXECUTE'
+        ),
+        has_function_privilege('public', procedure.oid, 'EXECUTE')
+      FROM pg_catalog.pg_proc AS procedure
+      JOIN pg_catalog.pg_roles AS owner ON owner.oid = procedure.proowner
+      WHERE procedure.oid =
+        'content.list_open_upload_stages()'::regprocedure
+      """
+    )
+  end
+
+  defp active_domain_envelope_guard_boundary do
+    query!(
+      RequestRepo,
+      """
+      SELECT
+        owner.rolname,
+        procedure.prosecdef,
+        procedure.provolatile::text,
+        procedure.proconfig,
+        trigger.tgtype,
+        trigger.tgenabled::text,
+        ARRAY(
+          SELECT attribute.attname
+          FROM unnest(trigger.tgattr::smallint[]) AS guarded(attnum)
+          JOIN pg_catalog.pg_attribute AS attribute
+            ON attribute.attrelid = trigger.tgrelid
+           AND attribute.attnum = guarded.attnum
+          ORDER BY attribute.attname
+        ),
+        has_function_privilege('public', procedure.oid, 'EXECUTE'),
+        has_function_privilege('singularity_web', procedure.oid, 'EXECUTE')
+      FROM pg_catalog.pg_proc AS procedure
+      JOIN pg_catalog.pg_namespace AS namespace
+        ON namespace.oid = procedure.pronamespace
+      JOIN pg_catalog.pg_roles AS owner
+        ON owner.oid = procedure.proowner
+      JOIN pg_catalog.pg_trigger AS trigger
+        ON trigger.tgfoid = procedure.oid
+       AND trigger.tgrelid = 'content.asset_key_envelopes'::regclass
+       AND trigger.tgname = 'asset_key_envelopes_active_domain_key'
+       AND NOT trigger.tgisinternal
+      WHERE namespace.nspname = 'content'
+        AND procedure.proname = 'enforce_active_domain_key_envelope'
+      """
+    )
+  end
+
+  defp active_domain_envelope_guard_counts do
+    query!(
+      RequestRepo,
+      """
+      SELECT
+        (
+          SELECT count(*)
+          FROM pg_catalog.pg_proc AS procedure
+          JOIN pg_catalog.pg_namespace AS namespace
+            ON namespace.oid = procedure.pronamespace
+          WHERE namespace.nspname = 'content'
+            AND procedure.proname = 'enforce_active_domain_key_envelope'
+        ),
+        (
+          SELECT count(*)
+          FROM pg_catalog.pg_trigger
+          WHERE tgrelid = 'content.asset_key_envelopes'::regclass
+            AND tgname = 'asset_key_envelopes_active_domain_key'
+            AND NOT tgisinternal
+        )
+      """
+    )
+  end
+
+  defp active_domain_envelope_fixture! do
+    %{one: raw} = Fixtures.two_vaults!()
+
+    fixture = %{
+      active_domain_key_version_id: Ecto.UUID.generate(),
+      key_domain_id: Ecto.UUID.generate(),
+      mismatched_domain_key_version_id: Ecto.UUID.generate(),
+      mismatched_key_domain_id: Ecto.UUID.generate(),
+      object_id: Ecto.UUID.generate(),
+      principal_id: Ecto.UUID.load!(raw.principal_id),
+      retired_domain_key_version_id: Ecto.UUID.generate(),
+      vault_id: Ecto.UUID.load!(raw.vault_id),
+      vault_key_version_id: Ecto.UUID.generate()
+    }
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.vault_key_versions (
+          id, vault_id, generation, state, algorithm, activated_at
+        ) VALUES ($1, $2, 1, 'active', 'aes_256_gcm', CURRENT_TIMESTAMP)
+        """,
+        [Ecto.UUID.dump!(fixture.vault_key_version_id), raw.vault_id]
+      )
+
+      for key_domain_id <- [fixture.key_domain_id, fixture.mismatched_key_domain_id] do
+        query!(
+          MigrationRepo,
+          """
+          INSERT INTO core.key_domains (
+            id, vault_id, classification, kind, state
+          ) VALUES ($1, $2, 'private', 'content', 'active')
+          """,
+          [Ecto.UUID.dump!(key_domain_id), raw.vault_id]
+        )
+      end
+
+      for {id, key_domain_id, generation, state} <- [
+            {fixture.active_domain_key_version_id, fixture.key_domain_id, 5, "active"},
+            {
+              fixture.mismatched_domain_key_version_id,
+              fixture.mismatched_key_domain_id,
+              6,
+              "active"
+            },
+            {fixture.retired_domain_key_version_id, fixture.key_domain_id, 7, "retired"}
+          ] do
+        query!(
+          MigrationRepo,
+          """
+          INSERT INTO core.domain_key_versions (
+            id, vault_id, key_domain_id, vault_key_version_id, generation,
+            state, algorithm, wrapped_key
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'aes_256_gcm', $7)
+          """,
+          [
+            Ecto.UUID.dump!(id),
+            raw.vault_id,
+            Ecto.UUID.dump!(key_domain_id),
+            Ecto.UUID.dump!(fixture.vault_key_version_id),
+            generation,
+            state,
+            :crypto.strong_rand_bytes(60)
+          ]
+        )
+      end
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.asset_objects (
+          id, vault_id, key_domain_id, classification, lookup_digest,
+          ciphertext_hash, plaintext_byte_size, ciphertext_byte_size,
+          storage_ref, format_version, lifecycle
+        ) VALUES ($1, $2, $3, 'private', $4, $5, 31, 189, $6, 1, 'available')
+        """,
+        [
+          Ecto.UUID.dump!(fixture.object_id),
+          raw.vault_id,
+          Ecto.UUID.dump!(fixture.key_domain_id),
+          :crypto.strong_rand_bytes(32),
+          :crypto.strong_rand_bytes(32),
+          fixture.object_id
+        ]
+      )
+    end)
+
+    fixture
+  end
+
+  defp insert_scoped_asset_key_envelope!(fixture, domain_key_version_id, key_generation) do
+    ScopedRepo.transact(
+      RequestRepo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      fn repo ->
+        query!(
+          repo,
+          """
+          INSERT INTO content.asset_key_envelopes (
+            id, vault_id, asset_object_id, domain_key_version_id, key_domain_id,
+            classification, algorithm, key_generation, wrapped_dek
+          ) VALUES ($1, $2, $3, $4, $5, 'private', 'aes_256_gcm', $6, $7)
+          """,
+          [
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            Ecto.UUID.dump!(fixture.vault_id),
+            Ecto.UUID.dump!(fixture.object_id),
+            Ecto.UUID.dump!(domain_key_version_id),
+            Ecto.UUID.dump!(fixture.key_domain_id),
+            key_generation,
+            :crypto.strong_rand_bytes(60)
+          ]
+        )
+
+        :ok
+      end
+    )
   end
 
   defp await_outbox_exclusive_wait!(attempts \\ 250)

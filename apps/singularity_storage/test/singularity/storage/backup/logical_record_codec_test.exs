@@ -54,7 +54,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              |> Enum.with_index()
              |> Enum.map(fn {table, ordinal} -> {ordinal, table} end)
 
-    assert Enum.sum(Enum.map(LogicalSchema.all(), &length(&1.columns))) == 256
+    assert Enum.sum(Enum.map(LogicalSchema.all(), &length(&1.columns))) == 257
 
     for schema <- LogicalSchema.all() do
       assert MapSet.size(MapSet.new(schema.columns, & &1.name)) == length(schema.columns)
@@ -95,6 +95,31 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
               ],
               primary_key: [%{position: 0, tag: "uuid"}]
             }} = LogicalSchema.fetch_ordinal(11)
+
+    assert {:ok,
+            %{
+              version: 1,
+              ordinal: 23,
+              table: "audit.events",
+              columns: [
+                %{name: "id", tag: "uuid", nullable?: false},
+                %{name: "vault_id", tag: "uuid", nullable?: true},
+                %{name: "actor_kind", tag: "text", nullable?: false},
+                %{name: "principal_id", tag: "uuid", nullable?: true},
+                %{name: "anonymous_fingerprint", tag: "bytes", nullable?: true},
+                %{name: "system_principal_name", tag: "text", nullable?: true},
+                %{name: "operation", tag: "text", nullable?: false},
+                %{name: "result", tag: "text", nullable?: false},
+                %{name: "classification", tag: "text", nullable?: false},
+                %{name: "correlation_id", tag: "uuid", nullable?: false},
+                %{name: "target_type", tag: "text", nullable?: false},
+                %{name: "target_id", tag: "uuid", nullable?: false},
+                %{name: "metadata", tag: "json", nullable?: false},
+                %{name: "occurred_at", tag: "timestamp", nullable?: false},
+                %{name: "inserted_at", tag: "timestamp", nullable?: false}
+              ],
+              primary_key: [%{position: 0, tag: "uuid"}]
+            }} = LogicalSchema.fetch_table("audit.events")
 
     assert :error = LogicalSchema.fetch_table("core.data_classifications")
     assert :error = LogicalSchema.fetch_ordinal(28)

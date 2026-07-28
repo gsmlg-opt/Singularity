@@ -20,6 +20,22 @@ config :phoenix, :json_library, JSON
 config :logger_json, :encoder, JSON
 config :postgrex, :json_library, JSON
 
+config :logger, :default_handler,
+  formatter:
+    {LoggerJSON.Formatters.Basic,
+     metadata: [
+       :correlation_id,
+       :principal_id,
+       :vault_id,
+       :resource_id,
+       :asset_id,
+       :outbox_id,
+       :job_id,
+       :operation,
+       :result
+     ],
+     redactors: [{Singularity.Runtime.Observability.Redactor, []}]}
+
 config :singularity_runtime,
   max_upload_bytes: 536_870_912,
   max_concurrent_uploads: 2,
@@ -61,7 +77,15 @@ config :singularity_runtime,
 config :singularity_storage,
   job_handler: Singularity.Runtime.JobDispatcher
 
-config :singularity_storage, Singularity.Storage.RequestRepo, pool_size: 10
+config :singularity_storage, Singularity.Storage.MigrationRepo, log: false
+
+config :singularity_storage, Singularity.Storage.RequestRepo,
+  pool_size: 10,
+  log: false
+
+config :singularity_storage, Singularity.Storage.PreAuthRepo, log: false
+config :singularity_storage, Singularity.Storage.DispatcherRepo, log: false
+config :singularity_storage, Singularity.Storage.WorkerRepo, log: false
 
 config :singularity_storage, Oban,
   name: Singularity.Oban,

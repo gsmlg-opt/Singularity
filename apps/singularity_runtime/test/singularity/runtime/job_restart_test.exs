@@ -82,8 +82,8 @@ defmodule Singularity.Runtime.JobRestartTest do
     assert envelope.vault_authorization_epoch == 23
     assert {:ok, ^runner_id_before} = ObanAdapter.submit(%{}, envelope)
 
-    assert {:ok, _receipt} = GenericWorker.perform(%Oban.Job{args: encoded})
-    assert {:ok, _same_receipt} = GenericWorker.perform(%Oban.Job{args: encoded})
+    assert :ok = GenericWorker.perform(%Oban.Job{args: encoded})
+    assert :ok = GenericWorker.perform(%Oban.Job{args: encoded})
 
     assert %{rows: [[1, ^runner_id_before]]} =
              owner_query(

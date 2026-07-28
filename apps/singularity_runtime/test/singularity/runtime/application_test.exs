@@ -10,6 +10,7 @@ defmodule Singularity.Runtime.ApplicationTest do
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.LockVault
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Storage.Backup.BundleReader
   alias Singularity.Storage.Backup.BundleWriter
@@ -31,6 +32,12 @@ defmodule Singularity.Runtime.ApplicationTest do
     assert RuntimeApplication.infrastructure_children(%{
              start_infrastructure: false
            }) == []
+  end
+
+  test "the observability handler is supervised even when infrastructure is disabled" do
+    assert RuntimeApplication.application_children(%{
+             start_infrastructure: false
+           }) == [Telemetry]
   end
 
   test "infrastructure children preserve the literal dependency order" do

@@ -170,6 +170,18 @@ defmodule Singularity.Runtime.UploadReconciliationIntegrationTest do
     first = open_upload!(fixture)
     second = open_upload!(other)
 
+    assert {:ok, open_stages} =
+             AssetUploadRecoveryRepository.list_open_stages(WorkerRepo)
+
+    assert %{inserted_at: first_inserted_at} =
+             Enum.find(open_stages, &(&1.stage_id == first.stage.id))
+
+    assert %{inserted_at: second_inserted_at} =
+             Enum.find(open_stages, &(&1.stage_id == second.stage.id))
+
+    assert DateTime.compare(first_inserted_at, first.stage.inserted_at) == :eq
+    assert DateTime.compare(second_inserted_at, second.stage.inserted_at) == :eq
+
     Fixtures.with_owner(fn ->
       query!(
         MigrationRepo,
@@ -639,7 +651,7 @@ defmodule Singularity.Runtime.UploadReconciliationIntegrationTest do
 
     stage_command = %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

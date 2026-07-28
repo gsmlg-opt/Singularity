@@ -19,7 +19,7 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
   @domain_key_version_id "00000000-0000-4000-8000-000000000109"
   @resource_version_id "00000000-0000-4000-8000-000000000110"
   @storage_ref "00000000-0000-4000-8000-000000000111"
-  @raw_token :binary.copy(<<0xC7>>, 32)
+  @raw_token "CANARY_UPLOAD_TOKEN_6b21_1234567"
 
   defmodule RequestRepo do
     def checkout(test, callback) do
@@ -224,6 +224,18 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     end
   end
 
+  test "initialized upload state retains neither raw nor encoded grant tokens" do
+    encoded_token = Base.url_encode64(@raw_token, padding: false)
+
+    raw_state = initial_state(@raw_token)
+    encoded_state = initial_state(encoded_token)
+
+    for state <- [raw_state, encoded_state],
+        secret <- [@raw_token, encoded_token] do
+      refute retained_binary?(state, secret)
+    end
+  end
+
   test "pins both locks across streaming and acknowledges finish only after the second commit" do
     {:ok, session} = start_session(self())
 
@@ -246,7 +258,9 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     assert requirement.requires_unlocked?
 
     assert_receive {:grant_consumption_requested, ^session, consume_command}
-    assert consume_command.token == @raw_token
+    refute Map.has_key?(consume_command, :token)
+    refute inspect(consume_command, limit: :infinity) =~ @raw_token
+    assert consume_command.token_digest == :crypto.hash(:sha256, @raw_token)
     assert consume_command.stage_id == @stage_id
     assert consume_command.candidate_object_id == @object_id
     refute Map.has_key?(consume_command, :object_dek)
@@ -528,6 +542,42 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
        upload: upload_material()}
     )
   end
+
+  defp initial_state(token) do
+    assert {:ok, state} =
+             UploadSession.initial_state(
+               runtime: runtime(),
+               session: session_context(),
+               grant: Map.put(grant(), :token, token),
+               owner: self(),
+               storage: storage(self()),
+               upload: upload_material()
+             )
+
+    refute Map.has_key?(state.consume_command, :token)
+    assert state.consume_command.token_digest == :crypto.hash(:sha256, @raw_token)
+
+    state
+  end
+
+  defp retained_binary?(binary, secret) when is_binary(binary),
+    do: :binary.match(binary, secret) != :nomatch
+
+  defp retained_binary?(map, secret) when is_map(map) do
+    map
+    |> Map.to_list()
+    |> Enum.any?(fn {key, value} ->
+      retained_binary?(key, secret) or retained_binary?(value, secret)
+    end)
+  end
+
+  defp retained_binary?(tuple, secret) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> retained_binary?(secret)
+
+  defp retained_binary?(list, secret) when is_list(list),
+    do: Enum.any?(list, &retained_binary?(&1, secret))
+
+  defp retained_binary?(_term, _secret), do: false
 
   def storage(test) do
     %{adapter: Storage, context: test}

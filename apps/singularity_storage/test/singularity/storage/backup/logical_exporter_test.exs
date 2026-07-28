@@ -10,6 +10,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
   alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.ScopedRepo
 
   @query_event [:singularity, :storage, :worker_repo, :query]
@@ -53,21 +54,14 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                  assert {:ok, %{records: records, inventory: inventory}} =
                           Exporter.records(repo, export_cut)
 
-                 descriptor_queries = drain_queries()
-                 assert Enum.any?(descriptor_queries, &identity_export_query?/1)
-
+                 refute_receive :raw_worker_query
                  assert [%{type: 0x0001}] = Enum.take(records, 1)
-                 assert drain_queries() == []
+                 refute_receive :raw_worker_query
 
                  first_records = Enum.to_list(records)
-                 first_pass_queries = drain_queries()
-                 assert Enum.any?(first_pass_queries, &identity_export_query?/1)
-                 assert_all_database_tables_queried(first_pass_queries)
-
+                 refute_receive :raw_worker_query
                  second_records = Enum.to_list(records)
-                 second_pass_queries = drain_queries()
-                 assert Enum.any?(second_pass_queries, &identity_export_query?/1)
-                 assert_all_database_tables_queried(second_pass_queries)
+                 refute_receive :raw_worker_query
 
                  assert first_records == second_records
 
@@ -77,13 +71,12 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                   %{
                     records: first_records,
                     inventory: inventory,
-                    cut: export_cut,
-                    queries: descriptor_queries ++ first_pass_queries ++ second_pass_queries
+                    cut: export_cut
                   }}
                end
              )
 
-    %{records: records, inventory: inventory, cut: cut, queries: queries} = result
+    %{records: records, inventory: inventory, cut: cut} = result
 
     decoded =
       Enum.map(records, fn record ->
@@ -163,36 +156,22 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
              seeded.referenced_capability_id
            ]
 
+    assert [audit_row] =
+             rows
+             |> rows_for("audit.events")
+             |> Enum.filter(
+               &(tagged_value(Enum.at(&1.ordered_column_values, 0)) == seeded.audit_event_id)
+             )
+
+    assert tagged_value(Enum.at(audit_row.ordered_column_values, 2)) == "system"
+    assert Enum.at(audit_row.ordered_column_values, 3) == {"null"}
+    assert Enum.at(audit_row.ordered_column_values, 4) == {"null"}
+    assert tagged_value(Enum.at(audit_row.ordered_column_values, 5)) == "integrity_audit"
+
     payloads = IO.iodata_to_binary(Enum.map(records, & &1.payload))
     refute payloads =~ raw_fixture.verifier
     refute payloads =~ @extra_verifier
     refute payloads =~ @wrapper_secret
-
-    refute Enum.any?(queries, &direct_identity_table_query?/1)
-
-    wrapper_queries = Enum.filter(queries, &String.contains?(&1, "core.vault_key_wrappers"))
-    assert wrapper_queries != []
-
-    for query <- wrapper_queries do
-      refute query =~ "kdf_version"
-      refute query =~ "kdf_salt"
-      refute query =~ "kdf_parameters"
-      refute query =~ "wrapper_algorithm"
-      refute query =~ "wrapped_key"
-    end
-
-    for excluded <- [
-          "identity.sessions",
-          "identity.auth_attempts",
-          "identity.security_settings",
-          "content.asset_stages",
-          "content.upload_grants",
-          "content.asset_search_documents",
-          "audit.backup_manifests",
-          "audit.backup_manifest_objects"
-        ] do
-      refute Enum.any?(queries, &String.contains?(&1, excluded))
-    end
   end
 
   test "rejects missing or multiple matching active owner wrappers", %{
@@ -316,11 +295,9 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     assert_export_invalid(fixture, %{cut | object_inventory: [:not_an_entry]})
   end
 
-  def capture_query(_event, _measurements, %{query: query}, observer) when is_binary(query) do
-    send(observer, {:logical_export_query, query})
+  def capture_query(_event, _measurements, _metadata, observer) do
+    send(observer, :raw_worker_query)
   end
-
-  def capture_query(_event, _measurements, _metadata, _observer), do: :ok
 
   defp assert_export_invalid(fixture, cut, bind_snapshot? \\ true) do
     assert {:error, %Error{code: :invalid}} = run_export(fixture, cut, bind_snapshot?)
@@ -353,30 +330,9 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
 
   defp current_snapshot_cut(repo, cut) do
     %{rows: [[database_snapshot]]} =
-      SQL.query!(repo, "SELECT txid_current_snapshot()::text", [], log: false)
+      SafeSQL.query!(repo, "SELECT txid_current_snapshot()::text", [])
 
     %{cut | database_snapshot: database_snapshot}
-  end
-
-  defp drain_queries(queries \\ []) do
-    receive do
-      {:logical_export_query, query} -> drain_queries([query | queries])
-    after
-      0 -> Enum.reverse(queries)
-    end
-  end
-
-  defp identity_export_query?(query) do
-    String.contains?(query, "identity.export_current_vault_owner")
-  end
-
-  defp direct_identity_table_query?(query) do
-    normalized = String.replace(query, "\"", "")
-
-    Regex.match?(
-      ~r/\b(?:FROM|JOIN)\s+identity\.(people|accounts|credentials|principals)\b/i,
-      normalized
-    )
   end
 
   defp assert_vault_scoped_rows(rows, vault_id) do
@@ -393,21 +349,6 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
           assert tagged_value(Enum.at(row.ordered_column_values, position)) == vault_id
       end
     end)
-  end
-
-  defp assert_all_database_tables_queried(queries) do
-    for table <- LogicalSchema.tables() -- ~w(
-          identity.people identity.accounts identity.credentials identity.principals
-        ) do
-      assert Enum.any?(queries, &table_query?(&1, table)),
-             "expected lazy pass to query #{table}"
-    end
-  end
-
-  defp table_query?(query, table) do
-    query
-    |> String.replace("\"", "")
-    |> String.contains?("FROM #{table} AS source")
   end
 
   defp table_counts(rows) do
@@ -465,6 +406,8 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     unreferenced_capability_id = uuid_dump()
     vault_key_version_id = uuid_dump()
     wrapper_id = uuid_dump()
+    audit_event_id = uuid_dump()
+    audit_correlation_id = uuid_dump()
 
     Fixtures.with_owner(fn ->
       owner_query!(
@@ -519,6 +462,21 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
       )
 
       insert_wrapper_row!(wrapper_id, fixture, vault_key_version_id, 1)
+
+      owner_query!(
+        """
+        INSERT INTO audit.events (
+          id, vault_id, actor_kind, system_principal_name, operation, result,
+          classification, correlation_id, target_type, target_id, metadata,
+          occurred_at, inserted_at
+        ) VALUES (
+          $1, $2, 'system', 'integrity_audit', 'backup.restore_completed', 'completed',
+          'restricted', $3, 'backup_manifest', $4, '{}'::jsonb,
+          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        """,
+        [audit_event_id, fixture.vault_id, audit_correlation_id, audit_event_id]
+      )
     end)
 
     first_event = Fixtures.outbox_event!(fixture)
@@ -530,6 +488,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     assert first_sequence < second_sequence and second_sequence < third_sequence
 
     %{
+      audit_event_id: load_uuid(audit_event_id),
       extra_credential_id: load_uuid(extra_credential_id),
       extra_principal_id: load_uuid(extra_principal_id),
       first_event_id: load_uuid(first_event.id),

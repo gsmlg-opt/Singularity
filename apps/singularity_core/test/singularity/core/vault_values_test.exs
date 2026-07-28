@@ -57,8 +57,11 @@ defmodule Singularity.Core.VaultValuesTest do
                principal_id: "principal-1",
                vault_id: "vault-1",
                action: "asset.read",
+               result: :allowed,
                classification: :sensitive,
                correlation_id: "correlation-1",
+               target_type: "asset",
+               target_id: "asset-1",
                occurred_at: ~U[2026-07-18 08:00:00Z],
                metadata: %{"asset_id" => "asset-1"}
              })
@@ -70,8 +73,11 @@ defmodule Singularity.Core.VaultValuesTest do
                principal_id: "principal-1",
                vault_id: "vault-1",
                action: "asset.read",
+               result: :allowed,
                classification: :private,
                correlation_id: "correlation-1",
+               target_type: "asset",
+               target_id: "asset-1",
                occurred_at: ~N[2026-07-18 08:00:00],
                metadata: %{}
              })

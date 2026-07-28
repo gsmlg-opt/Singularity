@@ -520,6 +520,27 @@ defmodule Singularity.Runtime.OperationScopeTest do
     end
   end
 
+  defmodule DenyingAuthorizer do
+    def check(recorder, _repo, _session, _requirement) do
+      Recorder.record(recorder, :authorize)
+      {:error, Error.new(:forbidden)}
+    end
+  end
+
+  defmodule MalformedAuthorizer do
+    def check(recorder, _repo, _session, _requirement) do
+      Recorder.record(recorder, :authorize)
+      :malformed
+    end
+  end
+
+  defmodule AuditSink do
+    def append(recorder, repo, event) do
+      Recorder.record(recorder, {:audit, repo, event})
+      :ok
+    end
+  end
+
   setup do
     recorder = start_supervised!({Recorder, []})
 
@@ -529,7 +550,8 @@ defmodule Singularity.Runtime.OperationScopeTest do
       authorization_lock: {AuthorizationLock, recorder},
       scoped_repo: {ScopedRepo, recorder},
       authorizer: Authorizer,
-      authorization: recorder
+      authorization: recorder,
+      audit: {AuditSink, recorder}
     }
 
     session = %{
@@ -707,6 +729,70 @@ defmodule Singularity.Runtime.OperationScopeTest do
     assert :transaction_rollback in Recorder.events(recorder)
   end
 
+  test "authorization denial appends in a second scoped transaction after rollback", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    runtime = %{runtime | authorizer: DenyingAuthorizer}
+
+    assert {:error, %Error{code: :forbidden}} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn _repo ->
+                 Recorder.record(recorder, :effect)
+                 :ok
+               end
+             )
+
+    refute :effect in Recorder.events(recorder)
+
+    assert [
+             {:acquire, :vault_shared},
+             {:acquire, :authorization_shared},
+             :transaction_begin,
+             :authorize,
+             :transaction_rollback,
+             :transaction_begin,
+             {:audit, :scoped_repo, event},
+             :transaction_commit,
+             {:release, :authorization_shared},
+             {:release, :vault_shared}
+           ] = Recorder.events(recorder)
+
+    assert event.action == "authorization.denied"
+    assert event.result == :denied
+    assert event.principal_id == session.principal_id
+    assert event.vault_id == session.vault_id
+    assert event.target_type == "authorization"
+    assert event.target_id == session.vault_id
+  end
+
+  test "malformed authorizer responses are storage failures, not unaudited denials", %{
+    recorder: recorder,
+    runtime: runtime,
+    session: session
+  } do
+    runtime = %{runtime | authorizer: MalformedAuthorizer}
+
+    assert {:error, %Error{code: :storage_unavailable, retryable?: true}} =
+             OperationScope.with_shared_request(
+               runtime,
+               session,
+               requirement(),
+               fn _repo ->
+                 Recorder.record(recorder, :effect)
+                 :ok
+               end
+             )
+
+    refute :effect in Recorder.events(recorder)
+    refute Enum.any?(Recorder.events(recorder), &match?({:audit, _, _}, &1))
+    assert :transaction_rollback in Recorder.events(recorder)
+  end
+
   test "read scope skips the vault lock but pins checkout and authorization lock", %{
     recorder: recorder,
     runtime: runtime,
@@ -749,7 +835,7 @@ defmodule Singularity.Runtime.OperationScopeTest do
            ]
   end
 
-  test "a cross-vault requirement is rejected before any lock is acquired", %{
+  test "a cross-vault requirement is audited under the session vault before any lock", %{
     recorder: recorder,
     runtime: runtime,
     session: session
@@ -762,7 +848,18 @@ defmodule Singularity.Runtime.OperationScopeTest do
                fn _repo -> :ok end
              )
 
-    assert Recorder.events(recorder) == []
+    assert [
+             :checkout,
+             :transaction_begin,
+             {:audit, :scoped_repo, event},
+             :transaction_commit
+           ] = Recorder.events(recorder)
+
+    assert event.action == "authorization.cross_vault_denied"
+    assert event.result == :denied
+    assert event.vault_id == session.vault_id
+    assert event.target_type == "vault"
+    assert event.target_id == session.vault_id
   end
 
   defp requirement do

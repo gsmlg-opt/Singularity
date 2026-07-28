@@ -14,38 +14,40 @@ defmodule Singularity.Storage.Fake.JobHandler do
           crash_after_external_effect?: false,
           external_effects: nil,
           observer: self()
-        })
+        }),
+      fake_waiting_jobs: Application.get_env(:singularity_storage, :fake_waiting_jobs, %{})
     }
   end
 
   @impl true
   def handle(
-        context,
-        %{
-          payload: %{
-            "wait_for_unlock" => true,
-            "checkpoint" => checkpoint
-          }
-        } = envelope
+        %{fake_waiting_jobs: waiting_jobs} = context,
+        %{job_id: job_id} = envelope
       ) do
-    wait_before_progress(context, envelope)
+    case Map.fetch(waiting_jobs, job_id) do
+      {:ok, checkpoint} ->
+        wait_before_progress(context, envelope)
 
-    case context.transact.([], fn repo ->
-           Progress.put_state(repo, envelope, :waiting_for_unlock, %{
-             checkpoint_version: 1,
-             checkpoint: checkpoint
-           })
-         end) do
-      {:ok, _progress} ->
-        wait_after_progress(context, envelope)
-        {:snooze, 60}
+        case context.transact.([], fn repo ->
+               Progress.put_state(repo, envelope, :waiting_for_unlock, %{
+                 checkpoint_version: 1,
+                 checkpoint: checkpoint
+               })
+             end) do
+          {:ok, _progress} ->
+            wait_after_progress(context, envelope)
+            {:snooze, 60}
 
-      {:error, _reason} = error ->
-        error
+          {:error, _reason} = error ->
+            error
+        end
+
+      :error ->
+        handle_effect(context, envelope)
     end
   end
 
-  def handle(context, %{payload: %{"asset_id" => asset_id}} = envelope) do
+  defp handle_effect(context, %{payload: %{"asset_id" => asset_id}} = envelope) do
     with {:ok, receipt} <-
            context.transact.([], fn repo ->
              send_phase(repo, context, 1)
@@ -92,7 +94,7 @@ defmodule Singularity.Storage.Fake.JobHandler do
     end
   end
 
-  def handle(context, envelope) do
+  defp handle_effect(context, envelope) do
     send(self(), {:job_handler_called, context, envelope})
     :ok
   end

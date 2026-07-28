@@ -4,7 +4,7 @@ defmodule Singularity.Storage.Backup.Exporter do
   and immutable objects.
   """
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Backup.LogicalRecordCodec

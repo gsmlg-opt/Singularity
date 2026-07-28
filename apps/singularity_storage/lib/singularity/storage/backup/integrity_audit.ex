@@ -7,7 +7,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
   object metadata; raw hierarchy keys remain in the runtime integrity lease.
   """
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Postgres.AssetRepository
@@ -25,6 +25,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
     object_count operation plaintext_inventory_sha256 search_rebuild_sha256
     vault_id
   ]a
+  @system_principal_name "integrity_audit"
   @search_binding_keys ~w[manifest_id vault_id]a
 
   defmodule CiphertextSummary do
@@ -580,7 +581,6 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
     params = [
       Ecto.UUID.dump!(event_id),
       Ecto.UUID.dump!(command.vault_id),
-      Ecto.UUID.dump!(command.integrity_principal_id),
       Ecto.UUID.dump!(command.correlation_id),
       Ecto.UUID.dump!(command.manifest_id),
       metadata,
@@ -591,13 +591,14 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
            repo,
            """
            INSERT INTO audit.events (
-             id, vault_id, actor_kind, principal_id, operation, result,
+             id, vault_id, actor_kind, system_principal_name, operation, result,
              classification, correlation_id, target_type, target_id, metadata,
              occurred_at, inserted_at
            )
            VALUES (
-             $1, $2, 'system', $3, 'integrity.audit_completed', 'completed',
-             'restricted', $4, 'backup_manifest', $5, $6, $7, $7
+             $1, $2, 'system', '#{@system_principal_name}',
+             'integrity.audit_completed', 'completed',
+             'restricted', $3, 'backup_manifest', $4, $5, $6, $6
            )
            ON CONFLICT (id) DO NOTHING
            RETURNING id
@@ -623,7 +624,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
            repo,
            """
            SELECT
-             vault_id, actor_kind, principal_id, operation, result, classification,
+             vault_id, actor_kind, system_principal_name, operation, result, classification,
              correlation_id, target_type, target_id, metadata
            FROM audit.events
            WHERE id = $1
@@ -636,7 +637,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
            [
              vault_id,
              "system",
-             principal_id,
+             system_principal_name,
              "integrity.audit_completed",
              "completed",
              "restricted",
@@ -648,7 +649,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
          ]
        }} ->
         if load_uuid(vault_id) == command.vault_id and
-             load_uuid(principal_id) == command.integrity_principal_id and
+             system_principal_name == @system_principal_name and
              load_uuid(correlation_id) == command.correlation_id and
              load_uuid(manifest_id) == command.manifest_id and
              metadata == expected_metadata do

@@ -3,7 +3,7 @@ defmodule Singularity.Storage.Postgres.Outbox do
 
   @behaviour Singularity.Core.Outbox
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Core.OutboxEvent
   alias Singularity.Storage.Postgres.UUID

@@ -94,7 +94,7 @@ defmodule Singularity.Storage.Fixtures do
           $2,
           $3,
           $4,
-          'asset.verify',
+          'asset.write',
           7,
           23,
           'private',
@@ -107,7 +107,7 @@ defmodule Singularity.Storage.Fixtures do
         """,
         [
           event_id,
-          "outbox-#{Ecto.UUID.generate()}",
+          "asset-retry:#{Ecto.UUID.load!(fixture.asset_id)}:0:#{System.unique_integer([:positive])}",
           fixture.vault_id,
           fixture.principal_id,
           correlation_id,

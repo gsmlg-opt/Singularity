@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.Backup.Restorer do
   @moduledoc "Imports an authenticated logical backup into a disposable empty destination."
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Core.StageRef
@@ -2201,7 +2201,7 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp insert_rewrap_audit(repo, imported, principal_id, generation) do
+  defp insert_rewrap_audit(repo, imported, _principal_id, generation) do
     event_id = Ecto.UUID.generate()
     correlation_id = Ecto.UUID.generate()
     now = DateTime.utc_now()
@@ -2210,20 +2210,20 @@ defmodule Singularity.Storage.Backup.Restorer do
            repo,
            """
            INSERT INTO audit.events (
-             id, vault_id, actor_kind, principal_id, operation, result,
+             id, vault_id, actor_kind, system_principal_name, operation, result,
              classification, correlation_id, target_type, target_id, metadata,
              occurred_at, inserted_at
            )
            VALUES (
-             $1, $2, 'system', $3, 'credential.rewrapped_after_restore', 'completed',
-             'restricted', $4, 'backup_manifest', $5, $6, $7, $7
+             $1, $2, 'system', '#{@integrity_principal_name}',
+             'credential.rewrapped_after_restore', 'completed',
+             'restricted', $3, 'backup_manifest', $4, $5, $6, $6
            )
            RETURNING id
            """,
            [
              dump_uuid(event_id),
              dump_uuid(imported.cut.vault_id),
-             dump_uuid(principal_id),
              dump_uuid(correlation_id),
              dump_uuid(imported.manifest.manifest_id),
              %{
@@ -2302,7 +2302,6 @@ defmodule Singularity.Storage.Backup.Restorer do
     params = [
       dump_uuid(event_id),
       dump_uuid(rewrapped.cut.vault_id),
-      dump_uuid(rewrapped.integrity_principal_id),
       dump_uuid(correlation_id),
       dump_uuid(rewrapped.manifest.manifest_id),
       %{
@@ -2317,13 +2316,14 @@ defmodule Singularity.Storage.Backup.Restorer do
            repo,
            """
            INSERT INTO audit.events (
-             id, vault_id, actor_kind, principal_id, operation, result,
+             id, vault_id, actor_kind, system_principal_name, operation, result,
              classification, correlation_id, target_type, target_id, metadata,
              occurred_at, inserted_at
            )
            VALUES (
-             $1, $2, 'system', $3, 'backup.restore_completed', 'completed',
-             'restricted', $4, 'backup_manifest', $5, $6, $7, $7
+             $1, $2, 'system', '#{@integrity_principal_name}',
+             'backup.restore_completed', 'completed',
+             'restricted', $3, 'backup_manifest', $4, $5, $6, $6
            )
            ON CONFLICT (id) DO NOTHING
            RETURNING id
@@ -2349,7 +2349,7 @@ defmodule Singularity.Storage.Backup.Restorer do
            repo,
            """
            SELECT
-             vault_id, actor_kind, principal_id, operation, result, classification,
+             vault_id, actor_kind, system_principal_name, operation, result, classification,
              correlation_id, target_type, target_id, metadata
            FROM audit.events
            WHERE id = $1
@@ -2362,7 +2362,7 @@ defmodule Singularity.Storage.Backup.Restorer do
            [
              vault_id,
              "system",
-             principal_id,
+             system_principal_name,
              "backup.restore_completed",
              "completed",
              "restricted",
@@ -2378,7 +2378,7 @@ defmodule Singularity.Storage.Backup.Restorer do
          ]
        }} ->
         if load_uuid(vault_id) == rewrapped.cut.vault_id and
-             load_uuid(principal_id) == rewrapped.integrity_principal_id and
+             system_principal_name == @integrity_principal_name and
              load_uuid(stored_correlation_id) == correlation_id and
              load_uuid(manifest_id) == rewrapped.manifest.manifest_id and
              vault_key_generation == rewrapped.owner.vault_key_generation and

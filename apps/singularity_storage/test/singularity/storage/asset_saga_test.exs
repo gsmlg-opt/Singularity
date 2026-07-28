@@ -75,8 +75,16 @@ defmodule Singularity.Storage.AssetSagaTest do
     {grant, token} = insert_grant!(fixture)
     command = stage_command(fixture, grant, token)
 
+    assert {:error, %Error{code: :invalid}} =
+             scoped(fixture, fn repo ->
+               AssetRepository.consume_grant_and_create_stage(
+                 repo,
+                 Map.put(command, :token, token)
+               )
+             end)
+
     changed_bindings = [
-      %{command | token: :crypto.strong_rand_bytes(32)},
+      %{command | token_digest: :crypto.strong_rand_bytes(32)},
       %{command | session_id: Ecto.UUID.generate()},
       %{command | principal_id: Ecto.UUID.generate()},
       %{command | vault_id: Ecto.UUID.generate()},
@@ -316,7 +324,7 @@ defmodule Singularity.Storage.AssetSagaTest do
   defp stage_command(fixture, grant, token) do
     %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

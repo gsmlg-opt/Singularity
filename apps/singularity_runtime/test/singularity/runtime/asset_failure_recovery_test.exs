@@ -576,12 +576,12 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       assert Task.shutdown(second, :brutal_kill) == nil
       revoke_and_reactivate_custody!(crash_custodian, session, keys)
 
-      assert {:ok, %{state: :ready, state_revision: 5}} = GenericWorker.perform(job)
+      assert :ok = GenericWorker.perform(job)
       completed_reads = MetadataReadGateStorage.completed(read_gate)
       assert completed_reads[first_data_offset] == 1
       assert completed_reads[second_data_offset] == 1
 
-      assert {:ok, %{state: :ready, state_revision: 5}} = GenericWorker.perform(job)
+      assert :ok = GenericWorker.perform(job)
       assert MetadataReadGateStorage.completed(read_gate) == completed_reads
     end)
 

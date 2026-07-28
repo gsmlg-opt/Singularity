@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.UnlockVault do
   @moduledoc "Authenticates and activates vault custody only after durable audit commit."
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
 
@@ -13,14 +14,20 @@ defmodule Singularity.Runtime.UnlockVault do
 
   @spec run(map(), SessionContext.t(), binary(), String.t()) ::
           {:ok, SessionContext.t()} | {:error, Error.t()}
-  def run(
-        runtime,
-        %SessionContext{} = session,
-        password,
-        correlation_id
-      )
-      when is_map(runtime) and is_binary(password) and byte_size(password) > 0 and
-             is_binary(correlation_id) and byte_size(correlation_id) > 0 do
+  def run(runtime, session, password, correlation_id) do
+    Telemetry.span([:vault, :unlock], %{}, fn ->
+      do_run(runtime, session, password, correlation_id)
+    end)
+  end
+
+  defp do_run(
+         runtime,
+         %SessionContext{} = session,
+         password,
+         correlation_id
+       )
+       when is_map(runtime) and is_binary(password) and byte_size(password) > 0 and
+              is_binary(correlation_id) and byte_size(correlation_id) > 0 do
     with {:ok, adapters} <- adapters(runtime),
          {:ok, material} <- load_material(adapters, runtime, session),
          {:ok, parameters} <- kdf_parameters(material.vault_wrapper.kdf_parameters),
@@ -102,7 +109,7 @@ defmodule Singularity.Runtime.UnlockVault do
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
-  def run(_runtime, _session, _password, _correlation_id),
+  defp do_run(_runtime, _session, _password, _correlation_id),
     do: {:error, Error.new(:invalid)}
 
   defp load_material(adapters, runtime, session) do

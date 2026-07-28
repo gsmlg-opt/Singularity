@@ -986,6 +986,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
           "principal",
           ids.owner_principal_id,
           nil,
+          nil,
           "asset.created",
           "completed",
           "private",

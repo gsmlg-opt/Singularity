@@ -307,7 +307,7 @@ defmodule Singularity.Runtime.TwoVaultIsolationTest do
 
     stage_command = %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

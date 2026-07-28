@@ -25,11 +25,13 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
     def dependencies, do: RuntimeApplication.job_dependencies()
 
     @impl true
-    def handle(
-          _context,
-          %{payload: %{"failure_retryable" => retryable?}}
+    def handle(_context, _envelope) do
+      retryable? =
+        Application.fetch_env!(
+          :singularity_storage,
+          :controlled_failure_retryable
         )
-        when is_boolean(retryable?) do
+
       code = if retryable?, do: :storage_unavailable, else: :integrity_failure
       {:error, Error.new(code, retryable?: retryable?)}
     end
@@ -259,6 +261,7 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
     with_production_failure_handler(fn ->
       retryable = worker_envelope(fixture, true)
       insert_outbox!(retryable)
+      Application.put_env(:singularity_storage, :controlled_failure_retryable, true)
 
       assert {:ok, retryable_args} = EnvelopeCodec.encode(retryable)
 
@@ -298,6 +301,7 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
 
       nonretryable = worker_envelope(fixture, false)
       insert_outbox!(nonretryable)
+      Application.put_env(:singularity_storage, :controlled_failure_retryable, false)
       assert {:ok, nonretryable_args} = EnvelopeCodec.encode(nonretryable)
 
       immediate_job = %Oban.Job{
@@ -386,6 +390,8 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
   end
 
   defp worker_envelope(fixture, retryable?) do
+    retry_attempt = if retryable?, do: 1, else: 2
+
     {:ok, envelope} =
       JobEnvelope.new(%{
         attempt: 0,
@@ -393,13 +399,10 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
         classification: :private,
         correlation_id: Ecto.UUID.generate(),
         expected_entity_revision: 1,
-        idempotency_key: "asset-worker-failure:#{fixture.asset_id}:#{Ecto.UUID.generate()}",
+        idempotency_key: "asset-retry:#{fixture.asset_id}:1:#{retry_attempt}",
         job_id: Ecto.UUID.generate(),
         job_type: "asset_verify",
-        payload: %{
-          "asset_id" => fixture.asset_id,
-          "failure_retryable" => retryable?
-        },
+        payload: %{"asset_id" => fixture.asset_id},
         principal_authorization_epoch: 0,
         principal_id: fixture.principal_id,
         required_capability: "asset.write",
@@ -503,6 +506,12 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
   defp with_production_failure_handler(callback) do
     previous = Application.get_env(:singularity_storage, :job_handler)
 
+    previous_failure_mode =
+      Application.get_env(
+        :singularity_storage,
+        :controlled_failure_retryable
+      )
+
     previous_authorization =
       Application.fetch_env!(
         :singularity_runtime,
@@ -538,6 +547,19 @@ defmodule Singularity.Storage.AssetAccessRetryTest do
         Application.put_env(:singularity_storage, :job_handler, previous)
       else
         Application.delete_env(:singularity_storage, :job_handler)
+      end
+
+      if is_boolean(previous_failure_mode) do
+        Application.put_env(
+          :singularity_storage,
+          :controlled_failure_retryable,
+          previous_failure_mode
+        )
+      else
+        Application.delete_env(
+          :singularity_storage,
+          :controlled_failure_retryable
+        )
       end
     end
   end

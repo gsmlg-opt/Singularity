@@ -13,13 +13,15 @@ defmodule Singularity.Storage.EffectReceiptTest do
   alias Singularity.Storage.Jobs.Progress
   alias Singularity.Storage.Jobs.WakeReconciler
   alias Singularity.Storage.ScopedRepo
-  alias Singularity.Storage.Schema.Jobs.EffectReceipt
 
   setup do
     previous_handler = Application.get_env(:singularity_storage, :job_handler)
 
     previous_fake_dependencies =
       Application.get_env(:singularity_storage, :fake_job_dependencies)
+
+    previous_fake_waiting_jobs =
+      Application.get_env(:singularity_storage, :fake_waiting_jobs)
 
     external_effects =
       start_supervised!({Agent, fn -> %{applied: MapSet.new(), calls: %{}} end})
@@ -36,6 +38,8 @@ defmodule Singularity.Storage.EffectReceiptTest do
       observer: self()
     })
 
+    Application.put_env(:singularity_storage, :fake_waiting_jobs, %{})
+
     on_exit(fn ->
       if previous_handler do
         Application.put_env(:singularity_storage, :job_handler, previous_handler)
@@ -51,6 +55,16 @@ defmodule Singularity.Storage.EffectReceiptTest do
         )
       else
         Application.delete_env(:singularity_storage, :fake_job_dependencies)
+      end
+
+      if previous_fake_waiting_jobs do
+        Application.put_env(
+          :singularity_storage,
+          :fake_waiting_jobs,
+          previous_fake_waiting_jobs
+        )
+      else
+        Application.delete_env(:singularity_storage, :fake_waiting_jobs)
       end
     end)
 
@@ -177,8 +191,7 @@ defmodule Singularity.Storage.EffectReceiptTest do
     envelope = submitted_envelope(fixture, 99)
     assert {:ok, encoded} = EnvelopeCodec.encode(envelope)
 
-    assert {:ok, %EffectReceipt{result: :stale}} =
-             GenericWorker.perform(%Oban.Job{args: encoded})
+    assert :ok = GenericWorker.perform(%Oban.Job{args: encoded})
 
     assert %{rows: [["staging", 0]]} =
              scoped_query(
@@ -767,16 +780,18 @@ defmodule Singularity.Storage.EffectReceiptTest do
 
   defp submitted_envelope(fixture, expected_revision, payload_overrides \\ %{}) do
     event = Fixtures.outbox_event!(fixture)
+    asset_id = load_uuid(fixture.asset_id)
+    retry_attempt = System.unique_integer([:positive])
 
     assert {:ok, envelope} =
              JobEnvelope.new(%{
                version: 1,
                job_id: load_uuid(event.id),
                job_type: "asset_verify",
-               idempotency_key: "effect:#{expected_revision}:#{Ecto.UUID.generate()}",
+               idempotency_key: "asset-retry:#{asset_id}:#{expected_revision}:#{retry_attempt}",
                vault_id: load_uuid(fixture.vault_id),
                principal_id: load_uuid(fixture.principal_id),
-               required_capability: "asset:verify",
+               required_capability: "asset.write",
                principal_authorization_epoch: 7,
                vault_authorization_epoch: 23,
                classification: :private,
@@ -784,15 +799,31 @@ defmodule Singularity.Storage.EffectReceiptTest do
                causation_id: load_uuid(event.id),
                expected_entity_revision: expected_revision,
                attempt: 0,
-               payload:
-                 Map.merge(
-                   %{"asset_id" => load_uuid(fixture.asset_id)},
-                   payload_overrides
-                 )
+               payload: %{"asset_id" => asset_id}
              })
 
+    register_waiting_job(envelope, payload_overrides)
     assert {:ok, _runner_id} = ObanAdapter.submit(%{}, envelope)
     envelope
+  end
+
+  defp register_waiting_job(_envelope, overrides) when map_size(overrides) == 0, do: :ok
+
+  defp register_waiting_job(
+         envelope,
+         %{
+           "wait_for_unlock" => true,
+           "checkpoint" => checkpoint
+         } = overrides
+       )
+       when map_size(overrides) == 2 and is_map(checkpoint) do
+    Application.put_env(
+      :singularity_storage,
+      :fake_waiting_jobs,
+      :singularity_storage
+      |> Application.get_env(:fake_waiting_jobs, %{})
+      |> Map.put(envelope.job_id, checkpoint)
+    )
   end
 
   defp scoped_query(envelope, statement, parameters) do

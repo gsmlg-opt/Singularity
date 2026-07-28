@@ -4,6 +4,7 @@ defmodule Singularity.Runtime.Assets.ObjectCleanup do
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
   alias Singularity.Runtime.Authorize
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Storage.ObjectLock
 
   @spec run(map(), JobEnvelope.t()) ::
@@ -55,6 +56,12 @@ defmodule Singularity.Runtime.Assets.ObjectCleanup do
              :ok <- call_adapter(storage, :delete, [object_ref]),
              {:ok, object} <-
                acknowledge_claim(adapters, envelope, deletion) do
+          Telemetry.execute(
+            [:orphan, :cleanup],
+            %{count: 1},
+            %{outcome: :deleted}
+          )
+
           {:ok, object}
         end
 

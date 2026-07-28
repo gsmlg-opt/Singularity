@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.Backup.Reconciler do
   @moduledoc "Reconciles restored durable work before dispatch resumes."
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
 
   @retirement_reasons [

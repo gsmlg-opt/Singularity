@@ -3,6 +3,7 @@ defmodule Singularity.Runtime.BackupVault do
 
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
+  alias Singularity.Runtime.Observability.Telemetry
 
   @backup_requirement %{
     classification: :private,
@@ -130,14 +131,20 @@ defmodule Singularity.Runtime.BackupVault do
 
   @spec run(map(), JobEnvelope.t()) ::
           {:ok, map()} | {:error, Error.t()} | {:snooze, pos_integer()}
-  def run(
-        context,
-        %JobEnvelope{
-          job_type: "backup",
-          payload: %{"pending_manifest_id" => manifest_id}
-        } = envelope
-      )
-      when is_map(context) and is_binary(manifest_id) and manifest_id != "" do
+  def run(context, envelope) do
+    Telemetry.span([:backup], %{}, fn ->
+      do_run(context, envelope)
+    end)
+  end
+
+  defp do_run(
+         context,
+         %JobEnvelope{
+           job_type: "backup",
+           payload: %{"pending_manifest_id" => manifest_id}
+         } = envelope
+       )
+       when is_map(context) and is_binary(manifest_id) and manifest_id != "" do
     with {:ok, adapters} <- worker_adapters(context),
          {:ok, manifest} <- load_pending(adapters, envelope, manifest_id) do
       case manifest.status do
@@ -163,7 +170,7 @@ defmodule Singularity.Runtime.BackupVault do
     _kind, _reason -> storage_unavailable()
   end
 
-  def run(_context, _envelope), do: invalid()
+  defp do_run(_context, _envelope), do: invalid()
 
   defp run_copying(adapters, envelope, manifest) do
     case safe_adapter_call(adapters.destination, :probe, [

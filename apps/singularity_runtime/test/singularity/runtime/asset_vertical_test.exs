@@ -428,7 +428,7 @@ defmodule Singularity.Runtime.AssetVerticalTest do
                classification: cleanup.classification,
                correlation_id: cleanup.correlation_id,
                expected_entity_revision: 4,
-               idempotency_key: "asset-cleanup-stale:#{asset_id}:#{Ecto.UUID.generate()}",
+               idempotency_key: "asset-retry:#{asset_id}:4:1",
                job_id: Ecto.UUID.generate(),
                job_type: "asset_cleanup",
                payload: %{"asset_id" => asset_id},

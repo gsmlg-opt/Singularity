@@ -3,7 +3,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
 
   @behaviour Singularity.Domains.Identity.Repository
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Ecto.Multi
   import Ecto.Query
   alias Singularity.Core.Error
@@ -546,6 +546,122 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
   def change_password_and_wrapper(_repo, _command),
     do: {:error, Error.new(:invalid)}
 
+  def change_capability_and_audit(
+        repo,
+        %{
+          session_id: session_id,
+          actor_principal_id: actor_principal_id,
+          target_principal_id: target_principal_id,
+          vault_id: vault_id,
+          capability: capability,
+          change: change,
+          correlation_id: correlation_id
+        } = command
+      )
+      when change in [:grant, :revoke] and is_binary(capability) do
+    runtime_operation(fn ->
+      with true <- repo.in_transaction?(),
+           :ok <-
+             UUID.validate([
+               session_id,
+               actor_principal_id,
+               target_principal_id,
+               vault_id,
+               correlation_id
+             ]),
+           true <- capability == String.trim(capability) and capability != "",
+           :ok <-
+             ensure_live_session_binding(repo, %{
+               session_id: session_id,
+               principal_id: actor_principal_id,
+               vault_id: vault_id
+             }),
+           :ok <- ensure_live_membership(repo, target_principal_id, vault_id),
+           {:ok, capability_record} <- load_capability(repo, capability),
+           :ok <-
+             change_capability_assignment(
+               repo,
+               target_principal_id,
+               vault_id,
+               capability_record.id,
+               change
+             ),
+           :ok <- bump_vault_authorization_epoch(repo, vault_id),
+           :ok <-
+             append_policy_audit(
+               repo,
+               command,
+               "authorization.capability_changed",
+               %{
+                 "capability" => capability,
+                 "change" => Atom.to_string(change)
+               }
+             ) do
+        :ok
+      else
+        false -> {:error, Error.new(:invalid)}
+        {:error, %Error{}} = error -> error
+      end
+    end)
+  end
+
+  def change_capability_and_audit(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  def change_clearance_and_audit(
+        repo,
+        %{
+          session_id: session_id,
+          actor_principal_id: actor_principal_id,
+          target_principal_id: target_principal_id,
+          vault_id: vault_id,
+          clearance: clearance,
+          correlation_id: correlation_id
+        } = command
+      )
+      when clearance in [:private, :sensitive, :restricted] do
+    runtime_operation(fn ->
+      with true <- repo.in_transaction?(),
+           :ok <-
+             UUID.validate([
+               session_id,
+               actor_principal_id,
+               target_principal_id,
+               vault_id,
+               correlation_id
+             ]),
+           :ok <-
+             ensure_live_session_binding(repo, %{
+               session_id: session_id,
+               principal_id: actor_principal_id,
+               vault_id: vault_id
+             }),
+           :ok <-
+             update_membership_clearance(
+               repo,
+               target_principal_id,
+               vault_id,
+               clearance
+             ),
+           :ok <- bump_vault_authorization_epoch(repo, vault_id),
+           :ok <-
+             append_policy_audit(
+               repo,
+               command,
+               "authorization.policy_changed",
+               %{"clearance" => Atom.to_string(clearance)}
+             ) do
+        :ok
+      else
+        false -> {:error, Error.new(:invalid)}
+        {:error, %Error{}} = error -> error
+      end
+    end)
+  end
+
+  def change_clearance_and_audit(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
   defp bootstrap_in_transaction(repo, command, mode) do
     if repo.in_transaction?() do
       bootstrap_transaction(repo, command, mode)
@@ -607,6 +723,8 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
         result: :allowed,
         classification: :private,
         correlation_id: command.correlation_id,
+        target_type: "session",
+        target_id: session_id,
         metadata: %{},
         occurred_at: now
       })
@@ -1532,6 +1650,158 @@ defmodule Singularity.Storage.Postgres.IdentityRepository do
       {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset_error(changeset)}
     end
   end
+
+  defp ensure_live_membership(repo, principal_id, vault_id) do
+    if repo.exists?(
+         from member in VaultMember,
+           where: member.principal_id == ^principal_id,
+           where: member.vault_id == ^vault_id,
+           where: is_nil(member.revoked_at)
+       ),
+       do: :ok,
+       else: {:error, Error.new(:not_found)}
+  end
+
+  defp load_capability(repo, name) do
+    case repo.one(from capability in Capability, where: capability.name == ^name) do
+      %Capability{} = capability -> {:ok, capability}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp change_capability_assignment(
+         repo,
+         principal_id,
+         vault_id,
+         capability_id,
+         change
+       ) do
+    assignment =
+      repo.get_by(PrincipalCapability,
+        principal_id: principal_id,
+        vault_id: vault_id,
+        capability_id: capability_id
+      )
+
+    case {change, assignment} do
+      {:grant, nil} ->
+        %PrincipalCapability{}
+        |> PrincipalCapability.create_changeset(%{
+          principal_id: principal_id,
+          vault_id: vault_id,
+          capability_id: capability_id
+        })
+        |> repo.insert()
+        |> normalize_policy_write()
+
+      {:grant, %PrincipalCapability{revoked_at: %DateTime{}}} ->
+        update_capability_revocation(
+          repo,
+          principal_id,
+          vault_id,
+          capability_id,
+          nil
+        )
+
+      {:revoke, %PrincipalCapability{revoked_at: nil}} ->
+        update_capability_revocation(
+          repo,
+          principal_id,
+          vault_id,
+          capability_id,
+          DateTime.utc_now(:microsecond)
+        )
+
+      {_change, _unchanged} ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp update_capability_revocation(
+         repo,
+         principal_id,
+         vault_id,
+         capability_id,
+         revoked_at
+       ) do
+    case repo.update_all(
+           from(
+             assignment in PrincipalCapability,
+             where: assignment.principal_id == ^principal_id,
+             where: assignment.vault_id == ^vault_id,
+             where: assignment.capability_id == ^capability_id
+           ),
+           set: [revoked_at: revoked_at]
+         ) do
+      {1, _rows} -> :ok
+      {0, _rows} -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp update_membership_clearance(repo, principal_id, vault_id, clearance) do
+    case repo.update_all(
+           from(
+             member in VaultMember,
+             where: member.principal_id == ^principal_id,
+             where: member.vault_id == ^vault_id,
+             where: is_nil(member.revoked_at),
+             where: member.clearance != ^clearance
+           ),
+           set: [
+             clearance: clearance,
+             updated_at: DateTime.utc_now(:microsecond)
+           ]
+         ) do
+      {1, _rows} -> :ok
+      {0, _rows} -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp bump_vault_authorization_epoch(repo, vault_id) do
+    case repo.update_all(
+           from(vault in Vault, where: vault.id == ^vault_id),
+           inc: [authorization_epoch: 1],
+           set: [updated_at: DateTime.utc_now(:microsecond)]
+         ) do
+      {1, _rows} -> :ok
+      {0, _rows} -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp append_policy_audit(
+         repo,
+         %{
+           actor_principal_id: actor_principal_id,
+           target_principal_id: target_principal_id,
+           vault_id: vault_id,
+           correlation_id: correlation_id
+         },
+         operation,
+         metadata
+       ) do
+    %Event{}
+    |> Event.append_changeset(%{
+      id: Ecto.UUID.generate(),
+      vault_id: vault_id,
+      actor_kind: :principal,
+      principal_id: actor_principal_id,
+      operation: operation,
+      result: :completed,
+      classification: :restricted,
+      correlation_id: correlation_id,
+      target_type: "principal",
+      target_id: target_principal_id,
+      metadata: metadata,
+      occurred_at: DateTime.utc_now(:microsecond)
+    })
+    |> repo.insert()
+    |> normalize_policy_write()
+  end
+
+  defp normalize_policy_write({:ok, _record}), do: :ok
+
+  defp normalize_policy_write({:error, %Ecto.Changeset{} = changeset}),
+    do: {:error, changeset_error(changeset)}
 
   defp runtime_operation(fun) when is_function(fun, 0) do
     fun.()

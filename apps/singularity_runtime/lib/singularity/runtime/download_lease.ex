@@ -76,6 +76,25 @@ defmodule Singularity.Runtime.DownloadLease do
   end
 
   @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state,
+         %{
+           custody: "[REDACTED]",
+           pending?: not is_nil(Map.get(state, :pending)),
+           revoked?: Map.get(state, :revoked?, false)
+         }}
+
+      {:message, _message} ->
+        {:message, "[REDACTED]"}
+
+      key_value ->
+        key_value
+    end)
+  end
+
+  @impl true
   def handle_call({:read, _range}, _from, %{pending: pending} = state)
       when not is_nil(pending) do
     {:reply, {:error, Error.new(:conflict)}, state}
@@ -120,7 +139,7 @@ defmodule Singularity.Runtime.DownloadLease do
         {:stop, :normal, revoke_state(state)}
 
       {:active, {:error, %Error{}} = error} ->
-        GenServer.reply(pending.from, error)
+        GenServer.reply(pending.from, {:error, public_error(elem(error, 1))})
         {:stop, :normal, revoke_state(state)}
 
       {:active, _invalid} ->
@@ -216,6 +235,10 @@ defmodule Singularity.Runtime.DownloadLease do
            ) do
       {:ok, plaintext}
     end
+  rescue
+    _exception -> unavailable()
+  catch
+    _kind, _reason -> unavailable()
   end
 
   defp lease_status(%{revoked?: true}), do: :revoked
@@ -271,4 +294,10 @@ defmodule Singularity.Runtime.DownloadLease do
     do: :binary.copy(<<0>>, byte_size(secret))
 
   defp overwrite(_secret), do: nil
+
+  defp public_error(%Error{code: code, retryable?: retryable?}),
+    do: Error.new(code, retryable?: retryable?)
+
+  defp unavailable,
+    do: {:error, Error.new(:storage_unavailable, retryable?: true)}
 end

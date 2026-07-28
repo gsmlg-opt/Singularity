@@ -291,6 +291,7 @@ defmodule Singularity.Storage.Postgres.IdentityRepositoryTest do
              PreAuth.record_auth_attempt(PreAuthRepo, %{
                login_fingerprint: :crypto.hash(:sha256, login),
                source_fingerprint: :crypto.hash(:sha256, "127.0.0.1"),
+               audit_fingerprint: :crypto.hash(:sha256, [login, <<0>>, "127.0.0.1"]),
                result: :started,
                correlation_id: Ecto.UUID.generate()
              })

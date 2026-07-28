@@ -3,7 +3,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
 
   import ExUnit.Assertions, only: [assert: 1]
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.BootstrapOwner
@@ -180,7 +180,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   defmodule OracleDestination do
     @moduledoc false
 
-    alias Ecto.Adapters.SQL
+    alias Singularity.Storage.SafeSQL, as: SQL
     alias Singularity.Core.Error
     alias Singularity.Storage.Backup.LocalDestination
 

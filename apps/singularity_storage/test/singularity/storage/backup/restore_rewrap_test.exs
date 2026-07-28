@@ -1,6 +1,8 @@
 defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   use ExUnit.Case, async: false
 
+  import Singularity.Storage.AuditAssertions, only: [assert_persisted_audit!: 4]
+
   alias Ecto.Adapters.SQL
   alias Singularity.Core.Error
   alias Singularity.Storage.Backup.IntegrityAudit
@@ -144,7 +146,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
 
       assert :ok = Restorer.complete_restore(context, rewrapped)
       assert :ok = Restorer.complete_restore(context, rewrapped)
-      assert_completion_is_idempotent(integrity_principal_id)
+      assert_completion_is_idempotent()
     end)
   end
 
@@ -368,14 +370,27 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
                  [uuid(integrity_principal_id), uuid(@vault_id)]
                )
 
-      assert %{rows: [["credential.rewrapped_after_restore", "system", principal_id, target_id]]} =
+      assert_persisted_audit!(
+        MigrationRepo,
+        "credential.rewrapped_after_restore",
+        [target_id: @manifest_id],
+        actor_kind: "system",
+        system_principal_name: "integrity_audit",
+        result: "completed",
+        target_type: "backup_manifest"
+      )
+
+      assert %{
+               rows: [
+                 ["credential.rewrapped_after_restore", "system", "integrity_audit", target_id]
+               ]
+             } =
                query!("""
-               SELECT operation, actor_kind, principal_id, target_id
+               SELECT operation, actor_kind, system_principal_name, target_id
                FROM audit.events
                WHERE operation = 'credential.rewrapped_after_restore'
                """)
 
-      assert Ecto.UUID.load!(principal_id) == integrity_principal_id
       assert Ecto.UUID.load!(target_id) == @manifest_id
     end)
   end
@@ -441,17 +456,26 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
     end)
   end
 
-  defp assert_completion_is_idempotent(integrity_principal_id) do
+  defp assert_completion_is_idempotent do
     owner_transaction(fn ->
+      assert_persisted_audit!(
+        MigrationRepo,
+        "backup.restore_completed",
+        [target_id: @manifest_id],
+        actor_kind: "system",
+        system_principal_name: "integrity_audit",
+        result: "completed",
+        target_type: "backup_manifest"
+      )
+
       assert %{rows: rows} =
                query!("""
-               SELECT operation, actor_kind, principal_id, target_id
+               SELECT operation, actor_kind, system_principal_name, target_id
                FROM audit.events
                WHERE operation = 'backup.restore_completed'
                """)
 
-      assert [["backup.restore_completed", "system", principal_id, target_id]] = rows
-      assert Ecto.UUID.load!(principal_id) == integrity_principal_id
+      assert [["backup.restore_completed", "system", "integrity_audit", target_id]] = rows
       assert Ecto.UUID.load!(target_id) == @manifest_id
     end)
   end

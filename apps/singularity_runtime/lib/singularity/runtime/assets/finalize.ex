@@ -11,6 +11,7 @@ defmodule Singularity.Runtime.Assets.Finalize do
   alias Singularity.Core.JobEnvelope
   alias Singularity.Core.ObjectRef
   alias Singularity.Runtime.Authorize
+  alias Singularity.Runtime.Observability.Telemetry
 
   @max_lock_redirects 4
 
@@ -142,6 +143,12 @@ defmodule Singularity.Runtime.Assets.Finalize do
                }
              ])
            end) do
+      Telemetry.execute(
+        [:asset, :dedup],
+        %{count: 1},
+        %{outcome: action}
+      )
+
       {:ok, asset}
     end
   end

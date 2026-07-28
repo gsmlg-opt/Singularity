@@ -89,6 +89,8 @@ end
 defmodule Singularity.Runtime.LoginTest do
   use ExUnit.Case, async: false
 
+  import Singularity.Storage.AuditAssertions, only: [assert_persisted_audit!: 4]
+
   alias Singularity.Core.Error
   alias Singularity.Runtime.Login
   alias Singularity.Runtime.ResolveSession
@@ -163,7 +165,29 @@ defmodule Singularity.Runtime.LoginTest do
     assert result.session.vault_id == owner.vault_id
 
     Singularity.Storage.Fixtures.with_owner(fn ->
-      %{rows: [[stored_credential_id, stored_digest, session_count, attempt_result, audit_count]]} =
+      assert_persisted_audit!(
+        Singularity.Storage.MigrationRepo,
+        "identity.login",
+        [correlation_id: correlation_id],
+        actor_kind: "principal",
+        result: "allowed",
+        target_type: "session",
+        target_id: result.session.id
+      )
+
+      %{
+        rows: [
+          [
+            stored_credential_id,
+            stored_digest,
+            session_count,
+            attempt_result,
+            audit_count,
+            audit_target_type,
+            audit_target_id
+          ]
+        ]
+      } =
         Ecto.Adapters.SQL.query!(
           Singularity.Storage.MigrationRepo,
           """
@@ -174,6 +198,16 @@ defmodule Singularity.Runtime.LoginTest do
             (SELECT result FROM identity.auth_attempts
              WHERE correlation_id = $4),
             (SELECT count(*) FROM audit.events
+             WHERE operation = 'identity.login'
+               AND result = 'allowed'
+               AND principal_id = $2
+               AND vault_id = $3),
+            (SELECT target_type FROM audit.events
+             WHERE operation = 'identity.login'
+               AND result = 'allowed'
+               AND principal_id = $2
+               AND vault_id = $3),
+            (SELECT target_id FROM audit.events
              WHERE operation = 'identity.login'
                AND result = 'allowed'
                AND principal_id = $2
@@ -193,6 +227,8 @@ defmodule Singularity.Runtime.LoginTest do
       assert session_count == 1
       assert attempt_result == "succeeded"
       assert audit_count == 1
+      assert audit_target_type == "session"
+      assert audit_target_id == Ecto.UUID.dump!(result.session.id)
     end)
   end
 
@@ -300,21 +336,23 @@ defmodule Singularity.Runtime.LoginTest do
     assert {:error, %Error{code: :unauthenticated}} =
              Login.run(adapters, unknown_request)
 
+    Singularity.Storage.Fixtures.with_owner(fn ->
+      assert_persisted_audit!(
+        Singularity.Storage.MigrationRepo,
+        "identity.authentication_attempt",
+        [correlation_id: known_correlation],
+        actor_kind: "anonymous",
+        result: "denied",
+        target_type: "authentication_attempt"
+      )
+    end)
+
     known_rendering = authentication_audit_rendering(known_correlation)
     unknown_rendering = authentication_audit_rendering(unknown_correlation)
 
     assert known_rendering == unknown_rendering
 
     assert known_rendering == [
-             [
-               "anonymous",
-               nil,
-               nil,
-               "identity.authentication_attempt",
-               "allowed",
-               "private",
-               %{}
-             ],
              ["anonymous", nil, nil, "identity.authentication_attempt", "denied", "private", %{}]
            ]
   end
@@ -385,13 +423,21 @@ defmodule Singularity.Runtime.LoginTest do
     assert_receive {:password_verify, "wrong-password", "known-verifier"}
     assert_receive {:pre_auth, :record_attempt, failure}
 
-    assert map_size(reserve) == 3
-    assert map_size(failure) == 5
+    assert map_size(reserve) == 4
+    assert map_size(failure) == 6
     assert byte_size(reserve.login_fingerprint) == 32
     assert byte_size(reserve.source_fingerprint) == 32
+    assert byte_size(reserve.audit_fingerprint) == 32
     assert reserve.login_fingerprint != reserve.source_fingerprint
+
+    assert reserve.audit_fingerprint not in [
+             reserve.login_fingerprint,
+             reserve.source_fingerprint
+           ]
+
     assert failure.login_fingerprint == reserve.login_fingerprint
     assert failure.source_fingerprint == reserve.source_fingerprint
+    assert failure.audit_fingerprint == reserve.audit_fingerprint
     assert failure.result == "failed"
 
     sanitized = inspect([reserve, failure])
@@ -455,6 +501,7 @@ defmodule Singularity.Runtime.LoginTest do
     assert command.attempt_id == "attempt-1"
     assert byte_size(command.login_fingerprint) == 32
     assert byte_size(command.source_fingerprint) == 32
+    assert byte_size(command.audit_fingerprint) == 32
     refute inspect(command) =~ @opaque_token
     refute Map.has_key?(result.session, :unlocked?)
     assert result.opaque_token == @opaque_token
@@ -497,6 +544,41 @@ defmodule Singularity.Runtime.LoginTest do
     refute rendered =~ "missing@example.test"
     refute rendered =~ "wrong-password"
     refute rendered =~ @fingerprint_secret
+  end
+
+  test "successful-credential audit failure emits bounded health telemetry and no session", %{
+    adapters: adapters
+  } do
+    handler_id = "login-session-audit-health-#{System.unique_integer([:positive])}"
+    event = [:singularity, :authentication, :audit_write_failure]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        &Singularity.Runtime.LoginTest.TelemetryHandler.handle/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    Process.put(:session_audit_result, {:error, :audit_failed})
+
+    assert Login.run(
+             adapters,
+             request("owner@example.test", "correct-password", "source")
+           ) == {:error, Error.new(:unauthenticated)}
+
+    assert_receive {:telemetry, ^event, %{count: 1}, metadata}
+
+    assert metadata == %{
+             category: :session_audit_write,
+             correlation_id: "00000000-0000-0000-0000-000000000111"
+           }
+
+    refute inspect(metadata) =~ "owner@example.test"
+    refute inspect(metadata) =~ "correct-password"
+    refute inspect(metadata) =~ @fingerprint_secret
+    refute inspect(metadata) =~ @opaque_token
   end
 
   test "rejected reservation performs no verifier work", %{adapters: adapters} do

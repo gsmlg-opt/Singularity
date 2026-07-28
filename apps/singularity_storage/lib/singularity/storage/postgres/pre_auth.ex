@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.Postgres.PreAuth do
   @moduledoc false
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
 
   def authentication_candidate(repo, login) when is_binary(login) do

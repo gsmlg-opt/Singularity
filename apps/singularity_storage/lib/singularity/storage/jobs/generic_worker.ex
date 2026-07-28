@@ -19,6 +19,16 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args} = job) do
+    do_perform(args, job)
+  rescue
+    _error -> failed()
+  catch
+    _kind, _reason -> failed()
+  end
+
+  def perform(_job), do: cancelled()
+
+  defp do_perform(args, job) do
     with {:ok, envelope} <- EnvelopeCodec.decode(args),
          :ok <- validate_authority_context(envelope),
          {:ok, handler} <- configured_handler(),
@@ -39,13 +49,11 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
           job
         )
       end)
-      |> map_result()
+      |> normalize_result()
     else
       {:error, %Error{}} -> cancelled()
     end
   end
-
-  def perform(_job), do: cancelled()
 
   defp configured_handler do
     with {:ok, handler} <- Application.fetch_env(:singularity_storage, :job_handler),
@@ -68,10 +76,6 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
     else
       {:error, Error.new(:job_failed)}
     end
-  rescue
-    _error -> {:error, Error.new(:job_failed)}
-  catch
-    _kind, _reason -> {:error, Error.new(:job_failed)}
   end
 
   defp validate_authority_context(envelope) do
@@ -167,17 +171,24 @@ defmodule Singularity.Storage.Jobs.GenericWorker do
     |> Keyword.fetch!(:prefix)
   end
 
-  defp map_result(:ok), do: :ok
-  defp map_result({:ok, _value} = result), do: result
+  @doc false
+  @spec normalize_result(term()) ::
+          :ok
+          | {:snooze, pos_integer()}
+          | {:error, %{code: :job_failed}}
+          | {:cancel, %{code: :job_failed}}
+  def normalize_result(:ok), do: :ok
+  def normalize_result({:ok, _value}), do: :ok
 
-  defp map_result({:snooze, seconds} = result) when is_integer(seconds) and seconds > 0,
+  def normalize_result({:snooze, seconds} = result) when seconds in [1, 60],
     do: result
 
-  defp map_result({:error, %Error{retryable?: true}}),
+  def normalize_result({:error, %Error{retryable?: true}}),
     do: {:error, %{code: :job_failed}}
 
-  defp map_result({:error, %Error{}}), do: cancelled()
-  defp map_result(_result), do: cancelled()
+  def normalize_result({:error, %Error{}}), do: cancelled()
+  def normalize_result(_result), do: cancelled()
 
+  defp failed, do: {:error, %{code: :job_failed}}
   defp cancelled, do: {:cancel, %{code: :job_failed}}
 end

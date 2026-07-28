@@ -2,10 +2,12 @@ defmodule Singularity.Runtime.Assets.Download do
   @moduledoc "Authorizes and authenticates a full or ranged plaintext asset read."
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Audit
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
   alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.AuditSink
 
   @spec run(
           map(),
@@ -20,8 +22,29 @@ defmodule Singularity.Runtime.Assets.Download do
         asset_id,
         range
       )
+      when is_map(runtime),
+      do: run(runtime, session, asset_id, range, Ecto.UUID.generate())
+
+  def run(_runtime, _session, _asset_id, _range),
+    do: {:error, Error.new(:invalid)}
+
+  @spec run(
+          map(),
+          SessionContext.t(),
+          String.t(),
+          :all | Range.t(),
+          String.t()
+        ) ::
+          {:ok, binary()} | {:error, Error.t()}
+  def run(
+        runtime,
+        %SessionContext{} = session,
+        asset_id,
+        range,
+        correlation_id
+      )
       when is_map(runtime) do
-    with :ok <- validate_request(session, asset_id, range),
+    with :ok <- validate_request(session, asset_id, range, correlation_id),
          {:ok, adapters} <- adapters(runtime) do
       case load_or_read(
              adapters,
@@ -29,7 +52,8 @@ defmodule Singularity.Runtime.Assets.Download do
              session,
              asset_id,
              range,
-             :private
+             :private,
+             correlation_id
            ) do
         {:reauthorize, object} ->
           reauthorize_and_read(
@@ -38,7 +62,8 @@ defmodule Singularity.Runtime.Assets.Download do
             session,
             asset_id,
             range,
-            object
+            object,
+            correlation_id
           )
 
         result ->
@@ -52,13 +77,13 @@ defmodule Singularity.Runtime.Assets.Download do
       {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
-  def run(_runtime, _session, _asset_id, _range),
+  def run(_runtime, _session, _asset_id, _range, _correlation_id),
     do: {:error, Error.new(:invalid)}
 
-  defp validate_request(session, asset_id, range) do
+  defp validate_request(session, asset_id, range, correlation_id) do
     valid? =
       session.unlocked? and valid_uuid?(asset_id) and
-        valid_range?(range)
+        valid_range?(range) and valid_uuid?(correlation_id)
 
     if valid?, do: :ok, else: {:error, Error.new(:invalid)}
   end
@@ -78,7 +103,8 @@ defmodule Singularity.Runtime.Assets.Download do
          session,
          asset_id,
          range,
-         classification
+         classification,
+         correlation_id
        ) do
     call_adapter(adapters.operation_scope, :with_read_request, [
       runtime,
@@ -92,7 +118,14 @@ defmodule Singularity.Runtime.Assets.Download do
                ]),
              :ok <- validate_object(object, session, asset_id) do
           if object.classification == classification do
-            read_object(adapters, session, object, range)
+            read_object(
+              adapters,
+              repo,
+              session,
+              object,
+              range,
+              correlation_id
+            )
           else
             {:reauthorize, object}
           end
@@ -107,7 +140,8 @@ defmodule Singularity.Runtime.Assets.Download do
          session,
          asset_id,
          range,
-         discovered
+         discovered,
+         correlation_id
        ) do
     call_adapter(adapters.operation_scope, :with_read_request, [
       runtime,
@@ -121,7 +155,14 @@ defmodule Singularity.Runtime.Assets.Download do
                ]),
              :ok <- validate_object(object, session, asset_id),
              true <- object == discovered do
-          read_object(adapters, session, object, range)
+          read_object(
+            adapters,
+            repo,
+            session,
+            object,
+            range,
+            correlation_id
+          )
         else
           false -> {:error, Error.new(:conflict)}
           {:error, %Error{}} = error -> error
@@ -131,7 +172,14 @@ defmodule Singularity.Runtime.Assets.Download do
     ])
   end
 
-  defp read_object(adapters, session, object, range) do
+  defp read_object(
+         adapters,
+         repo,
+         session,
+         object,
+         range,
+         correlation_id
+       ) do
     with {:ok, lease} <-
            call_adapter(adapters.custodian, :lease, [
              lease_request(session, object)
@@ -141,7 +189,15 @@ defmodule Singularity.Runtime.Assets.Download do
              lease,
              range
            ]),
-         true <- is_binary(plaintext) do
+         true <- is_binary(plaintext),
+         :ok <-
+           append_read_audit(
+             adapters.audit,
+             repo,
+             session,
+             object,
+             correlation_id
+           ) do
       {:ok, plaintext}
     else
       {:error, :waiting_for_unlock} ->
@@ -156,6 +212,56 @@ defmodule Singularity.Runtime.Assets.Download do
       _invalid ->
         {:error, Error.new(:storage_unavailable, retryable?: true)}
     end
+  end
+
+  defp append_read_audit(audit, repo, session, object, correlation_id) do
+    attrs = %{
+      action: "asset.downloaded",
+      result: :completed,
+      classification: object.classification,
+      correlation_id: correlation_id,
+      target_type: "asset",
+      target_id: object.asset_id,
+      metadata: %{}
+    }
+
+    with :ok <- Audit.append_principal(audit, repo, session, attrs) do
+      append_sensitive_read_audit(
+        audit,
+        repo,
+        session,
+        object,
+        correlation_id
+      )
+    end
+  end
+
+  defp append_sensitive_read_audit(
+         _audit,
+         _repo,
+         _session,
+         %{classification: :private},
+         _correlation_id
+       ),
+       do: :ok
+
+  defp append_sensitive_read_audit(
+         audit,
+         repo,
+         session,
+         %{classification: classification, asset_id: asset_id},
+         correlation_id
+       )
+       when classification in [:sensitive, :restricted] do
+    Audit.append_principal(audit, repo, session, %{
+      action: "asset.sensitive_read",
+      result: :completed,
+      classification: classification,
+      correlation_id: correlation_id,
+      target_type: "asset",
+      target_id: asset_id,
+      metadata: %{}
+    })
   end
 
   defp requirement(session, classification) do
@@ -212,6 +318,7 @@ defmodule Singularity.Runtime.Assets.Download do
           :authenticated_reader,
           Singularity.Runtime.DownloadLease
         ),
+      audit: Map.get(runtime, :audit, AuditSink),
       custodian: Map.get(runtime, :custodian, {KeyCustodian, KeyCustodian}),
       operation_scope: Map.get(runtime, :operation_scope, OperationScope)
     }

@@ -3,6 +3,8 @@ defmodule Singularity.Storage.VaultLock do
   Serializes vault operations with session-level PostgreSQL advisory locks.
   """
 
+  alias Singularity.Storage.SafeSQL
+
   @shared_lock_sql """
   SELECT pg_advisory_lock_shared(hashtextextended($1::text, 0))
   """
@@ -57,25 +59,25 @@ defmodule Singularity.Storage.VaultLock do
   end
 
   defp acquire_shared(repo, vault_id) do
-    Ecto.Adapters.SQL.query!(repo, @shared_lock_sql, [lock_key(vault_id)])
+    SafeSQL.query!(repo, @shared_lock_sql, [lock_key(vault_id)])
     :ok
   end
 
   defp release_shared(repo, vault_id) do
     %{rows: [[true]]} =
-      Ecto.Adapters.SQL.query!(repo, @shared_unlock_sql, [lock_key(vault_id)])
+      SafeSQL.query!(repo, @shared_unlock_sql, [lock_key(vault_id)])
 
     :ok
   end
 
   defp acquire_exclusive(repo, vault_id) do
-    Ecto.Adapters.SQL.query!(repo, @exclusive_lock_sql, [lock_key(vault_id)])
+    SafeSQL.query!(repo, @exclusive_lock_sql, [lock_key(vault_id)])
     :ok
   end
 
   defp release_exclusive(repo, vault_id) do
     %{rows: [[true]]} =
-      Ecto.Adapters.SQL.query!(repo, @exclusive_unlock_sql, [lock_key(vault_id)])
+      SafeSQL.query!(repo, @exclusive_unlock_sql, [lock_key(vault_id)])
 
     :ok
   end

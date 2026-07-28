@@ -3,7 +3,7 @@ defmodule Singularity.Storage.Postgres.BackupRepository do
 
   import Ecto.Query
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Storage.Postgres.UUID
   alias Singularity.Storage.Schema.Audit.BackupManifest

@@ -1,6 +1,8 @@
 defmodule Singularity.Storage.TestEnvironment do
   @moduledoc false
 
+  alias Singularity.Storage.SafeSQL
+
   @suffix_bytes 12
   @database_prefix "singularity_test_"
   @database_disconnect_attempts 500
@@ -68,7 +70,7 @@ defmodule Singularity.Storage.TestEnvironment do
 
   defp create_database!(database) do
     with_migration_repo("postgres", fn ->
-      Ecto.Adapters.SQL.query!(
+      SafeSQL.query!(
         @migration_repo,
         "CREATE DATABASE #{quoted_identifier(database)}",
         [],
@@ -77,7 +79,7 @@ defmodule Singularity.Storage.TestEnvironment do
     end)
 
     with_migration_repo(database, fn ->
-      Ecto.Adapters.SQL.query!(
+      SafeSQL.query!(
         @migration_repo,
         "GRANT CREATE ON DATABASE #{quoted_identifier(database)} TO singularity_table_owner",
         [],
@@ -93,7 +95,7 @@ defmodule Singularity.Storage.TestEnvironment do
         @database_disconnect_attempts
       )
 
-      Ecto.Adapters.SQL.query!(
+      SafeSQL.query!(
         @migration_repo,
         "DROP DATABASE IF EXISTS #{quoted_identifier(database)}",
         [],
@@ -108,7 +110,7 @@ defmodule Singularity.Storage.TestEnvironment do
 
   defp wait_for_database_disconnects!(database, attempts) do
     %{rows: [[connection_count]]} =
-      Ecto.Adapters.SQL.query!(
+      SafeSQL.query!(
         @migration_repo,
         """
         SELECT count(*)

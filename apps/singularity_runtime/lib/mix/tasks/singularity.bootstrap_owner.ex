@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Singularity.BootstrapOwner do
   use Mix.Task
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Runtime.BootstrapOwner
   alias Singularity.Storage.MigrationRepo
 

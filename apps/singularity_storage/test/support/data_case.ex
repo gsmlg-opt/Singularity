@@ -5,6 +5,7 @@ defmodule Singularity.Storage.DataCase do
 
   using do
     quote do
+      import Singularity.Storage.AuditAssertions
       import Singularity.Storage.DataCase
 
       alias Singularity.Storage.DispatcherRepo

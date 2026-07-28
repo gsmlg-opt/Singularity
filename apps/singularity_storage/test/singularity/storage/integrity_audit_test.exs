@@ -1,6 +1,8 @@
 defmodule Singularity.Storage.IntegrityAuditTest do
   use ExUnit.Case, async: false
 
+  import Singularity.Storage.AuditAssertions, only: [assert_persisted_audit!: 4]
+
   alias Ecto.Adapters.SQL
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
@@ -142,13 +144,24 @@ defmodule Singularity.Storage.IntegrityAuditTest do
                assert :ok = IntegrityAudit.complete(MigrationRepo, command)
                assert :ok = IntegrityAudit.complete(MigrationRepo, command)
 
+               assert_persisted_audit!(
+                 MigrationRepo,
+                 "integrity.audit_completed",
+                 [correlation_id: command.correlation_id],
+                 actor_kind: "system",
+                 system_principal_name: "integrity_audit",
+                 result: "completed",
+                 target_type: "backup_manifest",
+                 target_id: command.manifest_id
+               )
+
                assert %{rows: [row]} = completion_rows(command)
 
                assert [
                         event_id,
                         vault_id,
                         "system",
-                        principal_id,
+                        "integrity_audit",
                         "integrity.audit_completed",
                         "completed",
                         "restricted",
@@ -160,7 +173,6 @@ defmodule Singularity.Storage.IntegrityAuditTest do
 
                assert Ecto.UUID.load!(event_id) == expected_event_id
                assert Ecto.UUID.load!(vault_id) == command.vault_id
-               assert Ecto.UUID.load!(principal_id) == command.integrity_principal_id
                assert Ecto.UUID.load!(correlation_id) == command.correlation_id
                assert Ecto.UUID.load!(manifest_id) == command.manifest_id
                :ok
@@ -190,7 +202,7 @@ defmodule Singularity.Storage.IntegrityAuditTest do
                             _event_id,
                             _vault_id,
                             _actor_kind,
-                            _principal_id,
+                            _system_principal_name,
                             _operation,
                             _result,
                             _classification,
@@ -414,7 +426,7 @@ defmodule Singularity.Storage.IntegrityAuditTest do
     query!(
       """
       SELECT
-        id, vault_id, actor_kind, principal_id, operation, result, classification,
+        id, vault_id, actor_kind, system_principal_name, operation, result, classification,
         correlation_id, target_type, target_id, metadata
       FROM audit.events
       WHERE operation = 'integrity.audit_completed'

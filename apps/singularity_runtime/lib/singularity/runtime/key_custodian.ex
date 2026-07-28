@@ -36,6 +36,37 @@ defmodule Singularity.Runtime.KeyCustodian do
   @default_upload_kill_timeout_ms :timer.seconds(1)
   @default_upload_recovery_timeout_ms :timer.seconds(5)
   @default_idle_lock_retry_ms :timer.seconds(1)
+  @max_rotation_id_bytes 255
+  @max_rotation_items 10_000
+  @max_wrapper_bytes 1_024
+  @max_wrapper_generation 0xFFFFFFFF
+  @rotation_algorithm "aes_256_gcm"
+  @rotation_binding_fields [
+    :session_id,
+    :principal_id,
+    :vault_id,
+    :principal_authorization_epoch,
+    :vault_authorization_epoch
+  ]
+  @vault_rotation_fields @rotation_binding_fields ++
+                           [
+                             :vault_kek,
+                             :current_vault_wrapper,
+                             :current_vault_key_version_generation,
+                             :next_vault_key_version_id,
+                             :next_vault_key_version_generation,
+                             :next_vault_wrapper_generation,
+                             :active_domain_versions
+                           ]
+  @domain_rotation_fields @rotation_binding_fields ++
+                            [
+                              :key_domain_id,
+                              :current_domain_wrapper,
+                              :current_dedup_wrapper,
+                              :next_domain_key_version_id,
+                              :next_domain_key_generation,
+                              :active_asset_envelopes
+                            ]
 
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(adapters) do
@@ -186,6 +217,16 @@ defmodule Singularity.Runtime.KeyCustodian do
   def prepare_upload(server, request),
     do: GenServer.call(server, {:prepare_upload, request}, :infinity)
 
+  @spec prepare_vault_rotation(GenServer.server(), map()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def prepare_vault_rotation(server, request),
+    do: GenServer.call(server, {:prepare_vault_rotation, request}, :infinity)
+
+  @spec prepare_domain_rotation(GenServer.server(), map()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def prepare_domain_rotation(server, request),
+    do: GenServer.call(server, {:prepare_domain_rotation, request}, :infinity)
+
   @spec claim_upload(GenServer.server(), reference(), map()) ::
           {:ok, map()} | {:error, Error.t()}
   def claim_upload(server, material_ref, binding),
@@ -235,7 +276,8 @@ defmodule Singularity.Runtime.KeyCustodian do
                :key_wrapper,
                Singularity.Storage.Crypto.KeyWrapper
              ),
-           object_key_loader: object_key_loader
+           object_key_loader: object_key_loader,
+           random_bytes: Map.get(adapters, :random_bytes, &:crypto.strong_rand_bytes/1)
          },
          context: context,
          idle_timeout_ms:
@@ -370,6 +412,36 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   def init(_adapters), do: {:stop, :invalid_backup_cipher}
+
+  @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state,
+         %{
+           active_backup_count: map_size(Map.get(state, :backup_active, %{})),
+           active_lease_session_count: map_size(Map.get(state, :leases, %{})),
+           active_session_count: map_size(Map.get(state, :sessions, %{})),
+           active_upload_count: map_size(Map.get(state, :uploads, %{})),
+           custody: "[REDACTED]",
+           pending_backup_count: map_size(Map.get(state, :backup_pending, %{})),
+           pending_unlock_count: map_size(Map.get(state, :pending, %{})),
+           pending_upload_material_count: map_size(Map.get(state, :upload_materials, %{}))
+         }}
+
+      {:message, _message} ->
+        {:message, "[REDACTED]"}
+
+      {:reason, _reason} ->
+        {:reason, "[REDACTED]"}
+
+      {:log, _log} ->
+        {:log, "[REDACTED]"}
+
+      key_value ->
+        key_value
+    end)
+  end
 
   @impl true
   def handle_call({:prepare_unlock, session}, {owner, _tag}, state) do
@@ -587,6 +659,26 @@ defmodule Singularity.Runtime.KeyCustodian do
 
       _locked_or_mismatched ->
         {:reply, {:error, Error.new(:vault_locked)}, state}
+    end
+  end
+
+  def handle_call({:prepare_vault_rotation, request}, _from, state) do
+    with :ok <- validate_vault_rotation_request(request),
+         {:ok, session} <- rotation_session(state, request),
+         {:ok, plan} <- build_vault_rotation_plan(state, session, request) do
+      {:reply, {:ok, plan}, touch_session(state, session.session_id)}
+    else
+      {:error, %Error{}} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:prepare_domain_rotation, request}, _from, state) do
+    with :ok <- validate_domain_rotation_request(request),
+         {:ok, session} <- rotation_domain_session(state, request),
+         {:ok, plan} <- build_domain_rotation_plan(state, session, request) do
+      {:reply, {:ok, plan}, touch_session(state, session.session_id)}
+    else
+      {:error, %Error{}} = error -> {:reply, error, state}
     end
   end
 
@@ -1255,6 +1347,833 @@ defmodule Singularity.Runtime.KeyCustodian do
       key_material: object_dek,
       key_reader: state.adapters.key_reader
     })
+  end
+
+  defp validate_vault_rotation_request(request) when is_map(request) do
+    with true <- exact_keys?(request, @vault_rotation_fields),
+         true <- valid_rotation_binding?(request),
+         <<_::binary-size(32)>> <- request.vault_kek,
+         true <- valid_current_vault_wrapper?(request.current_vault_wrapper),
+         true <-
+           valid_generation?(request.current_vault_key_version_generation),
+         true <- bounded_rotation_id?(request.next_vault_key_version_id),
+         true <-
+           request.next_vault_key_version_id !=
+             request.current_vault_wrapper.vault_key_version_id,
+         true <-
+           next_generation?(
+             request.current_vault_key_version_generation,
+             request.next_vault_key_version_generation
+           ),
+         true <-
+           next_generation?(
+             request.current_vault_wrapper.generation,
+             request.next_vault_wrapper_generation
+           ),
+         true <- valid_active_domain_versions?(request.active_domain_versions) do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_vault_rotation_request(_request),
+    do: {:error, Error.new(:invalid)}
+
+  defp validate_domain_rotation_request(request) when is_map(request) do
+    with true <- exact_keys?(request, @domain_rotation_fields),
+         true <- valid_rotation_binding?(request),
+         true <- bounded_rotation_id?(request.key_domain_id),
+         true <- valid_current_domain_wrapper?(request.current_domain_wrapper),
+         true <- valid_current_dedup_wrapper?(request.current_dedup_wrapper),
+         true <- bounded_rotation_id?(request.next_domain_key_version_id),
+         true <-
+           request.next_domain_key_version_id !=
+             request.current_domain_wrapper.id,
+         true <-
+           next_generation?(
+             request.current_domain_wrapper.generation,
+             request.next_domain_key_generation
+           ),
+         true <-
+           valid_active_asset_envelopes?(
+             request.active_asset_envelopes,
+             request.current_domain_wrapper
+           ) do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_domain_rotation_request(_request),
+    do: {:error, Error.new(:invalid)}
+
+  defp valid_rotation_binding?(request) do
+    Enum.all?(
+      [:session_id, :principal_id, :vault_id],
+      &bounded_rotation_id?(Map.get(request, &1))
+    ) and
+      valid_authorization_epoch?(Map.get(request, :principal_authorization_epoch)) and
+      valid_authorization_epoch?(Map.get(request, :vault_authorization_epoch))
+  end
+
+  defp valid_authorization_epoch?(epoch),
+    do: is_integer(epoch) and epoch >= 0
+
+  defp valid_current_vault_wrapper?(wrapper) when is_map(wrapper) do
+    exact_keys?(
+      wrapper,
+      [:algorithm, :generation, :vault_key_version_id, :wrapped_key]
+    ) and
+      wrapper.algorithm == @rotation_algorithm and
+      valid_generation?(wrapper.generation) and
+      bounded_rotation_id?(wrapper.vault_key_version_id) and
+      valid_rotation_wrapper?(wrapper.wrapped_key)
+  end
+
+  defp valid_current_vault_wrapper?(_wrapper), do: false
+
+  defp valid_current_domain_wrapper?(wrapper) when is_map(wrapper) do
+    exact_keys?(
+      wrapper,
+      [
+        :algorithm,
+        :generation,
+        :id,
+        :vault_key_version_id,
+        :wrapped_key
+      ]
+    ) and
+      wrapper.algorithm == @rotation_algorithm and
+      valid_generation?(wrapper.generation) and
+      bounded_rotation_id?(wrapper.id) and
+      bounded_rotation_id?(wrapper.vault_key_version_id) and
+      valid_rotation_wrapper?(wrapper.wrapped_key)
+  end
+
+  defp valid_current_domain_wrapper?(_wrapper), do: false
+
+  defp valid_current_dedup_wrapper?(wrapper) when is_map(wrapper) do
+    exact_keys?(wrapper, [:algorithm, :wrapped_key]) and
+      wrapper.algorithm == @rotation_algorithm and
+      valid_rotation_wrapper?(wrapper.wrapped_key)
+  end
+
+  defp valid_current_dedup_wrapper?(_wrapper), do: false
+
+  defp valid_active_domain_versions?(versions)
+       when is_list(versions) and versions != [] do
+    bounded_rotation_list?(versions) and
+      Enum.all?(versions, &valid_active_domain_version?/1) and
+      unique_rotation_field?(versions, :id) and
+      unique_rotation_field?(versions, :key_domain_id)
+  end
+
+  defp valid_active_domain_versions?(_versions), do: false
+
+  defp valid_active_domain_version?(version) when is_map(version) do
+    exact_keys?(
+      version,
+      [:algorithm, :generation, :id, :key_domain_id, :wrapped_key]
+    ) and
+      version.algorithm == @rotation_algorithm and
+      valid_generation?(version.generation) and
+      bounded_rotation_id?(version.id) and
+      bounded_rotation_id?(version.key_domain_id) and
+      valid_rotation_wrapper?(version.wrapped_key)
+  end
+
+  defp valid_active_domain_version?(_version), do: false
+
+  defp valid_active_asset_envelopes?(envelopes, current_domain)
+       when is_list(envelopes) do
+    bounded_rotation_list?(envelopes) and
+      Enum.all?(
+        envelopes,
+        &valid_active_asset_envelope?(&1, current_domain)
+      ) and
+      unique_rotation_field?(envelopes, :id) and
+      unique_rotation_field?(envelopes, :asset_object_id)
+  end
+
+  defp valid_active_asset_envelopes?(_envelopes, _current_domain),
+    do: false
+
+  defp valid_active_asset_envelope?(envelope, current_domain)
+       when is_map(envelope) do
+    exact_keys?(
+      envelope,
+      [
+        :algorithm,
+        :asset_object_id,
+        :classification,
+        :domain_key_version_id,
+        :id,
+        :key_generation,
+        :wrapped_dek
+      ]
+    ) and
+      envelope.algorithm == @rotation_algorithm and
+      envelope.classification in [:private, :sensitive, :restricted] and
+      envelope.domain_key_version_id == current_domain.id and
+      envelope.key_generation == current_domain.generation and
+      bounded_rotation_id?(envelope.id) and
+      bounded_rotation_id?(envelope.asset_object_id) and
+      valid_rotation_wrapper?(envelope.wrapped_dek)
+  end
+
+  defp valid_active_asset_envelope?(_envelope, _current_domain),
+    do: false
+
+  defp exact_keys?(map, expected) when is_map(map),
+    do: MapSet.new(Map.keys(map)) == MapSet.new(expected)
+
+  defp bounded_rotation_id?(value) when is_binary(value) do
+    byte_size(value) > 0 and byte_size(value) <= @max_rotation_id_bytes and
+      String.valid?(value) and String.trim(value) != ""
+  end
+
+  defp bounded_rotation_id?(_value), do: false
+
+  defp bounded_rotation_list?(values),
+    do: bounded_rotation_list?(values, 0)
+
+  defp bounded_rotation_list?([], count),
+    do: count <= @max_rotation_items
+
+  defp bounded_rotation_list?([_value | remaining], count)
+       when count < @max_rotation_items,
+       do: bounded_rotation_list?(remaining, count + 1)
+
+  defp bounded_rotation_list?(_improper_or_oversized, _count), do: false
+
+  defp valid_rotation_wrapper?(wrapper),
+    do:
+      is_binary(wrapper) and byte_size(wrapper) > 0 and
+        byte_size(wrapper) <= @max_wrapper_bytes
+
+  defp valid_generation?(generation),
+    do:
+      is_integer(generation) and generation > 0 and
+        generation <= @max_wrapper_generation
+
+  defp next_generation?(current, next),
+    do:
+      valid_generation?(current) and valid_generation?(next) and
+        current < @max_wrapper_generation and next == current + 1
+
+  defp unique_rotation_field?(values, field) do
+    values
+    |> Enum.map(&Map.fetch!(&1, field))
+    |> then(&(MapSet.size(MapSet.new(&1)) == length(&1)))
+  end
+
+  defp rotation_session(state, request) do
+    case Map.get(state.sessions, request.session_id) do
+      %{
+        session_id: session_id,
+        principal_id: principal_id,
+        vault_id: vault_id,
+        principal_authorization_epoch: principal_authorization_epoch,
+        vault_authorization_epoch: vault_authorization_epoch,
+        vault_key: <<_::binary-size(32)>>
+      } = session
+      when session_id == request.session_id and
+             principal_id == request.principal_id and
+             vault_id == request.vault_id and
+             principal_authorization_epoch ==
+               request.principal_authorization_epoch and
+             vault_authorization_epoch ==
+               request.vault_authorization_epoch ->
+        if matching_revocation?(state, session),
+          do: {:error, Error.new(:vault_locked)},
+          else: {:ok, session}
+
+      _locked_or_mismatched ->
+        {:error, Error.new(:vault_locked)}
+    end
+  end
+
+  defp rotation_domain_session(state, request) do
+    with {:ok, session} <- rotation_session(state, request),
+         %{
+           key_domain_id: key_domain_id,
+           domain_key_version_id: domain_key_version_id,
+           domain_key_generation: domain_key_generation,
+           domain_classification: domain_classification,
+           domain_key: <<_::binary-size(32)>>,
+           domain_dedup_key: <<_::binary-size(32)>>
+         } <- session,
+         true <- key_domain_id == request.key_domain_id,
+         true <-
+           domain_key_version_id == request.current_domain_wrapper.id,
+         true <-
+           domain_key_generation ==
+             request.current_domain_wrapper.generation,
+         true <-
+           Enum.all?(
+             request.active_asset_envelopes,
+             &(&1.classification == domain_classification)
+           ) do
+      {:ok, session}
+    else
+      {:error, %Error{}} = error -> error
+      _mismatched -> {:error, Error.new(:forbidden)}
+    end
+  end
+
+  defp build_vault_rotation_plan(state, session, request) do
+    with :ok <-
+           verify_rotation_wrapper(
+             state.adapters.key_wrapper,
+             request.vault_kek,
+             request.current_vault_wrapper.wrapped_key,
+             %{
+               purpose: :vault_key,
+               generation: request.current_vault_wrapper.generation,
+               aad: request.vault_id
+             },
+             session.vault_key
+           ),
+         true <- session_domain_listed?(session, request.active_domain_versions),
+         {:ok, domain_keys} <-
+           unwrap_active_domain_versions(
+             state.adapters.key_wrapper,
+             session,
+             request.active_domain_versions
+           ) do
+      result =
+        prepare_vault_rotation_wrappers(
+          state,
+          session,
+          request,
+          domain_keys
+        )
+
+      overwrite_rotation_entries(domain_keys)
+      result
+    else
+      false -> {:error, Error.new(:integrity_failure)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp session_domain_listed?(
+         %{
+           key_domain_id: key_domain_id,
+           domain_key_version_id: domain_key_version_id,
+           domain_key_generation: generation
+         },
+         versions
+       )
+       when is_binary(key_domain_id) and is_binary(domain_key_version_id) and
+              is_integer(generation) do
+    Enum.any?(versions, fn version ->
+      version.key_domain_id == key_domain_id and
+        version.id == domain_key_version_id and
+        version.generation == generation
+    end)
+  end
+
+  defp session_domain_listed?(_session, _versions), do: false
+
+  defp unwrap_active_domain_versions(wrapper, session, versions),
+    do: unwrap_active_domain_versions(wrapper, session, versions, [])
+
+  defp unwrap_active_domain_versions(_wrapper, _session, [], entries),
+    do: {:ok, Enum.reverse(entries)}
+
+  defp unwrap_active_domain_versions(
+         wrapper,
+         session,
+         [version | remaining],
+         entries
+       ) do
+    metadata = %{
+      purpose: :domain_key,
+      generation: version.generation,
+      aad: session.vault_id <> ":" <> version.key_domain_id
+    }
+
+    case unwrap_rotation_key(
+           wrapper,
+           session.vault_key,
+           version.wrapped_key,
+           metadata
+         ) do
+      {:ok, domain_key} ->
+        if retained_domain_matches?(session, version, domain_key) do
+          unwrap_active_domain_versions(
+            wrapper,
+            session,
+            remaining,
+            [%{key: domain_key, version: version} | entries]
+          )
+        else
+          _ = overwrite(domain_key)
+          overwrite_rotation_entries(entries)
+          {:error, Error.new(:integrity_failure)}
+        end
+
+      {:error, %Error{}} = error ->
+        overwrite_rotation_entries(entries)
+        error
+    end
+  end
+
+  defp retained_domain_matches?(
+         %{
+           key_domain_id: key_domain_id,
+           domain_key_version_id: domain_key_version_id,
+           domain_key: retained
+         },
+         %{key_domain_id: key_domain_id, id: domain_key_version_id},
+         unwrapped
+       ),
+       do: secure_rotation_key_equal?(retained, unwrapped)
+
+  defp retained_domain_matches?(_session, _version, _unwrapped), do: true
+
+  defp prepare_vault_rotation_wrappers(state, session, request, domain_keys) do
+    case rotation_random_key(state.adapters.random_bytes) do
+      {:ok, new_vault_key} ->
+        result =
+          if secure_rotation_key_equal?(new_vault_key, session.vault_key) do
+            {:error, Error.new(:integrity_failure)}
+          else
+            vault_rotation_wrappers(
+              state.adapters.key_wrapper,
+              session,
+              request,
+              domain_keys,
+              new_vault_key
+            )
+          end
+
+        _ = overwrite(new_vault_key)
+        result
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp vault_rotation_wrappers(
+         wrapper,
+         session,
+         request,
+         domain_keys,
+         new_vault_key
+       ) do
+    vault_metadata = %{
+      purpose: :vault_key,
+      generation: request.next_vault_wrapper_generation,
+      aad: request.vault_id
+    }
+
+    with {:ok, wrapped_vault_key} <-
+           wrap_and_verify_rotation_key(
+             wrapper,
+             request.vault_kek,
+             new_vault_key,
+             vault_metadata
+           ),
+         {:ok, domain_versions} <-
+           rewrap_active_domain_versions(
+             wrapper,
+             new_vault_key,
+             session.vault_id,
+             domain_keys
+           ) do
+      {:ok,
+       %{
+         next_vault_key_version_id: request.next_vault_key_version_id,
+         next_vault_key_version_generation: request.next_vault_key_version_generation,
+         next_vault_wrapper_generation: request.next_vault_wrapper_generation,
+         vault_wrapper: %{
+           generation: request.next_vault_wrapper_generation,
+           algorithm: @rotation_algorithm,
+           wrapped_key: wrapped_vault_key
+         },
+         domain_versions: domain_versions
+       }}
+    end
+  end
+
+  defp rewrap_active_domain_versions(
+         wrapper,
+         new_vault_key,
+         vault_id,
+         domain_keys
+       ) do
+    Enum.reduce_while(domain_keys, {:ok, []}, fn entry, {:ok, wrapped} ->
+      version = entry.version
+
+      metadata = %{
+        purpose: :domain_key,
+        generation: version.generation,
+        aad: vault_id <> ":" <> version.key_domain_id
+      }
+
+      case wrap_and_verify_rotation_key(
+             wrapper,
+             new_vault_key,
+             entry.key,
+             metadata
+           ) do
+        {:ok, wrapped_key} ->
+          prepared = %{
+            id: version.id,
+            key_domain_id: version.key_domain_id,
+            generation: version.generation,
+            algorithm: @rotation_algorithm,
+            expected_wrapped_key: version.wrapped_key,
+            wrapped_key: wrapped_key
+          }
+
+          {:cont, {:ok, [prepared | wrapped]}}
+
+        {:error, %Error{}} = error ->
+          {:halt, error}
+      end
+    end)
+    |> reverse_rotation_result()
+  end
+
+  defp build_domain_rotation_plan(state, session, request) do
+    domain_metadata = %{
+      purpose: :domain_key,
+      generation: request.current_domain_wrapper.generation,
+      aad: request.vault_id <> ":" <> request.key_domain_id
+    }
+
+    dedup_metadata = %{
+      purpose: :domain_dedup_key,
+      generation: request.current_domain_wrapper.generation,
+      aad: request.key_domain_id
+    }
+
+    with :ok <-
+           verify_rotation_wrapper(
+             state.adapters.key_wrapper,
+             session.vault_key,
+             request.current_domain_wrapper.wrapped_key,
+             domain_metadata,
+             session.domain_key
+           ),
+         :ok <-
+           verify_rotation_wrapper(
+             state.adapters.key_wrapper,
+             session.domain_key,
+             request.current_dedup_wrapper.wrapped_key,
+             dedup_metadata,
+             session.domain_dedup_key
+           ),
+         {:ok, object_keys} <-
+           unwrap_active_asset_envelopes(
+             state.adapters.key_wrapper,
+             session,
+             request.active_asset_envelopes
+           ) do
+      result =
+        prepare_domain_rotation_wrappers(
+          state,
+          session,
+          request,
+          object_keys
+        )
+
+      overwrite_rotation_entries(object_keys)
+      result
+    end
+  end
+
+  defp unwrap_active_asset_envelopes(wrapper, session, envelopes),
+    do: unwrap_active_asset_envelopes(wrapper, session, envelopes, [])
+
+  defp unwrap_active_asset_envelopes(_wrapper, _session, [], entries),
+    do: {:ok, Enum.reverse(entries)}
+
+  defp unwrap_active_asset_envelopes(
+         wrapper,
+         session,
+         [envelope | remaining],
+         entries
+       ) do
+    metadata = %{
+      purpose: :object_dek,
+      generation: envelope.key_generation,
+      aad: "object:" <> envelope.asset_object_id
+    }
+
+    case unwrap_rotation_key(
+           wrapper,
+           session.domain_key,
+           envelope.wrapped_dek,
+           metadata
+         ) do
+      {:ok, object_dek} ->
+        if cached_object_key_matches?(session, envelope, object_dek) do
+          unwrap_active_asset_envelopes(
+            wrapper,
+            session,
+            remaining,
+            [%{envelope: envelope, key: object_dek} | entries]
+          )
+        else
+          _ = overwrite(object_dek)
+          overwrite_rotation_entries(entries)
+          {:error, Error.new(:integrity_failure)}
+        end
+
+      {:error, %Error{}} = error ->
+        overwrite_rotation_entries(entries)
+        error
+    end
+  end
+
+  defp cached_object_key_matches?(session, envelope, object_dek) do
+    case Map.fetch(
+           Map.get(session, :object_keys, %{}),
+           {envelope.asset_object_id, envelope.key_generation}
+         ) do
+      {:ok, retained} -> secure_rotation_key_equal?(retained, object_dek)
+      :error -> true
+    end
+  end
+
+  defp prepare_domain_rotation_wrappers(state, session, request, object_keys) do
+    case rotation_random_key(state.adapters.random_bytes) do
+      {:ok, new_domain_key} ->
+        result =
+          if secure_rotation_key_equal?(new_domain_key, session.domain_key) do
+            {:error, Error.new(:integrity_failure)}
+          else
+            domain_rotation_wrappers(
+              state.adapters.key_wrapper,
+              session,
+              request,
+              object_keys,
+              new_domain_key
+            )
+          end
+
+        _ = overwrite(new_domain_key)
+        result
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp domain_rotation_wrappers(
+         wrapper,
+         session,
+         request,
+         object_keys,
+         new_domain_key
+       ) do
+    generation = request.next_domain_key_generation
+
+    with {:ok, wrapped_domain_key} <-
+           wrap_and_verify_rotation_key(
+             wrapper,
+             session.vault_key,
+             new_domain_key,
+             %{
+               purpose: :domain_key,
+               generation: generation,
+               aad: request.vault_id <> ":" <> request.key_domain_id
+             }
+           ),
+         {:ok, wrapped_dedup_key} <-
+           wrap_and_verify_rotation_key(
+             wrapper,
+             new_domain_key,
+             session.domain_dedup_key,
+             %{
+               purpose: :domain_dedup_key,
+               generation: generation,
+               aad: request.key_domain_id
+             }
+           ),
+         {:ok, asset_envelopes} <-
+           rewrap_active_asset_envelopes(
+             wrapper,
+             new_domain_key,
+             generation,
+             object_keys
+           ) do
+      {:ok,
+       %{
+         next_domain_key_version_id: request.next_domain_key_version_id,
+         next_domain_key_generation: generation,
+         domain_wrapper: %{
+           vault_key_version_id: request.current_domain_wrapper.vault_key_version_id,
+           algorithm: @rotation_algorithm,
+           wrapped_key: wrapped_domain_key
+         },
+         dedup_wrapper: %{
+           algorithm: @rotation_algorithm,
+           wrapped_key: wrapped_dedup_key
+         },
+         asset_envelopes: asset_envelopes
+       }}
+    end
+  end
+
+  defp rewrap_active_asset_envelopes(
+         wrapper,
+         new_domain_key,
+         generation,
+         object_keys
+       ) do
+    Enum.reduce_while(object_keys, {:ok, []}, fn entry, {:ok, wrapped} ->
+      envelope = entry.envelope
+
+      metadata = %{
+        purpose: :object_dek,
+        generation: generation,
+        aad: "object:" <> envelope.asset_object_id
+      }
+
+      case wrap_and_verify_rotation_key(
+             wrapper,
+             new_domain_key,
+             entry.key,
+             metadata
+           ) do
+        {:ok, wrapped_dek} ->
+          prepared = %{
+            expected_envelope_id: envelope.id,
+            asset_object_id: envelope.asset_object_id,
+            expected_key_generation: envelope.key_generation,
+            classification: envelope.classification,
+            algorithm: @rotation_algorithm,
+            key_generation: generation,
+            wrapped_dek: wrapped_dek
+          }
+
+          {:cont, {:ok, [prepared | wrapped]}}
+
+        {:error, %Error{}} = error ->
+          {:halt, error}
+      end
+    end)
+    |> reverse_rotation_result()
+  end
+
+  defp reverse_rotation_result({:ok, entries}),
+    do: {:ok, Enum.reverse(entries)}
+
+  defp reverse_rotation_result({:error, %Error{}} = error), do: error
+
+  defp verify_rotation_wrapper(
+         wrapper,
+         wrapping_key,
+         encoded,
+         metadata,
+         expected_key
+       ) do
+    case unwrap_rotation_key(wrapper, wrapping_key, encoded, metadata) do
+      {:ok, unwrapped} ->
+        matches? = secure_rotation_key_equal?(unwrapped, expected_key)
+        _ = overwrite(unwrapped)
+
+        if matches?,
+          do: :ok,
+          else: {:error, Error.new(:integrity_failure)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp wrap_and_verify_rotation_key(
+         wrapper,
+         wrapping_key,
+         raw_key,
+         metadata
+       ) do
+    with {:ok, wrapped} <-
+           safe_rotation_adapter_call(wrapper, :wrap, [
+             wrapping_key,
+             raw_key,
+             metadata
+           ]),
+         %{
+           algorithm: :aes_256_gcm,
+           encoded: encoded,
+           generation: generation,
+           purpose: purpose
+         } <- wrapped,
+         true <- generation == metadata.generation,
+         true <- purpose == metadata.purpose,
+         true <- valid_rotation_wrapper?(encoded),
+         :ok <-
+           verify_rotation_wrapper(
+             wrapper,
+             wrapping_key,
+             encoded,
+             metadata,
+             raw_key
+           ) do
+      {:ok, encoded}
+    else
+      _invalid -> {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp unwrap_rotation_key(wrapper, wrapping_key, encoded, metadata) do
+    with {:ok, unwrapped} <-
+           safe_rotation_adapter_call(wrapper, :unwrap, [
+             wrapping_key,
+             encoded,
+             metadata
+           ]),
+         <<_::binary-size(32)>> <- unwrapped do
+      {:ok, unwrapped}
+    else
+      _invalid -> {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp safe_rotation_adapter_call(adapter, function, arguments) do
+    call_adapter(adapter, function, arguments)
+  rescue
+    _error -> {:error, Error.new(:integrity_failure)}
+  catch
+    _kind, _reason -> {:error, Error.new(:integrity_failure)}
+  end
+
+  defp rotation_random_key(random_bytes) when is_function(random_bytes, 1) do
+    case random_bytes.(32) do
+      <<_::binary-size(32)>> = key -> {:ok, key}
+      _invalid -> {:error, Error.new(:integrity_failure)}
+    end
+  rescue
+    _error -> {:error, Error.new(:integrity_failure)}
+  catch
+    _kind, _reason -> {:error, Error.new(:integrity_failure)}
+  end
+
+  defp rotation_random_key(_random_bytes),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp secure_rotation_key_equal?(
+         <<_::binary-size(32)>> = left,
+         <<_::binary-size(32)>> = right
+       ),
+       do: :crypto.hash_equals(left, right)
+
+  defp secure_rotation_key_equal?(_left, _right), do: false
+
+  defp overwrite_rotation_entries(entries) do
+    Enum.each(entries, fn
+      %{key: key} -> overwrite(key)
+      _invalid -> :ok
+    end)
   end
 
   defp validate_session(

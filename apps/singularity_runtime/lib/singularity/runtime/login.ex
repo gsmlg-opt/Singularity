@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.Login do
   @moduledoc "Constant-shape pre-authentication and opaque session issuance."
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Observability.Telemetry
 
   @login_label "singularity/auth-login/v1"
   @source_label "singularity/auth-source/v1"
@@ -32,6 +33,7 @@ defmodule Singularity.Runtime.Login do
            adapters.pre_auth.reserve_attempt(adapters.pre_auth_context, %{
              login_fingerprint: fingerprints.login,
              source_fingerprint: fingerprints.source,
+             audit_fingerprint: fingerprints.audit,
              correlation_id: correlation_id
            }) do
       authenticate_reserved(
@@ -42,6 +44,7 @@ defmodule Singularity.Runtime.Login do
           attempt_id: attempt_id,
           login_fingerprint: fingerprints.login,
           source_fingerprint: fingerprints.source,
+          audit_fingerprint: fingerprints.audit,
           correlation_id: correlation_id
         }
       )
@@ -82,13 +85,18 @@ defmodule Singularity.Runtime.Login do
   end
 
   @spec fingerprints(binary(), binary(), binary()) :: %{
+          audit: binary(),
           login: binary(),
           source: binary()
         }
   def fingerprints(secret, normalized_login, normalized_source) do
+    login_fingerprint = mac(secret, @login_label, normalized_login)
+    source_fingerprint = mac(secret, @source_label, normalized_source)
+
     %{
-      login: mac(secret, @login_label, normalized_login),
-      source: mac(secret, @source_label, normalized_source)
+      login: login_fingerprint,
+      source: source_fingerprint,
+      audit: :crypto.hash(:sha256, [login_fingerprint, source_fingerprint])
     }
   end
 
@@ -107,6 +115,7 @@ defmodule Singularity.Runtime.Login do
         token_digest: :crypto.hash(:sha256, token),
         login_fingerprint: command.login_fingerprint,
         source_fingerprint: command.source_fingerprint,
+        audit_fingerprint: command.audit_fingerprint,
         correlation_id: command.correlation_id
       }
 
@@ -116,8 +125,12 @@ defmodule Singularity.Runtime.Login do
              session_command,
              audit_result: "allowed"
            ) do
-        {:ok, session} -> {:ok, %{session: session, opaque_token: token}}
-        _failure -> unauthenticated()
+        {:ok, session} ->
+          {:ok, %{session: session, opaque_token: token}}
+
+        _failure ->
+          emit_audit_health(command.correlation_id, :session_audit_write)
+          unauthenticated()
       end
     else
       unauthenticated()
@@ -129,6 +142,7 @@ defmodule Singularity.Runtime.Login do
       attempt_id: command.attempt_id,
       login_fingerprint: command.login_fingerprint,
       source_fingerprint: command.source_fingerprint,
+      audit_fingerprint: command.audit_fingerprint,
       correlation_id: command.correlation_id,
       result: "failed"
     }
@@ -143,21 +157,35 @@ defmodule Singularity.Runtime.Login do
            adapters.pre_auth_context,
            failure_command
          ) do
-      :ok -> :ok
-      _failure -> emit_audit_health(failure_command.correlation_id)
+      :ok ->
+        :ok
+
+      _failure ->
+        emit_audit_health(
+          failure_command.correlation_id,
+          :anonymous_audit_write
+        )
     end
   rescue
-    _error -> emit_audit_health(failure_command.correlation_id)
+    _error ->
+      emit_audit_health(
+        failure_command.correlation_id,
+        :anonymous_audit_write
+      )
   catch
-    _kind, _reason -> emit_audit_health(failure_command.correlation_id)
+    _kind, _reason ->
+      emit_audit_health(
+        failure_command.correlation_id,
+        :anonymous_audit_write
+      )
   end
 
-  defp emit_audit_health(correlation_id) do
-    :telemetry.execute(
-      [:singularity, :authentication, :audit_write_failure],
+  defp emit_audit_health(correlation_id, category) do
+    Telemetry.execute(
+      [:authentication, :audit_write_failure],
       %{count: 1},
       %{
-        category: :anonymous_audit_write,
+        category: category,
         correlation_id: correlation_id
       }
     )

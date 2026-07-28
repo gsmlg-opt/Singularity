@@ -19,8 +19,11 @@ defmodule Singularity.Storage.AuditImmutabilityTest do
         principal_id: fixture.principal_id,
         vault_id: fixture.vault_id,
         action: "asset.persisted",
+        result: :completed,
         classification: :private,
         correlation_id: Ecto.UUID.generate(),
+        target_type: "asset",
+        target_id: fixture.asset_id,
         occurred_at: DateTime.utc_now(:microsecond)
       })
 

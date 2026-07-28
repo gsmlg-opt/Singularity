@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.RoleVerifier do
   @moduledoc "Read-only verification for externally provisioned PostgreSQL roles."
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Storage.MigrationRepo
 
   @owner_roles ~w(

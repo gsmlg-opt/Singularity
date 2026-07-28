@@ -9,6 +9,7 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
 
   alias Singularity.Core.Error
   alias Singularity.Core.StageRef
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Storage.Postgres.AssetUploadRecoveryRepository
   alias Singularity.Storage.WorkerRepo
@@ -44,7 +45,23 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
   end
 
   @spec run(map()) :: {:ok, non_neg_integer()} | {:error, Error.t()}
-  def run(context) when is_map(context) do
+  def run(context) do
+    case do_run(context) do
+      {:ok, count} = result when is_integer(count) and count >= 0 ->
+        Telemetry.execute(
+          [:upload, :reconciliation],
+          %{count: count},
+          %{outcome: :abandoned}
+        )
+
+        result
+
+      other ->
+        other
+    end
+  end
+
+  defp do_run(context) when is_map(context) do
     with {:ok, adapters} <- adapters(context),
          %DateTime{} = abandoned_at <- adapters.clock.(),
          {:ok, stages} <-
@@ -61,7 +78,7 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
     _kind, _reason -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
-  def run(_context), do: {:error, Error.new(:invalid)}
+  defp do_run(_context), do: {:error, Error.new(:invalid)}
 
   @spec reconcile_stage(map(), map(), :runtime_restarted | :custody_revoked) ::
           {:ok, map()} | {:error, Error.t()}
@@ -98,13 +115,13 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
   defp reconcile([], _adapters, _abandoned_at, count), do: {:ok, count}
 
   defp reconcile(
-         [%{stage_id: stage_id, storage_ref: storage_ref} | rest],
+         [%{stage_id: stage_id, storage_ref: storage_ref} = recovery | rest],
          adapters,
          abandoned_at,
          count
        )
        when is_binary(stage_id) and is_binary(storage_ref) do
-    with {:ok, _stage} <-
+    with {:ok, stage} <-
            reconcile_exact_stage(
              adapters,
              stage_id,
@@ -112,6 +129,7 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
              abandoned_at,
              :runtime_restarted
            ) do
+      emit_stage_age(recovery, abandoned_at, stage)
       reconcile(rest, adapters, abandoned_at, count + 1)
     end
   end
@@ -241,6 +259,21 @@ defmodule Singularity.Runtime.Assets.UploadReconciler do
          _reason
        ),
        do: {:error, Error.new(:integrity_failure)}
+
+  defp emit_stage_age(
+         %{inserted_at: %DateTime{} = inserted_at},
+         %DateTime{} = observed_at,
+         %{state: outcome}
+       )
+       when outcome in [:abandoned, :sealed, :finalized] do
+    Telemetry.execute(
+      [:upload, :reconciliation, :stage],
+      %{age: max(DateTime.diff(observed_at, inserted_at, :millisecond), 0)},
+      %{outcome: outcome}
+    )
+  end
+
+  defp emit_stage_age(_recovery, _observed_at, _stage), do: :ok
 
   defp adapters(context) do
     repository = Map.get(context, :repository)

@@ -214,8 +214,11 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
         principal_id: fixture.principal_id,
         vault_id: fixture.vault_id,
         action: "asset.classification_checked",
+        result: :completed,
         classification: :private,
         correlation_id: outbox_value.correlation_id,
+        target_type: "asset",
+        target_id: fixture.asset_id,
         occurred_at: outbox_value.occurred_at,
         metadata: %{"asset_id" => fixture.asset_id}
       })

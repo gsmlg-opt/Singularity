@@ -4,13 +4,15 @@ defmodule Singularity.Storage.RunnerSubmissionRecoveryTest do
   @moduletag :integration
 
   alias Singularity.Core.JobEnvelope
+  alias Singularity.Storage.Fixtures
   alias Singularity.Storage.Jobs.ObanAdapter
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.Outbox
   alias Singularity.Storage.ScopedRepo
-  alias Singularity.Storage.Fixtures
 
   setup do
     assert Oban.whereis(Singularity.Oban)
+    mark_existing_events_delivered!()
     fixture = Fixtures.two_vaults!().one
     event = Fixtures.outbox_event!(fixture)
     %{fixture: fixture, event: event}
@@ -105,6 +107,19 @@ defmodule Singularity.Storage.RunnerSubmissionRecoveryTest do
   defp scoped_query(envelope, statement, parameters) do
     ScopedRepo.transact(WorkerRepo, envelope, fn repo ->
       query!(repo, statement, parameters)
+    end)
+  end
+
+  defp mark_existing_events_delivered! do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE core.outbox_events
+        SET delivered_at = CURRENT_TIMESTAMP
+        WHERE delivered_at IS NULL
+        """
+      )
     end)
   end
 

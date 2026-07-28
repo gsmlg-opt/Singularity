@@ -155,12 +155,17 @@ defmodule Singularity.Storage.PreAuthTest do
   test "adapter persists supplied correlation and completes the reserved attempt", %{one: one} do
     login_fingerprint = :crypto.hash(:sha256, one.normalized_login)
     source_fingerprint = :crypto.hash(:sha256, "correlated-source")
+
+    audit_fingerprint =
+      :crypto.hash(:sha256, [login_fingerprint, source_fingerprint])
+
     correlation_id = Ecto.UUID.generate()
 
     assert {:ok, %{id: attempt_id, accepted?: true}} =
              PreAuth.reserve_attempt(PreAuthRepo, %{
                login_fingerprint: login_fingerprint,
                source_fingerprint: source_fingerprint,
+               audit_fingerprint: audit_fingerprint,
                correlation_id: correlation_id
              })
 
@@ -172,6 +177,7 @@ defmodule Singularity.Storage.PreAuthTest do
                attempt_id: attempt_id,
                login_fingerprint: login_fingerprint,
                source_fingerprint: source_fingerprint,
+               audit_fingerprint: audit_fingerprint,
                correlation_id: correlation_id,
                result: "failed"
              })
@@ -179,10 +185,8 @@ defmodule Singularity.Storage.PreAuthTest do
     assert [^attempt_id, "failed", ^correlation_id] =
              persisted_attempt(attempt_id)
 
-    assert [
-             ["anonymous", nil, nil, "allowed"],
-             ["anonymous", nil, nil, "denied"]
-           ] = persisted_attempt_audits(correlation_id)
+    assert [["anonymous", nil, ^audit_fingerprint, "denied"]] =
+             persisted_attempt_audits(correlation_id)
   end
 
   test "failed outcomes retain the reserved attempt's rate-limit capacity" do
@@ -291,7 +295,13 @@ defmodule Singularity.Storage.PreAuthTest do
         query!(
           PreAuthRepo,
           "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
-          [login_fingerprint, source_fingerprint, result, correlation_id, nil]
+          [
+            login_fingerprint,
+            source_fingerprint,
+            result,
+            correlation_id,
+            nil
+          ]
         )
       end
     end
@@ -300,7 +310,13 @@ defmodule Singularity.Storage.PreAuthTest do
       query!(
         PreAuthRepo,
         "SELECT * FROM identity.record_auth_attempt($1, $2, $3, $4, $5)",
-        [valid_fingerprint, valid_fingerprint, nil, correlation_id, nil]
+        [
+          valid_fingerprint,
+          valid_fingerprint,
+          nil,
+          correlation_id,
+          nil
+        ]
       )
     end
   end
@@ -348,7 +364,7 @@ defmodule Singularity.Storage.PreAuthTest do
         query!(
           MigrationRepo,
           """
-          SELECT actor_kind, vault_id, principal_id, result
+          SELECT actor_kind, vault_id, anonymous_fingerprint, result
           FROM audit.events
           WHERE correlation_id = $1
             AND operation = 'identity.authentication_attempt'

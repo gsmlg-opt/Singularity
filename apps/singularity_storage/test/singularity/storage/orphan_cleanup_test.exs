@@ -195,6 +195,15 @@ defmodule Singularity.Storage.OrphanCleanupTest do
                  [Ecto.UUID.dump!(fixture.asset_id)]
                )
 
+      assert_persisted_audit!(
+        repo,
+        "asset.tombstoned",
+        [target_id: fixture.asset_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "asset"
+      )
+
       :ok
     end)
   end
@@ -309,6 +318,15 @@ defmodule Singularity.Storage.OrphanCleanupTest do
                  ]
                )
 
+      assert_persisted_audit!(
+        repo,
+        "asset.deleted",
+        [target_id: fixture.asset_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "asset"
+      )
+
       :ok
     end)
   end
@@ -338,7 +356,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       %{
         applied
         | job_id: Ecto.UUID.generate(),
-          idempotency_key: "asset-cleanup-stale:#{fixture.asset_id}:#{Ecto.UUID.generate()}"
+          idempotency_key: "asset-retry:#{fixture.asset_id}:#{applied.expected_entity_revision}:1"
       }
 
     insert_outbox_for_envelope!(stale, "asset.cleanup_requested")
@@ -590,8 +608,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
   test "logical deletion survives a transient byte failure and physical retry converges", %{
     fixture: fixture
   } do
-    %{cleanup_principal_id: cleanup_principal_id, object_id: object_id} =
-      orphaned_asset!(fixture)
+    %{object_id: object_id} = orphaned_asset!(fixture)
 
     envelope = submitted_object_cleanup_envelope!(fixture, object_id)
 
@@ -676,15 +693,16 @@ defmodule Singularity.Storage.OrphanCleanupTest do
                      FROM audit.events
                      WHERE target_id = object.id
                        AND operation = 'object.deleted'
-                       AND principal_id = $3
+                       AND actor_kind = 'system'
+                       AND system_principal_name = 'object_cleanup'
+                       AND principal_id IS NULL
                    )
                  FROM content.asset_objects AS object
                  WHERE object.id = $1
                  """,
                  [
                    Ecto.UUID.dump!(object_id),
-                   Ecto.UUID.dump!(envelope.job_id),
-                   Ecto.UUID.dump!(cleanup_principal_id)
+                   Ecto.UUID.dump!(envelope.job_id)
                  ]
                )
 
@@ -692,6 +710,17 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       assert %{"claim_token" => claim_token} = evidence
       assert claim_token == envelope.job_id
       assert DateTime.compare(deleted_at, DateTime.utc_now()) in [:lt, :eq]
+
+      assert_persisted_audit!(
+        repo,
+        "object.deleted",
+        [target_id: object_id],
+        actor_kind: "system",
+        result: "completed",
+        system_principal_name: "object_cleanup",
+        target_type: "asset_object"
+      )
+
       :ok
     end)
   end
@@ -752,12 +781,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       assert {:ok, successor_encoded} =
                EnvelopeCodec.encode(successor)
 
-      assert {:ok,
-              %{
-                id: ^object_id,
-                lifecycle: :deleted,
-                lifecycle_revision: 5
-              }} =
+      assert :ok =
                GenericWorker.perform(%Oban.Job{
                  args: successor_encoded,
                  attempt: 1,
@@ -832,12 +856,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       assert {:ok, successor_encoded} =
                EnvelopeCodec.encode(successor)
 
-      assert {:ok,
-              %{
-                id: ^object_id,
-                lifecycle: :deleted,
-                lifecycle_revision: 5
-              }} =
+      assert :ok =
                GenericWorker.perform(%Oban.Job{
                  args: successor_encoded,
                  attempt: 1,

@@ -13,29 +13,36 @@ defmodule Singularity.Runtime.OperationScope do
   """
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Audit
   alias Singularity.Runtime.Authorize
+  alias Singularity.Storage.Postgres.AuditSink
 
   @spec with_read_request(map(), map(), map(), (term() -> term())) ::
           term() | {:error, Error.t()}
   def with_read_request(runtime, session, requirement, callback)
       when is_map(runtime) and is_map(session) and is_map(requirement) and
              is_function(callback, 1) do
-    with {:ok, values} <- values(runtime, session),
-         {:ok, requirement} <- bind_requirement(session, requirement) do
-      call_adapter(values.request_repo, :checkout, [
-        fn ->
-          repo = adapter_module(values.request_repo)
+    with {:ok, values} <- values(runtime, session) do
+      case bind_requirement(session, requirement) do
+        {:ok, bound_requirement} ->
+          call_adapter(values.request_repo, :checkout, [
+            fn ->
+              repo = adapter_module(values.request_repo)
 
-          with_authorization_lock(
-            values,
-            :shared,
-            repo,
-            session,
-            requirement,
-            callback
-          )
-        end
-      ])
+              with_authorization_lock(
+                values,
+                :shared,
+                repo,
+                session,
+                bound_requirement,
+                callback
+              )
+            end
+          ])
+
+        {:error, %Error{}} = error ->
+          audit_cross_vault_denial(values, session, error)
+      end
     end
   end
 
@@ -57,22 +64,27 @@ defmodule Singularity.Runtime.OperationScope do
   defp with_vault_request(mode, runtime, session, requirement, callback)
        when mode in [:shared, :exclusive] and is_map(runtime) and is_map(session) and
               is_map(requirement) and is_function(callback, 1) do
-    with {:ok, values} <- values(runtime, session),
-         {:ok, requirement} <- bind_requirement(session, requirement) do
-      call_adapter(values.vault_lock, lock_function(mode), [
-        adapter_module(values.request_repo),
-        requirement.vault_id,
-        fn pinned_repo ->
-          with_authorization_lock(
-            values,
-            mode,
-            pinned_repo,
-            session,
-            requirement,
-            callback
-          )
-        end
-      ])
+    with {:ok, values} <- values(runtime, session) do
+      case bind_requirement(session, requirement) do
+        {:ok, bound_requirement} ->
+          call_adapter(values.vault_lock, lock_function(mode), [
+            adapter_module(values.request_repo),
+            bound_requirement.vault_id,
+            fn pinned_repo ->
+              with_authorization_lock(
+                values,
+                mode,
+                pinned_repo,
+                session,
+                bound_requirement,
+                callback
+              )
+            end
+          ])
+
+        {:error, %Error{}} = error ->
+          audit_cross_vault_denial(values, session, error)
+      end
     end
   end
 
@@ -99,19 +111,131 @@ defmodule Singularity.Runtime.OperationScope do
             locked_repo,
             scope,
             fn scoped_repo ->
-              with :ok <-
-                     call_adapter(values.authorizer, :check, [
-                       values.authorization,
-                       scoped_repo,
-                       session,
-                       requirement
-                     ]) do
-                callback.(scoped_repo)
-              end
+              authorize_then_run(
+                values,
+                scoped_repo,
+                session,
+                requirement,
+                callback
+              )
             end
           ])
 
-        run_after_commit(transaction_result, values, locked_repo, scope)
+        finish_transaction(
+          transaction_result,
+          values,
+          locked_repo,
+          scope,
+          session,
+          requirement
+        )
+      end
+    ])
+  end
+
+  defp authorize_then_run(values, repo, session, requirement, callback) do
+    case call_adapter(values.authorizer, :check, [
+           values.authorization,
+           repo,
+           session,
+           requirement
+         ]) do
+      :ok ->
+        callback.(repo)
+
+      {:error, %Error{code: code} = error}
+      when code in [:unauthenticated, :forbidden] ->
+        {:error, {:authorization_denial, error}}
+
+      {:error, %Error{}} = error ->
+        error
+
+      _invalid ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp finish_transaction(
+         {:error, {:authorization_denial, %Error{} = public_error}},
+         values,
+         locked_repo,
+         scope,
+         session,
+         requirement
+       ) do
+    case append_denial(
+           values,
+           locked_repo,
+           scope,
+           session,
+           requirement,
+           "authorization.denied",
+           "authorization"
+         ) do
+      :ok -> {:error, public_error}
+      {:error, %Error{}} = audit_error -> audit_error
+      _invalid -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp finish_transaction(
+         result,
+         values,
+         locked_repo,
+         scope,
+         _session,
+         _requirement
+       ),
+       do: run_after_commit(result, values, locked_repo, scope)
+
+  defp audit_cross_vault_denial(values, session, public_error) do
+    result =
+      call_adapter(values.request_repo, :checkout, [
+        fn ->
+          repo = adapter_module(values.request_repo)
+          scope = %{principal_id: session.principal_id, vault_id: session.vault_id}
+
+          append_denial(
+            values,
+            repo,
+            scope,
+            session,
+            %{},
+            "authorization.cross_vault_denied",
+            "vault"
+          )
+        end
+      ])
+
+    case result do
+      :ok -> public_error
+      {:error, %Error{}} = audit_error -> audit_error
+      _invalid -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp append_denial(
+         values,
+         repo,
+         scope,
+         session,
+         requirement,
+         action,
+         default_target_type
+       ) do
+    call_adapter(values.scoped_repo, :transact, [
+      repo,
+      scope,
+      fn scoped_repo ->
+        Audit.append_principal(values.audit, scoped_repo, session, %{
+          action: action,
+          result: :denied,
+          classification: Map.get(requirement, :classification, :private),
+          correlation_id: Map.get(requirement, :correlation_id, Ecto.UUID.generate()),
+          target_type: Map.get(requirement, :audit_target_type, default_target_type),
+          target_id: Map.get(requirement, :audit_target_id, session.vault_id),
+          metadata: %{}
+        })
       end
     ])
   end
@@ -184,7 +308,8 @@ defmodule Singularity.Runtime.OperationScope do
          authorization_lock: runtime.authorization_lock,
          scoped_repo: runtime.scoped_repo,
          authorizer: Map.get(runtime, :authorizer, Authorize),
-         authorization: runtime.authorization
+         authorization: runtime.authorization,
+         audit: Map.get(runtime, :audit, AuditSink)
        }}
     else
       {:error, Error.new(:invalid)}

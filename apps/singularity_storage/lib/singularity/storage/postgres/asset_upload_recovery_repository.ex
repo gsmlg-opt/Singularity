@@ -3,10 +3,11 @@ defmodule Singularity.Storage.Postgres.AssetUploadRecoveryRepository do
   Least-privilege access to global restart recovery for consumed upload stages.
 
   The underlying security-definer functions expose only the stage reference
-  needed for physical cleanup and a fixed abandonment transition.
+  needed for physical cleanup, its durable creation time, and a fixed
+  abandonment transition.
   """
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Storage.Postgres.UUID
 
@@ -15,7 +16,7 @@ defmodule Singularity.Storage.Postgres.AssetUploadRecoveryRepository do
     case SQL.query(
            repo,
            """
-           SELECT stage_id, storage_ref
+           SELECT stage_id, storage_ref, stage_inserted_at
            FROM content.list_open_upload_stages()
            """,
            [],
@@ -245,14 +246,15 @@ defmodule Singularity.Storage.Postgres.AssetUploadRecoveryRepository do
 
   defp decode_stages([], decoded), do: {:ok, Enum.reverse(decoded)}
 
-  defp decode_stages([[stage_id, storage_ref] | rows], decoded)
+  defp decode_stages([[stage_id, storage_ref, %DateTime{} = inserted_at] | rows], decoded)
        when is_binary(storage_ref) and byte_size(storage_ref) > 0 do
     decode_stages(
       rows,
       [
         %{
           stage_id: Ecto.UUID.load!(stage_id),
-          storage_ref: storage_ref
+          storage_ref: storage_ref,
+          inserted_at: inserted_at
         }
         | decoded
       ]

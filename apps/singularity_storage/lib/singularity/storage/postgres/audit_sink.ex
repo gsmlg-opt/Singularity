@@ -20,7 +20,12 @@ defmodule Singularity.Storage.Postgres.AuditSink do
 
   @impl true
   def append(repo, %AuditEvent{} = event) do
-    with :ok <- UUID.validate([event.audit_event_id, event.correlation_id]),
+    with :ok <-
+           UUID.validate([
+             event.audit_event_id,
+             event.correlation_id,
+             event.target_id
+           ]),
          :ok <- UUID.validate_optional([event.vault_id, event.principal_id]) do
       changeset =
         Event.append_changeset(%Event{}, %{
@@ -28,10 +33,14 @@ defmodule Singularity.Storage.Postgres.AuditSink do
           vault_id: event.vault_id,
           actor_kind: event.actor_kind,
           principal_id: event.principal_id,
+          anonymous_fingerprint: event.anonymous_fingerprint,
+          system_principal_name: event.system_principal_name,
           operation: event.action,
-          result: :completed,
+          result: event.result,
           classification: event.classification,
           correlation_id: event.correlation_id,
+          target_type: event.target_type,
+          target_id: event.target_id,
           metadata: event.metadata,
           occurred_at: event.occurred_at
         })

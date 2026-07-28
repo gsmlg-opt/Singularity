@@ -3,6 +3,8 @@ defmodule Singularity.Storage.ScopedRepo do
   Runs request-scoped work with PostgreSQL row-level security context.
   """
 
+  alias Singularity.Storage.SafeSQL
+
   @absent_context_values [nil, ""]
 
   def transact(repo, context, fun), do: transact(repo, context, [], fun)
@@ -25,7 +27,7 @@ defmodule Singularity.Storage.ScopedRepo do
                principal_id = normalize_uuid!(principal_id, :principal_id)
                vault_id = normalize_uuid!(vault_id, :vault_id)
 
-               Ecto.Adapters.SQL.query!(
+               SafeSQL.query!(
                  repo,
                  "SELECT set_config('singularity.principal_id', $1, true), " <>
                    "set_config('singularity.vault_id', $2, true)",
@@ -70,7 +72,7 @@ defmodule Singularity.Storage.ScopedRepo do
   defp set_transaction_isolation!(_repo, nil), do: :ok
 
   defp set_transaction_isolation!(repo, :repeatable_read) do
-    Ecto.Adapters.SQL.query!(
+    SafeSQL.query!(
       repo,
       "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
       []
@@ -81,7 +83,7 @@ defmodule Singularity.Storage.ScopedRepo do
 
   defp assert_context_absent!(repo) do
     %{rows: [[principal_id, vault_id]]} =
-      Ecto.Adapters.SQL.query!(
+      SafeSQL.query!(
         repo,
         """
         SELECT

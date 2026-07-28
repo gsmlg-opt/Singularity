@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.RestoreVault do
   @moduledoc "Coordinates authenticated maintenance-mode restore phases."
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Storage.Crypto.RecoveredVaultKey
 
   @request_keys [:new_password, :passphrase, :source]
@@ -16,7 +17,13 @@ defmodule Singularity.Runtime.RestoreVault do
   ]
 
   @spec run(map(), map()) :: {:ok, map()} | {:error, Error.t()}
-  def run(context, request) when is_map(context) and is_map(request) do
+  def run(context, request) do
+    Telemetry.span([:restore], %{}, fn ->
+      do_run(context, request)
+    end)
+  end
+
+  defp do_run(context, request) when is_map(context) and is_map(request) do
     with {:ok, adapters} <- adapters(context),
          {:ok, values} <- request_values(request),
          :ok <-
@@ -43,7 +50,7 @@ defmodule Singularity.Runtime.RestoreVault do
     _kind, _reason -> storage_unavailable()
   end
 
-  def run(_context, _request), do: invalid()
+  defp do_run(_context, _request), do: invalid()
 
   defp restore_authenticated(adapters, values, authenticated) do
     try do

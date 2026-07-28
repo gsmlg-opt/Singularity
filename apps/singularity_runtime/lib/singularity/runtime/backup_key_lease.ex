@@ -554,6 +554,25 @@ defmodule Singularity.Runtime.BackupKeyLease do
   def init(_options), do: {:stop, :invalid}
 
   @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state,
+         %{
+           custody: "[REDACTED]",
+           mode: Map.get(state, :mode),
+           revoked?: Map.get(state, :revoked?, false)
+         }}
+
+      {key, _value} when key in [:message, :reason, :log] ->
+        {key, "[REDACTED]"}
+
+      key_value ->
+        key_value
+    end)
+  end
+
+  @impl true
   def handle_call(_request, _from, %State{revoked?: true} = state),
     do: {:reply, {:error, :waiting_for_backup_key}, state}
 

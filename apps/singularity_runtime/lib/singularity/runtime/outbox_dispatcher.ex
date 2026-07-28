@@ -3,10 +3,11 @@ defmodule Singularity.Runtime.OutboxDispatcher do
 
   use GenServer
 
-  alias Ecto.Adapters.SQL
+  alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
   alias Singularity.Core.OutboxEvent
+  alias Singularity.Runtime.Observability.Telemetry
 
   @event_jobs %{
     "asset.finalize_requested" => "asset_finalize",
@@ -14,8 +15,7 @@ defmodule Singularity.Runtime.OutboxDispatcher do
     "asset.metadata_requested" => "asset_metadata",
     "asset.cleanup_requested" => "asset_cleanup",
     "object.cleanup_requested" => "object_cleanup",
-    "backup.requested" => "backup",
-    "maintenance.requested" => "maintenance"
+    "backup.requested" => "backup"
   }
 
   @default_interval_ms 1_000
@@ -100,6 +100,7 @@ defmodule Singularity.Runtime.OutboxDispatcher do
              claim_token: claim_token,
              runner_job_id: runner_job_id
            }) do
+      emit_dispatch_lag(event)
       Map.update!(summary, :submitted, &(&1 + 1))
     else
       {:error, %Error{}} -> Map.update!(summary, :failed, &(&1 + 1))
@@ -198,4 +199,30 @@ defmodule Singularity.Runtime.OutboxDispatcher do
       :error -> raise ArgumentError, "outbox event vault must be a valid UUID"
     end
   end
+
+  defp emit_dispatch_lag(%OutboxEvent{event_type: event_type, occurred_at: occurred_at}) do
+    lag =
+      DateTime.utc_now(:microsecond)
+      |> DateTime.diff(occurred_at, :microsecond)
+      |> max(0)
+      |> System.convert_time_unit(:microsecond, :native)
+
+    Telemetry.execute(
+      [:outbox, :dispatch],
+      %{lag: lag},
+      %{job_type: job_type_label(event_type)}
+    )
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp job_type_label("asset.finalize_requested"), do: :asset_finalize
+  defp job_type_label("asset.verify_requested"), do: :asset_verify
+  defp job_type_label("asset.metadata_requested"), do: :asset_metadata
+  defp job_type_label("asset.cleanup_requested"), do: :asset_cleanup
+  defp job_type_label("object.cleanup_requested"), do: :object_cleanup
+  defp job_type_label("backup.requested"), do: :backup
+  defp job_type_label(_event_type), do: :unknown
 end

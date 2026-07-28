@@ -4,10 +4,17 @@ defmodule Singularity.Runtime.Assets.Verify do
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
   alias Singularity.Runtime.Authorize
+  alias Singularity.Runtime.Observability.Telemetry
 
   @spec run(map(), JobEnvelope.t()) :: {:ok, map()} | {:error, Error.t()}
-  def run(context, %JobEnvelope{job_type: "asset_verify"} = envelope)
-      when is_map(context) do
+  def run(context, envelope) do
+    Telemetry.span([:asset, :verify], %{}, fn ->
+      do_run(context, envelope)
+    end)
+  end
+
+  defp do_run(context, %JobEnvelope{job_type: "asset_verify"} = envelope)
+       when is_map(context) do
     with {:ok, adapters} <- adapters(context),
          {:ok, target} <-
            transact_authorized(adapters, envelope, fn repo ->
@@ -22,7 +29,7 @@ defmodule Singularity.Runtime.Assets.Verify do
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   end
 
-  def run(_context, _envelope), do: {:error, Error.new(:invalid)}
+  defp do_run(_context, _envelope), do: {:error, Error.new(:invalid)}
 
   defp verify_target(_adapters, _envelope, %{
          status: :complete,

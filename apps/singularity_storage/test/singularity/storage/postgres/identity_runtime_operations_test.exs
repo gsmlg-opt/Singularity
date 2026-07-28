@@ -117,12 +117,14 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
     assert :ok = scoped(one, &IdentityRepository.unlock_and_audit(&1, unlock))
     refute vault_locked?(one)
     assert audit_operations(one) == ["vault.unlock"]
+    assert_runtime_audit!(unlock, "vault.unlock", "allowed")
 
     lock = mutation_command(one)
     assert :ok = scoped(one, &IdentityRepository.lock_and_audit(&1, lock))
     assert vault_locked?(one)
     assert audit_operations(one) == ["vault.unlock", "vault.lock"]
     assert audit_results(one) == ["allowed", "completed"]
+    assert_runtime_audit!(lock, "vault.lock", "completed")
 
     stale_unlock = %{unlock | domain_key_version_id: Ecto.UUID.generate()}
 
@@ -270,6 +272,7 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
     assert vault_locked?(one)
     assert audit_operations(one) == ["identity.password_change"]
     assert audit_results(one) == ["completed"]
+    assert_runtime_audit!(command, "identity.password_change", "completed")
 
     assert {:error, %Error{code: :conflict}} =
              scoped(one, &IdentityRepository.change_password_and_wrapper(&1, command))
@@ -278,6 +281,130 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
              scoped(one, &IdentityRepository.unlock_and_audit(&1, unlock_command(one)))
 
     assert audit_operations(one) == ["identity.password_change"]
+  end
+
+  test "capability and clearance mutations are vault-scoped, epoch-bumping, and atomic with audit",
+       %{one: one, two: two} do
+    ensure_capability!("asset.read")
+
+    capability_command = %{
+      session_id: canonical(one.session_id),
+      actor_principal_id: canonical(one.principal_id),
+      target_principal_id: canonical(one.principal_id),
+      vault_id: canonical(one.vault_id),
+      capability: "asset.read",
+      change: :grant,
+      correlation_id: Ecto.UUID.generate()
+    }
+
+    assert {:error, :injected_rollback} =
+             scoped(one, fn repo ->
+               assert :ok =
+                        IdentityRepository.change_capability_and_audit(
+                          repo,
+                          capability_command
+                        )
+
+               repo.rollback(:injected_rollback)
+             end)
+
+    refute active_capability?(one, "asset.read")
+    assert vault_authorization_epoch(one) == 0
+    assert audit_operations(one) == []
+
+    assert :ok =
+             scoped(
+               one,
+               &IdentityRepository.change_capability_and_audit(
+                 &1,
+                 capability_command
+               )
+             )
+
+    assert active_capability?(one, "asset.read")
+    assert vault_authorization_epoch(one) == 1
+    assert audit_operations(one) == ["authorization.capability_changed"]
+
+    Fixtures.with_owner(fn ->
+      assert_persisted_audit!(
+        MigrationRepo,
+        "authorization.capability_changed",
+        [correlation_id: capability_command.correlation_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "principal",
+        target_id: capability_command.target_principal_id
+      )
+    end)
+
+    assert :ok =
+             scoped(
+               one,
+               &IdentityRepository.change_capability_and_audit(
+                 &1,
+                 %{capability_command | change: :revoke, correlation_id: Ecto.UUID.generate()}
+               )
+             )
+
+    refute active_capability?(one, "asset.read")
+    assert vault_authorization_epoch(one) == 2
+
+    clearance_command = %{
+      session_id: canonical(one.session_id),
+      actor_principal_id: canonical(one.principal_id),
+      target_principal_id: canonical(one.principal_id),
+      vault_id: canonical(one.vault_id),
+      clearance: :sensitive,
+      correlation_id: Ecto.UUID.generate()
+    }
+
+    assert :ok =
+             scoped(
+               one,
+               &IdentityRepository.change_clearance_and_audit(
+                 &1,
+                 clearance_command
+               )
+             )
+
+    assert membership_clearance(one) == "sensitive"
+    assert vault_authorization_epoch(one) == 3
+
+    assert audit_operations(one) == [
+             "authorization.capability_changed",
+             "authorization.capability_changed",
+             "authorization.policy_changed"
+           ]
+
+    Fixtures.with_owner(fn ->
+      assert_persisted_audit!(
+        MigrationRepo,
+        "authorization.policy_changed",
+        [correlation_id: clearance_command.correlation_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "principal",
+        target_id: clearance_command.target_principal_id
+      )
+    end)
+
+    cross_vault = %{
+      capability_command
+      | target_principal_id: canonical(two.principal_id),
+        correlation_id: Ecto.UUID.generate()
+    }
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(
+               one,
+               &IdentityRepository.change_capability_and_audit(&1, cross_vault)
+             )
+
+    assert audit_operations(one) == [
+             "authorization.capability_changed",
+             "authorization.capability_changed",
+             "authorization.policy_changed"
+           ]
   end
 
   defp insert_key_material!(fixture, marker) do
@@ -509,6 +636,72 @@ defmodule Singularity.Storage.Postgres.IdentityRuntimeOperationsTest do
 
       Enum.map(rows, fn [result] -> result end)
     end)
+  end
+
+  defp assert_runtime_audit!(command, operation, result) do
+    Fixtures.with_owner(fn ->
+      assert_persisted_audit!(
+        MigrationRepo,
+        operation,
+        [correlation_id: command.correlation_id],
+        actor_kind: "principal",
+        result: result,
+        target_type: "session",
+        target_id: command.session_id
+      )
+    end)
+  end
+
+  defp ensure_capability!(name) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.capabilities (id, name)
+        VALUES ($1, $2)
+        ON CONFLICT (name) DO NOTHING
+        """,
+        [uuid(), name]
+      )
+
+      :ok
+    end)
+  end
+
+  defp active_capability?(fixture, name) do
+    owner_value(
+      """
+      SELECT EXISTS (
+        SELECT 1
+        FROM core.principal_capabilities AS assignment
+        JOIN core.capabilities AS capability
+          ON capability.id = assignment.capability_id
+        WHERE assignment.principal_id = $1
+          AND assignment.vault_id = $2
+          AND assignment.revoked_at IS NULL
+          AND capability.name = $3
+      )
+      """,
+      [fixture.principal_id, fixture.vault_id, name]
+    )
+  end
+
+  defp vault_authorization_epoch(fixture) do
+    owner_value(
+      "SELECT authorization_epoch FROM core.vaults WHERE id = $1",
+      [fixture.vault_id]
+    )
+  end
+
+  defp membership_clearance(fixture) do
+    owner_value(
+      """
+      SELECT clearance
+      FROM core.vault_members
+      WHERE principal_id = $1 AND vault_id = $2
+      """,
+      [fixture.principal_id, fixture.vault_id]
+    )
   end
 
   defp credential_and_wrapper(fixture) do

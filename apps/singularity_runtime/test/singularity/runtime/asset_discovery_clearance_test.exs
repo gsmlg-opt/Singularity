@@ -153,12 +153,36 @@ defmodule Singularity.Runtime.AssetDiscoveryClearanceTest do
 
     assert restricted_id == assets.restricted.asset_id
 
+    download_correlation_id = Ecto.UUID.generate()
+
     assert {:ok, "authorized bytes"} =
-             Download.run(runtime, session, assets.restricted.asset_id, :all)
+             Download.run(
+               runtime,
+               session,
+               assets.restricted.asset_id,
+               :all,
+               download_correlation_id
+             )
 
     assert_receive {:lease, %{object_id: restricted_object_id}}
     assert restricted_object_id == assets.restricted.object_id
     assert_receive {:read, {:opaque_lease, ^restricted_object_id}, :all}
+
+    Fixtures.with_owner(fn ->
+      for operation <- ["asset.downloaded", "asset.sensitive_read"] do
+        assert_persisted_audit!(
+          MigrationRepo,
+          operation,
+          [correlation_id: download_correlation_id],
+          actor_kind: "principal",
+          result: "completed",
+          target_type: "asset",
+          target_id: assets.restricted.asset_id
+        )
+      end
+
+      :ok
+    end)
 
     assert {:ok, %{id: delete_id, state: :pending_delete, state_revision: 4}} =
              Delete.run(runtime, session, assets.restricted_delete.asset_id, 3)

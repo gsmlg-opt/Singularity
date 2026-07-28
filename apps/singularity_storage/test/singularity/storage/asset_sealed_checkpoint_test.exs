@@ -190,6 +190,15 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
       refute Map.has_key?(audit_metadata, "object_dek")
       refute Map.has_key?(audit_metadata, "plaintext_sha256")
 
+      assert_persisted_audit!(
+        repo,
+        "asset.uploaded",
+        [target_id: command.asset_id],
+        actor_kind: "principal",
+        result: "completed",
+        target_type: "asset"
+      )
+
       assert %{
                rows: [
                  [
@@ -386,7 +395,7 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
 
     stage_command = %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

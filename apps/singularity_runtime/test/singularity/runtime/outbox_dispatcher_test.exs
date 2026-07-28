@@ -9,6 +9,7 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.OutboxDispatcher
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.Jobs.EnvelopeCodec
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.IdentityRepository
   alias Singularity.Storage.ScopedRepo
@@ -215,6 +216,27 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     refute_receive {:runner_submit, _envelope, _runner_id}
   end
 
+  test "does not advertise an unimplemented maintenance job", %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+
+    owner_query(
+      """
+      UPDATE core.outbox_events
+      SET event_type = 'maintenance.requested',
+          required_capability = 'maintenance.run',
+          payload = '{}'::jsonb
+      WHERE id = $1
+      """,
+      [event.id]
+    )
+
+    assert {:ok, %{submitted: 0, skipped: 0, failed: 1}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    refute_receive {:runner_submit, _envelope, _runner_id}
+  end
+
   test "an AssetRepository job becomes stale when either live authorization axis changes", %{
     runner: runner
   } do
@@ -298,6 +320,7 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert_receive {:runner_submit, envelope, _runner_id}
     assert envelope.principal_authorization_epoch == 11
     assert envelope.vault_authorization_epoch == 23
+    assert {:ok, _encoded} = EnvelopeCodec.encode(envelope)
 
     assert {:ok,
             %{

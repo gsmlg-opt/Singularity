@@ -3,6 +3,8 @@ defmodule Singularity.Storage.ObjectLock do
   Serializes operations for one object on an existing repository connection.
   """
 
+  alias Singularity.Storage.SafeSQL
+
   @exclusive_lock_sql """
   SELECT pg_advisory_lock(hashtextextended($1::text, 0))
   """
@@ -30,12 +32,12 @@ defmodule Singularity.Storage.ObjectLock do
   end
 
   defp acquire(repo, key) do
-    Ecto.Adapters.SQL.query!(repo, @exclusive_lock_sql, [key])
+    SafeSQL.query!(repo, @exclusive_lock_sql, [key])
     :ok
   end
 
   defp release(repo, key) do
-    %{rows: [[true]]} = Ecto.Adapters.SQL.query!(repo, @exclusive_unlock_sql, [key])
+    %{rows: [[true]]} = SafeSQL.query!(repo, @exclusive_unlock_sql, [key])
     :ok
   end
 

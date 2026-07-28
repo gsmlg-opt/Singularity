@@ -33,6 +33,7 @@ defmodule Singularity.Runtime.MixProject do
       {:singularity_ingest, in_umbrella: true},
       {:singularity_retrieval, in_umbrella: true},
       {:logger_json, "~> 7.0"},
+      {:telemetry, "~> 1.4"},
       {:telemetry_metrics, "~> 1.1"},
       {:telemetry_poller, "~> 1.3"}
     ]

@@ -10,6 +10,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Jobs.Progress
   alias Singularity.Storage.Postgres.UUID
+  alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.Schema.Audit.Event, as: AuditEvent
   alias Singularity.Storage.Schema.Content.Asset
   alias Singularity.Storage.Schema.Content.AssetObject
@@ -320,7 +321,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
            repo.insert(
              audit_changeset(%{
                actor_kind: :system,
-               principal_id: envelope.principal_id,
+               system_principal_name: "object_cleanup",
                operation: "object.delete_claimed",
                vault_id: envelope.vault_id,
                classification: envelope.classification,
@@ -490,7 +491,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
            repo.insert(
              audit_changeset(%{
                actor_kind: :system,
-               principal_id: stale.principal_id,
+               system_principal_name: "object_cleanup",
                operation: "object.delete_failed",
                result: :failed,
                vault_id: stale.vault_id,
@@ -661,7 +662,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
            repo.insert(
              audit_changeset(%{
                actor_kind: :system,
-               principal_id: envelope.principal_id,
+               system_principal_name: "object_cleanup",
                operation: "object.delete_claimed",
                vault_id: envelope.vault_id,
                classification: envelope.classification,
@@ -816,7 +817,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
            repo.insert(
              audit_changeset(%{
                actor_kind: :system,
-               principal_id: envelope.principal_id,
+               system_principal_name: "object_cleanup",
                operation: "object.deleted",
                vault_id: envelope.vault_id,
                classification: envelope.classification,
@@ -895,7 +896,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
   end
 
   defp bind_current_scope(repo, envelope) do
-    case Ecto.Adapters.SQL.query(
+    case SafeSQL.query(
            repo,
            """
            SELECT
@@ -1122,7 +1123,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
            repo.insert(
              audit_changeset(%{
                actor_kind: :system,
-               principal_id: cleanup.principal_id,
+               system_principal_name: "object_cleanup",
                operation: "object.orphaned",
                vault_id: object.vault_id,
                classification: object.classification,
@@ -1167,7 +1168,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
 
   defp cleanup_authorization(repo, vault_id) do
     with {:ok, dumped_vault_id} <- UUID.dump(vault_id) do
-      case Ecto.Adapters.SQL.query(
+      case SafeSQL.query(
              repo,
              """
              SELECT
@@ -1481,7 +1482,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
   defp authorization_epochs(repo, principal_id, vault_id) do
     with {:ok, dumped_principal_id} <- UUID.dump(principal_id),
          {:ok, dumped_vault_id} <- UUID.dump(vault_id) do
-      case Ecto.Adapters.SQL.query(
+      case SafeSQL.query(
              repo,
              """
              SELECT

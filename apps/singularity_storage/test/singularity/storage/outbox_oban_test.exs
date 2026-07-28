@@ -6,6 +6,7 @@ defmodule Singularity.Storage.OutboxObanTest do
   alias Singularity.Storage.Jobs.GenericWorker
 
   @handler_key :job_handler
+  @secret "CANARY_RAW_OBAN_SECRET_31d8"
 
   defmodule MalformedDependencies do
     @behaviour Singularity.Core.JobHandler
@@ -34,6 +35,16 @@ defmodule Singularity.Storage.OutboxObanTest do
     def dependencies do
       Application.fetch_env!(:singularity_storage, :test_job_dependencies)
     end
+
+    @impl true
+    def handle(_context, _envelope), do: :ok
+  end
+
+  defmodule ExplodingDependencies do
+    @behaviour Singularity.Core.JobHandler
+
+    @impl true
+    def dependencies, do: raise("CANARY_RAW_OBAN_SECRET_31d8")
 
     @impl true
     def handle(_context, _envelope), do: :ok
@@ -102,6 +113,78 @@ defmodule Singularity.Storage.OutboxObanTest do
     end
   end
 
+  test "accepts only the exact bounded payload and authority schema for each executable job type" do
+    asset_id = uuid(7)
+    object_id = uuid(8)
+    manifest_id = uuid(9)
+
+    schemas = [
+      {"asset_finalize", "asset.write", %{"asset_id" => asset_id},
+       "asset-finalize:#{asset_id}:7"},
+      {"asset_verify", "asset.write", %{"asset_id" => asset_id}, "asset-verify:#{asset_id}:7"},
+      {"asset_metadata", "asset.read", %{"asset_id" => asset_id}, "asset-metadata:#{asset_id}:7"},
+      {"asset_cleanup", "asset.write", %{"asset_id" => asset_id}, "asset-cleanup:#{asset_id}:7"},
+      {"object_cleanup", "object.cleanup", %{"asset_id" => asset_id, "object_id" => object_id},
+       "object-cleanup:#{object_id}:7"},
+      {"backup", "backup.create", %{"pending_manifest_id" => manifest_id},
+       "backup:#{manifest_id}"}
+    ]
+
+    for {job_type, capability, payload, idempotency_key} <- schemas do
+      encoded =
+        encoded_envelope()
+        |> Map.put("job_type", job_type)
+        |> Map.put("required_capability", capability)
+        |> Map.put("payload", payload)
+        |> Map.put("idempotency_key", idempotency_key)
+
+      assert {:ok, %JobEnvelope{job_type: ^job_type, payload: ^payload}} =
+               EnvelopeCodec.decode(encoded)
+    end
+  end
+
+  test "accepts the exact legacy sealed-upload producer schema" do
+    asset_id = uuid(7)
+
+    encoded =
+      encoded_envelope()
+      |> Map.put("required_capability", "assets.verify")
+      |> Map.put("idempotency_key", "sealed-upload:#{asset_id}")
+
+    assert {:ok,
+            %JobEnvelope{
+              job_type: "asset_verify",
+              required_capability: "assets.verify",
+              payload: %{"asset_id" => ^asset_id}
+            }} = EnvelopeCodec.decode(encoded)
+  end
+
+  test "rejects free-form values that could carry secrets into raw Oban args" do
+    assert {:ok, envelope} = JobEnvelope.new(valid_envelope())
+
+    assert {:error, %{code: :job_failed}} =
+             EnvelopeCodec.encode(%{envelope | classification: @secret})
+
+    for invalid <- [
+          Map.put(encoded_envelope(), "job_id", @secret),
+          Map.put(encoded_envelope(), "correlation_id", @secret),
+          Map.put(encoded_envelope(), "causation_id", @secret),
+          Map.put(encoded_envelope(), "idempotency_key", @secret),
+          Map.put(encoded_envelope(), "required_capability", @secret),
+          Map.put(encoded_envelope(), "payload", %{
+            "asset_id" => uuid(7),
+            "token" => @secret
+          }),
+          Map.put(encoded_envelope(), "payload", %{"asset_id" => @secret}),
+          encoded_envelope()
+          |> Map.put("job_type", "maintenance")
+          |> Map.put("payload", %{"command" => @secret})
+        ] do
+      assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
+      refute inspect(EnvelopeCodec.decode(invalid)) =~ @secret
+    end
+  end
+
   test "rejects the unsupported durable integrity audit job type" do
     assert {:ok, integrity_audit} =
              valid_envelope()
@@ -116,6 +199,7 @@ defmodule Singularity.Storage.OutboxObanTest do
              |> EnvelopeCodec.decode()
 
     refute EnvelopeCodec.known_job_type?("integrity_audit")
+    refute EnvelopeCodec.known_job_type?("maintenance")
   end
 
   test "generic worker fails closed before checkout when callback configuration is missing" do
@@ -188,15 +272,118 @@ defmodule Singularity.Storage.OutboxObanTest do
     end
   end
 
+  test "generic worker collapses callback values into bounded Oban outcomes" do
+    assert :ok = GenericWorker.normalize_result({:ok, %{token: @secret}})
+    assert {:snooze, 1} = GenericWorker.normalize_result({:snooze, 1})
+    assert {:snooze, 60} = GenericWorker.normalize_result({:snooze, 60})
+    assert {:cancel, %{code: :job_failed}} = GenericWorker.normalize_result({:snooze, 61})
+
+    assert {:error, %{code: :job_failed}} =
+             GenericWorker.normalize_result(
+               {:error,
+                Singularity.Core.Error.new(:storage_unavailable,
+                  retryable?: true,
+                  details: %{token: @secret}
+                )}
+             )
+
+    for unsafe <- [
+          {:error, @secret},
+          {:cancel, @secret},
+          RuntimeError.exception(@secret),
+          @secret
+        ] do
+      result = GenericWorker.normalize_result(unsafe)
+      assert result == {:cancel, %{code: :job_failed}}
+      refute inspect(result) =~ @secret
+    end
+  end
+
+  test "generic worker fails closed on malformed decoder input" do
+    malformed =
+      encoded_envelope()
+      |> Map.put("payload", ["improper" | @secret])
+
+    assert {:cancel, %{code: :job_failed}} =
+             GenericWorker.perform(%Oban.Job{args: malformed})
+  end
+
+  test "an actual raw Oban event contains no callback exception canary" do
+    Application.put_env(
+      :singularity_storage,
+      @handler_key,
+      ExplodingDependencies
+    )
+
+    events = [
+      [:oban, :job, :start],
+      [:oban, :job, :exception],
+      [:oban, :job, :stop]
+    ]
+
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        &__MODULE__.capture_raw_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    now = DateTime.utc_now()
+
+    job = %Oban.Job{
+      args: encoded_envelope(),
+      attempt: 1,
+      attempted_at: now,
+      max_attempts: 3,
+      queue: "asset_verify",
+      scheduled_at: now,
+      worker: Oban.Worker.to_string(GenericWorker)
+    }
+
+    conf =
+      Oban.Config.new(
+        name: __MODULE__,
+        repo: Singularity.Storage.WorkerRepo,
+        testing: :manual
+      )
+
+    assert %{state: :failure} =
+             conf
+             |> Oban.Queue.Executor.new(job, ack: false)
+             |> Oban.Queue.Executor.call()
+
+    assert_receive {:raw_oban, [:oban, :job, :start], _measurements, start_metadata}
+
+    assert_receive {:raw_oban, [:oban, :job, :exception], _measurements, exception_metadata}
+
+    for metadata <- [start_metadata, exception_metadata] do
+      refute inspect(metadata) =~ @secret
+    end
+
+    assert exception_metadata.result == {:error, %{code: :job_failed}}
+    assert exception_metadata.stacktrace == []
+    refute_receive {:raw_oban, [:oban, :job, :stop], _, _}
+  end
+
+  @doc false
+  def capture_raw_event(event, measurements, metadata, owner) do
+    send(owner, {:raw_oban, event, measurements, metadata})
+  end
+
   defp encoded_envelope do
     %{
       "version" => 1,
       "job_id" => uuid(1),
       "job_type" => "asset_verify",
-      "idempotency_key" => "asset:verify:7",
+      "idempotency_key" => "asset-verify:#{uuid(7)}:7",
       "vault_id" => uuid(2),
       "principal_id" => uuid(3),
-      "required_capability" => "asset:verify",
+      "required_capability" => "asset.write",
       "principal_authorization_epoch" => 4,
       "vault_authorization_epoch" => 9,
       "classification" => "private",
@@ -213,10 +400,10 @@ defmodule Singularity.Storage.OutboxObanTest do
       version: 1,
       job_id: uuid(1),
       job_type: "asset_verify",
-      idempotency_key: "asset:verify:7",
+      idempotency_key: "asset-verify:#{uuid(7)}:7",
       vault_id: uuid(2),
       principal_id: uuid(3),
-      required_capability: "asset:verify",
+      required_capability: "asset.write",
       principal_authorization_epoch: 4,
       vault_authorization_epoch: 9,
       classification: :private,

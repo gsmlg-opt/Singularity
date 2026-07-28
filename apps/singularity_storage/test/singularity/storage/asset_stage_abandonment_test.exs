@@ -266,7 +266,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
       upload.stage_command
       |> Map.merge(%{
         grant_id: replacement.id,
-        token: replacement_token,
+        token_digest: :crypto.hash(:sha256, replacement_token),
         stage_id: Ecto.UUID.generate(),
         candidate_object_id: Ecto.UUID.generate(),
         storage_ref: Ecto.UUID.generate(),
@@ -381,7 +381,7 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
 
     stage_command = %{
       grant_id: grant.id,
-      token: token,
+      token_digest: :crypto.hash(:sha256, token),
       session_id: grant.session_id,
       principal_id: grant.principal_id,
       vault_id: grant.vault_id,

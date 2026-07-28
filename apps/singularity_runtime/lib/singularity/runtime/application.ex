@@ -9,6 +9,7 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
+  alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Runtime.UploadSessionSupervisor
   alias Singularity.Storage.Backup.BundleReader
@@ -23,13 +24,18 @@ defmodule Singularity.Runtime.Application do
 
   @impl true
   def start(_type, _args) do
-    children = infrastructure_children(composition())
+    children = application_children(composition())
 
     Supervisor.start_link(children,
       strategy: :one_for_one,
       name: Singularity.Runtime.Supervisor
     )
   end
+
+  @doc false
+  @spec application_children(map()) :: [Supervisor.child_spec()]
+  def application_children(composition),
+    do: [Telemetry | infrastructure_children(composition)]
 
   @spec infrastructure_children(map()) :: [Supervisor.child_spec()]
   def infrastructure_children(%{start_infrastructure: false}), do: []

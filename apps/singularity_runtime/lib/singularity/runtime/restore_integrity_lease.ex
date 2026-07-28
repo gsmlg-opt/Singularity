@@ -128,6 +128,25 @@ defmodule Singularity.Runtime.RestoreIntegrityLease do
   end
 
   @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state,
+         %{
+           claimed?: Map.get(state, :claimed?, false),
+           custody: "[REDACTED]",
+           revoked?: Map.get(state, :revoked?, false)
+         }}
+
+      {:message, _message} ->
+        {:message, "[REDACTED]"}
+
+      key_value ->
+        key_value
+    end)
+  end
+
+  @impl true
   def handle_call(:claim, {owner, _tag}, %{owner: owner, claimed?: false} = state) do
     capability = %Capability{lease: self(), token: state.token}
     {:reply, {:ok, capability}, %{state | claimed?: true}}

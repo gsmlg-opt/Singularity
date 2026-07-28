@@ -3,6 +3,8 @@ defmodule Singularity.Storage.AuthorizationLock do
   Serializes authorization changes on an existing checked-out repository handle.
   """
 
+  alias Singularity.Storage.SafeSQL
+
   @shared_lock_sql """
   SELECT pg_advisory_lock_shared(hashtextextended($1::text, 0))
   """
@@ -46,25 +48,25 @@ defmodule Singularity.Storage.AuthorizationLock do
   end
 
   defp acquire_shared(repo, principal_id, vault_id) do
-    Ecto.Adapters.SQL.query!(repo, @shared_lock_sql, [lock_key(principal_id, vault_id)])
+    SafeSQL.query!(repo, @shared_lock_sql, [lock_key(principal_id, vault_id)])
     :ok
   end
 
   defp release_shared(repo, principal_id, vault_id) do
     %{rows: [[true]]} =
-      Ecto.Adapters.SQL.query!(repo, @shared_unlock_sql, [lock_key(principal_id, vault_id)])
+      SafeSQL.query!(repo, @shared_unlock_sql, [lock_key(principal_id, vault_id)])
 
     :ok
   end
 
   defp acquire_exclusive(repo, principal_id, vault_id) do
-    Ecto.Adapters.SQL.query!(repo, @exclusive_lock_sql, [lock_key(principal_id, vault_id)])
+    SafeSQL.query!(repo, @exclusive_lock_sql, [lock_key(principal_id, vault_id)])
     :ok
   end
 
   defp release_exclusive(repo, principal_id, vault_id) do
     %{rows: [[true]]} =
-      Ecto.Adapters.SQL.query!(repo, @exclusive_unlock_sql, [lock_key(principal_id, vault_id)])
+      SafeSQL.query!(repo, @exclusive_unlock_sql, [lock_key(principal_id, vault_id)])
 
     :ok
   end

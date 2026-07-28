@@ -401,6 +401,27 @@ defmodule Singularity.Runtime.KeyLease do
   end
 
   @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, state} ->
+        {:state,
+         %{
+           custody: "[REDACTED]",
+           next_index: Map.get(state, :next_index),
+           pending?: not is_nil(Map.get(state, :pending)),
+           protocol: Map.get(state, :protocol),
+           revoked?: Map.get(state, :revoked?, false)
+         }}
+
+      {:message, _message} ->
+        {:message, "[REDACTED]"}
+
+      key_value ->
+        key_value
+    end)
+  end
+
+  @impl true
   def handle_call({:read_chunk, _index}, _from, %{pending: pending} = state)
       when not is_nil(pending) do
     {:reply, {:error, Error.new(:conflict)}, state}
@@ -634,6 +655,10 @@ defmodule Singularity.Runtime.KeyLease do
            ) do
       {:ok, chunk}
     end
+  rescue
+    _exception -> adapter_unavailable()
+  catch
+    _kind, _reason -> adapter_unavailable()
   end
 
   defp perform_metadata_step(operation) do
@@ -649,6 +674,10 @@ defmodule Singularity.Runtime.KeyLease do
         {:error, %Error{} = error} -> {:ok, {:terminal_error, error}, operation.checkpoint}
       end
     end
+  rescue
+    _exception -> adapter_unavailable()
+  catch
+    _kind, _reason -> adapter_unavailable()
   end
 
   defp perform_metadata_read(
@@ -770,13 +799,17 @@ defmodule Singularity.Runtime.KeyLease do
   end
 
   defp finish_read({:error, %Error{} = error}, pending, state) do
-    GenServer.reply(pending.from, {:error, error})
+    GenServer.reply(pending.from, {:error, public_error(error)})
     {:noreply, revoke_state(state)}
   end
 
-  defp finish_read({:error, reason}, pending, state) do
-    GenServer.reply(pending.from, {:error, reason})
-    {:noreply, state}
+  defp finish_read({:error, _reason}, pending, state) do
+    GenServer.reply(
+      pending.from,
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+    )
+
+    {:noreply, revoke_state(state)}
   end
 
   defp finish_read(_unexpected, pending, state) do
@@ -809,7 +842,7 @@ defmodule Singularity.Runtime.KeyLease do
   end
 
   defp finish_metadata_step({:error, %Error{} = error}, pending, state) do
-    GenServer.reply(pending.from, {:error, error})
+    GenServer.reply(pending.from, {:error, public_error(error)})
     {:noreply, revoke_state(state)}
   end
 
@@ -822,7 +855,7 @@ defmodule Singularity.Runtime.KeyLease do
   defp metadata_reply({:done, metadata}, checkpoint), do: {:done, metadata, checkpoint}
 
   defp metadata_reply({:terminal_error, %Error{} = error}, checkpoint),
-    do: {:error, error, checkpoint}
+    do: {:error, public_error(error), checkpoint}
 
   defp persist_completed_read(state, index) do
     with :active <- lease_status(state),
@@ -849,11 +882,15 @@ defmodule Singularity.Runtime.KeyLease do
         {:error, :waiting_for_unlock}
 
       {:error, %Error{}} = error ->
-        error
+        {:error, public_error(elem(error, 1))}
 
       _unexpected ->
         {:error, Error.new(:job_failed)}
     end
+  rescue
+    _exception -> adapter_unavailable()
+  catch
+    _kind, _reason -> adapter_unavailable()
   end
 
   defp reply_waiting_and_revoke(from, state) do
@@ -916,6 +953,12 @@ defmodule Singularity.Runtime.KeyLease do
     do: :binary.copy(<<0>>, byte_size(secret))
 
   defp overwrite(_secret), do: nil
+
+  defp public_error(%Error{code: code, retryable?: retryable?}),
+    do: Error.new(code, retryable?: retryable?)
+
+  defp adapter_unavailable,
+    do: {:error, Error.new(:storage_unavailable, retryable?: true)}
 
   defp validate_initial_checkpoint(%{"version" => @checkpoint_version} = checkpoint, binding) do
     with {:ok, next_index} <- validate_checkpoint(checkpoint, binding) do

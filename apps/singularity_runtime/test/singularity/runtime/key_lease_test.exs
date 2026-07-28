@@ -6,6 +6,7 @@ defmodule Singularity.Runtime.KeyLeaseTest do
   use ExUnit.Case, async: true
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.AccessPolicy
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
@@ -23,6 +24,28 @@ defmodule Singularity.Runtime.KeyLeaseTest do
 
   defmodule SuccessfulVaultLock do
     def lock_and_audit(:repo, _command), do: :ok
+  end
+
+  defmodule BlockingPolicyScope do
+    def with_read_request(owner, _runtime, _session, requirement, callback) do
+      send(owner, {:policy_preflight, requirement})
+      callback.(:preflight_repo)
+    end
+
+    def with_exclusive_request(owner, _runtime, _session, requirement, callback) do
+      send(owner, {:policy_exclusive_waiting, self(), requirement})
+
+      receive do
+        :continue_policy_persist -> callback.(:policy_repo)
+      end
+    end
+  end
+
+  defmodule SuccessfulPolicyRepository do
+    def change_capability_and_audit(owner, repo, command) do
+      send(owner, {:policy_persisted, repo, command})
+      :ok
+    end
   end
 
   @now ~U[2026-07-18 08:00:00Z]
@@ -190,6 +213,112 @@ defmodule Singularity.Runtime.KeyLeaseTest do
     refute KeyCustodian.unlocked?(custodian, @session_id)
     refute KeyCustodian.unlocked?(custodian, second_session_id)
     assert_waiting(second_lease, 1)
+  end
+
+  test "capability mutation revokes a live lease before waiting on its exclusive scope", %{
+    context: context,
+    custodian: custodian
+  } do
+    session_id = "00000000-0000-4000-8000-000000001511"
+    principal_id = "00000000-0000-4000-8000-000000001512"
+    target_principal_id = "00000000-0000-4000-8000-000000001513"
+    vault_id = "00000000-0000-4000-8000-000000001514"
+    object_id = "00000000-0000-4000-8000-000000001515"
+    correlation_id = "00000000-0000-4000-8000-000000001516"
+
+    Agent.update(context.authorization, fn state ->
+      state
+      |> put_in([:sessions, session_id], %{
+        status: :active,
+        principal_id: principal_id,
+        vault_id: vault_id
+      })
+      |> put_in([:principals, principal_id], :active)
+      |> put_in([:authorizations, {principal_id, vault_id}], %{
+        principal_authorization_epoch: @principal_authorization_epoch,
+        vault_authorization_epoch: @vault_authorization_epoch,
+        capabilities: MapSet.new([@capability])
+      })
+      |> put_in([:object_generations, {vault_id, object_id}], @object_generation)
+    end)
+
+    custody =
+      unlocked_session(
+        session_id: session_id,
+        principal_id: principal_id,
+        vault_id: vault_id,
+        key_domain_id: "policy-domain",
+        domain_key_version_id: "policy-domain-version",
+        object_keys: %{
+          {object_id, @object_generation} => :binary.copy(<<0xC4>>, 32)
+        }
+      )
+
+    assert :ok = activate!(custodian, custody)
+
+    request =
+      lease_request(
+        job_id: "policy-job",
+        session_id: session_id,
+        principal_id: principal_id,
+        vault_id: vault_id,
+        object_id: object_id
+      )
+
+    assert :ok =
+             Fake.KeyReader.put_checkpoint(
+               context,
+               request,
+               checkpoint(request, 0)
+             )
+
+    lease = lease!(custodian, request)
+    assert_read(lease, 0, "authenticated chunk zero")
+
+    session = %SessionContext{
+      session_id: session_id,
+      principal_id: principal_id,
+      vault_id: vault_id,
+      expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+      principal_authorization_epoch: @principal_authorization_epoch,
+      vault_authorization_epoch: @vault_authorization_epoch,
+      authorization_epoch: @principal_authorization_epoch,
+      unlocked?: true
+    }
+
+    runtime = %{
+      custodian: {KeyCustodian, custodian},
+      operation_scope: {BlockingPolicyScope, self()},
+      policies: {SuccessfulPolicyRepository, self()}
+    }
+
+    mutation =
+      Task.async(fn ->
+        AccessPolicy.change_capability(
+          runtime,
+          session,
+          target_principal_id,
+          "asset.read",
+          :revoke,
+          correlation_id
+        )
+      end)
+
+    assert_receive {:policy_preflight, %{requires_unlocked?: true}}, 1_000
+
+    assert_receive {:policy_exclusive_waiting, mutation_pid, %{requires_unlocked?: false}},
+                   1_000
+
+    refute KeyCustodian.unlocked?(custodian, session_id)
+    assert_waiting(lease, 1)
+    assert {:error, :waiting_for_unlock} = KeyCustodian.lease(custodian, request)
+
+    send(mutation_pid, :continue_policy_persist)
+
+    assert :ok = Task.await(mutation)
+    assert_receive {:policy_persisted, :policy_repo, command}
+    assert command.vault_id == vault_id
+    assert command.target_principal_id == target_principal_id
   end
 
   test "a CAS-linearized read completes before a queued lock can acknowledge", %{
