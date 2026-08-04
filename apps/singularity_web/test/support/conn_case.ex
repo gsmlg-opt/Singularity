@@ -2,6 +2,10 @@ defmodule Singularity.Web.TestRuntimeApi do
   @moduledoc false
 
   def put(agent, key, value), do: Agent.update(agent, &Map.put(&1, key, value))
+
+  def put_sequence(agent, key, values) when is_list(values),
+    do: put(agent, key, {:test_sequence, values})
+
   def calls(agent), do: Agent.get(agent, &Enum.reverse(&1.calls))
 
   def resolve_session(agent, opaque_id) do
@@ -20,7 +24,66 @@ defmodule Singularity.Web.TestRuntimeApi do
     do: call(agent, {:logout, session}, &Map.get(&1, :logout, :ok))
 
   def list_assets(agent, session, params),
-    do: call(agent, {:list_assets, session, params}, &Map.get(&1, :assets, {:ok, []}))
+    do:
+      call_configured(
+        agent,
+        {:list_assets, session, params},
+        :assets,
+        {:ok,
+         %Singularity.Runtime.DTO.SearchPage{
+           items: [],
+           next_cursor: nil
+         }}
+      )
+
+  def subscribe_assets(agent, session),
+    do:
+      call_configured(
+        agent,
+        {:subscribe_assets, session},
+        :subscribe_assets,
+        :ok
+      )
+
+  def asset_summary(agent, session, asset_id),
+    do:
+      call(
+        agent,
+        {:asset_summary, session, asset_id},
+        &Map.get(&1, :asset_summary, {:error, :not_found})
+      )
+
+  def create_upload_grant(agent, session, attrs, csrf_token),
+    do:
+      call(
+        agent,
+        {:create_upload_grant, session, attrs, csrf_token},
+        &Map.get(&1, :create_upload_grant, {:error, :invalid})
+      )
+
+  def cancel_upload_grant(agent, session, grant_id),
+    do:
+      call(
+        agent,
+        {:cancel_upload_grant, session, grant_id},
+        &Map.get(&1, :cancel_upload_grant, {:ok, false})
+      )
+
+  def retry_asset(agent, session, asset_id, state_revision),
+    do:
+      call(
+        agent,
+        {:retry_asset, session, asset_id, state_revision},
+        &Map.get(&1, :retry_asset, {:ok, false})
+      )
+
+  def delete_asset(agent, session, asset_id, state_revision),
+    do:
+      call(
+        agent,
+        {:delete_asset, session, asset_id, state_revision},
+        &Map.get(&1, :delete_asset, {:ok, false})
+      )
 
   def begin_upload(agent, session, grant_id, request, owner) do
     call(
@@ -76,6 +139,26 @@ defmodule Singularity.Web.TestRuntimeApi do
     Agent.get_and_update(agent, fn state ->
       {result.(state), Map.update!(state, :calls, &[invocation | &1])}
     end)
+  end
+
+  defp call_configured(agent, invocation, key, default) do
+    Agent.get_and_update(agent, fn state ->
+      {result, state} = take_configured(state, key, default)
+      {result, Map.update!(state, :calls, &[invocation | &1])}
+    end)
+  end
+
+  defp take_configured(state, key, default) do
+    case Map.get(state, key, default) do
+      {:test_sequence, [result | rest]} ->
+        {result, Map.put(state, key, {:test_sequence, rest})}
+
+      {:test_sequence, []} ->
+        {default, state}
+
+      result ->
+        {result, state}
+    end
   end
 end
 

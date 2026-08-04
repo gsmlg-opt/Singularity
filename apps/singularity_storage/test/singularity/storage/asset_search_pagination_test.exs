@@ -62,6 +62,27 @@ defmodule Singularity.Storage.AssetSearchPaginationTest do
     assert Enum.map(first_page ++ second_page, & &1.asset_id) == expected_ids
   end
 
+  test "default pages exclude deleted rows while explicit deleted filters retain them", %{
+    fixture: fixture,
+    ids: expected_ids
+  } do
+    deleted_ids = Enum.take(expected_ids, 5)
+    mark_deleted!(deleted_ids)
+
+    default_filters = %{filters(fixture) | state: nil}
+
+    assert {:ok, {default_page, :done}} = search(fixture, default_filters)
+    assert length(default_page) == 50
+    assert Enum.map(default_page, & &1.asset_id) == expected_ids -- deleted_ids
+    assert Enum.all?(default_page, &(&1.state == :ready))
+
+    assert {:ok, {deleted_page, :done}} =
+             search(fixture, %{default_filters | state: :deleted})
+
+    assert Enum.map(deleted_page, & &1.asset_id) == deleted_ids
+    assert Enum.all?(deleted_page, &(&1.state == :deleted))
+  end
+
   test "cursor is bound to vault and normalized filters", %{fixture: fixture} do
     filters = filters(fixture)
     assert {:ok, {_items, cursor}} = search(fixture, filters)
@@ -247,6 +268,26 @@ defmodule Singularity.Storage.AssetSearchPaginationTest do
     end)
 
     ids
+  end
+
+  defp mark_deleted!(asset_ids) do
+    updated_at = ~U[2026-07-22 00:00:00.000000Z]
+
+    Fixtures.with_owner(fn ->
+      for asset_id <- asset_ids do
+        query!(
+          MigrationRepo,
+          """
+          UPDATE content.assets
+          SET state = 'deleted',
+              state_revision = state_revision + 1,
+              updated_at = $2
+          WHERE id = $1
+          """,
+          [Ecto.UUID.dump!(asset_id), updated_at]
+        )
+      end
+    end)
   end
 
   defp former_public_checksum(data) do

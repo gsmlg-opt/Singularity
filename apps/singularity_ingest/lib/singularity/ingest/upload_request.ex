@@ -6,15 +6,14 @@ defmodule Singularity.Ingest.UploadRequest do
 
   @default_max_bytes 512 * 1024 * 1024
   @media_types ["application/pdf", "image/jpeg", "image/png"]
-  @classifications [:private, :sensitive, :restricted]
+  @fields [:filename, :size, :declared_media_type, :idempotency_key]
+  @internal_fields [:max_bytes]
 
   @enforce_keys [
     :filename,
     :size,
     :declared_media_type,
     :idempotency_key,
-    :resource_version_id,
-    :classification,
     :max_bytes
   ]
   defstruct @enforce_keys
@@ -24,23 +23,21 @@ defmodule Singularity.Ingest.UploadRequest do
           size: non_neg_integer(),
           declared_media_type: String.t(),
           idempotency_key: String.t(),
-          resource_version_id: String.t(),
-          classification: :private | :sensitive | :restricted,
           max_bytes: non_neg_integer()
         }
 
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, Error.t()}
   def new(attrs) do
     with {:ok, attrs} <- Types.attrs(attrs),
+         :ok <- exact_fields(attrs),
          {:ok, filename} <- Types.opaque_string(attrs, :filename),
+         :ok <- safe_text(filename),
          {:ok, size} <- Types.non_neg_integer(attrs, :size),
          {:ok, declared_media_type} <-
            Types.normalized_string(attrs, :declared_media_type),
          :ok <- supported_media_type(declared_media_type),
          {:ok, idempotency_key} <- Types.opaque_string(attrs, :idempotency_key),
-         {:ok, resource_version_id} <-
-           Types.opaque_string(attrs, :resource_version_id),
-         {:ok, classification} <- classification(Map.get(attrs, :classification)),
+         :ok <- safe_text(idempotency_key),
          {:ok, max_bytes} <- max_bytes(attrs),
          :ok <- within_limit(size, max_bytes) do
       {:ok,
@@ -49,8 +46,6 @@ defmodule Singularity.Ingest.UploadRequest do
          size: size,
          declared_media_type: declared_media_type,
          idempotency_key: idempotency_key,
-         resource_version_id: resource_version_id,
-         classification: classification,
          max_bytes: max_bytes
        }}
     end
@@ -97,8 +92,24 @@ defmodule Singularity.Ingest.UploadRequest do
   defp supported_media_type(_media_type),
     do: {:error, Error.new(:unsupported_media_type)}
 
-  defp classification(value) when value in @classifications, do: {:ok, value}
-  defp classification(_value), do: {:error, Error.new(:invalid)}
+  defp exact_fields(attrs) do
+    keys = Map.keys(attrs)
+
+    if Enum.sort(keys) in [
+         Enum.sort(@fields),
+         Enum.sort(@fields ++ @internal_fields)
+       ] do
+      :ok
+    else
+      {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp safe_text(value) when is_binary(value) do
+    if String.valid?(value) and :binary.match(value, <<0>>) == :nomatch,
+      do: :ok,
+      else: {:error, Error.new(:invalid)}
+  end
 
   defp within_limit(size, maximum) when size <= maximum, do: :ok
   defp within_limit(_size, _maximum), do: {:error, Error.new(:upload_too_large)}

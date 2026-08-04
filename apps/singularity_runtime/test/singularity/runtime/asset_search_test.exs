@@ -10,6 +10,7 @@ defmodule Singularity.Runtime.AssetSearchTest do
   @session_id "00000000-0000-4000-8000-000000000401"
   @principal_id "00000000-0000-4000-8000-000000000402"
   @vault_id "00000000-0000-4000-8000-000000000403"
+  @asset_id "00000000-0000-4000-8000-000000000404"
 
   defmodule Scope do
     def with_read_request(owner, runtime, session, requirement, callback) do
@@ -31,6 +32,22 @@ defmodule Singularity.Runtime.AssetSearchTest do
         {:ok, %AssetSearchPage{items: [], next_cursor: nil}}
       )
     end
+
+    def fetch(owner, store, store_context, vault_id, asset_id) do
+      send(
+        owner,
+        {:fetch_retrieval, store, store_context, vault_id, asset_id}
+      )
+
+      Process.get(:asset_fetch_retrieval_result, {
+        :ok,
+        %{
+          asset_id: asset_id,
+          resource_version_id: "00000000-0000-4000-8000-000000000405",
+          vault_id: vault_id
+        }
+      })
+    end
   end
 
   defmodule Store do
@@ -40,6 +57,7 @@ defmodule Singularity.Runtime.AssetSearchTest do
     on_exit(fn ->
       Process.delete(:asset_search_scope_result)
       Process.delete(:asset_search_retrieval_result)
+      Process.delete(:asset_fetch_retrieval_result)
     end)
   end
 
@@ -113,6 +131,32 @@ defmodule Singularity.Runtime.AssetSearchTest do
              Search.run(runtime(), session(), %{media_typo: "image/png"})
 
     refute_received {:scope, _runtime, _session, _requirement}
+  end
+
+  test "exact fetch authorizes the session vault before calling retrieval" do
+    runtime = runtime()
+    session = session()
+
+    assert {:ok, %{asset_id: @asset_id, vault_id: @vault_id}} =
+             Search.fetch(runtime, session, @asset_id)
+
+    assert_receive {:scope, ^runtime, ^session,
+                    %{
+                      vault_id: @vault_id,
+                      required_capability: "asset.read",
+                      classification: :private,
+                      requires_unlocked?: true
+                    }}
+
+    assert_receive {:fetch_retrieval, Store, :scoped_repo, @vault_id, @asset_id}
+  end
+
+  test "exact fetch rejects malformed identifiers before authorization" do
+    assert {:error, %Error{code: :invalid}} =
+             Search.fetch(runtime(), session(), "not-a-uuid")
+
+    refute_received {:scope, _runtime, _session, _requirement}
+    refute_received {:fetch_retrieval, _store, _context, _vault_id, _asset_id}
   end
 
   defp runtime do

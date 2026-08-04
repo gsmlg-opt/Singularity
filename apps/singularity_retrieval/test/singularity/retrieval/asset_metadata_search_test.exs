@@ -20,6 +20,12 @@ defmodule Singularity.Retrieval.AssetMetadataSearchTest do
     end
 
     @impl true
+    def fetch(owner, selector) do
+      send(owner, {:fetch, selector})
+      Process.get(:asset_fetch_result)
+    end
+
+    @impl true
     def upsert(_context, _attrs), do: :ok
 
     @impl true
@@ -28,8 +34,12 @@ defmodule Singularity.Retrieval.AssetMetadataSearchTest do
 
   setup do
     Process.put(:asset_search_result, {:ok, {[item()], :done}})
+    Process.put(:asset_fetch_result, {:ok, item()})
 
-    on_exit(fn -> Process.delete(:asset_search_result) end)
+    on_exit(fn ->
+      Process.delete(:asset_search_result)
+      Process.delete(:asset_fetch_result)
+    end)
   end
 
   test "query normalizes the fixed public fields" do
@@ -214,6 +224,73 @@ defmodule Singularity.Retrieval.AssetMetadataSearchTest do
 
     assert {:error, %Error{code: :storage_unavailable}} =
              AssetMetadataSearch.search(Store, self(), query)
+  end
+
+  test "fetch validates and forwards the exact vault and asset selector" do
+    assert {:ok, result} =
+             AssetMetadataSearch.fetch(
+               Store,
+               self(),
+               @vault_id,
+               @asset_id
+             )
+
+    assert result == item()
+
+    assert_receive {:fetch, %{vault_id: @vault_id, asset_id: @asset_id}}
+  end
+
+  test "fetch rejects malformed identifiers before adapter work" do
+    for {vault_id, asset_id} <- [
+          {"not-a-uuid", @asset_id},
+          {@vault_id, "not-a-uuid"},
+          {nil, @asset_id},
+          {@vault_id, nil}
+        ] do
+      assert {:error, %Error{code: :invalid}} =
+               AssetMetadataSearch.fetch(
+                 Store,
+                 self(),
+                 vault_id,
+                 asset_id
+               )
+    end
+
+    refute_received {:fetch, _selector}
+  end
+
+  test "fetch fails closed on a mismatched or malformed adapter projection" do
+    invalid_results = [
+      {:ok, %{item() | vault_id: "00000000-0000-4000-8000-000000000399"}},
+      {:ok, %{item() | asset_id: "00000000-0000-4000-8000-000000000398"}},
+      {:ok, %{item() | resource_version_id: nil}},
+      {:ok, :not_a_map},
+      :invalid_shape
+    ]
+
+    for result <- invalid_results do
+      Process.put(:asset_fetch_result, result)
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               AssetMetadataSearch.fetch(
+                 Store,
+                 self(),
+                 @vault_id,
+                 @asset_id
+               )
+    end
+  end
+
+  test "fetch preserves the store not-found contract" do
+    Process.put(:asset_fetch_result, {:error, Error.new(:not_found)})
+
+    assert {:error, %Error{code: :not_found}} =
+             AssetMetadataSearch.fetch(
+               Store,
+               self(),
+               @vault_id,
+               @asset_id
+             )
   end
 
   defp item do

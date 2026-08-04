@@ -33,7 +33,7 @@ defmodule Singularity.Web.AuthenticationTest do
 
       for path <- ~w(/assets /activity /audit /backups /settings) do
         response = conn |> put_session_id("opaque-session") |> get(path)
-        assert html_response(response, 200) =~ "<main>"
+        assert html_response(response, 200) =~ "<main"
       end
     end
 

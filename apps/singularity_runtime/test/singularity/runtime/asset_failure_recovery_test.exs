@@ -889,7 +889,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       first_grant.source_reference_id,
-      request.resource_version_id,
+      first_grant.resource_version_id,
       available.asset_object_id
     )
   end
@@ -1180,7 +1180,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       grant.source_reference_id,
-      request.resource_version_id,
+      grant.resource_version_id,
       available.asset_object_id
     )
   end
@@ -1255,7 +1255,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       grant.source_reference_id,
-      request.resource_version_id,
+      grant.resource_version_id,
       available.asset_object_id
     )
   end
@@ -1334,7 +1334,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       grant.source_reference_id,
-      request.resource_version_id,
+      grant.resource_version_id,
       available.asset_object_id
     )
   end
@@ -1406,7 +1406,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       grant.source_reference_id,
-      request.resource_version_id,
+      grant.resource_version_id,
       available.asset_object_id
     )
   end
@@ -1652,7 +1652,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
   end
 
   defp upload_request(
-         fixture,
+         _fixture,
          boundary,
          plaintext,
          declared_media_type \\ "application/pdf"
@@ -1660,11 +1660,9 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
     extension = if declared_media_type == "image/jpeg", do: "jpg", else: "pdf"
 
     %{
-      classification: :private,
       declared_media_type: declared_media_type,
       filename: "#{boundary}-recovery.#{extension}",
       idempotency_key: "asset-recovery:#{boundary}:#{Ecto.UUID.generate()}",
-      resource_version_id: fixture.resource_version_id,
       size: byte_size(plaintext)
     }
   end
@@ -1764,7 +1762,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
       request.idempotency_key,
       available.id,
       first_grant.source_reference_id,
-      request.resource_version_id,
+      first_grant.resource_version_id,
       available.asset_object_id
     )
 
@@ -2006,6 +2004,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
                    2,
                    1,
                    true,
+                   true,
                    1,
                    "available",
                    "deleted",
@@ -2021,10 +2020,23 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
                  """
                  SELECT
                    count(DISTINCT asset.id),
-                   bool_and(asset.resource_version_id = $6),
+                   bool_and(
+                     CASE
+                       WHEN asset.id = $1 THEN asset.resource_version_id = $6
+                       WHEN asset.id = $2 THEN asset.resource_version_id = $7
+                       ELSE false
+                     END
+                   ),
                    count(resource_asset.asset_id),
                    count(*) FILTER (
                      WHERE resource_asset.released_at IS NULL
+                   ),
+                   bool_and(
+                     CASE
+                       WHEN asset.id = $1 THEN resource_asset.released_at IS NULL
+                       WHEN asset.id = $2 THEN resource_asset.released_at IS NOT NULL
+                       ELSE false
+                     END
                    ),
                    bool_and(
                      CASE
@@ -2070,7 +2082,7 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
                  LEFT JOIN content.resource_assets AS resource_asset
                    ON resource_asset.asset_id = asset.id
                   AND resource_asset.vault_id = asset.vault_id
-                  AND resource_asset.resource_version_id = $6
+                  AND resource_asset.resource_version_id = asset.resource_version_id
                  WHERE asset.id IN ($1, $2)
                  """,
                  [
@@ -2079,7 +2091,8 @@ defmodule Singularity.Runtime.AssetFailureRecoveryTest do
                    Ecto.UUID.dump!(sentinel.object_id),
                    Ecto.UUID.dump!(disposable.object_id),
                    Ecto.UUID.dump!(fixture.vault_id),
-                   Ecto.UUID.dump!(fixture.resource_version_id)
+                   Ecto.UUID.dump!(sentinel.grant.resource_version_id),
+                   Ecto.UUID.dump!(disposable.grant.resource_version_id)
                  ]
                )
     end)

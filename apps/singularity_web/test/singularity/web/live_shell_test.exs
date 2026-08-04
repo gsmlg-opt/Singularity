@@ -64,15 +64,15 @@ defmodule Singularity.Web.LiveShellTest do
        %SearchPage{
          items: [
            %AssetSummary{
-             id: "asset-1",
-             resource_version_id: "version-1",
+             id: "019f9f0f-f384-78ef-8934-2d798944bcd1",
+             resource_version_id: "019f9f0f-f384-78ef-8934-2d798944bcd2",
              title: "Annual report",
              original_filename: "report.pdf",
              detected_media_type: "application/pdf",
              state: :available,
              state_revision: 3,
              label: "private",
-             progress: 100,
+             progress: %{kind: :complete},
              failure: nil,
              updated_at: DateTime.utc_now()
            }
@@ -86,15 +86,33 @@ defmodule Singularity.Web.LiveShellTest do
       |> put_session_id("opaque-session")
       |> live("/assets")
 
+    assert has_element?(
+             view,
+             "#asset-workspace[phx-hook='MountAssetWorkspace'][phx-update='ignore']"
+           )
+
     assert html =~ "Annual report"
-    assert html =~ "report.pdf"
     refute html =~ "opaque-session"
 
     assert Enum.any?(
              TestRuntimeApi.calls(runtime_api),
-             &match?({:list_assets, ^current_session, %{}}, &1)
+             &match?(
+               {:list_assets, ^current_session, %{q: "", state: nil, media_type: nil, limit: 50}},
+               &1
+             )
            )
 
-    assert has_element?(view, "nav a[href='/activity']")
+    assert has_element?(
+             view,
+             "header.vault-shell-header nav.vault-shell-nav[aria-label='Vault'] " <>
+               "a[href='/activity'][data-phx-link='redirect'][data-phx-link-state='push']"
+           )
+
+    refute has_element?(
+             view,
+             "nav.vault-shell-nav a:not([data-phx-link='redirect'])"
+           )
+
+    assert has_element?(view, "main.vault-shell-main #asset-workspace")
   end
 end

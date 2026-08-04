@@ -113,10 +113,17 @@ singularity_web:
   phoenix_html ~> 4.1
   phoenix_live_view ~> 1.2
   bandit ~> 1.12
+  duskmoon_bundler_runtime ~> 9.9.7       # runtime in every environment
+  duskmoon_bundler ~> 9.9.7               # available all envs; OTP app dev/test
   floki >= 0.36.0                         # test only
-  duskmoon_bundler_runtime ~> 9.7
-  duskmoon_bundler ~> 9.7                 # dev only
+  lazy_html >= 0.1.0                      # unrestricted environment scope
 ```
+
+The DuskmoonBundler runtime package starts in every environment. The bundler
+package itself remains available in every environment, but its OTP application
+starts only in `:dev` and `:test`. LazyHTML deliberately has no `only`
+restriction because DuskmoonBundler 9.9.7 declares it for every environment,
+and Mix requires the direct dependency to use the same scope.
 
 Use Elixir 1.18's `JSON` module for job and event payloads. Do not add Jason,
 Cloak, or another cryptography abstraction. Use OTP `:crypto` for encryption,
@@ -224,7 +231,9 @@ devenv shell -- mix singularity.test.restore
 Web/toolchain tasks additionally run:
 
 ```bash
-mix npm.install --frozen
+# TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+# WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
 mix npm.verify
 mix duskmoon_bundler.js.check
 mix npm.run test:js
@@ -4265,33 +4274,120 @@ There is no commit for this task.
 
 **Files:**
 
-- Modify: `mix.exs`
 - Modify: `.formatter.exs`
-- Modify: `apps/singularity_web/mix.exs`
-- Modify: `apps/singularity_web/lib/singularity/web/endpoint.ex`
+- Modify: `.gitignore`
+- Modify: `mix.exs`
+- Modify: `mix.lock`
 - Modify:
-  `apps/singularity_web/lib/singularity/web/components/layouts/root.html.heex`
+  `docs/superpowers/specs/2026-07-18-foundation-asset-vertical-design.md`
+- Modify:
+  `docs/superpowers/plans/2026-07-18-foundation-asset-vertical.md`
+- Modify:
+  `apps/singularity_core/lib/singularity/core/asset_search_store.ex`
+- Modify: `apps/singularity_core/test/singularity/core/ports_test.exs`
+- Modify: `apps/singularity_domains/lib/singularity/domains/assets/repository.ex`
+- Modify: `apps/singularity_domains/test/singularity/domains/assets_test.exs`
+- Modify: `apps/singularity_domains/test/support/fake/asset_repository.ex`
+- Modify: `apps/singularity_ingest/lib/singularity/ingest/idempotency.ex`
+- Modify: `apps/singularity_ingest/lib/singularity/ingest/upload_request.ex`
+- Modify: `apps/singularity_ingest/test/singularity/ingest/idempotency_test.exs`
+- Modify:
+  `apps/singularity_ingest/test/singularity/ingest/upload_request_test.exs`
+- Modify:
+  `apps/singularity_retrieval/lib/singularity/retrieval/asset_metadata_search.ex`
+- Modify:
+  `apps/singularity_retrieval/test/singularity/retrieval/asset_metadata_search_test.exs`
+- Modify: `apps/singularity_runtime/lib/singularity/runtime/api.ex`
+- Modify: `apps/singularity_runtime/lib/singularity/runtime/application.ex`
+- Create: `apps/singularity_runtime/lib/singularity/runtime/asset_events.ex`
+- Create:
+  `apps/singularity_runtime/lib/singularity/runtime/assets/cancel_upload_grant.ex`
+- Modify:
+  `apps/singularity_runtime/lib/singularity/runtime/assets/create_upload_grant.ex`
+- Modify: `apps/singularity_runtime/lib/singularity/runtime/assets/search.ex`
+- Modify: `apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex`
+- Modify: `apps/singularity_runtime/test/singularity/runtime/api_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/application_test.exs`
+- Create:
+  `apps/singularity_runtime/test/singularity/runtime/asset_events_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/asset_failure_recovery_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/asset_search_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/asset_vertical_test.exs`
+- Create:
+  `apps/singularity_runtime/test/singularity/runtime/cancel_upload_grant_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/create_upload_grant_test.exs`
+- Create:
+  `apps/singularity_runtime/test/singularity/runtime/job_dispatcher_asset_events_test.exs`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs`
+- Modify:
+  `apps/singularity_storage/lib/singularity/storage/postgres/asset_deletion_repository.ex`
+- Modify:
+  `apps/singularity_storage/lib/singularity/storage/postgres/asset_repository.ex`
+- Modify:
+  `apps/singularity_storage/lib/singularity/storage/postgres/asset_search_store.ex`
+- Modify:
+  `apps/singularity_storage/lib/singularity/storage/schema/content/upload_grant.ex`
+- Create:
+  `apps/singularity_storage/priv/repo/migrations/20260729000100_retire_superseded_upload_grants.exs`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/asset_search_pagination_test.exs`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/asset_search_projection_test.exs`
+- Create:
+  `apps/singularity_storage/test/singularity/storage/asset_search_store_fetch_test.exs`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/asset_stage_abandonment_test.exs`
+- Modify: `apps/singularity_storage/test/singularity/storage/migrations_test.exs`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs`
+- Create:
+  `apps/singularity_storage/test/singularity/storage/server_owned_upload_grant_test.exs`
+- Modify: `apps/singularity_web/mix.exs`
 - Modify:
   `apps/singularity_web/lib/singularity/web/components/layouts/app.html.heex`
 - Modify:
+  `apps/singularity_web/lib/singularity/web/components/layouts/root.html.heex`
+- Modify: `apps/singularity_web/lib/singularity/web/endpoint.ex`
+- Modify:
   `apps/singularity_web/lib/singularity/web/live/assets_live.ex`
+- Modify:
+  `apps/singularity_web/test/singularity/web/authentication_test.exs`
+- Create:
+  `apps/singularity_web/test/singularity/web/asset_toolchain_contract_test.exs`
+- Create: `apps/singularity_web/test/singularity/web/assets_live_test.exs`
+- Modify: `apps/singularity_web/test/singularity/web/live_shell_test.exs`
+- Create:
+  `apps/singularity_web/test/singularity/web/root_layout_assets_test.exs`
+- Modify: `apps/singularity_web/test/support/conn_case.ex`
+- Create: `apps/singularity_web/assets/css/app.css`
 - Create: `apps/singularity_web/assets/js/app.ts`
 - Create: `apps/singularity_web/assets/js/hooks.js`
 - Create:
   `apps/singularity_web/assets/js/clips/mount_asset_workspace.tsx`
 - Create:
   `apps/singularity_web/assets/js/asset_workspace/AssetWorkspace.tsx`
-- Create:
-  `apps/singularity_web/assets/js/asset_workspace/{contracts,state,upload,theme}.ts`
-- Create: `apps/singularity_web/assets/css/app.css`
-- Create:
-  `apps/singularity_web/assets/test/{mount_asset_workspace,asset_workspace,state,upload,theme}.test.tsx`
+- Create: `apps/singularity_web/assets/js/asset_workspace/contracts.ts`
+- Create: `apps/singularity_web/assets/js/asset_workspace/state.ts`
+- Create: `apps/singularity_web/assets/js/asset_workspace/theme.ts`
+- Create: `apps/singularity_web/assets/js/asset_workspace/upload.ts`
+- Create: `apps/singularity_web/assets/test/asset_workspace.test.tsx`
+- Create: `apps/singularity_web/assets/test/mount_asset_workspace.test.tsx`
+- Create: `apps/singularity_web/assets/test/state.test.ts`
+- Create: `apps/singularity_web/assets/test/theme.test.ts`
+- Create: `apps/singularity_web/assets/test/upload.test.ts`
 - Create: `package.json`
-- Create: `npm.lock`
+- Create: `package-lock.json`
 - Create: `tsconfig.json`
 - Create: `vitest.config.ts`
 - Modify: `config/config.exs`
 - Modify: `config/dev.exs`
+- Modify: `config/test.exs`
 
 - [ ] **Step 1: Configure one named DuskmoonBundler profile**
 
@@ -4310,8 +4406,8 @@ There is no commit for this task.
 
   ```elixir
   # apps/singularity_web/mix.exs
-  {:duskmoon_bundler_runtime, "~> 9.7"}
-  {:duskmoon_bundler, "~> 9.7", runtime: Mix.env() == :dev}
+  {:duskmoon_bundler_runtime, "~> 9.9.7"}
+  {:duskmoon_bundler, "~> 9.9.7", runtime: Mix.env() in [:dev, :test]}
 
   # config/config.exs
   config :duskmoon_bundler, :singularity_web,
@@ -4337,6 +4433,13 @@ There is no commit for this task.
         {Mix.Tasks.DuskmoonBundler.Dev, :run, [["singularity_web"]]}
     ]
   ```
+
+  DuskmoonBundler 9.9.7 must also start in `:test`: `config/test.exs`
+  enables code reloading, which starts the DevServer/HMR path exercised by the
+  web tests. Floki remains a direct test-only dependency. Although the
+  application-owned LazyHTML call sites are also tests, DuskmoonBundler 9.9.7
+  declares LazyHTML for all environments, so Mix requires the direct LazyHTML
+  declaration to use the same unrestricted environment scope.
 
   In the endpoint and root layout:
 
@@ -4394,7 +4497,7 @@ There is no commit for this task.
 
   Runtime dependencies are React and ReactDOM. Development dependencies are
   TypeScript, React types, Vitest, jsdom, Playwright test, and axe Playwright.
-  Use `mix npm.install` to create `npm.lock`; thereafter use
+  Use `mix npm.install` to create `package-lock.json`; thereafter use
   `mix npm.install --frozen`. Do not add npm/yarn/Bun shell workflows or
   package lifecycle browser downloads.
 
@@ -4588,6 +4691,10 @@ There is no commit for this task.
       mediaType: string;
       idempotencyKey: string;
     }): Promise<UploadGrant>;
+    cancel(request: {
+      version: 1;
+      grantId: string;
+    }): Promise<{ok: true; accepted: boolean}>;
     retry(request: {
       version: 1;
       assetId: string;
@@ -4650,7 +4757,19 @@ There is no commit for this task.
 
   Request a grant through `pushEvent`, then use same-origin
   `XMLHttpRequest PUT` for bytes with `x-upload-token`, CSRF meta value, and
-  session cookie. Use `xhr.upload.onprogress`; `xhr.abort()` cancels.
+  session cookie. Use `xhr.upload.onprogress`; `xhr.abort()` cancels. After a
+  valid grant, every terminal result except `201` awaits one best-effort
+  `upload:cancel` reply keyed only by `grantId`, so the UI cannot retry before
+  cleanup has been attempted. Phoenix binds session, principal, and vault from
+  `current_session`; it never accepts those values or the upload token from the
+  cancel payload. Storage atomically retires only an exact unconsumed grant and
+  tombstones/releases its staging asset. If PUT consumption won the race, the
+  existing upload-session abandonment path remains authoritative.
+
+  AssetsLive retains at most one pending grant ID, cancels it before issuing a
+  replacement, and attempts bounded cleanup before the validated expiry and on
+  graceful termination. The database constraint records early retirement only
+  when `cancelled_at == retired_at` and the grant was never consumed.
 
   Map every domain state and orthogonal failure exactly as design section 11.
   Retry is enabled only for `retryable: true` and sends `stateRevision`.
@@ -4761,20 +4880,39 @@ There is no commit for this task.
 
   ```bash
   devenv up -d
-  trap 'devenv down' EXIT
+  trap 'devenv processes down' EXIT
   devenv processes wait --timeout 120
   mix deps.get
-  mix npm.install --frozen
+  # TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+  # WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+  NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
   mix npm.verify
   mix duskmoon_bundler.js.check
   mix npm.run test:js
   mix duskmoon_bundler.build singularity_web --tailwind
+  mix test apps/singularity_domains/test/singularity/domains/assets_test.exs
+  mix test apps/singularity_runtime/test/singularity/runtime/cancel_upload_grant_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/api_test.exs
+  devenv shell -- mix singularity.test.integration \
+    apps/singularity_storage/test/singularity/storage/asset_search_pagination_test.exs \
+    apps/singularity_storage/test/singularity/storage/asset_search_projection_test.exs \
+    apps/singularity_storage/test/singularity/storage/asset_search_store_fetch_test.exs \
+    apps/singularity_storage/test/singularity/storage/asset_stage_abandonment_test.exs \
+    apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs \
+    apps/singularity_storage/test/singularity/storage/server_owned_upload_grant_test.exs
+  devenv shell -- mix singularity.test.integration \
+    apps/singularity_storage/test/singularity/storage/migrations_test.exs
   mix test apps/singularity_web/test
   mix compile --warnings-as-errors
   mix xref graph --format cycles --fail-above 0
   git diff --check
-  git add mix.exs .formatter.exs apps/singularity_web package.json npm.lock \
-    tsconfig.json vitest.config.ts config mix.lock
+  git add .formatter.exs .gitignore mix.exs mix.lock config \
+    apps/singularity_core apps/singularity_domains apps/singularity_ingest \
+    apps/singularity_retrieval apps/singularity_runtime \
+    apps/singularity_storage apps/singularity_web package.json \
+    package-lock.json tsconfig.json vitest.config.ts \
+    docs/superpowers/specs/2026-07-18-foundation-asset-vertical-design.md \
+    docs/superpowers/plans/2026-07-18-foundation-asset-vertical.md
   git commit -m "feat(web): add Vault Workbench App-Clip"
   ```
 
@@ -4793,7 +4931,7 @@ There is no commit for this task.
 - Modify:
   `apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs`
 - Modify: `package.json`
-- Modify: `npm.lock`
+- Modify: `package-lock.json`
 - Modify: `mix.exs`
 - Modify: `config/test.exs`
 - Modify: `.github/workflows/ci.yml`
@@ -5035,7 +5173,7 @@ There is no commit for this task.
   mix xref graph --format cycles --fail-above 0
   git diff --check
   git add playwright.config.ts test/e2e apps/singularity_web \
-    apps/singularity_runtime package.json npm.lock mix.exs config/test.exs \
+    apps/singularity_runtime package.json package-lock.json mix.exs config/test.exs \
     .github README.md
   git commit -m "test: add complete asset workflow acceptance"
   ```

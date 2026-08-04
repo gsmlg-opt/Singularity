@@ -25,6 +25,8 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
     field :vault_authorization_epoch, :integer
     field :expires_at, :utc_datetime_usec
     field :consumed_at, :utc_datetime_usec
+    field :retired_at, :utc_datetime_usec
+    field :cancelled_at, :utc_datetime_usec
     timestamps(updated_at: false, type: :utc_datetime_usec)
   end
 
@@ -94,5 +96,12 @@ defmodule Singularity.Storage.Schema.Content.UploadGrant do
     grant
     |> cast(attrs, [:consumed_at])
     |> validate_required([:consumed_at])
+  end
+
+  def retire_changeset(grant, attrs) do
+    grant
+    |> cast(attrs, [:retired_at])
+    |> validate_required([:retired_at])
+    |> check_constraint(:retired_at, name: :upload_grants_retirement_check)
   end
 end

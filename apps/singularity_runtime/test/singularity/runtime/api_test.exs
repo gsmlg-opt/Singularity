@@ -194,8 +194,329 @@ defmodule Singularity.Runtime.ApiTest do
             }} = Api.list_assets(api, session_dto(true), %{})
   end
 
-  test "create_upload_grant keeps its reusable token outside the safe grant DTO" do
+  test "subscribe_assets validates a complete unlocked session and subscribes only its vault" do
+    test_pid = self()
+
+    api =
+      api(
+        subscribe_assets: fn vault_id ->
+          send(test_pid, {:subscribe_assets, vault_id})
+          :ok
+        end
+      )
+
+    assert :ok = Api.subscribe_assets(api, session_dto(true))
+    assert_receive {:subscribe_assets, @vault_id}
+
+    assert {:error, :vault_locked} =
+             Api.subscribe_assets(api, session_dto(false))
+
+    invalid_session = %{session_dto(true) | principal_id: "not-a-uuid"}
+
+    assert {:error, :integrity_failure} =
+             Api.subscribe_assets(api, invalid_session)
+
+    refute_receive {:subscribe_assets, _other_vault}
+  end
+
+  test "subscribe_assets requires live authorization before registry subscription" do
+    test_pid = self()
+
+    api =
+      api(
+        authorize_asset_subscription: fn context ->
+          send(test_pid, {:authorize_asset_subscription, context})
+          {:error, Error.new(:forbidden)}
+        end,
+        subscribe_assets: fn vault_id ->
+          send(test_pid, {:subscribe_assets, vault_id})
+          :ok
+        end
+      )
+
+    assert {:error, :forbidden} =
+             Api.subscribe_assets(api, session_dto(true))
+
+    assert_receive {:authorize_asset_subscription,
+                    %SessionContext{
+                      principal_id: @principal_id,
+                      vault_id: @vault_id,
+                      unlocked?: true
+                    }}
+
+    refute_receive {:subscribe_assets, @vault_id}
+  end
+
+  test "asset_summary converts authorization context and emits one strict safe DTO" do
+    test_pid = self()
+    secret_canary = "ASSET_SUMMARY_SECRET_CANARY"
+    updated_at = ~U[2026-07-28 06:00:00.000000Z]
+
+    projection = %{
+      asset_id: @asset_id,
+      resource_version_id: @resource_version_id,
+      vault_id: @vault_id,
+      classification: :restricted,
+      state: :processing,
+      state_revision: 4,
+      detected_media_type: "application/pdf",
+      resource_title: "Annual report",
+      original_filename: "annual.pdf",
+      progress: %{kind: :indeterminate},
+      failure: %{
+        code: "storage_unavailable",
+        retryable: true,
+        operation: "asset_metadata",
+        attempt: 2
+      },
+      updated_at: updated_at,
+      storage_ref: secret_canary,
+      wrapped_key: secret_canary
+    }
+
+    api =
+      api(
+        asset_summary: fn context, @asset_id ->
+          send(test_pid, {:asset_summary, context})
+          {:ok, projection}
+        end
+      )
+
+    assert {:ok, %AssetSummary{} = summary} =
+             Api.asset_summary(api, session_dto(true), @asset_id)
+
+    assert_receive {:asset_summary,
+                    %SessionContext{
+                      vault_id: @vault_id,
+                      principal_id: @principal_id,
+                      unlocked?: true
+                    }}
+
+    assert Map.from_struct(summary) == %{
+             id: @asset_id,
+             resource_version_id: @resource_version_id,
+             title: "Annual report",
+             original_filename: "annual.pdf",
+             detected_media_type: "application/pdf",
+             state: :processing,
+             state_revision: 4,
+             label: "restricted",
+             progress: %{kind: :indeterminate},
+             failure: %{
+               code: "storage_unavailable",
+               retryable: true,
+               operation: "asset_metadata",
+               attempt: 2
+             },
+             updated_at: updated_at
+           }
+
+    refute Map.has_key?(Map.from_struct(summary), :vault_id)
+    refute inspect(summary) =~ secret_canary
+  end
+
+  test "asset_summary fails closed on invalid input, cross-vault output, and stable errors" do
+    test_pid = self()
+
+    assert {:error, :invalid} =
+             Api.asset_summary(
+               api(
+                 asset_summary: fn _context, _asset_id ->
+                   send(test_pid, :asset_summary_called)
+                   {:ok, %{}}
+                 end
+               ),
+               session_dto(true),
+               "not-a-uuid"
+             )
+
+    refute_received :asset_summary_called
+
+    cross_vault =
+      asset_projection(%{
+        vault_id: "00000000-0000-4000-8000-000000000699"
+      })
+
+    assert {:error, :integrity_failure} =
+             Api.asset_summary(
+               api(asset_summary: fn _context, @asset_id -> {:ok, cross_vault} end),
+               session_dto(true),
+               @asset_id
+             )
+
+    assert {:error, :not_found} =
+             Api.asset_summary(
+               api(
+                 asset_summary: fn _context, @asset_id ->
+                   {:error, Error.new(:not_found)}
+                 end
+               ),
+               session_dto(true),
+               @asset_id
+             )
+  end
+
+  test "retry_asset forwards the revision, maps accepted and stale, and publishes only accepted" do
+    test_pid = self()
+
+    accepted_api =
+      api(
+        retry_asset: fn context, @asset_id, 7 ->
+          send(test_pid, {:retry_asset, context})
+          {:ok, :accepted}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:publish_asset, vault_id, asset_id})
+          raise "notification registry unavailable"
+        end
+      )
+
+    assert {:ok, true} =
+             Api.retry_asset(
+               accepted_api,
+               session_dto(false),
+               @asset_id,
+               7
+             )
+
+    assert_receive {:retry_asset,
+                    %SessionContext{
+                      principal_id: @principal_id,
+                      vault_id: @vault_id
+                    }}
+
+    assert_receive {:publish_asset, @vault_id, @asset_id}
+
+    stale_api =
+      api(
+        retry_asset: fn _context, @asset_id, 6 -> {:ok, :stale} end,
+        publish_asset: fn _vault_id, _asset_id ->
+          send(test_pid, :stale_published)
+          :ok
+        end
+      )
+
+    assert {:ok, false} =
+             Api.retry_asset(stale_api, session_dto(false), @asset_id, 6)
+
+    refute_receive :stale_published
+  end
+
+  test "delete_asset accepts only a bound tombstone result and preserves indistinguishable conflicts" do
+    test_pid = self()
+    secret_canary = "DELETE_RESULT_SECRET_CANARY"
+
+    accepted_api =
+      api(
+        delete_asset: fn context, @asset_id, 4 ->
+          send(test_pid, {:delete_asset, context})
+
+          {:ok,
+           %{
+             id: @asset_id,
+             state: :pending_delete,
+             state_revision: 5,
+             storage_ref: secret_canary
+           }}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:delete_publish, vault_id, asset_id})
+          :ok
+        end
+      )
+
+    assert {:ok, true} =
+             Api.delete_asset(
+               accepted_api,
+               session_dto(false),
+               @asset_id,
+               4
+             )
+
+    assert_receive {:delete_asset,
+                    %SessionContext{
+                      principal_id: @principal_id,
+                      vault_id: @vault_id
+                    }}
+
+    assert_receive {:delete_publish, @vault_id, @asset_id}
+
+    revision_conflict =
+      Error.new(:conflict,
+        details: %{reason: :state_revision_mismatch}
+      )
+
+    assert {:ok, false} =
+             Api.delete_asset(
+               api(
+                 delete_asset: fn _context, @asset_id, 3 ->
+                   {:error, revision_conflict}
+                 end
+               ),
+               session_dto(false),
+               @asset_id,
+               3
+             )
+
+    assert {:error, :conflict} =
+             Api.delete_asset(
+               api(
+                 delete_asset: fn _context, @asset_id, 2 ->
+                   {:error, Error.new(:conflict)}
+                 end
+               ),
+               session_dto(false),
+               @asset_id,
+               2
+             )
+
+    refute inspect({:ok, true}) =~ secret_canary
+  end
+
+  test "asset mutations reject malformed identifiers and revisions before durable work" do
+    test_pid = self()
+
+    config =
+      api(
+        retry_asset: fn _context, _asset_id, _revision ->
+          send(test_pid, :retry_called)
+          {:ok, :accepted}
+        end,
+        delete_asset: fn _context, _asset_id, _revision ->
+          send(test_pid, :delete_called)
+          {:ok, %{id: @asset_id, state: :pending_delete, state_revision: 1}}
+        end
+      )
+
+    for {asset_id, revision} <- [
+          {"not-a-uuid", 0},
+          {@asset_id, -1},
+          {@asset_id, "0"}
+        ] do
+      assert {:error, :invalid} =
+               Api.retry_asset(
+                 config,
+                 session_dto(false),
+                 asset_id,
+                 revision
+               )
+
+      assert {:error, :invalid} =
+               Api.delete_asset(
+                 config,
+                 session_dto(false),
+                 asset_id,
+                 revision
+               )
+    end
+
+    refute_received :retry_called
+    refute_received :delete_called
+  end
+
+  test "create_upload_grant keeps its reusable token outside the safe grant DTO and publishes only its canonical hint" do
     upload_token = Base.url_encode64(@upload_token, padding: false)
+    test_pid = self()
 
     api =
       api(
@@ -213,6 +534,10 @@ defmodule Singularity.Runtime.ApiTest do
              expires_at: ~U[2026-07-28 06:05:00.000000Z],
              token: upload_token
            }}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:publish_asset, vault_id, asset_id})
+          :ok
         end
       )
 
@@ -235,6 +560,142 @@ defmodule Singularity.Runtime.ApiTest do
              classification: :private,
              expires_at: ~U[2026-07-28 06:05:00.000000Z]
            }
+
+    assert_receive {:publish_asset, @vault_id, @asset_id}
+  end
+
+  test "create_upload_grant never publishes a hint for a failed or malformed result" do
+    test_pid = self()
+
+    publish = fn vault_id, asset_id ->
+      send(test_pid, {:publish_asset, vault_id, asset_id})
+      :ok
+    end
+
+    for result <- [
+          {:error, Error.new(:conflict)},
+          {:ok, %{asset_id: @asset_id, token: "secret"}}
+        ] do
+      api =
+        api(
+          create_upload_grant: fn _session, _attrs, _csrf_token -> result end,
+          publish_asset: publish
+        )
+
+      assert {:error, _stable} =
+               Api.create_upload_grant(
+                 api,
+                 session_dto(true),
+                 %{filename: "report.pdf"},
+                 @csrf_token
+               )
+    end
+
+    refute_received {:publish_asset, _, _}
+  end
+
+  test "cancel_upload_grant publishes only an exact cancelled staging asset" do
+    test_pid = self()
+
+    cancelled =
+      api(
+        cancel_upload_grant: fn context, @grant_id ->
+          send(test_pid, {:cancel_upload_grant, context})
+
+          {:ok,
+           %{
+             status: :cancelled,
+             grant_id: @grant_id,
+             asset_id: @asset_id,
+             vault_id: @vault_id
+           }}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:cancel_publish, vault_id, asset_id})
+          :ok
+        end
+      )
+
+    assert {:ok, true} =
+             Api.cancel_upload_grant(cancelled, session_dto(false), @grant_id)
+
+    assert_receive {:cancel_upload_grant,
+                    %SessionContext{
+                      session_id: @session_id,
+                      principal_id: @principal_id,
+                      vault_id: @vault_id
+                    }}
+
+    assert_receive {:cancel_publish, @vault_id, @asset_id}
+
+    in_progress =
+      api(
+        cancel_upload_grant: fn _context, @grant_id ->
+          {:ok,
+           %{
+             status: :in_progress,
+             grant_id: @grant_id,
+             asset_id: @asset_id,
+             vault_id: @vault_id
+           }}
+        end,
+        publish_asset: fn _vault_id, _asset_id ->
+          send(test_pid, :in_progress_published)
+          :ok
+        end
+      )
+
+    assert {:ok, false} =
+             Api.cancel_upload_grant(in_progress, session_dto(false), @grant_id)
+
+    refute_received :in_progress_published
+
+    for malformed_result <- [
+          %{
+            status: :cancelled,
+            grant_id: @grant_id,
+            asset_id: "wrong-vault-secret",
+            vault_id: @vault_id
+          },
+          %{
+            status: :cancelled,
+            grant_id: "00000000-0000-4000-8000-000000000699",
+            asset_id: @asset_id,
+            vault_id: @vault_id
+          },
+          %{
+            status: :cancelled,
+            grant_id: @grant_id,
+            asset_id: @asset_id,
+            vault_id: "00000000-0000-4000-8000-000000000699"
+          },
+          %{
+            status: :cancelled,
+            grant_id: @grant_id,
+            asset_id: @asset_id,
+            vault_id: @vault_id,
+            token: "secret"
+          }
+        ] do
+      malformed =
+        api(
+          cancel_upload_grant: fn _context, @grant_id ->
+            {:ok, malformed_result}
+          end,
+          publish_asset: fn _vault_id, _asset_id ->
+            send(test_pid, :malformed_published)
+            :ok
+          end
+        )
+
+      assert {:error, :integrity_failure} =
+               Api.cancel_upload_grant(malformed, session_dto(false), @grant_id)
+    end
+
+    assert {:error, :invalid} =
+             Api.cancel_upload_grant(cancelled, session_dto(false), "not-a-uuid")
+
+    refute_received :malformed_published
   end
 
   test "begin_upload digests credentials before descriptor custody and keeps them out of the handle" do
@@ -311,11 +772,13 @@ defmodule Singularity.Runtime.ApiTest do
            %{
              asset: %StoredAsset{
                id: @asset_id,
+               vault_id: @vault_id,
                state: :uploaded,
                state_revision: 1
              },
              stage: %AssetStage{
                asset_id: @asset_id,
+               vault_id: @vault_id,
                state: :sealed,
                state_revision: 1
              }
@@ -327,7 +790,7 @@ defmodule Singularity.Runtime.ApiTest do
         end
       )
 
-    handle = Api.upload_handle(make_ref())
+    handle = Api.upload_handle(make_ref(), @vault_id, @asset_id)
 
     assert :ok = Api.append_upload(api, handle, "first")
 
@@ -344,8 +807,9 @@ defmodule Singularity.Runtime.ApiTest do
     assert_receive {:abandon, _, :controller_ended}
   end
 
-  test "finish_upload normalizes the sealed repository result into a safe response" do
+  test "finish_upload publishes exactly the persisted asset identity and returns only a safe response" do
     secret_canary = "WRAPPED_STAGE_KEY_CANARY"
+    test_pid = self()
 
     api =
       api(
@@ -354,20 +818,26 @@ defmodule Singularity.Runtime.ApiTest do
            %{
              asset: %StoredAsset{
                id: @asset_id,
+               vault_id: @vault_id,
                state: :uploaded,
                state_revision: 1
              },
              stage: %AssetStage{
                asset_id: @asset_id,
+               vault_id: @vault_id,
                state: :sealed,
                state_revision: 1,
                dek_wrapper: secret_canary
              }
            }}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:publish_asset, vault_id, asset_id})
+          raise "notification registry unavailable"
         end
       )
 
-    handle = Api.upload_handle(make_ref())
+    handle = Api.upload_handle(make_ref(), @vault_id, @asset_id)
 
     assert {:ok, result} = Api.finish_upload(api, handle, "")
 
@@ -377,8 +847,160 @@ defmodule Singularity.Runtime.ApiTest do
              state_revision: 1
            }
 
+    assert_receive {:publish_asset, @vault_id, @asset_id}
+    refute_receive {:publish_asset, _, _}
     refute inspect(result) =~ secret_canary
+    refute Map.has_key?(result, :vault_id)
     refute Map.has_key?(result, :stage)
+  end
+
+  test "finish_upload rejects a durable identity different from the accepted upload grant" do
+    test_pid = self()
+    other_asset_id = "00000000-0000-4000-8000-000000000608"
+    other_vault_id = "00000000-0000-4000-8000-000000000609"
+
+    begin_api =
+      api(
+        load_upload_grant_descriptor: fn _context, _selector ->
+          {:ok, upload_descriptor()}
+        end,
+        begin_upload: fn _context, _internal_grant, _owner ->
+          {:ok, make_ref()}
+        end
+      )
+
+    assert {:ok, handle} =
+             Api.begin_upload(
+               begin_api,
+               session_dto(true),
+               @grant_id,
+               %{
+                 upload_token: Base.url_encode64(@upload_token, padding: false),
+                 csrf_token: @csrf_token,
+                 content_length: 12,
+                 declared_media_type: "application/pdf"
+               },
+               self()
+             )
+
+    for {asset_id, vault_id} <- [
+          {other_asset_id, @vault_id},
+          {@asset_id, other_vault_id}
+        ] do
+      finish_api =
+        api(
+          finish_upload: fn _upload ->
+            {:ok,
+             %{
+               asset: %StoredAsset{
+                 id: asset_id,
+                 vault_id: vault_id,
+                 state: :uploaded,
+                 state_revision: 1
+               },
+               stage: %AssetStage{
+                 asset_id: asset_id,
+                 vault_id: @vault_id,
+                 state: :sealed,
+                 state_revision: 1
+               }
+             }}
+          end,
+          publish_asset: fn published_vault_id, published_asset_id ->
+            send(test_pid, {:unexpected_publish, published_vault_id, published_asset_id})
+            :ok
+          end
+        )
+
+      assert {:error, :integrity_failure} = Api.finish_upload(finish_api, handle, "")
+      refute_received {:unexpected_publish, _, _}
+    end
+  end
+
+  test "finish_upload rejects a sealed stage bound to a foreign vault" do
+    test_pid = self()
+    other_vault_id = "00000000-0000-4000-8000-000000000609"
+
+    finish_api =
+      api(
+        finish_upload: fn _upload ->
+          {:ok,
+           %{
+             asset: %StoredAsset{
+               id: @asset_id,
+               vault_id: @vault_id,
+               state: :uploaded,
+               state_revision: 1
+             },
+             stage: %AssetStage{
+               asset_id: @asset_id,
+               vault_id: other_vault_id,
+               state: :sealed,
+               state_revision: 1
+             }
+           }}
+        end,
+        publish_asset: fn vault_id, asset_id ->
+          send(test_pid, {:unexpected_publish, vault_id, asset_id})
+          :ok
+        end
+      )
+
+    handle = Api.upload_handle(make_ref(), @vault_id, @asset_id)
+
+    assert {:error, :integrity_failure} = Api.finish_upload(finish_api, handle, "")
+    refute_received {:unexpected_publish, _, _}
+  end
+
+  test "finish_upload never publishes failed or malformed durable results" do
+    test_pid = self()
+
+    publish = fn vault_id, asset_id ->
+      send(test_pid, {:publish_asset, vault_id, asset_id})
+      :ok
+    end
+
+    handle = Api.upload_handle(make_ref(), @vault_id, @asset_id)
+
+    assert {:error, :conflict} =
+             Api.finish_upload(
+               api(
+                 finish_upload: fn _handle ->
+                   {:error, Error.new(:conflict)}
+                 end,
+                 publish_asset: publish
+               ),
+               handle,
+               ""
+             )
+
+    assert {:error, :integrity_failure} =
+             Api.finish_upload(
+               api(
+                 finish_upload: fn _handle ->
+                   {:ok,
+                    %{
+                      asset: %StoredAsset{
+                        id: @asset_id,
+                        vault_id: "not-a-uuid",
+                        state: :uploaded,
+                        state_revision: 1
+                      },
+                      stage: %AssetStage{
+                        asset_id: @asset_id,
+                        vault_id: @vault_id,
+                        state: :sealed,
+                        state_revision: 1
+                      }
+                    }}
+                 end,
+                 publish_asset: publish
+               ),
+               handle,
+               ""
+             )
+
+    refute_received {:publish_asset, _, _}
   end
 
   test "begin_upload fails closed if the descriptor leaks credential fields" do
@@ -506,7 +1128,7 @@ defmodule Singularity.Runtime.ApiTest do
                )
     end
 
-    handle = Api.upload_handle(make_ref())
+    handle = Api.upload_handle(make_ref(), @vault_id, @asset_id)
 
     assert {:error, :upload_too_large} =
              Api.append_upload(
@@ -575,8 +1197,14 @@ defmodule Singularity.Runtime.ApiTest do
     defaults = %{
       abandon_upload: fn _handle, _reason -> :ok end,
       append_upload: fn _handle, _chunk -> :ok end,
+      authorize_asset_subscription: fn _session -> :ok end,
       begin_upload: fn _session, _grant, _owner -> {:error, Error.new(:invalid)} end,
+      asset_summary: fn _session, _asset_id -> {:error, Error.new(:not_found)} end,
+      cancel_upload_grant: fn _session, _grant_id -> {:error, Error.new(:invalid)} end,
       create_upload_grant: fn _session, _attrs, _csrf -> {:error, Error.new(:invalid)} end,
+      delete_asset: fn _session, _asset_id, _revision ->
+        {:error, Error.new(:conflict)}
+      end,
       download: fn _session, _asset_id, _range -> {:error, Error.new(:not_found)} end,
       download_descriptor: fn _session, _asset_id -> {:error, Error.new(:not_found)} end,
       finish_upload: fn _handle -> {:error, Error.new(:invalid)} end,
@@ -588,7 +1216,12 @@ defmodule Singularity.Runtime.ApiTest do
       end,
       login: fn _attrs -> {:error, Error.new(:unauthenticated)} end,
       logout: fn _session -> :ok end,
+      publish_asset: fn _vault_id, _asset_id -> :ok end,
       resolve_session: fn _token -> {:error, Error.new(:unauthenticated)} end,
+      retry_asset: fn _session, _asset_id, _revision ->
+        {:error, Error.new(:conflict)}
+      end,
+      subscribe_assets: fn _vault_id -> :ok end,
       unlock: fn _session, _password -> {:error, Error.new(:forbidden)} end
     }
 
@@ -639,5 +1272,25 @@ defmodule Singularity.Runtime.ApiTest do
       vault_authorization_epoch: 11,
       expires_at: ~U[2026-07-28 06:05:00.000000Z]
     }
+  end
+
+  defp asset_projection(overrides) do
+    Map.merge(
+      %{
+        asset_id: @asset_id,
+        resource_version_id: @resource_version_id,
+        vault_id: @vault_id,
+        classification: :private,
+        state: :ready,
+        state_revision: 4,
+        detected_media_type: "application/pdf",
+        resource_title: "Annual report",
+        original_filename: "annual.pdf",
+        progress: nil,
+        failure: nil,
+        updated_at: ~U[2026-07-28 06:00:00.000000Z]
+      },
+      overrides
+    )
   end
 end

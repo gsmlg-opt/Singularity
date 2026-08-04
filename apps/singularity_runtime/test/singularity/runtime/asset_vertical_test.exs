@@ -136,11 +136,9 @@ defmodule Singularity.Runtime.AssetVerticalTest do
     plaintext = "%PDF-1.7\nSingularity vertical evidence\n%%EOF\n"
 
     grant_request = %{
-      classification: :private,
       declared_media_type: "application/pdf",
       filename: "vertical-evidence.pdf",
       idempotency_key: "asset-vertical-#{Ecto.UUID.generate()}",
-      resource_version_id: fixture.resource_version_id,
       size: byte_size(plaintext)
     }
 
@@ -290,7 +288,6 @@ defmodule Singularity.Runtime.AssetVerticalTest do
   end
 
   test "delete cannot tombstone an asset while its upload stage is open", %{
-    fixture: fixture,
     runtime: runtime,
     session: session,
     storage_root: storage_root
@@ -298,11 +295,9 @@ defmodule Singularity.Runtime.AssetVerticalTest do
     plaintext = "%PDF-1.7\nactive upload\n%%EOF\n"
 
     request = %{
-      classification: :private,
       declared_media_type: "application/pdf",
       filename: "active-upload.pdf",
       idempotency_key: "active-upload-delete-#{Ecto.UUID.generate()}",
-      resource_version_id: fixture.resource_version_id,
       size: byte_size(plaintext)
     }
 

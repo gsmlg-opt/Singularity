@@ -5,7 +5,9 @@ defmodule Singularity.Storage.OrphanCleanupTest do
 
   alias Singularity.Core.JobEnvelope
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Api
   alias Singularity.Runtime.Assets.ObjectCleanup
+  alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.JobDispatcher
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.Jobs.EnvelopeCodec
@@ -208,7 +210,65 @@ defmodule Singularity.Storage.OrphanCleanupTest do
     end)
   end
 
-  test "tombstoning removes the ready asset from search before cleanup", %{
+  test "stale delete revision is distinguishable to the API without publishing", %{
+    fixture: fixture
+  } do
+    test_pid = self()
+    asset_id = fixture.asset_id
+    vault_id = fixture.vault_id
+
+    config = %{
+      delete_asset: fn context, asset_id, expected_state_revision ->
+        result =
+          scoped(fixture, fn repo ->
+            AssetDeletionRepository.tombstone_and_release(repo, %{
+              asset_id: asset_id,
+              vault_id: context.vault_id,
+              principal_id: context.principal_id,
+              classification: :private,
+              expected_state_revision: expected_state_revision
+            })
+          end)
+
+        send(test_pid, {:production_delete_result, result})
+        result
+      end,
+      publish_asset: fn vault_id, asset_id ->
+        send(test_pid, {:delete_published, vault_id, asset_id})
+        :ok
+      end
+    }
+
+    result =
+      Api.delete_asset(
+        config,
+        struct(Session, %{
+          session_id: fixture.session_id,
+          account_id: fixture.account_id,
+          principal_id: fixture.principal_id,
+          vault_id: fixture.vault_id,
+          expires_at: DateTime.add(DateTime.utc_now(:microsecond), 300, :second),
+          principal_authorization_epoch: 0,
+          vault_authorization_epoch: 0,
+          authorization_epoch: 0,
+          unlocked?: false
+        }),
+        asset_id,
+        4
+      )
+
+    assert_receive {:production_delete_result,
+                    {:error,
+                     %Error{
+                       code: :conflict,
+                       details: %{reason: :state_revision_mismatch}
+                     }}}
+
+    assert result == {:ok, false}
+    refute_receive {:delete_published, ^vault_id, ^asset_id}
+  end
+
+  test "tombstoning keeps the pending asset searchable until logical cleanup", %{
     fixture: fixture
   } do
     Fixtures.with_owner(fn ->
@@ -246,7 +306,23 @@ defmodule Singularity.Storage.OrphanCleanupTest do
                })
              end)
 
-    for state <- [nil, :ready, :pending_delete] do
+    assert {:ok, {[pending], :done}} = search.(nil)
+    assert pending.asset_id == fixture.asset_id
+    assert pending.state == :pending_delete
+    assert pending.state_revision == 6
+
+    assert {:ok, {[], :done}} = search.(:ready)
+    assert {:ok, {[filtered_pending], :done}} = search.(:pending_delete)
+    assert filtered_pending.asset_id == fixture.asset_id
+
+    envelope = submitted_cleanup_envelope!(fixture)
+
+    assert {:ok, %{state: :deleted, state_revision: 7}} =
+             scoped_worker(fixture, fn repo ->
+               AssetDeletionRepository.complete_logical_delete(repo, envelope)
+             end)
+
+    for state <- [nil, :pending_delete, :deleted] do
       assert {:ok, {[], :done}} = search.(state)
     end
   end

@@ -3,7 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
     <title>Singularity</title>
+    {Phoenix.HTML.raw(
+      DuskmoonBundler.Preload.tags(
+        @conn,
+        "/assets/js/app.js",
+        profile: :singularity_web
+      )
+    )}
+    <link
+      phx-track-static
+      rel="stylesheet"
+      href={
+        DuskmoonBundler.static_path(
+          @conn,
+          "/assets/css/app.css",
+          profile: :singularity_web
+        )
+      }
+    />
+    <script
+      defer
+      phx-track-static
+      type="module"
+      src={
+        DuskmoonBundler.static_path(
+          @conn,
+          "/assets/js/app.js",
+          profile: :singularity_web
+        )
+      }
+    >
+    </script>
   </head>
   <body>
     {@inner_content}

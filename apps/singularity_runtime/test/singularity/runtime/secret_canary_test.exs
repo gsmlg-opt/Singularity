@@ -567,11 +567,9 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     }
 
     attrs = %{
-      classification: :private,
       declared_media_type: "application/pdf",
       filename: "canary.pdf",
       idempotency_key: "canary-upload",
-      resource_version_id: Ecto.UUID.generate(),
       size: 12
     }
 

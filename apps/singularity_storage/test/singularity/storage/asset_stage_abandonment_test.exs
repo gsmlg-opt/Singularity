@@ -185,6 +185,8 @@ defmodule Singularity.Storage.AssetStageAbandonmentTest do
 
   test "an abandoned attempt retains its evidence while the same idempotency key gets a fresh grant",
        %{fixture: fixture} do
+    on_exit(&Fixtures.reset_bootstrap_state!/0)
+
     upload = open_stage!(fixture)
 
     assert {:ok, %AssetStage{state: :abandoned}} =

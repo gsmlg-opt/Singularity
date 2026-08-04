@@ -15,6 +15,20 @@ defmodule Singularity.Web.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: false
 
+  if code_reloading? do
+    @assets_js_root Path.expand("../../../assets/js", __DIR__)
+
+    plug DuskmoonBundler.DevServer,
+      profile: :singularity_web,
+      root: @assets_js_root,
+      prefix: "/assets/js"
+  end
+
+  plug Plug.Static,
+    at: "/assets",
+    from: {:singularity_web, "priv/static/assets"},
+    gzip: false
+
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
   plug Plug.MethodOverride

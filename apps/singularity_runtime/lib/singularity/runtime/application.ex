@@ -4,6 +4,7 @@ defmodule Singularity.Runtime.Application do
   use Application
 
   alias Singularity.Runtime.AuthorizationDependencies
+  alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.UploadReconciler
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.BackupKeyLease
@@ -73,6 +74,7 @@ defmodule Singularity.Runtime.Application do
       Singularity.Storage.PreAuthRepo,
       Singularity.Storage.DispatcherRepo,
       Singularity.Storage.WorkerRepo,
+      AssetEvents.child_spec([]),
       UploadReconciler,
       upload_recovery_tasks,
       key_lease_supervisor,
@@ -97,6 +99,7 @@ defmodule Singularity.Runtime.Application do
 
     %{
       asset_deletions: AssetDeletionRepository,
+      asset_events: AssetEvents,
       assets: AssetRepository,
       authorization: dependencies,
       authorize: Authorize,

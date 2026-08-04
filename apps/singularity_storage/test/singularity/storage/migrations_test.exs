@@ -114,6 +114,411 @@ defmodule Singularity.Storage.MigrationsTest do
     assert table_rows == @tables |> Enum.sort() |> Enum.map(&Tuple.to_list/1)
   end
 
+  test "Task 17 upload grant retirement guards ambiguous upgrade history and downgrade" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    retired_grant_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    first_duplicate_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    second_duplicate_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    duplicate_key = "ambiguous-upload-history-#{Ecto.UUID.generate()}"
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.upload_grants (
+          id,
+          vault_id,
+          session_id,
+          principal_id,
+          asset_id,
+          classification,
+          token_digest,
+          csrf_token_digest,
+          filename,
+          byte_size,
+          declared_media_type,
+          idempotency_key,
+          principal_authorization_epoch,
+          vault_authorization_epoch,
+          expires_at,
+          inserted_at,
+          retired_at
+        ) VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          'private',
+          $6,
+          $7,
+          'retired-history.pdf',
+          1,
+          'application/pdf',
+          $8,
+          0,
+          0,
+          statement_timestamp() - interval '2 hours',
+          statement_timestamp() - interval '3 hours',
+          statement_timestamp() - interval '1 hour'
+        )
+        """,
+        [
+          retired_grant_id,
+          fixture.vault_id,
+          fixture.session_id,
+          fixture.principal_id,
+          fixture.asset_id,
+          :crypto.hash(:sha256, "retired-token-#{Ecto.UUID.generate()}"),
+          :crypto.hash(:sha256, "retired-csrf-#{Ecto.UUID.generate()}"),
+          "retired-upload-#{Ecto.UUID.generate()}"
+        ]
+      )
+    end)
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      assert_raise Postgrex.Error, ~r/cannot downgrade.*retired history/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert %{
+               rows: [
+                 [
+                   true,
+                   true,
+                   true,
+                   current_constraint,
+                   current_index
+                 ]
+               ]
+             } = upload_grant_retirement_contract()
+
+      assert current_constraint =~ "cancelled_at IS NULL"
+      assert current_constraint =~ "retired_at = cancelled_at"
+      assert current_index =~ "retired_at IS NULL"
+      refute current_index =~ "consumed_at IS NULL"
+
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+        query!(
+          MigrationRepo,
+          "DELETE FROM content.upload_grants WHERE id = $1",
+          [retired_grant_id]
+        )
+      end)
+
+      assert [20_260_729_000_100] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :down,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{rows: [[false, false, false, nil, legacy_index]]} =
+               upload_grant_retirement_contract()
+
+      assert legacy_index =~ "consumed_at IS NULL"
+      refute legacy_index =~ "retired_at IS NULL"
+
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+        query!(
+          MigrationRepo,
+          """
+          INSERT INTO content.upload_grants (
+            id,
+            vault_id,
+            session_id,
+            principal_id,
+            asset_id,
+            classification,
+            token_digest,
+            csrf_token_digest,
+            filename,
+            byte_size,
+            declared_media_type,
+            idempotency_key,
+            principal_authorization_epoch,
+            vault_authorization_epoch,
+            expires_at,
+            consumed_at,
+            inserted_at
+          ) VALUES
+            (
+              $1, $3, $4, $5, $6, 'private', $7, $8,
+              'ambiguous-first.pdf', 1, 'application/pdf', $9,
+              0, 0, statement_timestamp() + interval '1 hour',
+              statement_timestamp(), statement_timestamp() - interval '1 minute'
+            ),
+            (
+              $2, $3, $4, $5, $6, 'private', $10, $11,
+              'ambiguous-second.pdf', 1, 'application/pdf', $9,
+              0, 0, statement_timestamp() + interval '1 hour',
+              statement_timestamp(), statement_timestamp()
+            )
+          """,
+          [
+            first_duplicate_id,
+            second_duplicate_id,
+            fixture.vault_id,
+            fixture.session_id,
+            fixture.principal_id,
+            fixture.asset_id,
+            :crypto.hash(:sha256, "first-token-#{Ecto.UUID.generate()}"),
+            :crypto.hash(:sha256, "first-csrf-#{Ecto.UUID.generate()}"),
+            duplicate_key,
+            :crypto.hash(:sha256, "second-token-#{Ecto.UUID.generate()}"),
+            :crypto.hash(:sha256, "second-csrf-#{Ecto.UUID.generate()}")
+          ]
+        )
+      end)
+
+      assert_raise Postgrex.Error, ~r/cannot enforce.*duplicate unretired/i, fn ->
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          step: 1,
+          log: false
+        )
+      end
+
+      assert %{rows: [[false, false, false, nil, ^legacy_index]]} =
+               upload_grant_retirement_contract()
+
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+        query!(
+          MigrationRepo,
+          "DELETE FROM content.upload_grants WHERE id IN ($1, $2)",
+          [first_duplicate_id, second_duplicate_id]
+        )
+      end)
+
+      assert [20_260_729_000_100] =
+               Ecto.Migrator.run(
+                 MigrationRepo,
+                 migrations_path,
+                 :up,
+                 step: 1,
+                 log: false
+               )
+
+      assert %{
+               rows: [
+                 [
+                   true,
+                   true,
+                   true,
+                   restored_constraint,
+                   restored_index
+                 ]
+               ]
+             } = upload_grant_retirement_contract()
+
+      assert restored_constraint =~ "cancelled_at IS NULL"
+      assert restored_constraint =~ "retired_at = cancelled_at"
+      assert restored_index =~ "retired_at IS NULL"
+      refute restored_index =~ "consumed_at IS NULL"
+    after
+      try do
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            "DELETE FROM content.upload_grants WHERE id IN ($1, $2, $3)",
+            [retired_grant_id, first_duplicate_id, second_duplicate_id]
+          )
+        end)
+
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  test "Task 17 downgrade serializes the retirement guard against concurrent writes" do
+    %{one: fixture} = Fixtures.two_vaults!()
+
+    migrations_path =
+      :singularity_storage
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("repo/migrations")
+
+    grant_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.upload_grants (
+          id,
+          vault_id,
+          session_id,
+          principal_id,
+          asset_id,
+          classification,
+          token_digest,
+          csrf_token_digest,
+          filename,
+          byte_size,
+          declared_media_type,
+          idempotency_key,
+          principal_authorization_epoch,
+          vault_authorization_epoch,
+          expires_at,
+          inserted_at
+        ) VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          'private',
+          $6,
+          $7,
+          'concurrent-retirement.pdf',
+          1,
+          'application/pdf',
+          $8,
+          0,
+          0,
+          statement_timestamp() - interval '1 hour',
+          statement_timestamp() - interval '2 hours'
+        )
+        """,
+        [
+          grant_id,
+          fixture.vault_id,
+          fixture.session_id,
+          fixture.principal_id,
+          fixture.asset_id,
+          :crypto.hash(:sha256, "concurrent-token-#{Ecto.UUID.generate()}"),
+          :crypto.hash(:sha256, "concurrent-csrf-#{Ecto.UUID.generate()}"),
+          "concurrent-upload-#{Ecto.UUID.generate()}"
+        ]
+      )
+    end)
+
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 4)
+    {:ok, blocker_connection} = Postgrex.start_link(postgrex_options())
+    {:ok, observer_connection} = Postgrex.start_link(postgrex_options())
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    Postgrex.query!(blocker_connection, "BEGIN", [])
+    Postgrex.query!(blocker_connection, "SET LOCAL ROLE singularity_table_owner", [])
+    Postgrex.query!(observer_connection, "SET ROLE singularity_table_owner", [])
+
+    Postgrex.query!(
+      blocker_connection,
+      "LOCK TABLE content.upload_grants IN ROW EXCLUSIVE MODE",
+      []
+    )
+
+    migrator =
+      Task.async(fn ->
+        try do
+          {:ok,
+           Ecto.Migrator.down(
+             MigrationRepo,
+             20_260_729_000_100,
+             Singularity.Storage.Migrations.RetireSupersededUploadGrants,
+             log: false
+           )}
+        rescue
+          error in Postgrex.Error -> {:error, error}
+        end
+      end)
+
+    try do
+      assert nil == Task.yield(migrator, 100)
+      wait_for_upload_grant_ddl_waiter!(observer_connection)
+
+      Postgrex.query!(
+        blocker_connection,
+        """
+        UPDATE content.upload_grants
+        SET retired_at = statement_timestamp()
+        WHERE id = $1
+        """,
+        [grant_id]
+      )
+
+      Postgrex.query!(blocker_connection, "COMMIT", [])
+      migration_result = Task.await(migrator, 5_000)
+
+      assert {:error, %Postgrex.Error{postgres: %{message: message}}} =
+               migration_result
+
+      assert message =~
+               "cannot downgrade upload grant retirement while retired history exists"
+
+      assert %{rows: [[true, true, true, _, _]]} =
+               upload_grant_retirement_contract()
+    after
+      try do
+        Task.shutdown(migrator, :brutal_kill)
+        Postgrex.query(blocker_connection, "ROLLBACK", [])
+
+        MigrationRepo.transaction(fn ->
+          query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+          query!(
+            MigrationRepo,
+            "DELETE FROM content.upload_grants WHERE id = $1",
+            [grant_id]
+          )
+        end)
+
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :up,
+          all: true,
+          log: false
+        )
+      after
+        Code.compiler_options(compiler_options)
+        GenServer.stop(observer_connection)
+        GenServer.stop(blocker_connection)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
   test "tables are owned by the no-login table owner" do
     %{rows: rows} =
       query!(
@@ -281,6 +686,8 @@ defmodule Singularity.Storage.MigrationsTest do
 
     try do
       assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
                20_260_722_001_000,
                20_260_722_000_900,
                20_260_722_000_800,
@@ -290,7 +697,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 4,
+                 step: 6,
                  log: false
                )
 
@@ -624,12 +1031,18 @@ defmodule Singularity.Storage.MigrationsTest do
                  [dumped_correlation_id]
                )
 
-      assert [20_260_722_001_000, 20_260_722_000_900, 20_260_722_000_800] =
+      assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
+               20_260_722_001_000,
+               20_260_722_000_900,
+               20_260_722_000_800
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 3,
+                 step: 5,
                  log: false
                )
 
@@ -761,12 +1174,17 @@ defmodule Singularity.Storage.MigrationsTest do
       assert type =~ "timestamp with time zone"
       assert %{rows: ^expected_boundary} = recovery_function_boundary()
 
-      assert [20_260_722_001_000, 20_260_722_000_900] =
+      assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
+               20_260_722_001_000,
+               20_260_722_000_900
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 2,
+                 step: 4,
                  log: false
                )
 
@@ -832,12 +1250,16 @@ defmodule Singularity.Storage.MigrationsTest do
     try do
       assert %{rows: ^expected_boundary} = active_domain_envelope_guard_boundary()
 
-      assert [20_260_722_001_000] =
+      assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
+               20_260_722_001_000
+             ] =
                Ecto.Migrator.run(
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 1,
+                 step: 3,
                  log: false
                )
 
@@ -1228,7 +1650,9 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_700,
                20_260_722_000_800,
                20_260_722_000_900,
-               20_260_722_001_000
+               20_260_722_001_000,
+               20_260_728_000_100,
+               20_260_729_000_100
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1341,7 +1765,9 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_700,
                20_260_722_000_800,
                20_260_722_000_900,
-               20_260_722_001_000
+               20_260_722_001_000,
+               20_260_728_000_100,
+               20_260_729_000_100
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1723,7 +2149,9 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_700,
                20_260_722_000_800,
                20_260_722_000_900,
-               20_260_722_001_000
+               20_260_722_001_000,
+               20_260_728_000_100,
+               20_260_729_000_100
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1833,6 +2261,8 @@ defmodule Singularity.Storage.MigrationsTest do
       end
 
       assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
                20_260_722_001_000,
                20_260_722_000_900,
                20_260_722_000_800,
@@ -1846,7 +2276,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 8,
+                 step: 10,
                  log: false
                )
 
@@ -1900,6 +2330,8 @@ defmodule Singularity.Storage.MigrationsTest do
 
     try do
       assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
                20_260_722_001_000,
                20_260_722_000_900,
                20_260_722_000_800,
@@ -1914,7 +2346,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 9,
+                 step: 11,
                  log: false
                )
 
@@ -2010,6 +2442,8 @@ defmodule Singularity.Storage.MigrationsTest do
              ]
 
       assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
                20_260_722_001_000,
                20_260_722_000_900,
                20_260_722_000_800,
@@ -2022,7 +2456,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 7,
+                 step: 9,
                  log: false
                )
 
@@ -2127,7 +2561,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :down,
-          step: 5,
+          step: 7,
           log: false
         )
       end
@@ -2426,6 +2860,8 @@ defmodule Singularity.Storage.MigrationsTest do
 
     try do
       assert [
+               20_260_729_000_100,
+               20_260_728_000_100,
                20_260_722_001_000,
                20_260_722_000_900,
                20_260_722_000_800,
@@ -2442,13 +2878,101 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :down,
-                 step: 11,
+                 step: 13,
                  log: false
                )
     after
       Supervisor.stop(migration_repo)
       Code.compiler_options(compiler_options)
     end
+  end
+
+  defp upload_grant_retirement_contract do
+    owner_query!(
+      """
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'content'
+            AND table_name = 'upload_grants'
+            AND column_name = 'retired_at'
+        ),
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_constraint
+          WHERE conrelid = 'content.upload_grants'::regclass
+            AND conname = 'upload_grants_retirement_check'
+        ),
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'content'
+            AND table_name = 'upload_grants'
+            AND column_name = 'cancelled_at'
+        ),
+        (
+          SELECT pg_get_constraintdef(oid)
+          FROM pg_catalog.pg_constraint
+          WHERE conrelid = 'content.upload_grants'::regclass
+            AND conname = 'upload_grants_retirement_check'
+        ),
+        (
+          SELECT indexdef
+          FROM pg_catalog.pg_indexes
+          WHERE schemaname = 'content'
+            AND tablename = 'upload_grants'
+            AND indexname = 'upload_grants_active_idempotency_key'
+        )
+      """,
+      []
+    )
+  end
+
+  defp wait_for_upload_grant_ddl_waiter!(connection, attempts \\ 200)
+
+  defp wait_for_upload_grant_ddl_waiter!(_connection, 0) do
+    flunk("timed out waiting for the Task 17 downgrade table lock")
+  end
+
+  defp wait_for_upload_grant_ddl_waiter!(connection, attempts) do
+    %{rows: [[waiting?]]} =
+      Postgrex.query!(
+        connection,
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_locks
+          WHERE database = (
+            SELECT oid
+            FROM pg_catalog.pg_database
+            WHERE datname = current_database()
+          )
+            AND relation = 'content.upload_grants'::regclass
+            AND NOT granted
+        )
+        """,
+        []
+      )
+
+    if waiting? do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_upload_grant_ddl_waiter!(connection, attempts - 1)
+    end
+  end
+
+  defp postgrex_options do
+    MigrationRepo.config()
+    |> Keyword.take([
+      :hostname,
+      :socket_dir,
+      :port,
+      :database,
+      :username,
+      :password
+    ])
   end
 
   defp owner_query!(statement, parameters) do

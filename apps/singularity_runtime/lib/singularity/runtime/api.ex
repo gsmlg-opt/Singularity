@@ -1,10 +1,14 @@
 defmodule Singularity.Runtime.Api.UploadHandle do
   @moduledoc false
 
-  @enforce_keys [:session]
-  defstruct [:session]
+  @enforce_keys [:session, :vault_id, :asset_id]
+  defstruct [:session, :vault_id, :asset_id]
 
-  @type t :: %__MODULE__{session: term()}
+  @type t :: %__MODULE__{
+          session: term(),
+          vault_id: String.t(),
+          asset_id: String.t()
+        }
 end
 
 defmodule Singularity.Runtime.Api do
@@ -18,9 +22,13 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Core.Error
   alias Singularity.Retrieval.AssetMetadataSearch
   alias Singularity.Runtime.Api.UploadHandle
+  alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.AcceptUpload
+  alias Singularity.Runtime.Assets.CancelUploadGrant
   alias Singularity.Runtime.Assets.CreateUploadGrant
+  alias Singularity.Runtime.Assets.Delete
   alias Singularity.Runtime.Assets.Download
+  alias Singularity.Runtime.Assets.Retry
   alias Singularity.Runtime.Assets.Search
   alias Singularity.Runtime.Assets.UploadSession
   alias Singularity.Runtime.AuthorizationDependencies
@@ -43,6 +51,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Crypto.Argon2PasswordHasher
   alias Singularity.Storage.Crypto.KeyWrapper
   alias Singularity.Storage.EncryptedStageWriter
+  alias Singularity.Storage.ObjectLock
+  alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.Postgres.AuditSink
@@ -165,6 +175,118 @@ defmodule Singularity.Runtime.Api do
 
   def list_assets(_config, _session, _params), do: {:error, :invalid}
 
+  @spec subscribe_assets(Session.t()) :: :ok | {:error, atom()}
+  def subscribe_assets(session),
+    do: with_production(&subscribe_assets(&1, session))
+
+  @doc false
+  def subscribe_assets(config, %Session{} = session) when is_map(config) do
+    with {:ok, %SessionContext{unlocked?: true, vault_id: vault_id} = context} <-
+           session_context(session),
+         :ok <- invoke(config, :authorize_asset_subscription, [context]),
+         :ok <- invoke(config, :subscribe_assets, [vault_id]) do
+      :ok
+    else
+      {:ok, %SessionContext{unlocked?: false}} -> {:error, :vault_locked}
+      result -> normalize_error(result)
+    end
+  end
+
+  def subscribe_assets(_config, _session), do: {:error, :invalid}
+
+  @spec asset_summary(Session.t(), String.t()) ::
+          {:ok, AssetSummary.t()} | {:error, atom()}
+  def asset_summary(session, asset_id),
+    do: with_production(&asset_summary(&1, session, asset_id))
+
+  @doc false
+  def asset_summary(config, %Session{} = session, asset_id)
+      when is_map(config) do
+    with true <- valid_uuid?(asset_id),
+         {:ok, context} <- session_context(session),
+         {:ok, item} <-
+           invoke(config, :asset_summary, [context, asset_id]),
+         {:ok, summary} <-
+           authorized_asset_summary(item, context, asset_id) do
+      {:ok, summary}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def asset_summary(_config, _session, _asset_id), do: {:error, :invalid}
+
+  @spec retry_asset(Session.t(), String.t(), non_neg_integer()) ::
+          {:ok, boolean()} | {:error, atom()}
+  def retry_asset(session, asset_id, state_revision),
+    do: with_production(&retry_asset(&1, session, asset_id, state_revision))
+
+  @doc false
+  def retry_asset(config, %Session{} = session, asset_id, state_revision)
+      when is_map(config) do
+    with :ok <- validate_asset_mutation(asset_id, state_revision),
+         {:ok, context} <- session_context(session) do
+      case invoke(
+             config,
+             :retry_asset,
+             [context, asset_id, state_revision]
+           ) do
+        {:ok, :accepted} ->
+          publish_asset(config, context.vault_id, asset_id)
+          {:ok, true}
+
+        {:ok, :stale} ->
+          {:ok, false}
+
+        {:ok, _invalid_result} ->
+          {:error, :integrity_failure}
+
+        result ->
+          normalize_error(result)
+      end
+    else
+      result -> normalize_error(result)
+    end
+  end
+
+  def retry_asset(_config, _session, _asset_id, _state_revision),
+    do: {:error, :invalid}
+
+  @spec delete_asset(Session.t(), String.t(), non_neg_integer()) ::
+          {:ok, boolean()} | {:error, atom()}
+  def delete_asset(session, asset_id, state_revision),
+    do: with_production(&delete_asset(&1, session, asset_id, state_revision))
+
+  @doc false
+  def delete_asset(config, %Session{} = session, asset_id, state_revision)
+      when is_map(config) do
+    with :ok <- validate_asset_mutation(asset_id, state_revision),
+         {:ok, context} <- session_context(session) do
+      result =
+        config
+        |> invoke(
+          :delete_asset,
+          [context, asset_id, state_revision]
+        )
+        |> normalize_delete_result(asset_id)
+
+      case result do
+        {:ok, true} = accepted ->
+          publish_asset(config, context.vault_id, asset_id)
+          accepted
+
+        other ->
+          other
+      end
+    else
+      result -> normalize_error(result)
+    end
+  end
+
+  def delete_asset(_config, _session, _asset_id, _state_revision),
+    do: {:error, :invalid}
+
   @spec create_upload_grant(Session.t(), map(), binary()) ::
           {:ok, binary(), UploadGrant.t()} | {:error, atom()}
   def create_upload_grant(session, attrs, csrf_token),
@@ -178,6 +300,7 @@ defmodule Singularity.Runtime.Api do
            invoke(config, :create_upload_grant, [context, attrs, csrf_token]),
          {:ok, token} <- grant_token(grant),
          {:ok, dto} <- upload_grant_dto(grant) do
+      publish_asset(config, context.vault_id, dto.asset_id)
       {:ok, token, dto}
     else
       result -> normalize_error(result)
@@ -185,6 +308,27 @@ defmodule Singularity.Runtime.Api do
   end
 
   def create_upload_grant(_config, _session, _attrs, _csrf_token),
+    do: {:error, :invalid}
+
+  @spec cancel_upload_grant(Session.t(), String.t()) ::
+          {:ok, boolean()} | {:error, atom()}
+  def cancel_upload_grant(session, grant_id),
+    do: with_production(&cancel_upload_grant(&1, session, grant_id))
+
+  @doc false
+  def cancel_upload_grant(config, %Session{} = session, grant_id)
+      when is_map(config) and is_binary(grant_id) do
+    with {:ok, ^grant_id} <- Ecto.UUID.cast(grant_id),
+         {:ok, context} <- session_context(session),
+         result <- invoke(config, :cancel_upload_grant, [context, grant_id]) do
+      normalize_cancel_upload_result(result, config, context, grant_id)
+    else
+      :error -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def cancel_upload_grant(_config, _session, _grant_id),
     do: {:error, :invalid}
 
   @spec begin_upload(Session.t(), String.t(), map(), pid()) ::
@@ -212,9 +356,11 @@ defmodule Singularity.Runtime.Api do
            ),
          {:ok, internal_grant} <-
            internal_upload_grant(descriptor, selector),
+         {:ok, expected_vault_id, expected_asset_id} <-
+           upload_identity(internal_grant),
          {:ok, upload} <-
            invoke(config, :begin_upload, [context, internal_grant, owner]) do
-      {:ok, upload_handle(upload)}
+      {:ok, upload_handle(upload, expected_vault_id, expected_asset_id)}
     else
       result -> normalize_upload_error(result)
     end
@@ -248,7 +394,9 @@ defmodule Singularity.Runtime.Api do
     with :ok <- append_upload(config, handle, final_chunk),
          {:ok, result} <-
            invoke(config, :finish_upload, [handle.session]),
-         {:ok, response} <- upload_response(result) do
+         {:ok, response} <-
+           upload_response(result, handle.vault_id, handle.asset_id) do
+      publish_asset(config, handle.vault_id, handle.asset_id)
       {:ok, response}
     else
       result -> normalize_upload_error(result)
@@ -317,7 +465,13 @@ defmodule Singularity.Runtime.Api do
     do: {:error, :invalid}
 
   @doc false
-  def upload_handle(session), do: %UploadHandle{session: session}
+  def upload_handle(session, vault_id, asset_id) do
+    %UploadHandle{
+      session: session,
+      vault_id: vault_id,
+      asset_id: asset_id
+    }
+  end
 
   defp production_config do
     runtime = production_runtime()
@@ -325,11 +479,26 @@ defmodule Singularity.Runtime.Api do
     %{
       abandon_upload: &UploadSession.abandon/2,
       append_upload: &UploadSession.append/2,
+      authorize_asset_subscription: fn session ->
+        case Search.run(runtime, session, %{limit: 1}) do
+          {:ok, _page} -> :ok
+          {:error, %Error{}} = error -> error
+        end
+      end,
+      asset_summary: fn session, asset_id ->
+        Search.fetch(runtime, session, asset_id)
+      end,
       begin_upload: fn session, grant, owner ->
         AcceptUpload.begin(runtime, session, grant, owner)
       end,
+      cancel_upload_grant: fn session, grant_id ->
+        CancelUploadGrant.run(runtime, session, grant_id)
+      end,
       create_upload_grant: fn session, attrs, csrf_token ->
         CreateUploadGrant.run(runtime, session, attrs, csrf_token)
+      end,
+      delete_asset: fn session, asset_id, state_revision ->
+        Delete.run(runtime, session, asset_id, state_revision)
       end,
       download: fn session, asset_id, range ->
         Download.run(runtime, session, asset_id, range)
@@ -354,7 +523,12 @@ defmodule Singularity.Runtime.Api do
       logout: fn session ->
         Logout.run(runtime, session, Ecto.UUID.generate())
       end,
+      publish_asset: &AssetEvents.publish/2,
       resolve_session: &ResolveSession.run(resolve_session_adapters(), &1),
+      retry_asset: fn session, asset_id, state_revision ->
+        Retry.run(runtime, session, asset_id, state_revision)
+      end,
+      subscribe_assets: &AssetEvents.subscribe/1,
       unlock: fn session, password ->
         UnlockVault.run(
           runtime,
@@ -418,6 +592,7 @@ defmodule Singularity.Runtime.Api do
       end
 
     %{
+      asset_deletions: AssetDeletionRepository,
       asset_search: AssetMetadataSearch,
       asset_search_store: AssetSearchStore,
       asset_storage: StorageAdapter.configured(),
@@ -432,6 +607,7 @@ defmodule Singularity.Runtime.Api do
       key_deriver: Argon2KeyDeriver,
       key_wrapper: KeyWrapper,
       operation_scope: OperationScope,
+      object_lock: ObjectLock,
       request_repo: RequestRepo,
       scoped_repo: ScopedRepo,
       stage_writer: EncryptedStageWriter,
@@ -508,6 +684,21 @@ defmodule Singularity.Runtime.Api do
   end
 
   defp search_page_dto(_page), do: {:error, :integrity_failure}
+
+  defp authorized_asset_summary(item, context, asset_id)
+       when is_map(item) do
+    projected_asset_id = Map.get(item, :asset_id, Map.get(item, :id))
+
+    if item[:vault_id] == context.vault_id and
+         projected_asset_id == asset_id do
+      asset_summary_dto(item)
+    else
+      {:error, :integrity_failure}
+    end
+  end
+
+  defp authorized_asset_summary(_item, _context, _asset_id),
+    do: {:error, :integrity_failure}
 
   defp map_summaries(items) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, summaries} ->
@@ -726,6 +917,14 @@ defmodule Singularity.Runtime.Api do
   defp internal_upload_grant(_descriptor, _selector),
     do: {:error, :integrity_failure}
 
+  defp upload_identity(%{vault_id: vault_id, asset_id: asset_id}) do
+    if valid_uuid?(vault_id) and valid_uuid?(asset_id),
+      do: {:ok, vault_id, asset_id},
+      else: {:error, :integrity_failure}
+  end
+
+  defp upload_identity(_grant), do: {:error, :integrity_failure}
+
   defp credential_fields_absent?(descriptor) do
     Enum.all?(
       [
@@ -800,23 +999,27 @@ defmodule Singularity.Runtime.Api do
   defp normalize_upload_unit({:ok, _value}), do: :ok
   defp normalize_upload_unit(result), do: normalize_upload_error(result)
 
-  defp upload_response(result) when is_map(result) and map_size(result) == 2 do
+  defp upload_response(result, expected_vault_id, expected_asset_id)
+       when is_map(result) and map_size(result) == 2 do
     case result do
       %{
         asset: %StoredAsset{
-          id: asset_id,
+          id: ^expected_asset_id,
+          vault_id: ^expected_vault_id,
           state: :uploaded,
           state_revision: state_revision
         },
         stage: %AssetStage{
-          asset_id: asset_id,
+          asset_id: ^expected_asset_id,
+          vault_id: ^expected_vault_id,
           state: :sealed
         }
       } ->
-        if valid_uuid?(asset_id) and valid_epoch?(state_revision) do
+        if valid_uuid?(expected_asset_id) and valid_uuid?(expected_vault_id) and
+             valid_epoch?(state_revision) do
           {:ok,
            %{
-             asset_id: asset_id,
+             asset_id: expected_asset_id,
              state: :uploaded,
              state_revision: state_revision
            }}
@@ -829,7 +1032,112 @@ defmodule Singularity.Runtime.Api do
     end
   end
 
-  defp upload_response(_result), do: {:error, :integrity_failure}
+  defp upload_response(_result, _expected_vault_id, _expected_asset_id),
+    do: {:error, :integrity_failure}
+
+  defp validate_asset_mutation(asset_id, state_revision) do
+    if valid_uuid?(asset_id) and valid_epoch?(state_revision),
+      do: :ok,
+      else: {:error, :invalid}
+  end
+
+  defp normalize_delete_result(
+         {:ok,
+          %{
+            id: asset_id,
+            state: state,
+            state_revision: state_revision
+          }},
+         asset_id
+       )
+       when state in [:pending_delete, :deleted] and
+              is_integer(state_revision) and state_revision >= 0,
+       do: {:ok, true}
+
+  defp normalize_delete_result(
+         {:error,
+          %Error{
+            code: :conflict,
+            details: %{reason: reason}
+          }},
+         _asset_id
+       )
+       when reason in [
+              :state_revision_mismatch,
+              "state_revision_mismatch"
+            ],
+       do: {:ok, false}
+
+  defp normalize_delete_result({:ok, _invalid}, _asset_id),
+    do: {:error, :integrity_failure}
+
+  defp normalize_delete_result(result, _asset_id),
+    do: normalize_error(result)
+
+  defp normalize_cancel_upload_result(
+         {:ok,
+          %{
+            status: :cancelled,
+            grant_id: grant_id,
+            asset_id: asset_id,
+            vault_id: vault_id
+          } = result},
+         config,
+         context,
+         expected_grant_id
+       )
+       when map_size(result) == 4 do
+    with {:ok, ^expected_grant_id} <- Ecto.UUID.cast(grant_id),
+         {:ok, asset_id} <- Ecto.UUID.cast(asset_id),
+         {:ok, vault_id} <- Ecto.UUID.cast(vault_id),
+         true <- vault_id == context.vault_id do
+      publish_asset(config, context.vault_id, asset_id)
+      {:ok, true}
+    else
+      _invalid -> {:error, :integrity_failure}
+    end
+  end
+
+  defp normalize_cancel_upload_result(
+         {:ok,
+          %{
+            status: status,
+            grant_id: grant_id,
+            asset_id: asset_id,
+            vault_id: vault_id
+          } = result},
+         _config,
+         context,
+         expected_grant_id
+       )
+       when status in [:in_progress, :retired] and map_size(result) == 4 do
+    with {:ok, ^expected_grant_id} <- Ecto.UUID.cast(grant_id),
+         {:ok, _asset_id} <- Ecto.UUID.cast(asset_id),
+         {:ok, vault_id} <- Ecto.UUID.cast(vault_id),
+         true <- vault_id == context.vault_id do
+      {:ok, false}
+    else
+      _invalid -> {:error, :integrity_failure}
+    end
+  end
+
+  defp normalize_cancel_upload_result(
+         {:ok, _invalid},
+         _config,
+         _context,
+         _grant_id
+       ),
+       do: {:error, :integrity_failure}
+
+  defp normalize_cancel_upload_result(result, _config, _context, _grant_id),
+    do: normalize_error(result)
+
+  defp publish_asset(config, vault_id, asset_id) do
+    _notification =
+      invoke(config, :publish_asset, [vault_id, asset_id])
+
+    :ok
+  end
 
   defp normalize_error({:error, %Error{code: code}}), do: {:error, code}
 

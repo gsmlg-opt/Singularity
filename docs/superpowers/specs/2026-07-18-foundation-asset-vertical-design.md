@@ -1023,6 +1023,7 @@ The seam is versioned and contains no reusable API credential:
 | React → Phoenix | `asset:search` | `{version: 1, q, state, mediaType}` → `{ok, sequence, filters, assets: {items, nextCursor}}` |
 | React → Phoenix | `asset:page` | `{version: 1, cursor, q, state, mediaType}` → `{ok, sequence, assets: {items, nextCursor}}` |
 | React → Phoenix | `upload:grant` | `{version: 1, filename, size, mediaType, idempotencyKey}` → `{ok, grantId, uploadToken, uploadUrl, expiresAt}` |
+| React → Phoenix | `upload:cancel` | `{version: 1, grantId}` → `{ok: true, accepted: boolean}` |
 | React → Phoenix | `asset:retry` | `{version: 1, assetId, stateRevision}` → `{ok, accepted}` |
 | React → Phoenix | `asset:delete` | `{version: 1, assetId, stateRevision}` → `{ok, accepted}` |
 | React → Phoenix | `navigate` | `{version: 1, to}` → `{ok}` |
@@ -1068,11 +1069,23 @@ The upload flow is:
 5. `xhr.upload.onprogress` reports byte-transfer progress to React. PubSub and
    versioned `asset:update` events report server verification, finalization, and
    metadata progress.
-6. `xhr.abort()` cancels the request; the controller marks the stage abandoned
-   and cleanup remains idempotent. Expired, cancelled, interrupted, or consumed
-   grants are never resumed or reused. Retry requests a new grant with the same
-   idempotency key and the server either returns the existing logical asset or
-   creates one replacement stage.
+6. After a valid grant, every terminal client result except HTTP `201` awaits
+   one best-effort `upload:cancel` reply before the attempt completes or retry
+   can request another grant. The version-1 cancellation payload contains only
+   `grantId`; it never carries the upload token, session, principal, or vault.
+7. AssetsLive accepts cancellation only for its one currently tracked pending
+   grant and binds session, principal, and vault from `current_session`.
+   Before replacing that grant it cancels the old one. It also schedules
+   bounded best-effort cancellation just before the validated expiry and
+   repeats the attempt during graceful `terminate/2` when a grant remains.
+8. Storage row-locks the exact grant bound to that server-owned identity. In
+   one transaction it cancels only an unconsumed grant, records
+   `cancelled_at == retired_at`, tombstones and releases its staging asset,
+   removes the search projection, and writes the audit/outbox effects. If PUT
+   consumption won the race, the active upload-session abandonment path
+   remains authoritative. Expired, cancelled, interrupted, or consumed grants
+   are never resumed or reused; retry uses the same idempotency key and either
+   returns the existing logical asset or creates one replacement stage.
 
 Runtime represents the active PUT with an opaque, short-lived upload-session
 handle. That process owns the checked-out request connection, live
@@ -1127,8 +1140,23 @@ DuskmoonBundler owns:
 - Production manifests and preload metadata.
 - JS/TS formatting and linting.
 
-Use `mix npm.install` and commit `package.json` plus `npm.lock`. Do not add npm,
-yarn, or Bun workflows.
+The fixed web dependency declarations are:
+
+```elixir
+{:duskmoon_bundler_runtime, "~> 9.9.7"}
+{:duskmoon_bundler, "~> 9.9.7", runtime: Mix.env() in [:dev, :test]}
+{:floki, ">= 0.36.0", only: :test}
+{:lazy_html, ">= 0.1.0"}
+```
+
+The runtime package starts in every environment. The bundler package remains
+available in every environment, but its OTP application starts only in `:dev`
+and `:test`. Floki remains test-only. LazyHTML deliberately has no `only`
+restriction because DuskmoonBundler 9.9.7 declares it for every environment,
+and Mix requires the direct dependency to use the same environment scope.
+
+Use `mix npm.install` and commit `package.json` plus `package-lock.json`. Do not
+add npm, yarn, or Bun workflows.
 
 DuskmoonBundler is the asset toolchain, not a component library. This branch
 uses project-owned semantic CSS variables for background, surface, text,

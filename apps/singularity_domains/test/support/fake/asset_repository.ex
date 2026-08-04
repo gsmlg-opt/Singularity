@@ -29,6 +29,15 @@ defmodule Fake.AssetRepository do
   end
 
   @impl true
+  def cancel_upload_grant(context, intent) do
+    Agent.get_and_update(repository(context), fn state ->
+      state = %{state | calls: [{:cancel_upload_grant, intent} | state.calls]}
+
+      {{:ok, intent}, state}
+    end)
+  end
+
+  @impl true
   def load_upload_grant_descriptor(context, intent) do
     Agent.get_and_update(repository(context), fn state ->
       state = %{state | calls: [{:load_upload_grant_descriptor, intent} | state.calls]}

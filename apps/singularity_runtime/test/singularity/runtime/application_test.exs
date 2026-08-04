@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.ApplicationTest do
   use ExUnit.Case, async: false
 
   alias Singularity.Runtime.Application, as: RuntimeApplication
+  alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.UploadReconciler
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.AuthorizationDependencies
@@ -29,9 +30,13 @@ defmodule Singularity.Runtime.ApplicationTest do
   alias Singularity.Storage.WorkerRepo
 
   test "pure tests opt out of every infrastructure child" do
-    assert RuntimeApplication.infrastructure_children(%{
-             start_infrastructure: false
-           }) == []
+    children =
+      RuntimeApplication.infrastructure_children(%{
+        start_infrastructure: false
+      })
+
+    assert children == []
+    refute AssetEvents.Registry in Enum.map(children, &child_id/1)
   end
 
   test "the observability handler is supervised even when infrastructure is disabled" do
@@ -49,6 +54,7 @@ defmodule Singularity.Runtime.ApplicationTest do
              Singularity.Storage.PreAuthRepo,
              Singularity.Storage.DispatcherRepo,
              Singularity.Storage.WorkerRepo,
+             Singularity.Runtime.AssetEvents.Registry,
              UploadReconciler,
              Singularity.Runtime.UploadRecoveryTaskSupervisor,
              Singularity.Runtime.KeyLeaseSupervisor,
@@ -204,6 +210,7 @@ defmodule Singularity.Runtime.ApplicationTest do
   test "runtime handler exposes the explicit asset and backup job bundle" do
     assert %{
              asset_deletions: AssetDeletionRepository,
+             asset_events: AssetEvents,
              assets: AssetRepository,
              authorize: Authorize,
              authorization: %AuthorizationDependencies{

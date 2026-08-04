@@ -20,6 +20,29 @@ config :phoenix, :json_library, JSON
 config :logger_json, :encoder, JSON
 config :postgrex, :json_library, JSON
 
+config :duskmoon_bundler,
+  root: "apps/singularity_web/assets",
+  sources: ["**/*.{js,ts,jsx,tsx}"]
+
+config :duskmoon_bundler, :singularity_web,
+  root: "apps/singularity_web/assets",
+  entry: "apps/singularity_web/assets/js/app.ts",
+  outdir: "apps/singularity_web/priv/static/assets",
+  resolve_dirs: ["apps", "deps"],
+  import_source: "react",
+  tailwind: [
+    css: "apps/singularity_web/assets/css/app.css",
+    sources: [
+      %{base: "apps/singularity_web/lib", pattern: "**/*.{ex,exs,heex}"},
+      %{base: "apps/singularity_web/assets", pattern: "**/*.{css,js,ts,jsx,tsx}"}
+    ]
+  ],
+  server: [
+    watch_dirs: ["apps/singularity_web/lib", "apps/singularity_web/assets"]
+  ]
+
+config :duskmoon_bundler_runtime, :singularity_web, outdir: "priv/static/assets"
+
 config :singularity_web,
   ecto_repos: [],
   generators: [context_app: false]

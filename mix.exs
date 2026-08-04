@@ -13,6 +13,7 @@ defmodule Singularity.Umbrella.MixProject do
         "singularity.test.integration": :test,
         "singularity.test.restore": :test
       ],
+      aliases: aliases(),
       deps: deps()
     ]
   end
@@ -24,5 +25,15 @@ defmodule Singularity.Umbrella.MixProject do
   # Run "mix help deps" for examples and options.
   defp deps do
     []
+  end
+
+  defp aliases do
+    [
+      "assets.build": ["duskmoon_bundler.build singularity_web --tailwind"],
+      "assets.deploy": [
+        "duskmoon_bundler.build singularity_web --tailwind",
+        "phx.digest"
+      ]
+    ]
   end
 end

@@ -13,6 +13,8 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   alias Singularity.Storage.Schema.Content.AssetSearchDocument
   alias Singularity.Storage.Schema.Content.Resource
   alias Singularity.Storage.Schema.Content.ResourceVersion
+  alias Singularity.Storage.Schema.Content.SourceReference
+  alias Singularity.Storage.Schema.Content.UploadGrant
 
   @states [
     :staging,
@@ -79,6 +81,213 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   end
 
   def delete(_repo, _attrs), do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def fetch(repo, %{vault_id: vault_id, asset_id: asset_id} = selector)
+      when map_size(selector) == 2 do
+    with :ok <- UUID.validate([vault_id, asset_id]) do
+      query = exact_query(vault_id, asset_id)
+
+      case repo.one(query) do
+        nil ->
+          {:error, Error.new(:not_found)}
+
+        document ->
+          case result_classification(document) do
+            classification when classification in [:private, :sensitive, :restricted] ->
+              {:ok, document_result(document)}
+
+            _invalid ->
+              {:error, Error.new(:integrity_failure)}
+          end
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def fetch(_repo, _selector), do: {:error, Error.new(:invalid)}
+
+  defp exact_query(vault_id, asset_id) do
+    bound_source_count =
+      from grant in UploadGrant,
+        where:
+          grant.asset_id == parent_as(:asset).id and
+            grant.vault_id == parent_as(:asset).vault_id and
+            not is_nil(grant.source_reference_id),
+        select: count(grant.source_reference_id, :distinct)
+
+    bound_to_source =
+      from grant in UploadGrant,
+        where:
+          grant.asset_id == parent_as(:asset).id and
+            grant.vault_id == parent_as(:asset).vault_id and
+            grant.source_reference_id == parent_as(:source).id,
+        select: 1
+
+    legacy_source_count =
+      from source in SourceReference,
+        where:
+          source.resource_version_id == parent_as(:asset).resource_version_id and
+            source.vault_id == parent_as(:asset).vault_id,
+        select: count(source.id)
+
+    canonical =
+      from asset in StoredAsset,
+        as: :asset,
+        join: resource_version in ResourceVersion,
+        as: :resource_version,
+        on:
+          resource_version.id == asset.resource_version_id and
+            resource_version.vault_id == asset.vault_id,
+        join: resource in Resource,
+        as: :resource,
+        on:
+          resource.id == resource_version.resource_id and
+            resource.vault_id == resource_version.vault_id,
+        join: source in SourceReference,
+        as: :source,
+        on:
+          source.resource_version_id == resource_version.id and
+            source.vault_id == resource_version.vault_id,
+        left_join: metadata in AssetMetadata,
+        as: :metadata,
+        on:
+          metadata.asset_id == asset.id and
+            metadata.vault_id == asset.vault_id,
+        where: asset.vault_id == ^vault_id,
+        where: asset.id == ^asset_id,
+        where:
+          (subquery(bound_source_count) == 1 and
+             exists(subquery(bound_to_source))) or
+            (subquery(bound_source_count) == 0 and
+               subquery(legacy_source_count) == 1),
+        where:
+          is_nil(metadata.id) or
+            metadata.resource_version_id == asset.resource_version_id
+
+    canonical = select(canonical, ^exact_projection())
+
+    from result in subquery(canonical),
+      where: not is_nil(result.canonical_classification_rank),
+      where:
+        fragment(
+          """
+          core.current_principal_can_discover_classification(
+            CASE ?
+              WHEN 0 THEN 'private'
+              WHEN 1 THEN 'sensitive'
+              WHEN 2 THEN 'restricted'
+              ELSE NULL
+            END
+          )
+          """,
+          result.canonical_classification_rank
+        ),
+      select: %{
+        asset_id: result.asset_id,
+        resource_version_id: result.resource_version_id,
+        vault_id: result.vault_id,
+        canonical_classification_rank: result.canonical_classification_rank,
+        state: result.state,
+        state_revision: result.state_revision,
+        failure_code: result.failure_code,
+        failure_retryable: result.failure_retryable,
+        failed_operation: result.failed_operation,
+        failure_attempt: result.failure_attempt,
+        detected_media_type: result.detected_media_type,
+        resource_title: result.resource_title,
+        original_filename: result.original_filename,
+        updated_at: result.updated_at
+      }
+  end
+
+  defp exact_projection do
+    dynamic(
+      [
+        asset: asset,
+        resource_version: resource_version,
+        resource: resource,
+        source: source,
+        metadata: metadata
+      ],
+      %{
+        asset_id: asset.id,
+        resource_version_id: asset.resource_version_id,
+        vault_id: asset.vault_id,
+        canonical_classification_rank:
+          fragment(
+            """
+            CASE
+              WHEN
+                (CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                        WHEN 'restricted' THEN 2 ELSE NULL END) IS NULL
+                OR
+                (CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                        WHEN 'restricted' THEN 2 ELSE NULL END) IS NULL
+                OR
+                (CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                        WHEN 'restricted' THEN 2 ELSE NULL END) IS NULL
+                OR
+                (CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                        WHEN 'restricted' THEN 2 ELSE NULL END) IS NULL
+                OR
+                (
+                  CASE
+                    WHEN ? IS NULL THEN 0
+                    ELSE CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                                WHEN 'restricted' THEN 2 ELSE NULL END
+                  END
+                ) IS NULL
+              THEN NULL
+              ELSE GREATEST(
+                CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                       WHEN 'restricted' THEN 2 END,
+                CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                       WHEN 'restricted' THEN 2 END,
+                CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                       WHEN 'restricted' THEN 2 END,
+                CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                       WHEN 'restricted' THEN 2 END,
+                CASE
+                  WHEN ? IS NULL THEN 0
+                  ELSE CASE ? WHEN 'private' THEN 0 WHEN 'sensitive' THEN 1
+                              WHEN 'restricted' THEN 2 END
+                END
+              )
+            END
+            """,
+            resource.classification,
+            resource_version.classification,
+            asset.classification,
+            source.classification,
+            metadata.id,
+            metadata.classification,
+            resource.classification,
+            resource_version.classification,
+            asset.classification,
+            source.classification,
+            metadata.id,
+            metadata.classification
+          ),
+        state: asset.state,
+        state_revision: asset.state_revision,
+        failure_code: asset.failure_code,
+        failure_retryable: asset.retryable?,
+        failed_operation: asset.failed_operation,
+        failure_attempt: asset.attempt,
+        detected_media_type: metadata.detected_media_type,
+        resource_title: resource.title,
+        original_filename:
+          fragment("COALESCE(?, ?)", metadata.original_filename, source.original_filename),
+        updated_at: asset.updated_at
+      }
+    )
+  end
 
   @impl true
   def search(repo, %{vault_id: vault_id} = filters) do
@@ -153,28 +362,32 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp valid_cursor?(_cursor), do: false
 
   defp search_query(vault_id, search, cursor) do
-    query =
-      from document in AssetSearchDocument,
-        join: asset in StoredAsset,
-        on:
-          asset.id == document.asset_id and
-            asset.resource_version_id == document.resource_version_id and
-            asset.vault_id == document.vault_id,
-        where: document.vault_id == ^vault_id,
-        where:
-          fragment(
-            "core.current_principal_can_discover_classification(?)",
-            document.classification
-          )
-
-    query
+    vault_id
+    |> base_query()
     |> state_filter(search.state)
     |> media_type_filter(search.media_type)
     |> text_search(search, cursor)
     |> limit(^(search.limit + 1))
   end
 
-  defp state_filter(query, nil), do: query
+  defp base_query(vault_id) do
+    from document in AssetSearchDocument,
+      join: asset in StoredAsset,
+      on:
+        asset.id == document.asset_id and
+          asset.resource_version_id == document.resource_version_id and
+          asset.vault_id == document.vault_id,
+      where: document.vault_id == ^vault_id,
+      where:
+        fragment(
+          "core.current_principal_can_discover_classification(?)",
+          document.classification
+        )
+  end
+
+  defp state_filter(query, nil) do
+    from [_document, asset] in query, where: asset.state != :deleted
+  end
 
   defp state_filter(query, state) do
     from [_document, asset] in query, where: asset.state == ^state
@@ -191,7 +404,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
     query = keyset_without_rank(query, cursor)
 
     from [document, asset] in query,
-      order_by: [desc: document.updated_at, asc: document.asset_id],
+      order_by: [desc: asset.updated_at, asc: document.asset_id],
       select: %{
         asset_id: document.asset_id,
         resource_version_id: document.resource_version_id,
@@ -206,7 +419,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
         detected_media_type: document.detected_media_type,
         resource_title: document.resource_title,
         original_filename: document.original_filename,
-        updated_at: document.updated_at,
+        updated_at: asset.updated_at,
         __rank__: nil
       }
   end
@@ -229,7 +442,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
             "ts_rank_cd(search_vector, websearch_to_tsquery('simple', ?))",
             ^query_text
           ),
-        desc: document.updated_at,
+        desc: asset.updated_at,
         asc: document.asset_id
       ],
       select: %{
@@ -246,7 +459,7 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
         detected_media_type: document.detected_media_type,
         resource_title: document.resource_title,
         original_filename: document.original_filename,
-        updated_at: document.updated_at,
+        updated_at: asset.updated_at,
         __rank__:
           fragment(
             "ts_rank_cd(search_vector, websearch_to_tsquery('simple', ?))",
@@ -258,17 +471,17 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
   defp keyset_without_rank(query, nil), do: query
 
   defp keyset_without_rank(query, cursor) do
-    from [document, _asset] in query,
+    from [document, asset] in query,
       where:
-        document.updated_at < ^cursor.updated_at or
-          (document.updated_at == ^cursor.updated_at and
+        asset.updated_at < ^cursor.updated_at or
+          (asset.updated_at == ^cursor.updated_at and
              document.asset_id > ^cursor.asset_id)
   end
 
   defp keyset_with_rank(query, _query_text, nil), do: query
 
   defp keyset_with_rank(query, query_text, cursor) do
-    from [document, _asset] in query,
+    from [document, asset] in query,
       where:
         fragment(
           """
@@ -287,11 +500,11 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
           ^cursor.rank,
           ^query_text,
           ^cursor.rank,
-          document.updated_at,
+          asset.updated_at,
           ^cursor.updated_at,
           ^query_text,
           ^cursor.rank,
-          document.updated_at,
+          asset.updated_at,
           ^cursor.updated_at,
           document.asset_id,
           ^cursor.dumped_asset_id
@@ -620,8 +833,19 @@ defmodule Singularity.Storage.Postgres.AssetSearchStore do
       :original_filename,
       :updated_at
     ])
+    |> Map.put(:classification, result_classification(document))
     |> Map.put(:failure, failure_result(document))
   end
+
+  defp result_classification(%{canonical_classification_rank: 0}), do: :private
+  defp result_classification(%{canonical_classification_rank: 1}), do: :sensitive
+  defp result_classification(%{canonical_classification_rank: 2}), do: :restricted
+
+  defp result_classification(%{classification: classification})
+       when classification in [:private, :sensitive, :restricted],
+       do: classification
+
+  defp result_classification(_document), do: nil
 
   defp failure_result(%{
          failure_code: nil,

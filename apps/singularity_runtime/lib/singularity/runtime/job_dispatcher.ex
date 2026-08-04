@@ -6,6 +6,7 @@ defmodule Singularity.Runtime.JobDispatcher do
   alias Singularity.Core.Error
   alias Singularity.Core.JobEnvelope
   alias Singularity.Runtime.Application, as: RuntimeApplication
+  alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.Cleanup
   alias Singularity.Runtime.Assets.ExtractMetadata
   alias Singularity.Runtime.Assets.Finalize
@@ -30,16 +31,16 @@ defmodule Singularity.Runtime.JobDispatcher do
 
   @impl true
   def handle(context, %{job_type: "asset_verify"} = envelope),
-    do: Verify.run(context, envelope)
+    do: run_asset_job(context, envelope, Verify)
 
   def handle(context, %{job_type: "asset_finalize"} = envelope),
-    do: Finalize.run(context, envelope)
+    do: run_asset_job(context, envelope, Finalize)
 
   def handle(context, %{job_type: "asset_metadata"} = envelope),
-    do: ExtractMetadata.run(context, envelope)
+    do: run_asset_job(context, envelope, ExtractMetadata)
 
   def handle(context, %{job_type: "asset_cleanup"} = envelope),
-    do: Cleanup.run(context, envelope)
+    do: run_asset_job(context, envelope, Cleanup)
 
   def handle(context, %{job_type: "object_cleanup"} = envelope),
     do: ObjectCleanup.run(context, envelope)
@@ -66,31 +67,34 @@ defmodule Singularity.Runtime.JobDispatcher do
         _attempt
       )
       when is_map(context) do
-    with assets when assets not in [nil, false] <-
-           Map.get(context, :assets),
-         authorization when authorization not in [nil, false] <-
-           Map.get(context, :authorization),
-         authorize when authorize not in [nil, false] <-
-           Map.get(context, :authorize),
-         transact when is_function(transact, 2) <-
-           Map.get(context, :transact) do
-      transact.([], fn repo ->
-        with :ok <-
-               authorize.check_job(
-                 authorization,
-                 repo,
-                 envelope
-               ) do
-          assets.record_metadata_exhaustion(
-            repo,
-            envelope,
-            failure
-          )
-        end
-      end)
-    else
-      _invalid -> {:error, Error.new(:invalid)}
-    end
+    result =
+      with assets when assets not in [nil, false] <-
+             Map.get(context, :assets),
+           authorization when authorization not in [nil, false] <-
+             Map.get(context, :authorization),
+           authorize when authorize not in [nil, false] <-
+             Map.get(context, :authorize),
+           transact when is_function(transact, 2) <-
+             Map.get(context, :transact) do
+        transact.([], fn repo ->
+          with :ok <-
+                 authorize.check_job(
+                   authorization,
+                   repo,
+                   envelope
+                 ) do
+            assets.record_metadata_exhaustion(
+              repo,
+              envelope,
+              failure
+            )
+          end
+        end)
+      else
+        _invalid -> {:error, Error.new(:invalid)}
+      end
+
+    notify_after_success(context, envelope, result)
   rescue
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   catch
@@ -140,31 +144,34 @@ defmodule Singularity.Runtime.JobDispatcher do
              "asset_finalize",
              "asset_cleanup"
            ] and is_map(context) do
-    with assets when assets not in [nil, false] <-
-           Map.get(context, :assets),
-         authorization when authorization not in [nil, false] <-
-           Map.get(context, :authorization),
-         authorize when authorize not in [nil, false] <-
-           Map.get(context, :authorize),
-         transact when is_function(transact, 2) <-
-           Map.get(context, :transact) do
-      transact.([], fn repo ->
-        with :ok <-
-               authorize.check_job(
-                 authorization,
-                 repo,
-                 envelope
-               ) do
-          assets.record_job_failure(
-            repo,
-            envelope,
-            failure
-          )
-        end
-      end)
-    else
-      _invalid -> {:error, Error.new(:invalid)}
-    end
+    result =
+      with assets when assets not in [nil, false] <-
+             Map.get(context, :assets),
+           authorization when authorization not in [nil, false] <-
+             Map.get(context, :authorization),
+           authorize when authorize not in [nil, false] <-
+             Map.get(context, :authorize),
+           transact when is_function(transact, 2) <-
+             Map.get(context, :transact) do
+        transact.([], fn repo ->
+          with :ok <-
+                 authorize.check_job(
+                   authorization,
+                   repo,
+                   envelope
+                 ) do
+            assets.record_job_failure(
+              repo,
+              envelope,
+              failure
+            )
+          end
+        end)
+      else
+        _invalid -> {:error, Error.new(:invalid)}
+      end
+
+    notify_after_success(context, envelope, result)
   rescue
     _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
   catch
@@ -174,6 +181,70 @@ defmodule Singularity.Runtime.JobDispatcher do
 
   def handle_failure(_context, _envelope, _failure, _attempt),
     do: {:error, Error.new(:invalid)}
+
+  defp run_asset_job(context, envelope, handler) do
+    context
+    |> handler.run(envelope)
+    |> then(&notify_after_success(context, envelope, &1))
+  end
+
+  defp notify_after_success(context, envelope, :ok = result) do
+    publish_asset_change(context, envelope)
+    result
+  end
+
+  defp notify_after_success(context, envelope, {:ok, _value} = result) do
+    publish_asset_change(context, envelope)
+    result
+  end
+
+  defp notify_after_success(
+         context,
+         envelope,
+         {:snooze, seconds} = result
+       )
+       when is_integer(seconds) and seconds > 0 do
+    publish_asset_change(context, envelope)
+    result
+  end
+
+  defp notify_after_success(_context, _envelope, result), do: result
+
+  defp publish_asset_change(
+         context,
+         %{
+           vault_id: vault_id,
+           payload: %{"asset_id" => asset_id}
+         }
+       )
+       when is_map(context) do
+    events = Map.get(context, :asset_events, AssetEvents)
+
+    with true <- events not in [nil, false],
+         {:ok, vault_id} <- Ecto.UUID.cast(vault_id),
+         {:ok, asset_id} <- Ecto.UUID.cast(asset_id) do
+      _notification =
+        call_adapter(events, :publish, [vault_id, asset_id])
+
+      :ok
+    else
+      _invalid -> :ok
+    end
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp publish_asset_change(_context, _envelope), do: :ok
+
+  defp call_adapter(module, function, arguments)
+       when is_atom(module) and not is_nil(module),
+       do: apply(module, function, arguments)
+
+  defp call_adapter({module, adapter_context}, function, arguments)
+       when is_atom(module) and not is_nil(module),
+       do: apply(module, function, [adapter_context | arguments])
 
   defp custody_adapter({module, _context} = adapter)
        when is_atom(module) and not is_nil(module),

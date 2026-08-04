@@ -36,7 +36,7 @@ defmodule Singularity.Core.PortsTest do
     KeyDeriver => [derive: 3],
     KeyWrapper => [unwrap: 3, wrap: 3],
     AuditSink => [append: 2],
-    AssetSearchStore => [delete: 2, search: 2, upsert: 2],
+    AssetSearchStore => [delete: 2, fetch: 2, search: 2, upsert: 2],
     Clock => [utc_now: 1],
     IdGenerator => [generate: 1]
   }

@@ -7,6 +7,7 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
   alias Singularity.Runtime.SessionContext
 
   @grant_ttl_seconds 300
+  @request_fields [:declared_media_type, :filename, :idempotency_key, :size]
 
   @spec run(map(), SessionContext.t(), map(), binary()) ::
           {:ok, map()} | {:error, Error.t()}
@@ -14,10 +15,7 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
       when is_map(runtime) and is_map(attrs) and is_binary(csrf_token) do
     with {:ok, adapters} <- adapters(runtime),
          {:ok, csrf_token_digest} <- csrf_token_digest(csrf_token),
-         {:ok, request} <-
-           attrs
-           |> Map.put(:max_bytes, max_upload_bytes())
-           |> UploadRequest.new(),
+         {:ok, request} <- request(attrs),
          {:ok, token} <- token(adapters.random_bytes),
          {:ok, ids} <- ids(adapters.id_generator),
          now when is_struct(now, DateTime) <- adapters.clock.(),
@@ -35,15 +33,17 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
                    grant_id: ids.grant_id,
                    asset_id: ids.asset_id,
                    source_reference_id: ids.source_reference_id,
+                   resource_id: ids.resource_id,
+                   resource_version_id: ids.resource_version_id,
+                   server_owned_resource?: true,
                    session_id: session.session_id,
                    principal_id: session.principal_id,
                    vault_id: session.vault_id,
-                   resource_version_id: request.resource_version_id,
                    filename: request.filename,
                    byte_size: request.size,
                    declared_media_type: request.declared_media_type,
                    idempotency_key: request.idempotency_key,
-                   classification: request.classification,
+                   classification: :private,
                    token_digest: :crypto.hash(:sha256, token),
                    csrf_token_digest: csrf_token_digest,
                    expires_at: expires_at,
@@ -68,10 +68,10 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
           {:error, Error.t()}
   def run(_runtime, _session, _attrs), do: {:error, Error.new(:invalid)}
 
-  defp requirement(request) do
+  defp requirement(_request) do
     %{
       required_capability: "asset.write",
-      classification: request.classification,
+      classification: :private,
       requires_unlocked?: true
     }
   end
@@ -79,7 +79,12 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
   defp attach_token({:ok, grant}, token) when is_map(grant) do
     {:ok,
      grant
-     |> Map.drop([:token_digest, "token_digest"])
+     |> Map.drop([
+       :token_digest,
+       :csrf_token_digest,
+       "token_digest",
+       "csrf_token_digest"
+     ])
      |> Map.put(:token, Base.url_encode64(token, padding: false))}
   end
 
@@ -104,7 +109,9 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
     ids = %{
       grant_id: id_generator.(),
       asset_id: id_generator.(),
-      source_reference_id: id_generator.()
+      source_reference_id: id_generator.(),
+      resource_id: id_generator.(),
+      resource_version_id: id_generator.()
     }
 
     if Enum.all?(Map.values(ids), &match?({:ok, _}, Ecto.UUID.cast(&1))) do
@@ -153,6 +160,16 @@ defmodule Singularity.Runtime.Assets.CreateUploadGrant do
 
   defp max_upload_bytes do
     Application.get_env(:singularity_runtime, :max_upload_bytes, 512 * 1024 * 1024)
+  end
+
+  defp request(attrs) do
+    if Enum.sort(Map.keys(attrs)) == Enum.sort(@request_fields) do
+      attrs
+      |> Map.put(:max_bytes, max_upload_bytes())
+      |> UploadRequest.new()
+    else
+      {:error, Error.new(:invalid)}
+    end
   end
 
   defp call_adapter(module, function, arguments)

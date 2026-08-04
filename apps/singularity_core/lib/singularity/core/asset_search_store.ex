@@ -8,6 +8,7 @@ defmodule Singularity.Core.AssetSearchStore do
 
   @callback upsert(context(), map()) :: :ok | {:error, Error.t()}
   @callback delete(context(), map()) :: :ok | {:error, Error.t()}
+  @callback fetch(context(), map()) :: {:ok, map()} | {:error, Error.t()}
   @callback search(context(), map()) ::
               {:ok, {[map()], cursor()}} | {:error, Error.t()}
 end

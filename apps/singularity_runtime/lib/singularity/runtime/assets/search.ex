@@ -38,6 +38,40 @@ defmodule Singularity.Runtime.Assets.Search do
   def run(_runtime, _session, _params),
     do: {:error, Error.new(:invalid)}
 
+  @spec fetch(map(), SessionContext.t(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def fetch(runtime, %SessionContext{} = session, asset_id)
+      when is_map(runtime) and is_binary(asset_id) do
+    with {:ok, ^asset_id} <- Ecto.UUID.cast(asset_id),
+         {:ok, adapters} <- adapters(runtime) do
+      call_adapter(adapters.operation_scope, :with_read_request, [
+        runtime,
+        session,
+        requirement(session),
+        fn repo ->
+          call_adapter(adapters.asset_search, :fetch, [
+            adapters.asset_search_store,
+            repo,
+            session.vault_id,
+            asset_id
+          ])
+        end
+      ])
+    else
+      :error -> {:error, Error.new(:invalid)}
+      {:ok, _other_asset_id} -> {:error, Error.new(:invalid)}
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    _error -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  catch
+    _kind, _reason ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def fetch(_runtime, _session, _asset_id),
+    do: {:error, Error.new(:invalid)}
+
   defp bind_vault(params, vault_id) do
     with {:ok, params} <- Types.attrs(params),
          :ok <- validate_supplied_vault(params, vault_id) do

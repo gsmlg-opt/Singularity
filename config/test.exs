@@ -1,7 +1,10 @@
 import Config
 
+config :duskmoon_bundler, :singularity_web, server: [vendor_prebundle: false]
+
 config :singularity_web, Singularity.Web.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
+  code_reloader: true,
   secret_key_base:
     "test-secret-key-base-for-singularity-web-vault-shell-00000000000000000000000000000",
   server: false

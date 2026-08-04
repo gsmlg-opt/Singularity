@@ -32,6 +32,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Storage.Schema.Core.OutboxEvent
   alias Singularity.Storage.Schema.Jobs.EffectReceipt
   alias Singularity.Storage.Postgres.CustodyRepository
+  alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.UUID
   alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.Postgres.AssetSearchStore
@@ -40,6 +41,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   @metadata_result_keys ~w[
     detected_media_type plaintext_bytes width height pdf_version extractor_version
   ]
+  @searchable_asset_states [:staging, :uploaded, :verified, :available, :processing, :ready]
   @raw_upload_secret_aliases [
     :token,
     :upload_token,
@@ -69,7 +71,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       |> repo.transaction()
       |> case do
         {:ok, %{grant: grant, source: source}} ->
-          {:ok, upload_grant_result(grant, source, command)}
+          {:ok, upload_grant_result(grant, source)}
 
         {:error, _operation, %Error{} = error, _changes} ->
           {:error, error}
@@ -90,6 +92,55 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   def create_upload_grant(_repo, _command),
+    do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def cancel_upload_grant(repo, command) when is_map(command) do
+    with :ok <- validate_upload_grant_cancellation(command) do
+      Multi.new()
+      |> Multi.run(:grant, fn transaction_repo, _changes ->
+        lock_upload_grant_cancellation(transaction_repo, command)
+      end)
+      |> Multi.run(:mode, fn _transaction_repo, %{grant: grant} ->
+        upload_grant_cancellation_mode(grant)
+      end)
+      |> Multi.merge(fn
+        %{grant: grant, mode: :apply} ->
+          apply_upload_grant_cancellation(grant, command)
+
+        %{grant: grant, mode: status}
+        when status in [:cancelled, :in_progress, :retired] ->
+          Multi.put(Multi.new(), :result, %{
+            status: status,
+            grant_id: grant.id,
+            asset_id: grant.asset_id,
+            vault_id: grant.vault_id
+          })
+      end)
+      |> repo.transaction()
+      |> case do
+        {:ok, %{result: result}} ->
+          {:ok, result}
+
+        {:error, _operation, %Error{} = error, _changes} ->
+          {:error, error}
+
+        {:error, _operation, %Ecto.Changeset{} = changeset, _changes} ->
+          {:error, changeset_error(changeset)}
+
+        {:error, _operation, _reason, _changes} ->
+          {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
+    end
+  rescue
+    _error in [Ecto.Query.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    error in [Ecto.ConstraintError, Postgrex.Error] ->
+      {:error, database_error(error)}
+  end
+
+  def cancel_upload_grant(_repo, _command),
     do: {:error, Error.new(:invalid)}
 
   @impl true
@@ -243,6 +294,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
           where:
             grant.id == ^grant_id and
               is_nil(grant.consumed_at) and
+              is_nil(grant.retired_at) and
               grant.expires_at > fragment("statement_timestamp()"),
           update: [set: [consumed_at: fragment("statement_timestamp()")]],
           select: grant.consumed_at
@@ -254,8 +306,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
         {0, _rows} ->
           case repo.get(UploadGrant, grant_id) do
-            nil -> {:error, Error.new(:not_found)}
-            %UploadGrant{} -> {:error, Error.new(:conflict)}
+            nil ->
+              {:error, Error.new(:not_found)}
+
+            %UploadGrant{retired_at: %DateTime{}, consumed_at: nil} ->
+              {:error, Error.new(:upload_expired)}
+
+            %UploadGrant{} ->
+              {:error, Error.new(:conflict)}
           end
       end
     end
@@ -760,7 +818,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     end
   end
 
-  defp rebuild_locked_search_document(repo, asset_id, %{state: :ready, vault_id: vault_id}) do
+  defp rebuild_locked_search_document(repo, asset_id, %{
+         state: state,
+         vault_id: vault_id
+       })
+       when state in @searchable_asset_states do
     case canonical_search_document(repo, asset_id) do
       {:ok, attrs} ->
         AssetSearchStore.upsert(repo, attrs)
@@ -3491,8 +3553,32 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   defp canonical_search_document(repo, asset_id) do
+    bound_source_count =
+      from grant in UploadGrant,
+        where:
+          grant.asset_id == parent_as(:asset).id and
+            grant.vault_id == parent_as(:asset).vault_id and
+            not is_nil(grant.source_reference_id),
+        select: count(grant.source_reference_id, :distinct)
+
+    bound_to_source =
+      from grant in UploadGrant,
+        where:
+          grant.asset_id == parent_as(:asset).id and
+            grant.vault_id == parent_as(:asset).vault_id and
+            grant.source_reference_id == parent_as(:source).id,
+        select: 1
+
+    legacy_source_count =
+      from source in SourceReference,
+        where:
+          source.resource_version_id == parent_as(:asset).resource_version_id and
+            source.vault_id == parent_as(:asset).vault_id,
+        select: count(source.id)
+
     query =
       from asset in StoredAsset,
+        as: :asset,
         join: resource_version in ResourceVersion,
         on:
           resource_version.id == asset.resource_version_id and
@@ -3501,14 +3587,26 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         on:
           resource.id == resource_version.resource_id and
             resource.vault_id == resource_version.vault_id,
-        join: metadata in AssetMetadata,
+        join: source in SourceReference,
+        as: :source,
+        on:
+          source.resource_version_id == resource_version.id and
+            source.vault_id == resource_version.vault_id,
+        left_join: metadata in AssetMetadata,
         on:
           metadata.asset_id == asset.id and
             metadata.resource_version_id == asset.resource_version_id and
             metadata.vault_id == asset.vault_id,
         where: asset.id == ^asset_id,
-        where: asset.state == :ready,
-        where: metadata.extraction_state == :completed,
+        where: asset.state in ^@searchable_asset_states,
+        where:
+          (subquery(bound_source_count) == 1 and
+             exists(subquery(bound_to_source))) or
+            (subquery(bound_source_count) == 0 and
+               subquery(legacy_source_count) == 1),
+        where:
+          asset.state != :ready or
+            (not is_nil(metadata.id) and metadata.extraction_state == :completed),
         select: %{
           asset_id: asset.id,
           resource_version_id: resource_version.id,
@@ -3517,20 +3615,15 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
             resource.classification,
             resource_version.classification,
             asset.classification,
+            source.classification,
             metadata.classification
           ],
           state: asset.state,
           detected_media_type: metadata.detected_media_type,
           resource_title: resource.title,
-          original_filename: metadata.original_filename,
-          updated_at:
-            fragment(
-              "GREATEST(?, ?, ?, ?)",
-              asset.updated_at,
-              resource_version.updated_at,
-              resource.updated_at,
-              metadata.updated_at
-            )
+          original_filename:
+            fragment("COALESCE(?, ?)", metadata.original_filename, source.original_filename),
+          updated_at: asset.updated_at
         }
 
     case repo.one(query) do
@@ -3548,6 +3641,8 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   end
 
   defp strictest_classification(classifications) when is_list(classifications) do
+    classifications = Enum.reject(classifications, &is_nil/1)
+
     ranks =
       Classification.values()
       |> Enum.with_index()
@@ -3711,6 +3806,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         grant.asset_id == command.asset_id and
         grant.classification == command.classification and
         not is_nil(grant.consumed_at) and
+        is_nil(grant.retired_at) and
         grant.principal_authorization_epoch ==
           authorization_epochs.principal_authorization_epoch and
         grant.vault_authorization_epoch ==
@@ -3854,6 +3950,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         where:
           grant.id == ^grant_id and
             grant.principal_id == ^principal_id and
+            is_nil(grant.retired_at) and
             grant.principal_id ==
               fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid"),
         lock: "FOR UPDATE"
@@ -3941,6 +4038,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         grant.classification == command.classification and
         grant.byte_size == command.plaintext_byte_size and
         not is_nil(grant.consumed_at) and
+        is_nil(grant.retired_at) and
         grant.principal_authorization_epoch ==
           authorization_epochs.principal_authorization_epoch and
         grant.vault_authorization_epoch ==
@@ -4147,6 +4245,133 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp validate_tombstone_ids(_intent), do: {:error, Error.new(:invalid)}
 
+  defp validate_upload_grant_cancellation(
+         %{
+           grant_id: grant_id,
+           session_id: session_id,
+           principal_id: principal_id,
+           vault_id: vault_id
+         } = command
+       ) do
+    if Enum.sort(Map.keys(command)) ==
+         Enum.sort([:grant_id, :session_id, :principal_id, :vault_id]) do
+      UUID.validate([grant_id, session_id, principal_id, vault_id])
+    else
+      {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp validate_upload_grant_cancellation(_command),
+    do: {:error, Error.new(:invalid)}
+
+  defp lock_upload_grant_cancellation(repo, command) do
+    query =
+      from grant in UploadGrant,
+        where:
+          grant.id == ^command.grant_id and
+            grant.session_id == ^command.session_id and
+            grant.principal_id == ^command.principal_id and
+            grant.vault_id == ^command.vault_id and
+            grant.principal_id ==
+              fragment("NULLIF(current_setting('singularity.principal_id', true), '')::uuid") and
+            grant.vault_id ==
+              fragment("NULLIF(current_setting('singularity.vault_id', true), '')::uuid"),
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %UploadGrant{} = grant -> {:ok, grant}
+      nil -> {:error, Error.new(:not_found)}
+    end
+  end
+
+  defp upload_grant_cancellation_mode(%UploadGrant{
+         consumed_at: nil,
+         cancelled_at: %DateTime{},
+         retired_at: %DateTime{}
+       }),
+       do: {:ok, :cancelled}
+
+  defp upload_grant_cancellation_mode(%UploadGrant{consumed_at: %DateTime{}}),
+    do: {:ok, :in_progress}
+
+  defp upload_grant_cancellation_mode(%UploadGrant{
+         consumed_at: nil,
+         retired_at: %DateTime{}
+       }),
+       do: {:ok, :retired}
+
+  defp upload_grant_cancellation_mode(%UploadGrant{
+         consumed_at: nil,
+         retired_at: nil,
+         cancelled_at: nil
+       }),
+       do: {:ok, :apply}
+
+  defp upload_grant_cancellation_mode(_grant),
+    do: {:error, Error.new(:conflict)}
+
+  defp apply_upload_grant_cancellation(grant, command) do
+    Multi.new()
+    |> Multi.run(:cancelled_grant, fn repo, _changes ->
+      cancel_locked_upload_grant(repo, grant)
+    end)
+    |> Multi.run(:tombstoned_asset, fn repo, _changes ->
+      AssetDeletionRepository.tombstone_and_release(repo, %{
+        asset_id: grant.asset_id,
+        vault_id: command.vault_id,
+        principal_id: command.principal_id,
+        classification: grant.classification,
+        expected_state_revision: 0,
+        locked_object_id: nil
+      })
+    end)
+    |> Multi.run(:removed_projection, fn repo, _changes ->
+      case AssetSearchStore.delete(repo, %{
+             asset_id: grant.asset_id,
+             vault_id: command.vault_id
+           }) do
+        :ok -> {:ok, :deleted}
+        {:error, %Error{}} = error -> error
+      end
+    end)
+    |> Multi.put(:result, %{
+      status: :cancelled,
+      grant_id: grant.id,
+      asset_id: grant.asset_id,
+      vault_id: grant.vault_id
+    })
+  end
+
+  defp cancel_locked_upload_grant(repo, grant) do
+    case SafeSQL.query(
+           repo,
+           """
+           UPDATE content.upload_grants
+           SET
+             cancelled_at = statement_timestamp(),
+             retired_at = statement_timestamp()
+           WHERE id = $1
+             AND vault_id = $2
+             AND consumed_at IS NULL
+             AND retired_at IS NULL
+             AND cancelled_at IS NULL
+           RETURNING cancelled_at, retired_at
+           """,
+           [Ecto.UUID.dump!(grant.id), Ecto.UUID.dump!(grant.vault_id)],
+           log: false
+         ) do
+      {:ok, %{rows: [[%DateTime{} = cancelled_at, %DateTime{} = retired_at]]}}
+      when cancelled_at == retired_at ->
+        {:ok, :cancelled}
+
+      {:ok, _not_current} ->
+        {:error, Error.new(:conflict)}
+
+      {:error, _reason} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
   defp validate_upload_grant_selector(
          %{
            grant_id: grant_id,
@@ -4221,6 +4446,12 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
       not authorization_matches? ->
         {:error, Error.new(:not_found)}
+
+      not is_nil(grant.retired_at) and is_nil(grant.consumed_at) ->
+        {:error, Error.new(:upload_expired)}
+
+      not is_nil(grant.retired_at) ->
+        {:error, Error.new(:conflict)}
 
       not is_nil(grant.consumed_at) ->
         {:error, Error.new(:conflict)}
@@ -4386,6 +4617,12 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       not exact_identity_binding? ->
         {:error, Error.new(:conflict)}
 
+      not is_nil(grant.retired_at) and is_nil(grant.consumed_at) ->
+        {:error, Error.new(:upload_expired)}
+
+      not is_nil(grant.retired_at) ->
+        {:error, Error.new(:conflict)}
+
       not is_nil(grant.consumed_at) ->
         {:error, Error.new(:conflict)}
 
@@ -4409,6 +4646,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         where:
           grant.id == ^grant_id and
             is_nil(grant.consumed_at) and
+            is_nil(grant.retired_at) and
             grant.expires_at > fragment("statement_timestamp()"),
         update: [set: [consumed_at: fragment("statement_timestamp()")]]
 
@@ -4434,13 +4672,15 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
             grant.vault_id ==
               fragment("NULLIF(current_setting('singularity.vault_id', true), '')::uuid"),
         select:
-          {not is_nil(grant.consumed_at),
+          {not is_nil(grant.retired_at), not is_nil(grant.consumed_at),
            fragment("? <= statement_timestamp()", grant.expires_at)}
 
     case repo.one(state) do
-      {true, _expired?} -> {:error, Error.new(:conflict)}
-      {false, true} -> {:error, Error.new(:upload_expired)}
-      {false, false} -> {:error, Error.new(:conflict)}
+      {true, false, _expired?} -> {:error, Error.new(:upload_expired)}
+      {true, true, _expired?} -> {:error, Error.new(:conflict)}
+      {false, true, _expired?} -> {:error, Error.new(:conflict)}
+      {false, false, true} -> {:error, Error.new(:upload_expired)}
+      {false, false, false} -> {:error, Error.new(:conflict)}
       nil -> {:error, Error.new(:conflict)}
     end
   end
@@ -4532,6 +4772,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
          true <- valid_text?(declared_media_type),
          true <- valid_text?(idempotency_key),
          true <- classification in [:private, :sensitive, :restricted],
+         :ok <- validate_upload_resource_authority(command),
          true <- is_binary(token_digest) and byte_size(token_digest) == 32,
          true <-
            is_binary(csrf_token_digest) and byte_size(csrf_token_digest) == 32,
@@ -4548,6 +4789,22 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp validate_upload_grant_command(_command),
     do: {:error, Error.new(:invalid)}
+
+  defp validate_upload_resource_authority(%{
+         server_owned_resource?: true,
+         resource_id: resource_id,
+         classification: :private
+       }),
+       do: UUID.validate(resource_id)
+
+  defp validate_upload_resource_authority(command) do
+    if Map.has_key?(command, :server_owned_resource?) or
+         Map.has_key?(command, :resource_id) do
+      {:error, Error.new(:invalid)}
+    else
+      :ok
+    end
+  end
 
   defp lock_upload_grant_idempotency(repo, command) do
     lock_key = command.vault_id <> ":" <> command.idempotency_key
@@ -4574,12 +4831,52 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       from grant in UploadGrant,
         where:
           grant.vault_id == ^command.vault_id and
-            grant.idempotency_key == ^command.idempotency_key,
+            grant.idempotency_key == ^command.idempotency_key and
+            is_nil(grant.retired_at),
         order_by: [desc: grant.inserted_at, desc: grant.id],
         limit: 1,
         lock: "FOR UPDATE"
 
     {:ok, repo.one(query)}
+  end
+
+  defp new_upload_grant_multi(%{server_owned_resource?: true} = command) do
+    Multi.new()
+    |> Multi.put(:resource_classification, :private)
+    |> Multi.put(:classification, :private)
+    |> Multi.run(:authorization_epochs, fn repo, _changes ->
+      authorization_epochs(repo, command.principal_id, command.vault_id)
+    end)
+    |> Multi.run(:valid_expiry, fn repo, _changes ->
+      validate_server_expiry(repo, command.expires_at)
+    end)
+    |> Multi.insert(
+      :resource,
+      Resource.create_changeset(%Resource{}, %{
+        id: command.resource_id,
+        vault_id: command.vault_id,
+        classification: :private,
+        title: command.filename,
+        metadata: %{}
+      })
+    )
+    |> Multi.insert(
+      :resource_version,
+      ResourceVersion.create_changeset(%ResourceVersion{}, %{
+        id: command.resource_version_id,
+        resource_id: command.resource_id,
+        vault_id: command.vault_id,
+        classification: :private,
+        revision: 0
+      })
+    )
+    |> append_new_upload_grant(command)
+    |> Multi.run(:search_document, fn repo, %{asset: asset} ->
+      case rebuild_search_document(repo, asset.id) do
+        :ok -> {:ok, :created}
+        {:error, %Error{}} = error -> error
+      end
+    end)
   end
 
   defp new_upload_grant_multi(command) do
@@ -4596,6 +4893,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     |> Multi.run(:valid_expiry, fn repo, _changes ->
       validate_server_expiry(repo, command.expires_at)
     end)
+    |> append_new_upload_grant(command)
+  end
+
+  defp append_new_upload_grant(multi, command) do
+    multi
     |> Multi.insert(
       :asset,
       StoredAsset.create_changeset(%StoredAsset{}, %{
@@ -4646,8 +4948,14 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     |> Multi.run(:replay_asset, fn repo, _changes ->
       validate_upload_grant_replay(repo, grant, command)
     end)
-    |> Multi.run(:resource_classification, fn repo, _changes ->
-      lock_resource_version_classification(repo, command)
+    |> Multi.run(:resource_classification, fn repo,
+                                              %{
+                                                replay_asset: %{asset: asset}
+                                              } ->
+      lock_resource_version_classification(repo, %{
+        resource_version_id: asset.resource_version_id,
+        vault_id: asset.vault_id
+      })
     end)
     |> Multi.run(:classification, fn _repo, %{resource_classification: canonical} ->
       validate_upload_grant_classification(canonical, command.classification)
@@ -4658,11 +4966,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     |> Multi.run(:valid_expiry, fn repo, _changes ->
       validate_server_expiry(repo, command.expires_at)
     end)
-    |> Multi.run(:source, fn repo, _changes ->
-      fetch_upload_grant_source(repo, grant, command)
+    |> Multi.run(:source, fn repo, %{replay_asset: replay} ->
+      fetch_upload_grant_source(repo, grant, command, replay.asset)
     end)
-    |> Multi.run(:resource_asset, fn repo, _changes ->
-      validate_upload_grant_resource_asset(repo, grant, command)
+    |> Multi.run(:resource_asset, fn repo, %{replay_asset: replay} ->
+      validate_upload_grant_resource_asset(repo, grant, command, replay.asset)
     end)
     |> Multi.run(:grant, fn repo,
                             %{
@@ -4703,8 +5011,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
 
   defp validate_upload_grant_replay(repo, grant, command) do
     exact_grant? =
-      grant.session_id == command.session_id and
-        grant.principal_id == command.principal_id and
+      grant.principal_id == command.principal_id and
         grant.vault_id == command.vault_id and
         grant.filename == command.filename and
         grant.byte_size == command.byte_size and
@@ -4712,68 +5019,99 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         grant.idempotency_key == command.idempotency_key and
         grant.classification == command.classification
 
-    if exact_grant? do
-      query =
-        from asset in StoredAsset,
-          where:
-            asset.id == ^grant.asset_id and
-              asset.vault_id == ^command.vault_id,
-          lock: "FOR SHARE"
-
-      case repo.one(query) do
-        %StoredAsset{
-          resource_version_id: resource_version_id,
-          classification: classification,
-          state: :staging,
-          state_revision: 0
-        } = asset
-        when resource_version_id == command.resource_version_id and
-               classification == command.classification ->
-          upload_grant_replay_mode(repo, grant, command, asset)
-
-        %StoredAsset{} ->
-          {:error, Error.new(:conflict)}
-
-        nil ->
-          {:error, Error.new(:conflict)}
-      end
+    with true <- exact_grant?,
+         {:ok, mode} <- upload_grant_replay_mode(repo, grant),
+         {:ok, asset} <- lock_upload_grant_replay_asset(repo, grant, command) do
+      {:ok, %{asset: asset, mode: mode}}
     else
-      {:error, Error.new(:conflict)}
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
     end
   end
 
-  defp upload_grant_replay_mode(_repo, %UploadGrant{consumed_at: nil}, _command, _asset),
-    do: {:error, Error.new(:conflict)}
+  defp upload_grant_replay_mode(repo, %UploadGrant{consumed_at: nil} = grant) do
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT expires_at <= statement_timestamp()
+           FROM content.upload_grants
+           WHERE id = $1 AND vault_id = $2 AND retired_at IS NULL
+           """,
+           [Ecto.UUID.dump!(grant.id), Ecto.UUID.dump!(grant.vault_id)],
+           log: false
+         ) do
+      {:ok, %{rows: [[true]]}} ->
+        {:ok, :replace_expired}
 
-  defp upload_grant_replay_mode(repo, grant, command, asset) do
-    abandoned_attempt =
+      {:ok, %{rows: [[false]]}} ->
+        {:error, Error.new(:conflict)}
+
+      {:ok, _missing_or_invalid} ->
+        {:error, Error.new(:conflict)}
+
+      {:error, _reason} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp upload_grant_replay_mode(repo, grant) do
+    stage_query =
       from stage in AssetStage,
         where:
           stage.upload_grant_id == ^grant.id and
             stage.asset_id == ^grant.asset_id and
             stage.vault_id == ^grant.vault_id and
-            stage.state == :abandoned
+            not is_nil(stage.upload_grant_id),
+        lock: "FOR UPDATE"
 
-    conflicting_attempt =
-      from other in UploadGrant,
-        left_join: stage in AssetStage,
-        on:
-          stage.upload_grant_id == other.id and
-            stage.vault_id == other.vault_id,
-        where:
-          other.id != ^grant.id and
-            other.vault_id == ^command.vault_id and
-            other.idempotency_key == ^command.idempotency_key and
-            (is_nil(other.consumed_at) or stage.state in [:open, :sealed])
-
-    if repo.exists?(abandoned_attempt) and not repo.exists?(conflicting_attempt) do
-      {:ok, %{asset: asset, mode: :replace}}
-    else
-      {:error, Error.new(:conflict)}
+    case repo.one(stage_query) do
+      %AssetStage{state: :abandoned} -> {:ok, :replace_abandoned}
+      %AssetStage{} -> {:error, Error.new(:conflict)}
+      nil -> {:error, Error.new(:conflict)}
     end
   end
 
-  defp fetch_upload_grant_source(repo, grant, command) do
+  defp lock_upload_grant_replay_asset(repo, grant, command) do
+    query =
+      from asset in StoredAsset,
+        where:
+          asset.id == ^grant.asset_id and
+            asset.vault_id == ^command.vault_id,
+        lock: "FOR UPDATE"
+
+    case repo.one(query) do
+      %StoredAsset{
+        classification: classification,
+        state: :staging,
+        state_revision: 0
+      } = asset
+      when classification == command.classification ->
+        validate_replay_resource_authority(asset, command)
+
+      %StoredAsset{} ->
+        {:error, Error.new(:conflict)}
+
+      nil ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_replay_resource_authority(
+         asset,
+         %{server_owned_resource?: true}
+       ),
+       do: {:ok, asset}
+
+  defp validate_replay_resource_authority(
+         %{resource_version_id: resource_version_id} = asset,
+         %{resource_version_id: resource_version_id}
+       ),
+       do: {:ok, asset}
+
+  defp validate_replay_resource_authority(_asset, _command),
+    do: {:error, Error.new(:conflict)}
+
+  defp fetch_upload_grant_source(repo, grant, command, asset) do
     idempotency_digest = :crypto.hash(:sha256, command.idempotency_key)
 
     query =
@@ -4781,7 +5119,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         where:
           source.id == ^grant.source_reference_id and
             source.vault_id == ^command.vault_id and
-            source.resource_version_id == ^command.resource_version_id and
+            source.resource_version_id == ^asset.resource_version_id and
             source.principal_id == ^command.principal_id and
             source.classification == ^command.classification and
             source.kind == :browser_upload and
@@ -4796,11 +5134,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     end
   end
 
-  defp validate_upload_grant_resource_asset(repo, grant, command) do
+  defp validate_upload_grant_resource_asset(repo, grant, command, asset) do
     query =
       from reference in ResourceAsset,
         where:
-          reference.resource_version_id == ^command.resource_version_id and
+          reference.resource_version_id == ^asset.resource_version_id and
             reference.asset_id == ^grant.asset_id and
             reference.vault_id == ^command.vault_id and
             reference.classification == ^command.classification and
@@ -4816,11 +5154,11 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
          grant,
          command,
          authorization_epochs,
-         %{mode: :replace}
+         %{mode: mode}
        ) do
-    if command.grant_id == grant.id do
-      {:error, Error.new(:conflict)}
-    else
+    with true <- mode in [:replace_expired, :replace_abandoned],
+         true <- command.grant_id != grant.id,
+         :ok <- retire_upload_grant(repo, grant) do
       attrs =
         command
         |> upload_grant_attrs(authorization_epochs)
@@ -4830,6 +5168,27 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         })
 
       repo.insert(UploadGrant.create_changeset(%UploadGrant{}, attrs))
+    else
+      false -> {:error, Error.new(:conflict)}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp retire_upload_grant(repo, grant) do
+    case SafeSQL.query(
+           repo,
+           """
+           UPDATE content.upload_grants
+           SET retired_at = statement_timestamp()
+           WHERE id = $1 AND vault_id = $2 AND retired_at IS NULL
+           RETURNING retired_at
+           """,
+           [Ecto.UUID.dump!(grant.id), Ecto.UUID.dump!(grant.vault_id)],
+           log: false
+         ) do
+      {:ok, %{rows: [[%DateTime{}]]}} -> :ok
+      {:ok, _not_current} -> {:error, Error.new(:conflict)}
+      {:error, _reason} -> {:error, Error.new(:storage_unavailable, retryable?: true)}
     end
   end
 
@@ -4856,13 +5215,13 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     |> Map.merge(authorization_epochs)
   end
 
-  defp upload_grant_result(grant, source, command) do
+  defp upload_grant_result(grant, source) do
     grant
     |> Map.from_struct()
     |> Map.drop([:__meta__])
     |> Map.merge(%{
       source_reference_id: source.id,
-      resource_version_id: command.resource_version_id
+      resource_version_id: source.resource_version_id
     })
   end
 

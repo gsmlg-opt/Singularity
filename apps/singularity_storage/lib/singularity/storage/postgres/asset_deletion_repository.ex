@@ -1275,6 +1275,12 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
           asset.state_revision == command.expected_state_revision ->
         apply_tombstone(repo, asset, command)
 
+      asset.state in @deletable_states ->
+        {:error,
+         Error.new(:conflict,
+           details: %{reason: :state_revision_mismatch}
+         )}
+
       asset.state in [:pending_delete, :deleted] ->
         replay_tombstone(repo, asset, command)
 
@@ -1322,13 +1328,6 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
              state_revision: next_revision
            })
            |> repo.update(),
-         {_projection_count, _rows} <-
-           repo.delete_all(
-             from document in AssetSearchDocument,
-               where:
-                 document.asset_id == ^asset.id and
-                   document.vault_id == ^asset.vault_id
-           ),
          {:ok, _audit} <-
            repo.insert(
              audit_changeset(%{

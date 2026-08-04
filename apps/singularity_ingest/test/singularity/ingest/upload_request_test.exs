@@ -13,18 +13,32 @@ defmodule Singularity.Ingest.UploadRequestTest do
               size: 8,
               declared_media_type: "application/pdf",
               idempotency_key: "upload-1",
-              resource_version_id: "resource-version-1",
-              classification: :sensitive,
               max_bytes: @max_bytes
             }} =
              UploadRequest.new(%{
                filename: "report.pdf",
                size: 8,
                declared_media_type: " application/pdf ",
-               idempotency_key: "upload-1",
-               resource_version_id: "resource-version-1",
-               classification: :sensitive
+               idempotency_key: "upload-1"
              })
+  end
+
+  test "rejects every field outside the exact browser binding" do
+    for {field, value} <- [
+          {:resource_id, Ecto.UUID.generate()},
+          {:resource_version_id, Ecto.UUID.generate()},
+          {:asset_id, Ecto.UUID.generate()},
+          {:source_reference_id, Ecto.UUID.generate()},
+          {:classification, :private},
+          {:checksum, :crypto.hash(:sha256, "payload")},
+          {:size_bytes, 8}
+        ] do
+      assert {:error, %Error{code: :invalid}} =
+               "application/pdf"
+               |> valid_attrs()
+               |> Map.put(field, value)
+               |> UploadRequest.new()
+    end
   end
 
   test "accepts exactly PDF, JPEG, and PNG declarations" do
@@ -75,9 +89,7 @@ defmodule Singularity.Ingest.UploadRequestTest do
       filename: "asset.bin",
       size: 8,
       declared_media_type: media_type,
-      idempotency_key: "upload-1",
-      resource_version_id: "resource-version-1",
-      classification: :sensitive
+      idempotency_key: "upload-1"
     }
   end
 

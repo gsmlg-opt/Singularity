@@ -10,9 +10,7 @@ defmodule Singularity.Ingest.Idempotency do
       request.idempotency_key,
       request.filename,
       Integer.to_string(request.size),
-      request.declared_media_type,
-      request.resource_version_id,
-      Atom.to_string(request.classification)
+      request.declared_media_type
     ]
     |> Enum.map(&length_prefix/1)
     |> then(&:crypto.hash(:sha256, &1))
