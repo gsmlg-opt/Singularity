@@ -4918,6 +4918,11 @@ There is no commit for this task.
 
 ## Task 18: Add browser workflow, browser secret canaries, and complete CI
 
+**Approved amendment:**
+[`2026-08-08-task-18-browser-acceptance-amendment.md`](../specs/2026-08-08-task-18-browser-acceptance-amendment.md)
+is authoritative for restore-only integrity proof, browser backup transport,
+pagination, and browser-versus-unit coverage.
+
 **Files:**
 
 - Create: `playwright.config.ts`
@@ -4927,117 +4932,550 @@ There is no commit for this task.
 - Create:
   `apps/singularity_runtime/lib/mix/tasks/singularity.test.browser.ex`
 - Create:
+  `apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs`
+- Create:
+  `apps/singularity_core/lib/singularity/core/backup_status_store.ex`
+- Modify: `apps/singularity_core/test/singularity/core/ports_test.exs`
+- Create:
+  `apps/singularity_storage/lib/singularity/storage/postgres/backup_status_store.ex`
+- Create:
+  `apps/singularity_storage/test/singularity/storage/postgres/backup_status_store_test.exs`
+- Modify:
+  `apps/singularity_storage/lib/singularity/storage/crypto/backup_key_deriver.ex`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/crypto/backup_crypto_adapters_test.exs`
+- Create:
+  `apps/singularity_runtime/lib/singularity/runtime/dto/backup_status.ex`
+- Create:
+  `apps/singularity_runtime/lib/singularity/runtime/backups/status.ex`
+- Modify:
+  `apps/singularity_runtime/lib/singularity/runtime/{api,backup_key_lease,backup_vault,key_custodian}.ex`
+- Modify:
+  `apps/singularity_runtime/test/singularity/runtime/{api,backup_key_lease,backup_vault}_test.exs`
+- Create:
+  `apps/singularity_runtime/test/singularity/runtime/{backup_status,key_custodian_backup}_test.exs`
+- Create:
   `apps/singularity_web/test/singularity/web/secret_canary_test.exs`
 - Modify:
+  `apps/singularity_storage/lib/singularity/storage/test_environment.ex`
+- Modify:
+  `apps/singularity_storage/test/singularity/storage/test_environment_test.exs`
+- Create:
+  `apps/singularity_web/lib/singularity/web/controllers/backup_controller.ex`
+- Modify: `apps/singularity_web/lib/singularity/web/router.ex`
+- Modify:
+  `apps/singularity_web/lib/singularity/web/live/{assets_live,audit_live,backups_live}.ex`
+- Modify: `apps/singularity_web/test/support/conn_case.ex`
+- Create:
+  `apps/singularity_web/test/singularity/web/backup_controller_test.exs`
+- Modify:
+  `apps/singularity_web/assets/js/asset_workspace/AssetWorkspace.tsx`
+- Modify:
+  `apps/singularity_web/assets/test/asset_workspace.test.tsx`
+- Create:
+  `apps/singularity_web/test/singularity/web/live/{audit_live,backups_live}_test.exs`
+- Modify:
+  `apps/singularity_web/test/singularity/web/{assets_live,authentication,route_contract}_test.exs`
+- Modify:
   `apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs`
-- Modify: `package.json`
-- Modify: `package-lock.json`
 - Modify: `mix.exs`
-- Modify: `config/test.exs`
+- Modify: `config/{config,test}.exs`
+- Modify: `.formatter.exs`
+- Modify: `tsconfig.json`
 - Modify: `.github/workflows/ci.yml`
 - Modify: `README.md`
+- Verify only unless dependencies change: `package.json`, `package-lock.json`
+- Verify only:
+  `apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs`
+- Do not modify for Task 18:
+  `apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex`,
+  `apps/singularity_storage/lib/singularity/storage/jobs/{envelope_codec,oban_adapter}.ex`
 
-- [ ] **Step 1: Write one complete Chromium workflow**
+- [x] **Step 1: Build the isolated browser server and smoke workflow**
 
-  The browser test performs:
+  Extend `Singularity.Storage.TestEnvironment` with a constructor that validates
+  a Playwright run ID, derives its 24-character lowercase hexadecimal suffix,
+  and returns the same narrowly scoped database/root shape accepted by
+  `create!/1` and `drop!/1`. Add an explicit forced cleanup path that terminates
+  connections only for that generated database, drops only that database, and
+  removes only that generated root. Preserve random allocation and graceful
+  cleanup for the integration/restore tasks.
+
+  Add `mix singularity.test.browser serve` with focused task tests. It must
+  configure the generated repositories, real authorization/custody adapters,
+  active Oban queues, the endpoint, and the deterministic browser-test owner
+  before starting application children. It must restore prior application
+  configuration and invoke the exact generated cleanup path on partial setup,
+  `SIGTERM`, and VM exit. No secret may be placed in OS process arguments,
+  environment variables, or logs.
+
+  Add Playwright configuration and fixtures, then prove one Chromium smoke path:
 
   ```text
-  login -> unlock -> upload PDF/JPEG/PNG -> observe every lifecycle state
-  -> search/filter/page -> download -> delete -> cleanup
-  -> request backup -> observe backup audit -> request integrity audit
+  provision -> login -> unlock -> render the empty Vault Workbench -> shutdown
+  -> generated database and roots are absent
   ```
 
-  Record asset revisions and prove stale updates are ignored. Include grant
-  expiry/reuse, upload cancel/retry, locked metadata waiting, reconnect
-  snapshot, and allow-listed navigation.
+  Include `playwright.config.ts` and `test/e2e/**/*.ts` in the TypeScript and
+  formatter gates. Run the storage constructor/cleanup tests, browser-task
+  lifecycle tests, and smoke test before extending the workflow.
 
-  ```ts
-  test("owner completes the encrypted asset vertical", async ({page}) => {
-    await loginAndUnlock(page);
-    await uploadFixture(page, "sample.pdf");
-    await expectLifecycle(page, [
-      "Uploading", "Verifying", "Finalizing", "Available", "Processing", "Ready"
-    ]);
-    await searchFor(page, "sample");
-    await expect(page.getByRole("row", {name: /sample\.pdf/i})).toBeVisible();
-    await downloadAndVerify(page, "sample.pdf");
-    await deleteAndWaitForCleanup(page, "sample.pdf");
-    await requestBackupAndWait(page);
-    await requestIntegrityAudit(page);
-    await expect(page.getByText("Integrity audit passed")).toBeVisible();
-  });
+  This slice is implemented in the current worktree. Playwright uses one worker,
+  the system Chromium, a generated UUID passed to `webServer`, and
+  `MIX_ENV=test mix singularity.test.browser serve`; it does not use
+  `globalSetup`. The Mix task provisions before application startup, binds only
+  to `127.0.0.1:4002`, derives the owner password independently in Elixir and
+  TypeScript, and performs bounded idempotent cleanup on partial setup,
+  `SIGTERM`, normal exit, and VM exit. The root `preferred_cli_env` includes
+  `singularity.test.browser: :test`.
+
+  Verified before this plan refresh:
+
+  ```bash
+  mix test apps/singularity_storage/test/singularity/storage/test_environment_test.exs
+  mix test apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs
+  devenv shell -- mix npm.run test:e2e
   ```
 
-  Playwright serializes one unique test environment and uses the system
-  Chromium. Its `webServer` command performs provisioning before Phoenix
-  starts; do not use `globalSetup`, because Playwright starts `webServer`
-  earlier:
+  Expected: storage and task tests pass; Chromium logs in, unlocks, renders an
+  empty Vault Workbench, and generated database/storage roots are absent after
+  shutdown.
 
-  ```ts
-  const runId = process.env.SINGULARITY_TEST_RUN_ID ?? randomUUID();
-  process.env.SINGULARITY_TEST_RUN_ID = runId;
+- [x] **Step 2: Add the visible asset download action**
 
-  export default defineConfig({
-    testDir: "./test/e2e",
-    testMatch: "**/*.spec.ts",
-    workers: 1,
-    use: {
-      baseURL: "http://127.0.0.1:4002",
-      launchOptions: {
-        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-      }
-    },
-    webServer: {
-      command: "MIX_ENV=test mix singularity.test.browser serve",
-      url: "http://127.0.0.1:4002/login",
-      env: {
-        ...process.env,
-        SINGULARITY_TEST_RUN_ID: runId,
-        SINGULARITY_START_INFRASTRUCTURE: "true"
-      },
-      reuseExistingServer: false,
-      gracefulShutdown: {
-        signal: "SIGTERM",
-        timeout: 15_000
-      }
-    }
-  });
+  `AssetWorkspace` now renders a same-origin
+  `/api/v1/assets/:asset_id/content` download link with the original filename
+  for `available`, `processing`, and `ready` assets. The action is hidden before
+  availability, during/after deletion, while locked, and after local access
+  expiry. Vitest covers the URL, filename, complete lifecycle matrix, lock, and
+  expiry behavior.
+
+  Verified before this plan refresh:
+
+  ```bash
+  mix npm.run test:js -- apps/singularity_web/assets/test/asset_workspace.test.tsx
+  mix duskmoon_bundler.js.check
   ```
 
-  `mix singularity.test.browser serve`:
+  Expected: all JS tests and Duskmoon checks pass.
 
-  - refuses every environment except `:test`;
-  - validates the random run ID and derives a unique database name and storage
-    root from it;
-  - creates and migrates that database before starting application children;
-  - writes generated database/root settings before application startup;
-  - bootstraps the test owner with a password deterministically derived from the
-    run ID inside test-only code, never in arguments, environment, or logs;
-  - starts the endpoint bound only to `127.0.0.1:4002`;
-  - handles `SIGTERM` and registers `System.at_exit/1` cleanup that force-closes only
-    connections to the generated database, drops only that database, and
-    removes only that generated root.
+- [ ] **Step 3: Write failing backup status port and adapter tests**
 
-  The Playwright fixture derives the same test-only password from the run ID
-  locally. No browser setup step transports the password. Partial provisioning
-  invokes the same narrowly scoped cleanup before exiting.
-
-  Extend the root project setting:
+  Add `Singularity.Core.BackupStatusStore` with one read callback:
 
   ```elixir
-  preferred_cli_env: [
-    "singularity.test.integration": :test,
-    "singularity.test.restore": :test,
-    "singularity.test.browser": :test
-  ]
+  @callback fetch(context(), %{
+              operation_id: String.t(),
+              vault_id: String.t()
+            }) :: {:ok, map()} | {:error, Error.t()}
   ```
 
-- [ ] **Step 2: Add responsive and accessibility assertions**
+  Extend the exact callback inventory in `ports_test.exs`; do not add a write
+  callback or expose the backup manifest schema through the core port.
+
+  Write PostgreSQL adapter tests first. Under a normal scoped read request they
+  must prove that `fetch/2` returns only `operation_id`, `vault_id`, `status`,
+  `requested_at`, and `updated_at`; supports every persisted stable state
+  (`pending`, `waiting_for_backup_key`, `copying`, `sealed`, and `failed`); and
+  returns the same `Error.new(:not_found)` for a missing UUID and a UUID owned
+  by another vault. Assert the result never contains destination, KDF,
+  recovery-wrapper, custody, manifest, snapshot, or object-inventory fields.
+
+  Add a failing crypto assertion for a public `BackupKeyDeriver.profile/0`
+  function that returns the existing allow-listed domain and Argon2id
+  parameters without a salt or any key material. Do not change the KDF profile.
+
+  Run:
+
+  ```bash
+  mix test apps/singularity_core/test/singularity/core/ports_test.exs
+  devenv shell -- mix singularity.test.integration \
+    apps/singularity_storage/test/singularity/storage/postgres/backup_status_store_test.exs
+  mix test \
+    apps/singularity_storage/test/singularity/storage/crypto/backup_crypto_adapters_test.exs
+  ```
+
+  Expected: the new callback/module/profile assertions fail because the port,
+  adapter, and public profile do not exist yet; existing assertions still pass.
+
+- [ ] **Step 4: Implement the redacted backup status storage seam**
+
+  Implement the core behavior exactly as tested. Implement
+  `Singularity.Storage.Postgres.BackupStatusStore` with one vault-and-operation
+  query over `Singularity.Storage.Schema.Audit.BackupManifest`; select the five
+  allow-listed public fields in SQL rather than loading a full manifest and
+  trimming it afterward. Preserve RLS by accepting the scoped repository
+  supplied by `OperationScope`.
+
+  Add the non-secret runtime DTO:
+
+  ```elixir
+  defmodule Singularity.Runtime.DTO.BackupStatus do
+    @enforce_keys [:operation_id, :status, :requested_at, :updated_at]
+    defstruct @enforce_keys
+  end
+  ```
+
+  `BackupStatus` must accept only the five persisted status atoms above. Add
+  `BackupKeyDeriver.profile/0` by returning the module's existing domain and
+  parameter constants; keep the random salt request-specific.
+
+  Rerun the three commands from Step 3, then:
+
+  ```bash
+  mix format --check-formatted \
+    apps/singularity_core/lib/singularity/core/backup_status_store.ex \
+    apps/singularity_core/test/singularity/core/ports_test.exs \
+    apps/singularity_storage/lib/singularity/storage/postgres/backup_status_store.ex \
+    apps/singularity_storage/test/singularity/storage/postgres/backup_status_store_test.exs \
+    apps/singularity_storage/lib/singularity/storage/crypto/backup_key_deriver.ex \
+    apps/singularity_storage/test/singularity/storage/crypto/backup_crypto_adapters_test.exs \
+    apps/singularity_runtime/lib/singularity/runtime/dto/backup_status.ex
+  git diff --check
+  ```
+
+  Expected: all focused tests pass and the public result cannot contain backup
+  secrets or storage locations.
+
+- [ ] **Step 5: Write failing session-bound backup custody tests**
+
+  Extend `backup_key_lease_test.exs`, `backup_vault_test.exs`, and a focused new
+  `key_custodian_backup_test.exs` before changing production code. Prove:
+
+  - Argon2id derivation occurs in the calling request process and never in the
+    `KeyCustodian` process;
+  - a redacted derived-key command binds session ID, principal ID, vault ID,
+    principal/vault authorization epochs, expiry, manifest ID, KDF profile, and
+    derived key material, while `Inspect` prints only `REDACTED`;
+  - `KeyCustodian.prepare_backup_key/3` accepts only the matching active,
+    unlocked, unexpired, non-revoked session and creates the recovery wrapper
+    with the vault key already held by custody;
+  - the caller session contains no `vault_key`, the raw vault key never appears
+    in a reply, and neither the passphrase nor Argon2 work enters the GenServer;
+  - mismatched principal/vault/epoch/manifest binding, expiry, revocation, and
+    missing custody fail closed without installing a pending ref;
+  - existing restore/reentry custody behavior remains unchanged;
+  - a fresh `BackupVault.request/4` does not require `partial_bundles`, while
+    resume still does; and successful post-commit activation invokes the
+    existing `JobRunner.wake_vault/2` contract with the vault ID, not the
+    nonexistent `wake_backup` contract or manifest ID.
+
+  Run:
+
+  ```bash
+  mix test \
+    apps/singularity_runtime/test/singularity/runtime/backup_key_lease_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/key_custodian_backup_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs
+  ```
+
+  Expected: only the new custody and wake-contract assertions fail.
+
+- [ ] **Step 6: Implement session-bound custody without widening the mailbox**
+
+  Add a redacted `BackupKeyLease.Derived` struct containing only the complete
+  session/manifest binding, public KDF metadata, and the 32-byte derived key.
+  Keep `prepare/4` as the caller-process boundary: generate the public salt,
+  call `BackupKeyDeriver.derive/2` there, construct `Derived`, and call the
+  session-bound custodian operation. Do not pass the passphrase to the
+  custodian and do not require a `vault_key` field in the session.
+
+  Overload `KeyCustodian.prepare_backup_key/3` as:
+
+  ```elixir
+  @spec prepare_backup_key(
+          GenServer.server(),
+          map(),
+          BackupKeyLease.Derived.t()
+        ) :: {:ok, BackupKeyLease.Prepared.t()} | {:error, Error.t()}
+  ```
+
+  Inside the GenServer, validate the active custody record and every session
+  binding field before using its in-custody vault key with
+  `BackupRecoveryWrapper`. Generate the opaque ref internally, monitor the
+  pending lease, preserve the existing activate/revoke/expiry lifecycle, and
+  return only `BackupKeyLease.Prepared`. Add the recovery-wrapper adapter to
+  the production and browser-test custodian configuration without changing
+  restore semantics.
+
+  Split `BackupVault` adapter validation between fresh request and reentry.
+  Replace both `wake_backup(pending.id)` calls with the existing job-runner
+  `wake_vault(pending.vault_id)` call. Do not edit `JobDispatcher`,
+  `EnvelopeCodec`, or `ObanAdapter`.
+
+  Rerun Step 5. Then run the pre-existing restore-boundary regression tests:
+
+  ```bash
+  mix test \
+    apps/singularity_runtime/test/singularity/runtime/restore_authenticator_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
+  mix format --check-formatted \
+    apps/singularity_runtime/lib/singularity/runtime/backup_key_lease.ex \
+    apps/singularity_runtime/lib/singularity/runtime/backup_vault.ex \
+    apps/singularity_runtime/lib/singularity/runtime/key_custodian.ex
+  git diff --check
+  ```
+
+  Expected: all focused runtime tests pass; no raw key or passphrase appears in
+  structs, errors, logs, or messages observable outside custody.
+
+- [ ] **Step 7: Write failing runtime facade and status-use-case tests**
+
+  In `backup_status_test.exs`, prove `Singularity.Runtime.Backups.Status.run/3`
+  uses `OperationScope.with_read_request`, requires classification `private`,
+  capability `backup.create`, and an unlocked vault, passes both operation and
+  current vault IDs to `BackupStatusStore`, validates the returned identity,
+  and maps missing/cross-vault reads to the same public `not_found` result.
+
+  In `api_test.exs`, add injected-config tests for:
+
+  ```elixir
+  request_backup(config, session, passphrase)
+  backup_status(config, session, operation_id)
+  ```
+
+  Require a valid unlocked session DTO, non-empty passphrase, and UUID operation
+  IDs. The injected `request_backup` seam must return only an operation identity,
+  after which the facade invokes its injected `backup_status` seam to obtain
+  timestamps and state. Assert both public functions return only
+  `DTO.BackupStatus`; normalize internal errors to stable public atoms; reject
+  malformed status maps as `:integrity_failure`; and never include passphrase,
+  KDF, wrapper, custody, destination, filesystem path, or manifest data. Add
+  runtime canary assertions that inspect replies, exceptions, captured logs,
+  telemetry, and audit metadata.
+
+  Run:
+
+  ```bash
+  mix test \
+    apps/singularity_runtime/test/singularity/runtime/backup_status_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/api_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
+  ```
+
+  Expected: the new API and use-case tests fail because the functions and
+  production wiring do not exist.
+
+- [ ] **Step 8: Implement the sole web-to-runtime backup facade**
+
+  Implement `Backups.Status` exactly as tested. Add public and injected-config
+  arities to `Singularity.Runtime.Api`:
+
+  ```elixir
+  @spec request_backup(Session.t(), binary()) ::
+          {:ok, DTO.BackupStatus.t()} | {:error, atom()}
+  @spec backup_status(Session.t(), String.t()) ::
+          {:ok, DTO.BackupStatus.t()} | {:error, atom()}
+  ```
+
+  `request_backup/2` must convert the session DTO to the internal session
+  context, generate the canonical relative destination
+  `"web/" <> Ecto.UUID.generate() <> ".bundle"`, normalize it beneath the
+  configured local `backup_root`, and call `BackupVault.request/4`. Extract only
+  the returned operation ID, then perform a post-commit
+  `Backups.Status.run/3` read to obtain the public timestamps/state and convert
+  that result to the allow-listed DTO. Do not widen `BackupRepository`'s public
+  manifest. The passphrase may be present only in this call stack and the
+  caller-process KDF invocation. The public facade must never accept a client
+  destination.
+
+  `backup_status/2` calls `Backups.Status` using the current session and the new
+  status port. Build the production map from the existing operation-scope
+  entries plus these exact backup entries:
+
+  ```elixir
+  %{
+    backup_key_lease: BackupKeyLease,
+    backups: BackupRepository,
+    backup_status_store: BackupStatusStore,
+    custodian: {KeyCustodian, KeyCustodian},
+    ids: Ecto.UUID,
+    jobs: {ObanAdapter, %{}},
+    operation_scope: OperationScope,
+    backup_key_deriver: BackupKeyDeriver,
+    backup_key_wrapper: BackupRecoveryWrapper,
+    backup_kdf_domain: profile.domain,
+    backup_kdf_parameters: profile.parameters,
+    random_bytes: &:crypto.strong_rand_bytes/1,
+    backup_destination: {LocalDestination, %{backup_root: backup_root}}
+  }
+  ```
+
+  Here the adapter tuple makes `BackupVault` call
+  `ObanAdapter.wake_vault(%{}, vault_id)` through `JobRunner`'s two-argument
+  contract; never configure a module that would receive `wake_vault/1`. Use
+  `BackupKeyDeriver.profile/0` for `profile`, not duplicated KDF literals. Add no
+  new job type, capability, migration, or schema.
+
+  Rerun Step 7 plus:
+
+  ```bash
+  mix compile --warnings-as-errors
+  mix xref graph --format cycles --fail-above 0
+  git diff --check
+  ```
+
+  Expected: the facade and canary tests pass, and the dependency graph still
+  permits the web application to depend only on `Singularity.Runtime.Api`.
+
+- [ ] **Step 9: Write failing controller, LiveView, pagination, and browser-task tests**
+
+  Add `BackupControllerTest` cases for authenticated/unlocked success,
+  same-origin CSRF enforcement, a redirect to
+  `/backups?operation_id=<public UUID>`, stable non-secret failure flash, absent
+  or expired session, locked vault, and confirmation that an error response
+  never repopulates the password input. The runtime test double must record
+  only the call boundary; controller assertions must never inspect internal
+  manifest maps.
+
+  Add `BackupsLiveTest` cases for an ordinary HTML `POST` form with a password
+  input and Phoenix CSRF field, no `phx-submit`, no passphrase assign, status
+  polling through `Runtime.Api`, terminal `sealed` rendering, exact stable
+  `"Encrypted backup could not be completed."` text for terminal `failed`, and
+  identical missing/cross-vault `not_found` output. Add `AuditLiveTest` cases
+  proving the page is read-only, names `mix singularity.test.restore` as the
+  restore acceptance proof, and contains no request button or current-vault
+  validity claim. Extend route-contract and authentication tests for the new
+  controller action.
+
+  Extend `AssetsLiveTest` so the production default is 50, configuration is
+  bounded to `1..50`, and the selected value reaches the existing runtime search
+  params without changing cursor semantics. Extend the browser-task tests so
+  setup uses page size 2, grants only the existing `backup.create` capability in
+  addition to the prior explicit browser-owner list, and restores both settings
+  on partial setup, `SIGTERM`, normal exit, and VM exit. Assert production
+  `BootstrapOwner` defaults remain unchanged and no `integrity.audit` grant is
+  created.
+
+  Run:
+
+  ```bash
+  mix test \
+    apps/singularity_web/test/singularity/web/backup_controller_test.exs \
+    apps/singularity_web/test/singularity/web/live/backups_live_test.exs \
+    apps/singularity_web/test/singularity/web/live/audit_live_test.exs \
+    apps/singularity_web/test/singularity/web/assets_live_test.exs \
+    apps/singularity_web/test/singularity/web/authentication_test.exs \
+    apps/singularity_web/test/singularity/web/route_contract_test.exs \
+    apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs
+  ```
+
+  Expected: the new route, form, status, explanation, page-size, capability,
+  and cleanup assertions fail before implementation.
+
+- [ ] **Step 10: Implement the safe browser backup surface**
+
+  Add `POST /backups` inside the authenticated-and-unlocked browser scope,
+  before the unlocked LiveView session. `BackupController.create/2` must read
+  only the URL-encoded `passphrase`, call only:
+
+  ```elixir
+  Auth.call_runtime(:request_backup, [current_session, passphrase])
+  ```
+
+  On success redirect with only the public operation ID. On failure, discard
+  the passphrase and render a stable generic flash before redirecting to
+  `/backups`. Never put it in a LiveView event, assign, URL, JSON, log,
+  telemetry, audit metadata, OS process argument, or environment variable.
+
+  Render the backup form as a normal same-origin form:
+
+  ```heex
+  <form action={~p"/backups"} method="post">
+    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+    <input
+      id="backup-passphrase"
+      name="passphrase"
+      type="password"
+      autocomplete="new-password"
+      required
+    />
+    <button type="submit">Create encrypted backup</button>
+  </form>
+  ```
+
+  `BackupsLive` reads `operation_id` from the query string, calls only
+  `Runtime.Api.backup_status/2`, assigns only the DTO, and polls boundedly while
+  status is `pending`, `waiting_for_backup_key`, or `copying`. Stop polling for
+  `sealed`, `failed`, and `not_found`. Render `sealed`, never `valid`; render the
+  exact stable non-secret `"Encrypted backup could not be completed."` text for
+  `failed`. `AuditLive` is static restore-only guidance with no mutation event.
+
+  Replace `AssetsLive`'s hard-coded page size with
+  `Application.get_env(:singularity_web, :asset_page_limit, 50)`, bounded to
+  `1..50`, and set `config :singularity_web, :asset_page_limit, 50` in the base
+  configuration. In the browser task, snapshot that exact key, set it to 2
+  before application startup, create the configured generated
+  `<storage_root>/backups` directory before `LocalDestination.normalize/2` can
+  run, and restore the setting on every existing cleanup path. The existing
+  generated-root cleanup removes that directory. Bootstrap the browser owner
+  with the explicit capabilities:
+
+  ```elixir
+  ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change]
+  ```
+
+  Do not alter production bootstrap defaults and do not add `integrity.audit`.
+  Rerun Step 9, then the dependency-graph test:
+
+  ```bash
+  mix test \
+    apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs
+  mix format --check-formatted \
+    apps/singularity_web/lib/singularity/web/controllers/backup_controller.ex \
+    apps/singularity_web/lib/singularity/web/live/backups_live.ex \
+    apps/singularity_web/lib/singularity/web/live/audit_live.ex \
+    apps/singularity_web/lib/singularity/web/live/assets_live.ex \
+    apps/singularity_web/lib/singularity/web/router.ex
+  git diff --check
+  ```
+
+  Expected: all controller, LiveView, route, pagination, task-cleanup, and
+  architecture tests pass.
+
+- [ ] **Step 11: Complete the Chromium asset-and-backup workflow**
+
+  Add fixtures for one PDF, one JPEG, and one PNG. Extend the smoke workflow
+  test-first to prove the user-visible path and nothing beyond it:
+
+  ```text
+  login -> unlock -> upload PDF/JPEG/PNG -> observe lifecycle
+  -> search -> filter -> follow the real next cursor at page size 2
+  -> download and verify original bytes -> delete -> observe cleanup
+  -> submit backup form -> follow redirect -> poll -> observe sealed
+  -> open Audit -> see restore-only acceptance explanation
+  ```
+
+  Keep one worker, system Chromium, the generated database/root, and the
+  already implemented deterministic credential derivation. Do not seed rows,
+  upload 51 objects, use `globalSetup`, or transport a credential through the
+  environment. Intercept the backup form request only to prove it is a
+  same-origin URL-encoded `POST`; do not log its body.
+
+  Do not add Playwright cases for stale state revisions/event sequences, upload
+  grant expiry/reuse, cancellation/retry, locked metadata waiting, reconnect
+  snapshots, or navigation allow-list enforcement. Confirm their existing
+  scoped ExUnit/Vitest tests remain green instead:
+
+  ```bash
+  mix npm.run test:js
+  mix test \
+    apps/singularity_web/test/singularity/web/assets_live_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/api_test.exs
+  devenv shell -- mix npm.run test:e2e -- \
+    test/e2e/vault_workbench.spec.ts
+  ```
+
+  Expected: the browser reaches `sealed`, downloads identical bytes, proves the
+  real cursor path, and sees no live integrity request or result.
+
+- [ ] **Step 12: Add responsive, keyboard, theme, and accessibility assertions**
 
   At 767 and 1280 CSS pixels, prove no horizontal overflow and usable collapsed
-  navigation/inspector. Exercise the complete workflow by keyboard, visible
-  focus, logical focus restoration, reduced motion, and light/dark themes.
-  Run axe and explicit contrast/focus checks for the workbench states.
+  navigation/inspector. Exercise the reachable workflow by keyboard, visible
+  focus, logical focus restoration, reduced motion, and light/dark themes. Run
+  axe and explicit contrast/focus checks for the workbench, backup form/status,
+  and restore-only Audit page.
 
   ```ts
   for (const width of [767, 1280]) {
@@ -5050,33 +5488,35 @@ There is no commit for this task.
   expect(results.violations).toEqual([]);
   ```
 
-- [ ] **Step 3: Complete the secret-canary allow-list**
+  Run:
 
-  Assert password, vault key, domain key, DEK, and backup passphrase never
-  appear in rendered HTML, `data-props`, LiveView payloads, controller JSON,
-  logs, audit metadata, or browser console.
+  ```bash
+  devenv shell -- mix npm.run test:e2e -- \
+    test/e2e/responsive_accessibility.spec.ts \
+    test/e2e/theme_accessibility.spec.ts
+  ```
 
-  The upload token may appear only in its grant callback and matching XHR
-  header. The CSRF token may appear only in the dedicated meta tag, Phoenix
-  LiveSocket connection parameter, Phoenix-generated `_csrf_token` hidden
-  fields on the same-origin login/unlock/logout controller forms, and the
-  same-origin upload request header. The LiveSocket and hidden-field
-  occurrences are framework transport, not application events or server
-  pushes. Both must be absent from logs, audit, pushed application events,
-  initial props, controller JSON/application payloads, and console; the meta
-  tag and named hidden fields are the only response-document allowances.
-  Collapse repeated form occurrences to their location kind before comparing
-  the exact allow-list.
+  Expected: both viewports, both themes, reduced motion, keyboard traversal,
+  focus restoration, and axe assertions pass.
+
+- [ ] **Step 13: Complete the browser and server secret canaries**
+
+  Add ExUnit and Playwright canaries for password, vault key, domain key, DEK,
+  and backup passphrase. The backup passphrase is allowed only in the transient
+  DOM value of `#backup-passphrase` and the body of its same-origin URL-encoded
+  `POST /backups`; clear the field after submission and never copy or print the
+  body. It must be absent from initial/returned HTML, `data-props`, application
+  and server-pushed LiveView payloads, application JSON, logs, audit metadata,
+  telemetry, exception inspection, and browser console.
+
+  Preserve the upload-token allowance only for its grant callback and matching
+  XHR header. The CSRF token may occur only in the dedicated meta tag,
+  LiveSocket connection parameter, Phoenix-generated `_csrf_token` fields on
+  same-origin controller forms including the backup form, and the same-origin
+  upload request header. Collapse repeated occurrences to these location kinds
+  before comparing the exact allow-list.
 
   ```ts
-  for (const secret of persistentSecrets) {
-    expect(await page.content()).not.toContain(secret);
-    expect(liveViewPayloads.join("\n")).not.toContain(secret);
-    expect(controllerBodies.join("\n")).not.toContain(secret);
-    expect(consoleMessages.join("\n")).not.toContain(secret);
-  }
-
-  expect(uploadTokenOccurrences).toEqual(["grant-callback", "xhr-header"]);
   expect([...new Set(csrfOccurrenceKinds)]).toEqual([
     "meta-tag",
     "live-socket-param",
@@ -5085,98 +5525,104 @@ There is no commit for this task.
   ]);
   ```
 
-- [ ] **Step 4: Make CI run the real finish gates**
-
-  CI uses the pinned devenv PostgreSQL/Node/Chromium environment and runs:
-
-  ```bash
-  devenv up -d
-  devenv processes wait --timeout 120
-  devenv shell -- bash \
-    apps/singularity_storage/priv/repo/bootstrap_roles.sh
-  mix deps.get
-  mix deps.unlock --check-unused
-  mix format --check-formatted
-  mix compile --warnings-as-errors
-  mix test
-  mix singularity.test.integration
-  mix singularity.test.restore
-  mix npm.install --frozen
-  mix npm.verify
-  mix duskmoon_bundler.js.check
-  mix npm.run test:js
-  mix duskmoon_bundler.build singularity_web --tailwind
-  mix npm.run test:e2e
-  mix xref graph --format cycles --fail-above 0
-  ```
-
-  Do not download Playwright browsers in package lifecycle scripts. Update the
-  README with these same local commands and recovery-loss warning.
-
-  The completed CI command block is:
-
-  ```yaml
-  - uses: cachix/install-nix-action@v31
-  - uses: cachix/cachix-action@v16
-    with:
-      name: devenv
-  - name: Install devenv
-    shell: bash
-    run: nix profile add nixpkgs#devenv
-  - run: devenv up -d
-  - run: devenv processes wait --timeout 120
-  - name: Provision PostgreSQL roles
-    run: >-
-      devenv shell -- bash
-      apps/singularity_storage/priv/repo/bootstrap_roles.sh
-  - run: devenv shell -- mix deps.get
-  - run: devenv shell -- mix deps.unlock --check-unused
-  - run: devenv shell -- mix format --check-formatted
-  - run: devenv shell -- mix compile --warnings-as-errors
-  - run: devenv shell -- mix test
-  - run: devenv shell -- mix singularity.test.integration
-  - run: devenv shell -- mix singularity.test.restore
-  - run: devenv shell -- mix npm.install --frozen
-  - run: devenv shell -- mix npm.verify
-  - run: devenv shell -- mix duskmoon_bundler.js.check
-  - run: devenv shell -- mix npm.run test:js
-  - run: devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
-  - run: devenv shell -- mix npm.run test:e2e
-  - run: devenv shell -- mix xref graph --format cycles --fail-above 0
-  - if: always()
-    run: devenv down
-  ```
-
-- [ ] **Step 5: Run the browser/CI-equivalent gate and commit**
-
   Run:
 
   ```bash
+  mix test \
+    apps/singularity_web/test/singularity/web/secret_canary_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
+  devenv shell -- mix npm.run test:e2e -- \
+    test/e2e/upload_security.spec.ts \
+    test/e2e/vault_workbench.spec.ts
+  ```
+
+  Expected: all secret surfaces are clean and both token allow-lists are exact.
+
+- [ ] **Step 14: Make CI and README run both authoritative gates**
+
+  Update CI to use the pinned devenv PostgreSQL/Node/system-Chromium environment.
+  Keep every command inside `devenv shell --`, do not download Playwright
+  browsers in package lifecycle scripts, and always stop services. After the
+  existing compile/unit/integration and JS/Duskmoon gates, run both independent
+  acceptance gates:
+
+  ```yaml
+  - run: devenv shell -- mix singularity.test.restore
+  - run: devenv shell -- mix npm.run test:e2e
+  ```
+
+  Preserve the existing upstream `phoenix-duskmoon-ui#129` marker and link-mode
+  workaround only where needed by npm install. Update README with the exact
+  local command order, explain that browser success ends at a sealed encrypted
+  backup, identify `mix singularity.test.restore` as the only restore-scoped
+  integrity proof, and warn that losing the backup passphrase makes recovery
+  impossible. Do not document a live integrity endpoint or button.
+
+  Validate the workflow and docs without dispatching CI:
+
+  ```bash
+  rg -n "singularity.test.restore|test:e2e|processes down" .github/workflows/ci.yml README.md
+  ! rg -n "integrity.*(button|endpoint|request)|request.*integrity" \
+    .github/workflows/ci.yml README.md
+  git diff --check .github/workflows/ci.yml README.md
+  ```
+
+- [ ] **Step 15: Run the Task 18 scoped finish gate and commit**
+
+  Run setup, gates, and teardown from one shell so the cleanup trap remains
+  active for the entire sequence:
+
+  ```bash
   devenv up -d
-  trap 'devenv down' EXIT
+  trap 'devenv processes down' EXIT
   devenv processes wait --timeout 120
   devenv shell -- bash \
     apps/singularity_storage/priv/repo/bootstrap_roles.sh
-  mix deps.get
-  mix npm.install --frozen
-  mix npm.verify
-  mix duskmoon_bundler.js.check
-  mix npm.run test:js
-  mix duskmoon_bundler.build singularity_web --tailwind
-  devenv shell -- mix npm.run test:e2e
-  mix test apps/singularity_web/test/singularity/web/secret_canary_test.exs
-  mix test apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
-  devenv shell -- mix singularity.test.integration
+  devenv shell -- mix deps.get
+  devenv shell -- mix deps.unlock --check-unused
+  devenv shell -- mix format --check-formatted
+  devenv shell -- mix compile --warnings-as-errors
+  devenv shell -- mix test \
+    apps/singularity_core/test/singularity/core/ports_test.exs \
+    apps/singularity_storage/test/singularity/storage/crypto/backup_crypto_adapters_test.exs \
+    apps/singularity_storage/test/singularity/storage/test_environment_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/backup_key_lease_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/key_custodian_backup_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/backup_status_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/api_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs \
+    apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs \
+    apps/singularity_web/test/singularity/web/backup_controller_test.exs \
+    apps/singularity_web/test/singularity/web/live/backups_live_test.exs \
+    apps/singularity_web/test/singularity/web/live/audit_live_test.exs \
+    apps/singularity_web/test/singularity/web/assets_live_test.exs \
+    apps/singularity_web/test/singularity/web/authentication_test.exs \
+    apps/singularity_web/test/singularity/web/route_contract_test.exs \
+    apps/singularity_web/test/singularity/web/secret_canary_test.exs \
+    apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs
+  devenv shell -- mix singularity.test.integration \
+    apps/singularity_storage/test/singularity/storage/postgres/backup_status_store_test.exs
   devenv shell -- mix singularity.test.restore
-  mix format --check-formatted
-  mix compile --warnings-as-errors
-  mix xref graph --format cycles --fail-above 0
+  devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
+  devenv shell -- mix npm.verify
+  devenv shell -- mix duskmoon_bundler.js.check
+  devenv shell -- mix npm.run test:js
+  devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
+  devenv shell -- mix npm.run test:e2e
+  devenv shell -- mix xref graph --format cycles --fail-above 0
   git diff --check
-  git add playwright.config.ts test/e2e apps/singularity_web \
-    apps/singularity_runtime package.json package-lock.json mix.exs config/test.exs \
-    .github README.md
-  git commit -m "test: add complete asset workflow acceptance"
   ```
+
+  Expected: every scoped test, the complete Chromium workflow, and the
+  independent restore/integrity oracle pass. If an out-of-scope test fails,
+  list it and stop instead of changing unrelated code.
+
+  Stage only Task 18 paths and make small green commits at the storage/status,
+  custody, facade, web surface, browser workflow, and CI/doc boundaries. The
+  final Task 18 commit must leave `git status --short` containing no Task 18
+  changes and must not stage unrelated work. Do not modify or stage
+  `JobDispatcher`, `EnvelopeCodec`, or `ObanAdapter`.
 
 ## Task 19: Run the final branch audit and stop at the approved boundary
 
