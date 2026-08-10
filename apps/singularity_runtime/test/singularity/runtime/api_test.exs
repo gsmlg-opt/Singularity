@@ -5,6 +5,7 @@ defmodule Singularity.Runtime.ApiTest do
   alias Singularity.Retrieval.AssetSearchPage
   alias Singularity.Runtime.Api
   alias Singularity.Runtime.DTO.AssetSummary
+  alias Singularity.Runtime.DTO.BackupStatus
   alias Singularity.Runtime.DTO.SearchPage
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.DTO.UploadGrant
@@ -19,6 +20,8 @@ defmodule Singularity.Runtime.ApiTest do
   @grant_id "00000000-0000-4000-8000-000000000605"
   @asset_id "00000000-0000-4000-8000-000000000606"
   @resource_version_id "00000000-0000-4000-8000-000000000607"
+  @backup_operation_id "00000000-0000-4000-8000-000000000608"
+  @other_backup_operation_id "00000000-0000-4000-8000-000000000609"
   @opaque_token :binary.copy(<<0xA7>>, 32)
   @upload_token :binary.copy(<<0xB8>>, 32)
   @csrf_token "csrf-token-issued-for-this-exact-grant"
@@ -1193,6 +1196,201 @@ defmodule Singularity.Runtime.ApiTest do
     end
   end
 
+  test "request_backup creates only an operation identity then reads one safe status DTO" do
+    test_pid = self()
+    passphrase = "correct horse battery staple"
+
+    api =
+      api(
+        request_backup: fn context, ^passphrase ->
+          send(test_pid, {:request_backup, context})
+          {:ok, %{operation_id: @backup_operation_id}}
+        end,
+        backup_status: fn context, @backup_operation_id ->
+          send(test_pid, {:backup_status, context})
+          {:ok, backup_status_record()}
+        end
+      )
+
+    assert {:ok,
+            %BackupStatus{
+              operation_id: @backup_operation_id,
+              status: :pending,
+              requested_at: ~U[2026-08-10 08:00:00.000000Z],
+              updated_at: ~U[2026-08-10 08:01:00.000000Z]
+            } = dto} = Api.request_backup(api, session_dto(true), passphrase)
+
+    assert_receive {:request_backup, %SessionContext{vault_id: @vault_id, unlocked?: true}}
+    assert_receive {:backup_status, %SessionContext{vault_id: @vault_id, unlocked?: true}}
+
+    assert Map.keys(Map.from_struct(dto)) |> Enum.sort() ==
+             [:operation_id, :requested_at, :status, :updated_at]
+
+    assert {:ok, ^dto} = Api.backup_status(api, session_dto(true), @backup_operation_id)
+  end
+
+  test "backup facade validates unlocked sessions, passphrases, and operation UUIDs before seams" do
+    test_pid = self()
+
+    api =
+      api(
+        request_backup: fn _context, _passphrase ->
+          send(test_pid, :request_backup_called)
+          {:ok, %{operation_id: @backup_operation_id}}
+        end,
+        backup_status: fn _context, _operation_id ->
+          send(test_pid, :backup_status_called)
+          {:ok, backup_status_record()}
+        end
+      )
+
+    assert {:error, :vault_locked} =
+             Api.request_backup(api, session_dto(false), "passphrase")
+
+    assert {:error, :vault_locked} =
+             Api.backup_status(api, session_dto(false), @backup_operation_id)
+
+    for passphrase <- ["", nil, 42] do
+      assert {:error, :invalid} =
+               Api.request_backup(api, session_dto(true), passphrase)
+    end
+
+    for operation_id <- ["not-a-uuid", nil, 42] do
+      assert {:error, :invalid} =
+               Api.backup_status(api, session_dto(true), operation_id)
+    end
+
+    assert {:error, :invalid} = Api.request_backup(api, %{}, "passphrase")
+    assert {:error, :invalid} = Api.backup_status(api, %{}, @backup_operation_id)
+
+    refute_received :request_backup_called
+    refute_received :backup_status_called
+  end
+
+  test "request_backup rejects anything beyond one exact operation identity" do
+    test_pid = self()
+
+    for request_result <- [
+          {:ok, %{id: @backup_operation_id}},
+          {:ok, %{operation_id: "not-a-uuid"}},
+          {:ok, %{operation_id: @backup_operation_id, destination_ref: "/secret/path"}},
+          {:ok,
+           %BackupStatus{
+             operation_id: @backup_operation_id,
+             status: :pending,
+             requested_at: ~U[2026-08-10 08:00:00Z],
+             updated_at: ~U[2026-08-10 08:01:00Z]
+           }},
+          {:ok, @backup_operation_id}
+        ] do
+      api =
+        api(
+          request_backup: fn _context, _passphrase -> request_result end,
+          backup_status: fn _context, _operation_id ->
+            send(test_pid, :unexpected_status_read)
+            {:ok, backup_status_record()}
+          end
+        )
+
+      assert {:error, :integrity_failure} =
+               Api.request_backup(api, session_dto(true), "passphrase")
+
+      refute_received :unexpected_status_read
+    end
+  end
+
+  test "backup status accepts only persisted states, DateTimes, and exact bound identities" do
+    for status <- [:pending, :waiting_for_backup_key, :copying, :sealed, :failed] do
+      api =
+        api(
+          backup_status: fn _context, @backup_operation_id ->
+            {:ok, %{backup_status_record() | status: status}}
+          end
+        )
+
+      assert {:ok, %BackupStatus{status: ^status}} =
+               Api.backup_status(api, session_dto(true), @backup_operation_id)
+    end
+
+    malformed = [
+      %{backup_status_record() | operation_id: @other_backup_operation_id},
+      %{backup_status_record() | vault_id: Ecto.UUID.generate()},
+      %{backup_status_record() | status: "pending"},
+      %{backup_status_record() | requested_at: ~N[2026-08-10 08:00:00]},
+      %{backup_status_record() | updated_at: nil},
+      Map.put(backup_status_record(), :destination_ref, "/secret/path"),
+      %BackupStatus{
+        operation_id: @backup_operation_id,
+        status: :pending,
+        requested_at: ~U[2026-08-10 08:00:00Z],
+        updated_at: ~U[2026-08-10 08:01:00Z]
+      }
+    ]
+
+    for status_result <- malformed do
+      api =
+        api(backup_status: fn _context, _operation_id -> {:ok, status_result} end)
+
+      assert {:error, :integrity_failure} =
+               Api.backup_status(api, session_dto(true), @backup_operation_id)
+    end
+  end
+
+  test "backup facade preserves stable errors and contains missing, malformed, raised, and thrown seams" do
+    for code <- Error.codes() do
+      request_api =
+        api(request_backup: fn _context, _passphrase -> {:error, Error.new(code)} end)
+
+      assert {:error, ^code} =
+               Api.request_backup(request_api, session_dto(true), "passphrase")
+
+      status_api =
+        api(backup_status: fn _context, _operation_id -> {:error, Error.new(code)} end)
+
+      assert {:error, ^code} =
+               Api.backup_status(status_api, session_dto(true), @backup_operation_id)
+    end
+
+    assert {:error, :invalid} =
+             api([])
+             |> Map.delete(:request_backup)
+             |> Api.request_backup(session_dto(true), "passphrase")
+
+    assert {:error, :invalid} =
+             api([])
+             |> Map.delete(:backup_status)
+             |> Api.backup_status(session_dto(true), @backup_operation_id)
+
+    for bad_request <- [
+          fn _context, _passphrase -> {:error, %{secret: "internal"}} end,
+          fn _context, _passphrase ->
+            {:error, struct(Error, code: :not_a_public_error)}
+          end,
+          fn _context, _passphrase -> raise "internal" end,
+          fn _context, _passphrase -> throw("internal") end
+        ] do
+      assert {:error, :storage_unavailable} =
+               Api.request_backup(
+                 api(request_backup: bad_request),
+                 session_dto(true),
+                 "passphrase"
+               )
+    end
+
+    for bad_status <- [
+          fn _context, _operation_id -> {:error, %{secret: "internal"}} end,
+          fn _context, _operation_id -> raise "internal" end,
+          fn _context, _operation_id -> throw("internal") end
+        ] do
+      assert {:error, :storage_unavailable} =
+               Api.backup_status(
+                 api(backup_status: bad_status),
+                 session_dto(true),
+                 @backup_operation_id
+               )
+    end
+  end
+
   defp api(overrides) do
     defaults = %{
       abandon_upload: fn _handle, _reason -> :ok end,
@@ -1200,6 +1398,7 @@ defmodule Singularity.Runtime.ApiTest do
       authorize_asset_subscription: fn _session -> :ok end,
       begin_upload: fn _session, _grant, _owner -> {:error, Error.new(:invalid)} end,
       asset_summary: fn _session, _asset_id -> {:error, Error.new(:not_found)} end,
+      backup_status: fn _session, _operation_id -> {:error, Error.new(:not_found)} end,
       cancel_upload_grant: fn _session, _grant_id -> {:error, Error.new(:invalid)} end,
       create_upload_grant: fn _session, _attrs, _csrf -> {:error, Error.new(:invalid)} end,
       delete_asset: fn _session, _asset_id, _revision ->
@@ -1218,6 +1417,7 @@ defmodule Singularity.Runtime.ApiTest do
       logout: fn _session -> :ok end,
       publish_asset: fn _vault_id, _asset_id -> :ok end,
       resolve_session: fn _token -> {:error, Error.new(:unauthenticated)} end,
+      request_backup: fn _session, _passphrase -> {:error, Error.new(:invalid)} end,
       retry_asset: fn _session, _asset_id, _revision ->
         {:error, Error.new(:conflict)}
       end,
@@ -1292,5 +1492,15 @@ defmodule Singularity.Runtime.ApiTest do
       },
       overrides
     )
+  end
+
+  defp backup_status_record do
+    %{
+      operation_id: @backup_operation_id,
+      vault_id: @vault_id,
+      status: :pending,
+      requested_at: ~U[2026-08-10 08:00:00.000000Z],
+      updated_at: ~U[2026-08-10 08:01:00.000000Z]
+    }
   end
 end

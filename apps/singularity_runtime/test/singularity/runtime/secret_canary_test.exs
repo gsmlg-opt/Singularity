@@ -4,11 +4,13 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   import ExUnit.CaptureLog
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Api
   alias Singularity.Runtime.Assets.CreateUploadGrant
   alias Singularity.Runtime.Audit
   alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.DownloadLease
+  alias Singularity.Runtime.DTO.Session, as: SessionDTO
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
@@ -704,6 +706,102 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     end
   end
 
+  test "backup facade returns and inspects only safe DTOs and stable errors" do
+    operation_id = "00000000-0000-4000-8000-000000001801"
+    vault_id = "00000000-0000-4000-8000-000000001802"
+    requested_at = ~U[2026-08-10 08:00:00.000000Z]
+    updated_at = ~U[2026-08-10 08:01:00.000000Z]
+
+    status = %{
+      operation_id: operation_id,
+      vault_id: vault_id,
+      status: :pending,
+      requested_at: requested_at,
+      updated_at: updated_at
+    }
+
+    config = %{
+      request_backup: fn _session, _passphrase ->
+        {:ok, %{operation_id: operation_id}}
+      end,
+      backup_status: fn _session, ^operation_id -> {:ok, status} end
+    }
+
+    secret_error_config = %{
+      request_backup: fn _session, passphrase ->
+        {:error,
+         Error.new(:backup_invalid,
+           message: passphrase,
+           details: %{passphrase: passphrase}
+         )}
+      end,
+      backup_status: fn _session, _operation_id -> {:ok, status} end
+    }
+
+    raising_config = %{
+      request_backup: fn _session, passphrase -> raise passphrase end,
+      backup_status: fn _session, _operation_id -> {:ok, status} end
+    }
+
+    logs =
+      capture_log(fn ->
+        send(
+          self(),
+          {:backup_facade_success,
+           Api.request_backup(config, backup_session_dto(vault_id), @backup_passphrase)}
+        )
+
+        send(
+          self(),
+          {:backup_facade_error,
+           Api.request_backup(
+             secret_error_config,
+             backup_session_dto(vault_id),
+             @backup_passphrase
+           )}
+        )
+
+        send(
+          self(),
+          {:backup_facade_exception,
+           Api.request_backup(
+             raising_config,
+             backup_session_dto(vault_id),
+             @backup_passphrase
+           )}
+        )
+      end)
+
+    assert_receive {:backup_facade_success,
+                    {:ok,
+                     %Singularity.Runtime.DTO.BackupStatus{
+                       operation_id: ^operation_id,
+                       status: :pending,
+                       requested_at: ^requested_at,
+                       updated_at: ^updated_at
+                     }} = success}
+
+    assert_receive {:backup_facade_error, {:error, :backup_invalid} = stable_error}
+
+    assert_receive {:backup_facade_exception,
+                    {:error, :storage_unavailable} = contained_exception}
+
+    {:messages, pending_messages} = Process.info(self(), :messages)
+
+    for surface <- [
+          success,
+          inspect(success, limit: :infinity),
+          stable_error,
+          inspect(stable_error, limit: :infinity),
+          contained_exception,
+          inspect(contained_exception, limit: :infinity),
+          pending_messages,
+          logs
+        ] do
+      assert Canary.leaks(surface, @backup_passphrase) == []
+    end
+  end
+
   test "restore keeps passphrase at authentication and sanitizes errors logs and telemetry" do
     start_event = [:singularity, :restore, :start]
     stop_event = [:singularity, :restore, :stop]
@@ -874,6 +972,20 @@ defmodule Singularity.Runtime.SecretCanaryTest do
       object_id: "object-1",
       object_generation: 1,
       session_id: "session-1"
+    }
+  end
+
+  defp backup_session_dto(vault_id) do
+    %SessionDTO{
+      session_id: "00000000-0000-4000-8000-000000001803",
+      account_id: "00000000-0000-4000-8000-000000001804",
+      principal_id: "00000000-0000-4000-8000-000000001805",
+      vault_id: vault_id,
+      expires_at: ~U[2026-08-10 09:00:00.000000Z],
+      principal_authorization_epoch: 7,
+      vault_authorization_epoch: 11,
+      authorization_epoch: 7,
+      unlocked?: true
     }
   end
 

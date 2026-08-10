@@ -33,7 +33,11 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Assets.UploadSession
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.Authorize
+  alias Singularity.Runtime.BackupKeyLease
+  alias Singularity.Runtime.Backups.Status, as: BackupStatusReader
+  alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.DTO.AssetSummary
+  alias Singularity.Runtime.DTO.BackupStatus
   alias Singularity.Runtime.DTO.SearchPage
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.DTO.UploadGrant
@@ -47,8 +51,11 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.UnlockVault
   alias Singularity.Runtime.UploadSessionSupervisor
   alias Singularity.Storage.AuthorizationLock
+  alias Singularity.Storage.Backup.LocalDestination
   alias Singularity.Storage.Crypto.Argon2KeyDeriver
   alias Singularity.Storage.Crypto.Argon2PasswordHasher
+  alias Singularity.Storage.Crypto.BackupKeyDeriver
+  alias Singularity.Storage.Crypto.BackupRecoveryWrapper
   alias Singularity.Storage.Crypto.KeyWrapper
   alias Singularity.Storage.EncryptedStageWriter
   alias Singularity.Storage.ObjectLock
@@ -56,6 +63,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.Postgres.AuditSink
+  alias Singularity.Storage.Postgres.BackupRepository
+  alias Singularity.Storage.Postgres.BackupStatusStore
   alias Singularity.Storage.Postgres.IdentityRepository
   alias Singularity.Storage.Postgres.PreAuth
   alias Singularity.Storage.PreAuthRepo
@@ -64,6 +73,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Schema.Content.AssetStage
   alias Singularity.Storage.ScopedRepo
   alias Singularity.Storage.VaultLock
+  alias Singularity.Storage.Jobs.ObanAdapter
 
   @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
   @asset_states [
@@ -77,6 +87,7 @@ defmodule Singularity.Runtime.Api do
     :deleted
   ]
   @classifications [:private, :sensitive, :restricted]
+  @backup_statuses [:pending, :waiting_for_backup_key, :copying, :sealed, :failed]
   @classification_labels Enum.map(@classifications, &Atom.to_string/1)
   @failure_codes Enum.map(Error.codes(), &Atom.to_string/1)
   @stable_errors Error.codes() ++
@@ -156,6 +167,50 @@ defmodule Singularity.Runtime.Api do
   end
 
   def logout(_config, _session), do: {:error, :invalid}
+
+  @spec request_backup(Session.t(), binary()) ::
+          {:ok, BackupStatus.t()} | {:error, atom()}
+  def request_backup(session, passphrase),
+    do: with_production(&request_backup(&1, session, passphrase))
+
+  @doc false
+  def request_backup(config, %Session{} = session, passphrase)
+      when is_map(config) and is_binary(passphrase) and byte_size(passphrase) > 0 do
+    with {:ok, %SessionContext{unlocked?: true} = context} <- session_context(session),
+         {:ok, created} <- invoke(config, :request_backup, [context, passphrase]),
+         {:ok, operation_id} <- backup_operation_identity(created),
+         {:ok, status} <- invoke(config, :backup_status, [context, operation_id]),
+         {:ok, dto} <- backup_status_dto(status, context, operation_id) do
+      {:ok, dto}
+    else
+      {:ok, %SessionContext{unlocked?: false}} -> {:error, :vault_locked}
+      result -> normalize_error(result)
+    end
+  end
+
+  def request_backup(_config, _session, _passphrase), do: {:error, :invalid}
+
+  @spec backup_status(Session.t(), String.t()) ::
+          {:ok, BackupStatus.t()} | {:error, atom()}
+  def backup_status(session, operation_id),
+    do: with_production(&backup_status(&1, session, operation_id))
+
+  @doc false
+  def backup_status(config, %Session{} = session, operation_id)
+      when is_map(config) and is_binary(operation_id) do
+    with true <- valid_uuid?(operation_id),
+         {:ok, %SessionContext{unlocked?: true} = context} <- session_context(session),
+         {:ok, status} <- invoke(config, :backup_status, [context, operation_id]),
+         {:ok, dto} <- backup_status_dto(status, context, operation_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      {:ok, %SessionContext{unlocked?: false}} -> {:error, :vault_locked}
+      result -> normalize_error(result)
+    end
+  end
+
+  def backup_status(_config, _session, _operation_id), do: {:error, :invalid}
 
   @spec list_assets(Session.t(), map() | keyword()) ::
           {:ok, SearchPage.t()} | {:error, atom()}
@@ -488,6 +543,9 @@ defmodule Singularity.Runtime.Api do
       asset_summary: fn session, asset_id ->
         Search.fetch(runtime, session, asset_id)
       end,
+      backup_status: fn session, operation_id ->
+        BackupStatusReader.run(runtime, session, operation_id)
+      end,
       begin_upload: fn session, grant, owner ->
         AcceptUpload.begin(runtime, session, grant, owner)
       end,
@@ -524,6 +582,19 @@ defmodule Singularity.Runtime.Api do
         Logout.run(runtime, session, Ecto.UUID.generate())
       end,
       publish_asset: &AssetEvents.publish/2,
+      request_backup: fn session, passphrase ->
+        relative_destination = "web/" <> Ecto.UUID.generate() <> ".bundle"
+
+        with {:ok, destination_ref} <-
+               call_adapter(runtime.backup_destination, :normalize, [
+                 relative_destination
+               ]),
+             {:ok, manifest} <-
+               BackupVault.request(runtime, session, passphrase, destination_ref),
+             {:ok, identity} <- internal_backup_identity(manifest) do
+          {:ok, identity}
+        end
+      end,
       resolve_session: &ResolveSession.run(resolve_session_adapters(), &1),
       retry_asset: fn session, asset_id, state_revision ->
         Retry.run(runtime, session, asset_id, state_revision)
@@ -591,6 +662,9 @@ defmodule Singularity.Runtime.Api do
         {:error, _error} -> nil
       end
 
+    backup_root = Application.fetch_env!(:singularity_storage, :backup_root)
+    backup_profile = BackupKeyDeriver.profile()
+
     %{
       asset_deletions: AssetDeletionRepository,
       asset_search: AssetMetadataSearch,
@@ -602,13 +676,24 @@ defmodule Singularity.Runtime.Api do
       authorization: authorization,
       authorization_lock: AuthorizationLock,
       authorizer: Authorize,
+      backup_destination: {LocalDestination, %{backup_root: backup_root}},
+      backup_kdf_domain: backup_profile.domain,
+      backup_kdf_parameters: backup_profile.parameters,
+      backup_key_deriver: BackupKeyDeriver,
+      backup_key_lease: BackupKeyLease,
+      backup_key_wrapper: BackupRecoveryWrapper,
+      backup_status_store: BackupStatusStore,
+      backups: BackupRepository,
       custodian: {KeyCustodian, KeyCustodian},
       identity: IdentityRepository,
+      ids: Ecto.UUID,
+      jobs: {ObanAdapter, %{}},
       key_deriver: Argon2KeyDeriver,
       key_wrapper: KeyWrapper,
       operation_scope: OperationScope,
       object_lock: ObjectLock,
       request_repo: RequestRepo,
+      random_bytes: &:crypto.strong_rand_bytes/1,
       scoped_repo: ScopedRepo,
       stage_writer: EncryptedStageWriter,
       upload_session_supervisor: UploadSessionSupervisor,
@@ -641,6 +726,52 @@ defmodule Singularity.Runtime.Api do
     |> Map.from_struct()
     |> validate_session(SessionContext)
   end
+
+  defp backup_operation_identity(%{operation_id: operation_id} = identity)
+       when not is_struct(identity) and map_size(identity) == 1 do
+    if valid_uuid?(operation_id),
+      do: {:ok, operation_id},
+      else: {:error, :integrity_failure}
+  end
+
+  defp backup_operation_identity(_identity), do: {:error, :integrity_failure}
+
+  defp internal_backup_identity(%{id: operation_id}) do
+    if valid_uuid?(operation_id),
+      do: {:ok, %{operation_id: operation_id}},
+      else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp internal_backup_identity(_manifest),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp backup_status_dto(
+         %{
+           operation_id: operation_id,
+           vault_id: vault_id,
+           status: status,
+           requested_at: %DateTime{} = requested_at,
+           updated_at: %DateTime{} = updated_at
+         } = record,
+         %SessionContext{vault_id: vault_id},
+         operation_id
+       )
+       when not is_struct(record) and map_size(record) == 5 and status in @backup_statuses do
+    if valid_datetime?(requested_at) and valid_datetime?(updated_at) do
+      {:ok,
+       %BackupStatus{
+         operation_id: operation_id,
+         status: status,
+         requested_at: requested_at,
+         updated_at: updated_at
+       }}
+    else
+      {:error, :integrity_failure}
+    end
+  end
+
+  defp backup_status_dto(_record, _context, _operation_id),
+    do: {:error, :integrity_failure}
 
   defp validate_session(values, module) do
     valid? =
@@ -1139,7 +1270,10 @@ defmodule Singularity.Runtime.Api do
     :ok
   end
 
-  defp normalize_error({:error, %Error{code: code}}), do: {:error, code}
+  defp normalize_error({:error, %Error{code: code}}) when code in @stable_errors,
+    do: {:error, code}
+
+  defp normalize_error({:error, %Error{}}), do: {:error, :storage_unavailable}
 
   defp normalize_error({:error, code}) when code in @stable_errors,
     do: {:error, code}
@@ -1179,6 +1313,14 @@ defmodule Singularity.Runtime.Api do
     _kind, _reason -> {:error, :storage_unavailable}
   end
 
+  defp call_adapter(module, function, arguments)
+       when is_atom(module) and not is_nil(module),
+       do: apply(module, function, arguments)
+
+  defp call_adapter({module, context}, function, arguments)
+       when is_atom(module) and not is_nil(module),
+       do: apply(module, function, [context | arguments])
+
   defp with_production(callback) do
     callback.(production_config())
   rescue
@@ -1189,6 +1331,12 @@ defmodule Singularity.Runtime.Api do
 
   defp valid_uuid?(value),
     do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
+
+  defp valid_datetime?(%DateTime{} = value) do
+    is_binary(DateTime.to_iso8601(value))
+  rescue
+    _error -> false
+  end
 
   defp valid_epoch?(value), do: is_integer(value) and value >= 0
   defp nonblank?(value), do: is_binary(value) and String.trim(value) != ""
