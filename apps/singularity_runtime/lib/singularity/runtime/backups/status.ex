@@ -127,9 +127,16 @@ defmodule Singularity.Runtime.Backups.Status do
   defp valid_uuid?(value), do: Ecto.UUID.cast(value) == {:ok, value}
 
   defp valid_datetime?(%DateTime{} = value) do
-    is_binary(DateTime.to_iso8601(value))
+    with encoded when is_binary(encoded) <- DateTime.to_iso8601(value),
+         {:ok, ^value, 0} <- DateTime.from_iso8601(encoded) do
+      true
+    else
+      _invalid -> false
+    end
   rescue
     _error -> false
+  catch
+    _kind, _reason -> false
   end
 
   defp valid_datetime?(_value), do: false

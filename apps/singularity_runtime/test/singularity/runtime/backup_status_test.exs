@@ -157,18 +157,19 @@ defmodule Singularity.Runtime.BackupStatusTest do
   end
 
   test "rejects malformed SessionContext fields before authorization or storage" do
-    invalid_sessions = [
-      %{session() | session_id: "not-a-uuid"},
-      %{session() | account_id: "not-a-uuid"},
-      %{session() | principal_id: "not-a-uuid"},
-      %{session() | vault_id: "not-a-uuid"},
-      %{session() | expires_at: NaiveDateTime.utc_now()},
-      %{session() | expires_at: struct(DateTime)},
-      %{session() | principal_authorization_epoch: -1},
-      %{session() | vault_authorization_epoch: "11"},
-      %{session() | authorization_epoch: nil},
-      %{session() | unlocked?: :yes}
-    ]
+    invalid_sessions =
+      [
+        %{session() | session_id: "not-a-uuid"},
+        %{session() | account_id: "not-a-uuid"},
+        %{session() | principal_id: "not-a-uuid"},
+        %{session() | vault_id: "not-a-uuid"},
+        %{session() | expires_at: NaiveDateTime.utc_now()},
+        %{session() | expires_at: struct(DateTime)},
+        %{session() | principal_authorization_epoch: -1},
+        %{session() | vault_authorization_epoch: "11"},
+        %{session() | authorization_epoch: nil},
+        %{session() | unlocked?: :yes}
+      ] ++ Enum.map(forged_datetimes(), &%{session() | expires_at: &1})
 
     for invalid_session <- invalid_sessions do
       assert {:error, %Error{code: :invalid, message: nil, details: %{}}} =
@@ -182,17 +183,22 @@ defmodule Singularity.Runtime.BackupStatusTest do
   test "rejects malformed and mismatched status records without returning their data" do
     secret = "BACKUP_STATUS_RECORD_SECRET"
 
-    malformed = [
-      %{status_record() | operation_id: Ecto.UUID.generate()},
-      %{status_record() | vault_id: @other_vault_id},
-      %{status_record() | status: :valid},
-      %{status_record() | requested_at: NaiveDateTime.utc_now()},
-      %{status_record() | updated_at: struct(DateTime)},
-      Map.put(status_record(), :destination_ref, secret),
-      %{operation_id: @operation_id},
-      {:status, secret},
-      {:error, secret}
-    ]
+    malformed =
+      [
+        %{status_record() | operation_id: Ecto.UUID.generate()},
+        %{status_record() | vault_id: @other_vault_id},
+        %{status_record() | status: :valid},
+        %{status_record() | requested_at: NaiveDateTime.utc_now()},
+        %{status_record() | updated_at: struct(DateTime)},
+        Map.put(status_record(), :destination_ref, secret),
+        %{operation_id: @operation_id},
+        {:status, secret},
+        {:error, secret}
+      ] ++
+        for forged_datetime <- forged_datetimes(),
+            field <- [:requested_at, :updated_at] do
+          Map.put(status_record(), field, forged_datetime)
+        end
 
     for value <- malformed do
       Process.put(:backup_status_store_result, {:ok, value})
@@ -255,5 +261,20 @@ defmodule Singularity.Runtime.BackupStatusTest do
       requested_at: @requested_at,
       updated_at: @updated_at
     }
+  end
+
+  defp forged_datetimes do
+    canonical = ~U[2026-08-10 08:00:00.000000Z]
+
+    [
+      %{canonical | month: 13},
+      %{canonical | month: 2, day: 30},
+      %{canonical | utc_offset: 3_600},
+      %{canonical | std_offset: 3_600},
+      %{canonical | time_zone: "Etc/Forged", zone_abbr: "FORGED"},
+      %{canonical | microsecond: :invalid},
+      %{canonical | microsecond: {1, 7}},
+      %{canonical | microsecond: {1_000_000, 6}}
+    ]
   end
 end

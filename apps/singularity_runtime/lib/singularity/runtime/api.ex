@@ -796,7 +796,7 @@ defmodule Singularity.Runtime.Api do
       valid_uuid?(values[:session_id]) and
         (is_nil(values[:account_id]) or valid_uuid?(values[:account_id])) and
         valid_uuid?(values[:principal_id]) and valid_uuid?(values[:vault_id]) and
-        is_struct(values[:expires_at], DateTime) and
+        valid_datetime?(values[:expires_at]) and
         valid_epoch?(values[:principal_authorization_epoch]) and
         valid_epoch?(values[:vault_authorization_epoch]) and
         valid_epoch?(values[:authorization_epoch]) and
@@ -1351,10 +1351,19 @@ defmodule Singularity.Runtime.Api do
     do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
   defp valid_datetime?(%DateTime{} = value) do
-    is_binary(DateTime.to_iso8601(value))
+    with encoded when is_binary(encoded) <- DateTime.to_iso8601(value),
+         {:ok, ^value, 0} <- DateTime.from_iso8601(encoded) do
+      true
+    else
+      _invalid -> false
+    end
   rescue
     _error -> false
+  catch
+    _kind, _reason -> false
   end
+
+  defp valid_datetime?(_value), do: false
 
   defp valid_epoch?(value), do: is_integer(value) and value >= 0
   defp nonblank?(value), do: is_binary(value) and String.trim(value) != ""

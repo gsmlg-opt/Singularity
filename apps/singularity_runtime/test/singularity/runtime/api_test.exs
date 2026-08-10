@@ -1294,6 +1294,10 @@ defmodule Singularity.Runtime.ApiTest do
 
     api =
       api(
+        authorize_backup_request: fn _context ->
+          send(test_pid, :authorize_backup_request_called)
+          :ok
+        end,
         request_backup: fn _context, _passphrase ->
           send(test_pid, :request_backup_called)
           {:ok, %{operation_id: @backup_operation_id}}
@@ -1323,6 +1327,17 @@ defmodule Singularity.Runtime.ApiTest do
     assert {:error, :invalid} = Api.request_backup(api, %{}, "passphrase")
     assert {:error, :invalid} = Api.backup_status(api, %{}, @backup_operation_id)
 
+    for forged_datetime <- forged_datetimes() do
+      invalid_session = %{session_dto(true) | expires_at: forged_datetime}
+
+      assert {:error, :integrity_failure} =
+               Api.request_backup(api, invalid_session, "passphrase")
+
+      assert {:error, :integrity_failure} =
+               Api.backup_status(api, invalid_session, @backup_operation_id)
+    end
+
+    refute_received :authorize_backup_request_called
     refute_received :request_backup_called
     refute_received :backup_status_called
   end
@@ -1372,20 +1387,25 @@ defmodule Singularity.Runtime.ApiTest do
                Api.backup_status(api, session_dto(true), @backup_operation_id)
     end
 
-    malformed = [
-      %{backup_status_record() | operation_id: @other_backup_operation_id},
-      %{backup_status_record() | vault_id: Ecto.UUID.generate()},
-      %{backup_status_record() | status: "pending"},
-      %{backup_status_record() | requested_at: ~N[2026-08-10 08:00:00]},
-      %{backup_status_record() | updated_at: nil},
-      Map.put(backup_status_record(), :destination_ref, "/secret/path"),
-      %BackupStatus{
-        operation_id: @backup_operation_id,
-        status: :pending,
-        requested_at: ~U[2026-08-10 08:00:00Z],
-        updated_at: ~U[2026-08-10 08:01:00Z]
-      }
-    ]
+    malformed =
+      [
+        %{backup_status_record() | operation_id: @other_backup_operation_id},
+        %{backup_status_record() | vault_id: Ecto.UUID.generate()},
+        %{backup_status_record() | status: "pending"},
+        %{backup_status_record() | requested_at: ~N[2026-08-10 08:00:00]},
+        %{backup_status_record() | updated_at: nil},
+        Map.put(backup_status_record(), :destination_ref, "/secret/path"),
+        %BackupStatus{
+          operation_id: @backup_operation_id,
+          status: :pending,
+          requested_at: ~U[2026-08-10 08:00:00Z],
+          updated_at: ~U[2026-08-10 08:01:00Z]
+        }
+      ] ++
+        for forged_datetime <- forged_datetimes(),
+            field <- [:requested_at, :updated_at] do
+          Map.put(backup_status_record(), field, forged_datetime)
+        end
 
     for status_result <- malformed do
       api =
@@ -1563,5 +1583,20 @@ defmodule Singularity.Runtime.ApiTest do
       requested_at: ~U[2026-08-10 08:00:00.000000Z],
       updated_at: ~U[2026-08-10 08:01:00.000000Z]
     }
+  end
+
+  defp forged_datetimes do
+    canonical = ~U[2026-08-10 08:00:00.000000Z]
+
+    [
+      %{canonical | month: 13},
+      %{canonical | month: 2, day: 30},
+      %{canonical | utc_offset: 3_600},
+      %{canonical | std_offset: 3_600},
+      %{canonical | time_zone: "Etc/Forged", zone_abbr: "FORGED"},
+      %{canonical | microsecond: :invalid},
+      %{canonical | microsecond: {1, 7}},
+      %{canonical | microsecond: {1_000_000, 6}}
+    ]
   end
 end
