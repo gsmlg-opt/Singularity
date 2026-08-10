@@ -1,7 +1,7 @@
 defmodule Singularity.Web.RouteContractTest do
   use ExUnit.Case, async: true
 
-  test "router exposes exactly the Task 16 browser and API surface" do
+  test "router exposes exactly the Task 18 browser and API surface" do
     actual =
       Singularity.Web.Router.__routes__()
       |> Enum.map(&{&1.verb, &1.path})
@@ -19,6 +19,7 @@ defmodule Singularity.Web.RouteContractTest do
         {:get, "/activity"},
         {:get, "/audit"},
         {:get, "/backups"},
+        {:post, "/backups"},
         {:get, "/settings"},
         {:delete, "/logout"}
       ])

@@ -38,6 +38,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     {:singularity_storage, Singularity.Storage.PreAuthRepo},
     {:singularity_storage, Singularity.Storage.DispatcherRepo},
     {:singularity_storage, Singularity.Storage.WorkerRepo},
+    {:singularity_web, :asset_page_limit},
     {:singularity_web, @endpoint}
   ]
 
@@ -170,7 +171,10 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
 
   @doc false
   def __configure_environment__(%{environment: %{storage_root: storage_root}} = context) do
-    Application.put_env(:singularity_storage, :backup_root, Path.join(storage_root, "backups"))
+    backup_root = Path.join(storage_root, "backups")
+    File.mkdir_p!(backup_root)
+    Application.put_env(:singularity_storage, :backup_root, backup_root)
+    Application.put_env(:singularity_web, :asset_page_limit, 2)
 
     Application.put_env(:singularity_runtime, :authorization_dependencies, %{
       store: Singularity.Storage.Postgres.IdentityRepository,
@@ -238,6 +242,8 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   @doc false
   def __owner_attributes__(run_id) do
     %{
+      capabilities:
+        ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change],
       display_name: "Browser Test Owner",
       login: "owner@singularity.local",
       password: derive_owner_password(run_id)
@@ -279,6 +285,8 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   defp bootstrap_owner(context) do
     adapters = Application.fetch_env!(:singularity_runtime, :bootstrap_owner)
     attrs = __owner_attributes__(context.run_id)
+    {capabilities, attrs} = Map.pop!(attrs, :capabilities)
+    adapters = Map.put(adapters, :initial_capabilities, capabilities)
 
     {:ok, repo} = MigrationRepo.start_link(pool_size: 2)
 

@@ -74,6 +74,8 @@ defmodule Singularity.Web.Router do
       :browser_vault_unlocked
     ]
 
+    post "/backups", BackupController, :create
+
     live_session :unlocked,
       on_mount: [
         {Auth, :require_authenticated},

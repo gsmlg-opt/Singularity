@@ -37,6 +37,43 @@ defmodule Singularity.Web.AuthenticationTest do
       end
     end
 
+    test "backup POST follows the same authenticated and unlocked browser gates", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      unauthenticated = post(build_conn(), "/backups", %{"passphrase" => "not-forwarded"})
+      assert redirected_to(unauthenticated) == "/login"
+
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "locked-session" => {:ok, session(false)},
+        "unlocked-session" => {:ok, session(true)}
+      })
+
+      locked =
+        conn
+        |> put_session_id("locked-session")
+        |> post("/backups", %{"passphrase" => "not-forwarded"})
+
+      assert redirected_to(locked) == "/vault/unlock"
+
+      unlocked =
+        conn
+        |> put_session_id("unlocked-session")
+        |> post("/backups", %{"passphrase" => "forwarded-once"})
+
+      assert redirected_to(unlocked) == "/backups"
+
+      assert Enum.count(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:request_backup, _, "forwarded-once"}, &1)
+             ) == 1
+
+      refute Enum.any?(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:request_backup, _, "not-forwarded"}, &1)
+             )
+    end
+
     test "login stores only the opaque session id and never renders credentials", %{
       conn: conn,
       runtime_api: runtime_api

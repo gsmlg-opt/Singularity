@@ -8,7 +8,6 @@ defmodule Singularity.Web.AssetsLive do
   alias Singularity.Web.Auth
 
   @version 1
-  @page_limit 50
   @default_max_upload_bytes 512 * 1024 * 1024
   @accepted_upload_types ["application/pdf", "image/jpeg", "image/png"]
   @navigation_paths ["/assets", "/activity", "/audit", "/backups", "/settings"]
@@ -768,8 +767,17 @@ defmodule Singularity.Web.AssetsLive do
       q: filters.q,
       state: state_atom,
       media_type: filters.mediaType,
-      limit: @page_limit
+      limit: page_limit()
     }
+  end
+
+  defp page_limit do
+    case Application.get_env(:singularity_web, :asset_page_limit, 50) do
+      value when is_integer(value) and value <= 0 -> 1
+      value when is_integer(value) and value > 50 -> 50
+      value when is_integer(value) -> value
+      _malformed -> 50
+    end
   end
 
   defp assign_workspace(socket, session, page, filters, options) do

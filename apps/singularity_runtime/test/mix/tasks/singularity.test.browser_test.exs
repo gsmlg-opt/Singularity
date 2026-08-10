@@ -49,14 +49,29 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
     assert_receive {:owner_attrs,
                     %{
+                      capabilities: capabilities,
                       display_name: "Browser Test Owner",
                       login: "owner@singularity.local",
                       password: password
                     }}
 
+    assert capabilities ==
+             ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change]
+
+    refute "integrity.audit" in capabilities
     assert password == Browser.derive_owner_password(@run_id)
     refute inspect(Application.get_all_env(:singularity_runtime)) =~ password
     refute Enum.any?(System.get_env(), fn {_key, value} -> value == password end)
+  end
+
+  test "browser capability override leaves production bootstrap defaults untouched" do
+    production = Application.fetch_env!(:singularity_runtime, :bootstrap_owner)
+
+    refute Map.has_key?(production, :initial_capabilities)
+    refute inspect(production) =~ "integrity.audit"
+
+    assert Browser.__owner_attributes__(@run_id).capabilities ==
+             ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change]
   end
 
   test "accepts only serve and refuses every non-test Mix environment" do
@@ -285,6 +300,77 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     assert Application.fetch_env(:singularity_runtime, :outbox_dispatcher_options) == :error
   end
 
+  test "snapshots and restores present and absent backup-root and page-limit settings exactly" do
+    original_backup_root = Application.fetch_env(:singularity_storage, :backup_root)
+    original_page_limit = Application.fetch_env(:singularity_web, :asset_page_limit)
+
+    on_exit(fn ->
+      restore_setting(:singularity_storage, :backup_root, original_backup_root)
+      restore_setting(:singularity_web, :asset_page_limit, original_page_limit)
+    end)
+
+    for prior <- [:present, :absent] do
+      expected =
+        case prior do
+          :present ->
+            Application.put_env(:singularity_storage, :backup_root, "/prior/backups")
+            Application.put_env(:singularity_web, :asset_page_limit, 37)
+            {{:ok, "/prior/backups"}, {:ok, 37}}
+
+          :absent ->
+            Application.delete_env(:singularity_storage, :backup_root)
+            Application.delete_env(:singularity_web, :asset_page_limit)
+            {:error, :error}
+        end
+
+      snapshot = Browser.__snapshot_environment__()
+
+      Application.put_env(:singularity_storage, :backup_root, "/generated/backups")
+      Application.put_env(:singularity_web, :asset_page_limit, 2)
+
+      assert :ok = Browser.__restore_environment__(snapshot)
+      {expected_backup_root, expected_page_limit} = expected
+      assert Application.fetch_env(:singularity_storage, :backup_root) == expected_backup_root
+      assert Application.fetch_env(:singularity_web, :asset_page_limit) == expected_page_limit
+    end
+  end
+
+  test "partial, normal, SIGTERM, and VM-at-exit cleanup restore both browser settings" do
+    original_backup_root = Application.fetch_env(:singularity_storage, :backup_root)
+    original_page_limit = Application.fetch_env(:singularity_web, :asset_page_limit)
+
+    on_exit(fn ->
+      restore_setting(:singularity_storage, :backup_root, original_backup_root)
+      restore_setting(:singularity_web, :asset_page_limit, original_page_limit)
+    end)
+
+    for cleanup_path <- [:partial_setup, :normal, :sigterm, :vm_at_exit],
+        prior <- [:present, :absent] do
+      expected = set_prior_browser_settings(prior)
+
+      cleanup_registration =
+        start_supervised!({Agent, fn -> nil end},
+          id: {:cleanup_registration, cleanup_path, prior}
+        )
+
+      lifecycle = restoring_lifecycle(cleanup_path, cleanup_registration)
+
+      case cleanup_path do
+        :partial_setup ->
+          assert_raise RuntimeError, "partial setup", fn ->
+            Browser.__run_lifecycle__(@run_id, lifecycle)
+          end
+
+        _other ->
+          assert :ok = Browser.__run_lifecycle__(@run_id, lifecycle)
+      end
+
+      {expected_backup_root, expected_page_limit} = expected
+      assert Application.fetch_env(:singularity_storage, :backup_root) == expected_backup_root
+      assert Application.fetch_env(:singularity_web, :asset_page_limit) == expected_page_limit
+    end
+  end
+
   test "SIGTERM handler waits for cleanup acknowledgement and times out boundedly" do
     owner = self()
     state = %{owner: owner, timeout_ms: 100}
@@ -336,15 +422,24 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     refute Process.alive?(worker)
   end
 
-  test "configures real infrastructure and the loopback browser endpoint before startup" do
+  @tag :tmp_dir
+  test "configures generated backup storage, page size, real infrastructure, and the endpoint",
+       %{tmp_dir: tmp_dir} do
     snapshot = Browser.__snapshot_environment__()
     on_exit(fn -> Browser.__restore_environment__(snapshot) end)
 
-    context = %{environment: %{storage_root: "/tmp/singularity/browser/canonical"}}
+    storage_root = Path.join(tmp_dir, "generated-storage")
+    File.mkdir_p!(storage_root)
+    backup_root = Path.join(storage_root, "backups")
+    refute File.exists?(backup_root)
+
+    context = %{environment: %{storage_root: storage_root}}
     assert ^context = Browser.__configure_environment__(context)
 
-    assert Application.fetch_env!(:singularity_storage, :backup_root) ==
-             "/tmp/singularity/browser/canonical/backups"
+    assert Application.fetch_env!(:singularity_storage, :backup_root) == backup_root
+    assert File.dir?(backup_root)
+    assert Path.dirname(backup_root) == storage_root
+    assert Application.fetch_env!(:singularity_web, :asset_page_limit) == 2
 
     assert Application.fetch_env!(:singularity_runtime, :start_infrastructure)
     refute Application.fetch_env!(:singularity_runtime, :maintenance_mode)
@@ -487,6 +582,63 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
       cleanup: fn _context -> record.(:cleanup) end
     }
   end
+
+  defp restoring_lifecycle(cleanup_path, cleanup_registration) do
+    %{
+      environment: fn run_id -> %{run_id: run_id, storage_root: "/generated/storage"} end,
+      snapshot: &Browser.__snapshot_environment__/0,
+      register_cleanup: fn _owner, cleanup ->
+        Agent.update(cleanup_registration, fn _previous -> cleanup end)
+        :handler
+      end,
+      unregister_cleanup: fn :handler -> :ok end,
+      provision: & &1,
+      configure: fn context ->
+        Application.put_env(:singularity_storage, :backup_root, "/generated/storage/backups")
+        Application.put_env(:singularity_web, :asset_page_limit, 2)
+
+        if cleanup_path == :partial_setup, do: raise("partial setup")
+        context
+      end,
+      bootstrap: & &1,
+      stop_provisioning_repos: & &1,
+      start: & &1,
+      wait: fn _context, cleanup ->
+        case cleanup_path do
+          :sigterm ->
+            reference = make_ref()
+            assert :ok = Browser.__cleanup_and_acknowledge__(self(), reference, cleanup)
+            assert_receive {:singularity_browser_cleanup_complete, ^reference}
+
+          :vm_at_exit ->
+            at_exit_cleanup = Agent.get(cleanup_registration, & &1)
+            assert is_function(at_exit_cleanup, 0)
+            assert :ok = at_exit_cleanup.()
+
+          _normal ->
+            :ok
+        end
+      end,
+      cleanup: fn context -> Browser.__restore_environment__(context.snapshot) end
+    }
+  end
+
+  defp set_prior_browser_settings(:present) do
+    Application.put_env(:singularity_storage, :backup_root, "/prior/backups")
+    Application.put_env(:singularity_web, :asset_page_limit, 37)
+    {{:ok, "/prior/backups"}, {:ok, 37}}
+  end
+
+  defp set_prior_browser_settings(:absent) do
+    Application.delete_env(:singularity_storage, :backup_root)
+    Application.delete_env(:singularity_web, :asset_page_limit)
+    {:error, :error}
+  end
+
+  defp restore_setting(application, key, {:ok, value}),
+    do: Application.put_env(application, key, value)
+
+  defp restore_setting(application, key, :error), do: Application.delete_env(application, key)
 
   defp read_test_endpoint_config do
     config_path = Path.expand("../../../../../config/test.exs", __DIR__)

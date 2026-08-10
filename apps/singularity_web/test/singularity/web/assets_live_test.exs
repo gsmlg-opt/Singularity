@@ -12,6 +12,129 @@ defmodule Singularity.Web.AssetsLiveTest do
   @opaque_key_canary "CANARY_KEY_88c17a"
   @initial_params %{q: "", state: nil, media_type: nil, limit: 50}
 
+  setup do
+    previous_page_limit = Application.fetch_env(:singularity_web, :asset_page_limit)
+
+    on_exit(fn ->
+      case previous_page_limit do
+        {:ok, value} -> Application.put_env(:singularity_web, :asset_page_limit, value)
+        :error -> Application.delete_env(:singularity_web, :asset_page_limit)
+      end
+    end)
+
+    :ok
+  end
+
+  test "base configuration keeps the production asset page limit at 50", %{
+    conn: conn,
+    runtime_api: runtime_api
+  } do
+    assert Application.fetch_env(:singularity_web, :asset_page_limit) == {:ok, 50}
+
+    current_session = session(true)
+    {:ok, _view, _html} = open_assets(conn, runtime_api, current_session, page([]))
+
+    assert {:list_assets, current_session, @initial_params} in asset_calls(runtime_api)
+  end
+
+  test "configured page limit reaches search and cursor pagination unchanged", %{
+    conn: conn,
+    runtime_api: runtime_api
+  } do
+    Application.put_env(:singularity_web, :asset_page_limit, 2)
+    current_session = session(true)
+    {:ok, view, _html} = open_assets(conn, runtime_api, current_session, page([]))
+
+    assert_push_event(view, "asset:snapshot", %{
+      version: 1,
+      sequence: 1,
+      assets: %{items: [], nextCursor: nil}
+    })
+
+    TestRuntimeApi.put(runtime_api, :assets, {:ok, page([], "configured-cursor")})
+
+    hook_reply(
+      view,
+      "asset:search",
+      %{
+        "version" => 1,
+        "q" => " report ",
+        "state" => "ready",
+        "mediaType" => "application/pdf"
+      },
+      %{
+        ok: true,
+        sequence: 2,
+        filters: %{q: "report", state: "ready", mediaType: "application/pdf"},
+        assets: %{items: [], nextCursor: "configured-cursor"}
+      }
+    )
+
+    TestRuntimeApi.put(runtime_api, :assets, {:ok, page([])})
+
+    hook_reply(
+      view,
+      "asset:page",
+      %{
+        "version" => 1,
+        "cursor" => "configured-cursor",
+        "q" => "report",
+        "state" => "ready",
+        "mediaType" => "application/pdf"
+      },
+      %{
+        ok: true,
+        sequence: 3,
+        assets: %{items: [], nextCursor: nil}
+      }
+    )
+
+    assert {:list_assets, current_session,
+            %{
+              q: "report",
+              state: :ready,
+              media_type: "application/pdf",
+              limit: 2
+            }} in asset_calls(runtime_api)
+
+    assert List.last(asset_calls(runtime_api)) ==
+             {:list_assets, current_session,
+              %{
+                q: "report",
+                state: :ready,
+                media_type: "application/pdf",
+                cursor: "configured-cursor",
+                limit: 2
+              }}
+  end
+
+  test "page limit clamps integers and safely falls back for malformed values", %{
+    runtime_api: runtime_api
+  } do
+    current_session = session(true)
+
+    for {configured, expected} <- [
+          {-10, 1},
+          {0, 1},
+          {1, 1},
+          {50, 50},
+          {51, 50},
+          {500, 50},
+          {nil, 50},
+          {"2", 50},
+          {{:unexpected, 2}, 50}
+        ] do
+      Application.put_env(:singularity_web, :asset_page_limit, configured)
+
+      conn = authenticated_conn(build_conn(), runtime_api, current_session, page([]))
+      assert conn |> get("/assets") |> html_response(200) =~ "asset-workspace"
+
+      assert List.last(asset_calls(runtime_api)) ==
+               {:list_assets, current_session,
+                %{q: "", state: nil, media_type: nil, limit: expected}}
+    end
+  end
+
   test "renders one ignored workspace node with exact secret-free version-1 props", %{
     conn: conn,
     runtime_api: runtime_api

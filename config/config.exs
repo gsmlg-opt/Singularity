@@ -61,6 +61,7 @@ config :singularity_web, Singularity.Web.Endpoint,
   live_view: [signing_salt: "singularity-live"]
 
 config :singularity_web, :runtime_api, Singularity.Runtime.Api
+config :singularity_web, :asset_page_limit, 50
 
 config :phoenix, :filter_parameters, [
   "password",

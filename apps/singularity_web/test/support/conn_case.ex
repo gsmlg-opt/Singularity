@@ -135,6 +135,24 @@ defmodule Singularity.Web.TestRuntimeApi do
     )
   end
 
+  def request_backup(agent, session, passphrase),
+    do:
+      call_configured(
+        agent,
+        {:request_backup, session, passphrase},
+        :request_backup,
+        {:error, :storage_unavailable}
+      )
+
+  def backup_status(agent, session, operation_id),
+    do:
+      call_configured(
+        agent,
+        {:backup_status, session, operation_id},
+        :backup_status,
+        {:error, :not_found}
+      )
+
   defp call(agent, invocation, result) do
     Agent.get_and_update(agent, fn state ->
       {result.(state), Map.update!(state, :calls, &[invocation | &1])}
@@ -142,10 +160,13 @@ defmodule Singularity.Web.TestRuntimeApi do
   end
 
   defp call_configured(agent, invocation, key, default) do
-    Agent.get_and_update(agent, fn state ->
-      {result, state} = take_configured(state, key, default)
-      {result, Map.update!(state, :calls, &[invocation | &1])}
-    end)
+    result =
+      Agent.get_and_update(agent, fn state ->
+        {result, state} = take_configured(state, key, default)
+        {result, Map.update!(state, :calls, &[invocation | &1])}
+      end)
+
+    configured_result(result)
   end
 
   defp take_configured(state, key, default) do
@@ -160,6 +181,10 @@ defmodule Singularity.Web.TestRuntimeApi do
         {result, state}
     end
   end
+
+  defp configured_result({:test_raise, exception}), do: raise(exception)
+  defp configured_result({:test_throw, reason}), do: throw(reason)
+  defp configured_result(result), do: result
 end
 
 defmodule Singularity.Web.ConnCase do
