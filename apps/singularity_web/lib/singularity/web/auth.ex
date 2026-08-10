@@ -8,26 +8,6 @@ defmodule Singularity.Web.Auth do
   alias Singularity.Runtime.DTO.Session
 
   @session_key "session_id"
-  @sensitive_parameter_keys [
-    "password",
-    :password,
-    "passphrase",
-    :passphrase,
-    "token",
-    :token,
-    "csrf",
-    :csrf,
-    "csrf_token",
-    :csrf_token,
-    "_csrf_token",
-    :_csrf_token,
-    "upload_token",
-    :upload_token,
-    "x-csrf-token",
-    :"x-csrf-token",
-    "x-upload-token",
-    :"x-upload-token"
-  ]
 
   def init(action) when is_atom(action), do: action
   def call(conn, action) when is_atom(action), do: apply(__MODULE__, action, [conn, []])
@@ -41,7 +21,6 @@ defmodule Singularity.Web.Auth do
 
   def require_authenticated(conn, _options) do
     conn
-    |> scrub_sensitive_request()
     |> redirect(to: "/login")
     |> halt()
   end
@@ -54,20 +33,8 @@ defmodule Singularity.Web.Auth do
 
   def require_unlocked(conn, _options) do
     conn
-    |> scrub_sensitive_request()
     |> redirect(to: "/vault/unlock")
     |> halt()
-  end
-
-  @doc false
-  def scrub_sensitive_request(%Plug.Conn{} = conn) do
-    conn
-    |> Map.update!(:body_params, &scrub_parameter_map/1)
-    |> Map.update!(:params, &scrub_parameter_map/1)
-    |> Map.update!(:query_params, &scrub_parameter_map/1)
-    |> Map.update!(:path_params, &scrub_parameter_map/1)
-    |> Map.update!(:adapter, &scrub_test_adapter/1)
-    |> Map.put(:query_string, "")
   end
 
   def require_api_authenticated(
@@ -162,23 +129,6 @@ defmodule Singularity.Web.Auth do
   end
 
   defp resolve_session(_opaque_id), do: nil
-
-  defp scrub_parameter_map(%Plug.Conn.Unfetched{} = params), do: params
-  defp scrub_parameter_map(nil), do: nil
-
-  defp scrub_parameter_map(params) when is_map(params),
-    do: Map.drop(params, @sensitive_parameter_keys)
-
-  defp scrub_test_adapter({Plug.Adapters.Test.Conn, %{params: params} = state}) do
-    state =
-      state
-      |> Map.put(:params, scrub_parameter_map(params))
-      |> Map.put(:req_body, "")
-
-    {Plug.Adapters.Test.Conn, state}
-  end
-
-  defp scrub_test_adapter(adapter), do: adapter
 
   defp send_api_error(conn, status, code) do
     body = JSON.encode!(%{error: %{code: Atom.to_string(code)}})

@@ -4,7 +4,29 @@ defmodule Singularity.Web.Router do
   import Phoenix.Controller
   import Phoenix.LiveView.Router
 
+  alias Singularity.Runtime.DTO.Session
   alias Singularity.Web.Auth
+
+  @sensitive_parameter_keys [
+    "password",
+    :password,
+    "passphrase",
+    :passphrase,
+    "token",
+    :token,
+    "csrf",
+    :csrf,
+    "csrf_token",
+    :csrf_token,
+    "_csrf_token",
+    :_csrf_token,
+    "upload_token",
+    :upload_token,
+    "x-csrf-token",
+    :"x-csrf-token",
+    "x-upload-token",
+    :"x-upload-token"
+  ]
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -23,11 +45,11 @@ defmodule Singularity.Web.Router do
   end
 
   pipeline :browser_authenticated do
-    plug Auth, :require_authenticated
+    plug :require_authenticated_with_safe_telemetry
   end
 
   pipeline :browser_vault_unlocked do
-    plug Auth, :require_unlocked
+    plug :require_unlocked_with_safe_telemetry
   end
 
   pipeline :api_session do
@@ -49,7 +71,7 @@ defmodule Singularity.Web.Router do
     Phoenix.Controller.protect_from_forgery(conn, options)
   rescue
     exception in Plug.CSRFProtection.InvalidCSRFTokenError ->
-      scrubbed_conn = Auth.scrub_sensitive_request(conn)
+      scrubbed_conn = scrub_sensitive_request(conn)
 
       Plug.Conn.WrapperError.reraise(
         scrubbed_conn,
@@ -58,6 +80,67 @@ defmodule Singularity.Web.Router do
         __STACKTRACE__
       )
   end
+
+  defp require_authenticated_with_safe_telemetry(
+         %{assigns: %{current_session: %Session{}}} = conn,
+         options
+       ),
+       do: Auth.require_authenticated(conn, options)
+
+  defp require_authenticated_with_safe_telemetry(conn, options) do
+    conn
+    |> register_secret_safe_before_send()
+    |> Auth.require_authenticated(options)
+    |> scrub_halted_request()
+  end
+
+  defp require_unlocked_with_safe_telemetry(
+         %{assigns: %{current_session: %Session{unlocked?: true}}} = conn,
+         options
+       ),
+       do: Auth.require_unlocked(conn, options)
+
+  defp require_unlocked_with_safe_telemetry(conn, options) do
+    conn
+    |> register_secret_safe_before_send()
+    |> Auth.require_unlocked(options)
+    |> scrub_halted_request()
+  end
+
+  defp register_secret_safe_before_send(conn),
+    do: Plug.Conn.register_before_send(conn, &scrub_sensitive_request/1)
+
+  defp scrub_halted_request(%Plug.Conn{halted: true} = conn),
+    do: scrub_sensitive_request(conn)
+
+  defp scrub_halted_request(conn), do: conn
+
+  defp scrub_sensitive_request(conn) do
+    conn
+    |> Map.update!(:body_params, &scrub_parameter_map/1)
+    |> Map.update!(:params, &scrub_parameter_map/1)
+    |> Map.update!(:query_params, &scrub_parameter_map/1)
+    |> Map.update!(:path_params, &scrub_parameter_map/1)
+    |> Map.update!(:adapter, &scrub_test_adapter/1)
+    |> Map.put(:query_string, "")
+  end
+
+  defp scrub_parameter_map(%Plug.Conn.Unfetched{} = params), do: params
+  defp scrub_parameter_map(nil), do: nil
+
+  defp scrub_parameter_map(params) when is_map(params),
+    do: Map.drop(params, @sensitive_parameter_keys)
+
+  defp scrub_test_adapter({Plug.Adapters.Test.Conn, %{params: params} = state}) do
+    state =
+      state
+      |> Map.put(:params, scrub_parameter_map(params))
+      |> Map.put(:req_body, "")
+
+    {Plug.Adapters.Test.Conn, state}
+  end
+
+  defp scrub_test_adapter(adapter), do: adapter
 
   scope "/", Singularity.Web do
     pipe_through :browser

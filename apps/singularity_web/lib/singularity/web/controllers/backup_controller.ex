@@ -5,6 +5,7 @@ defmodule Singularity.Web.BackupController do
   alias Singularity.Web.Auth
 
   @failure_message "Encrypted backup could not be requested."
+  @sensitive_parameter_keys ["passphrase", :passphrase, "_csrf_token", :_csrf_token]
   @uuid ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
   def create(
@@ -12,7 +13,7 @@ defmodule Singularity.Web.BackupController do
         _params
       ) do
     passphrase = extract_passphrase(body_params)
-    conn = Auth.scrub_sensitive_request(conn)
+    conn = scrub_sensitive_request(conn)
 
     case passphrase do
       {:ok, passphrase} ->
@@ -34,6 +35,32 @@ defmodule Singularity.Web.BackupController do
        do: {:ok, passphrase}
 
   defp extract_passphrase(_body_params), do: :error
+
+  defp scrub_sensitive_request(conn) do
+    conn
+    |> Map.update!(:body_params, &scrub_parameter_map/1)
+    |> Map.update!(:params, &scrub_parameter_map/1)
+    |> Map.update!(:query_params, &scrub_parameter_map/1)
+    |> Map.update!(:path_params, &scrub_parameter_map/1)
+    |> Map.update!(:adapter, &scrub_test_adapter/1)
+    |> Map.put(:query_string, "")
+  end
+
+  defp scrub_parameter_map(%Plug.Conn.Unfetched{} = params), do: params
+
+  defp scrub_parameter_map(params) when is_map(params),
+    do: Map.drop(params, @sensitive_parameter_keys)
+
+  defp scrub_test_adapter({Plug.Adapters.Test.Conn, %{params: params} = state}) do
+    state =
+      state
+      |> Map.put(:params, scrub_parameter_map(params))
+      |> Map.put(:req_body, "")
+
+    {Plug.Adapters.Test.Conn, state}
+  end
+
+  defp scrub_test_adapter(adapter), do: adapter
 
   defp request_backup(current_session, passphrase) do
     Auth.call_runtime(:request_backup, [current_session, passphrase])
