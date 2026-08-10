@@ -771,8 +771,8 @@ defmodule Singularity.Runtime.BackupVaultTest do
   end
 
   defmodule Jobs do
-    def wake_backup(state, manifest_id) do
-      State.record(state, {:wake, manifest_id})
+    def wake_vault(state, vault_id) do
+      State.record(state, {:wake, vault_id})
 
       case State.failure(state) do
         :wake_error ->
@@ -785,7 +785,7 @@ defmodule Singularity.Runtime.BackupVaultTest do
           exit(:simulated_wake_failure)
 
         _other ->
-          State.wake(state, manifest_id)
+          State.wake(state, vault_id)
           :ok
       end
     end
@@ -1150,7 +1150,7 @@ defmodule Singularity.Runtime.BackupVaultTest do
     assert manifest.recovery["label"] == "backup_recovery"
     assert MapSet.size(snapshot.active) == 1
     assert snapshot.pending == MapSet.new()
-    assert snapshot.wakes == [@manifest_id]
+    assert snapshot.wakes == [@vault_id]
 
     assert [{:insert_pending, command}] =
              Enum.filter(snapshot.events, &match?({:insert_pending, _command}, &1))
@@ -1175,6 +1175,28 @@ defmodule Singularity.Runtime.BackupVaultTest do
     assert event_index!(snapshot.events, :committed) < event_index!(snapshot.events, :activate)
     assert event_index!(snapshot.events, :activate) < event_index!(snapshot.events, :mark_pending)
     assert event_index!(snapshot.events, :mark_pending) < event_index!(snapshot.events, :wake)
+  end
+
+  test "a fresh request does not require the resume-only partial bundle adapter", context do
+    runtime = Map.delete(context.runtime, :partial_bundles)
+
+    assert {:ok, %{id: @manifest_id, status: :pending}} =
+             api(:request, [runtime, context.session, @passphrase, "backup://vault-7"])
+
+    assert State.get(context.state).wakes == [@vault_id]
+  end
+
+  test "reentry still requires the partial bundle adapter", context do
+    State.seed_manifest(context.state, waiting_manifest())
+    runtime = Map.delete(context.runtime, :partial_bundles)
+
+    assert {:error, %Error{code: :invalid}} =
+             api(:reenter, [runtime, context.session, @manifest_id, @passphrase])
+
+    snapshot = State.get(context.state)
+    assert snapshot.pending == MapSet.new()
+    assert snapshot.active == MapSet.new()
+    assert snapshot.wakes == []
   end
 
   test "transaction, audit, and commit failures leave no manifest, outbox, or custody" do
@@ -1759,7 +1781,7 @@ defmodule Singularity.Runtime.BackupVaultTest do
     assert is_binary(resumed.manifests[@manifest_id].backup_key_lease_id)
     assert resumed.partials == MapSet.new()
     assert MapSet.size(resumed.active) == 1
-    assert resumed.wakes == [@manifest_id]
+    assert resumed.wakes == [@vault_id]
     assert resumed.outbox == [%{"pending_manifest_id" => @manifest_id}]
 
     assert Enum.any?(resumed.events, fn

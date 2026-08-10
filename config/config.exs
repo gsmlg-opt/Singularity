@@ -103,6 +103,7 @@ config :singularity_runtime,
   key_custodian: %{
     authorization: Singularity.Runtime.CustodyReader,
     backup_cipher: Singularity.Storage.Crypto.ChunkedAEAD,
+    backup_recovery_wrapper: Singularity.Storage.Crypto.BackupRecoveryWrapper,
     clock: Singularity.Runtime.CustodyReader,
     context: %{
       repo: Singularity.Storage.WorkerRepo,

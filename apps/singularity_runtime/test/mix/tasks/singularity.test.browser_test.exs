@@ -354,8 +354,11 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
              custodian: Singularity.Runtime.KeyCustodian
            }
 
-    assert Application.fetch_env!(:singularity_runtime, :key_custodian).authorization ==
-             Singularity.Runtime.CustodyReader
+    custodian = Application.fetch_env!(:singularity_runtime, :key_custodian)
+    assert custodian.authorization == Singularity.Runtime.CustodyReader
+
+    assert custodian.backup_recovery_wrapper ==
+             Singularity.Storage.Crypto.BackupRecoveryWrapper
 
     assert Application.fetch_env!(:singularity_runtime, :oban_options) == []
     assert Application.fetch_env!(:singularity_runtime, :outbox_dispatcher_options) == []

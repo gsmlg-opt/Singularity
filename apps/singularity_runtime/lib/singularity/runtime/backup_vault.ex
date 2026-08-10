@@ -75,7 +75,7 @@ defmodule Singularity.Runtime.BackupVault do
              manifest_id != "" and is_binary(passphrase) and byte_size(passphrase) > 0 do
     cleanup_key = {__MODULE__, make_ref()}
 
-    with {:ok, adapters} <- request_adapters(runtime) do
+    with {:ok, adapters} <- reentry_adapters(runtime) do
       try do
         call_adapter(adapters.operation_scope, :with_shared_request, [
           runtime,
@@ -254,7 +254,7 @@ defmodule Singularity.Runtime.BackupVault do
     case call_adapter(adapters.custodian, :activate_backup_key, [opaque_ref]) do
       :ok ->
         after_activation(adapters, run_scoped, manifest, opaque_ref, fn pending ->
-          call_adapter(adapters.jobs, :wake_backup, [pending.id])
+          call_adapter(adapters.jobs, :wake_vault, [pending.vault_id])
         end)
 
       {:error, _reason} ->
@@ -275,7 +275,7 @@ defmodule Singularity.Runtime.BackupVault do
                      pending.destination_ref,
                      pending.id
                    ]),
-                 :ok <- call_adapter(adapters.jobs, :wake_backup, [pending.id]) do
+                 :ok <- call_adapter(adapters.jobs, :wake_vault, [pending.vault_id]) do
               :ok
             end
           end)
@@ -820,14 +820,23 @@ defmodule Singularity.Runtime.BackupVault do
       :custodian,
       :ids,
       :jobs,
-      :operation_scope,
-      :partial_bundles
+      :operation_scope
     ]
 
     if Enum.all?(required, &concrete?(Map.get(runtime, &1))) do
       {:ok, Map.take(runtime, required)}
     else
       invalid()
+    end
+  end
+
+  defp reentry_adapters(runtime) do
+    with {:ok, adapters} <- request_adapters(runtime),
+         partial_bundles when partial_bundles not in [nil, false] <-
+           Map.get(runtime, :partial_bundles) do
+      {:ok, Map.put(adapters, :partial_bundles, partial_bundles)}
+    else
+      _invalid -> invalid()
     end
   end
 

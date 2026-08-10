@@ -12,6 +12,7 @@ defmodule Singularity.Runtime.KeyCustodian do
   alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
+  alias Singularity.Storage.Crypto.BackupRecoveryWrapper
 
   @request_fields ~w[
     job_id vault_id principal_id required_capability
@@ -47,6 +48,15 @@ defmodule Singularity.Runtime.KeyCustodian do
     :vault_id,
     :principal_authorization_epoch,
     :vault_authorization_epoch
+  ]
+  @backup_binding_fields [
+    :expires_at,
+    :manifest_id,
+    :principal_authorization_epoch,
+    :principal_id,
+    :session_id,
+    :vault_authorization_epoch,
+    :vault_id
   ]
   @vault_rotation_fields @rotation_binding_fields ++
                            [
@@ -103,6 +113,14 @@ defmodule Singularity.Runtime.KeyCustodian do
           {:ok, binary()} | {:error, Error.t()}
   def prepare_backup_key(server, prepared),
     do: GenServer.call(server, {:prepare_backup_key, prepared}, :infinity)
+
+  @spec prepare_backup_key(
+          GenServer.server(),
+          map(),
+          BackupKeyLease.Derived.t()
+        ) :: {:ok, BackupKeyLease.Prepared.t()} | {:error, Error.t()}
+  def prepare_backup_key(server, session, %BackupKeyLease.Derived{} = derived),
+    do: GenServer.call(server, {:prepare_backup_key, session, derived}, :infinity)
 
   @spec activate_backup_key(GenServer.server(), binary()) ::
           :ok | {:error, Error.t()}
@@ -266,6 +284,8 @@ defmodule Singularity.Runtime.KeyCustodian do
          adapters: %{
            authorization: authorization,
            backup_cipher: backup_cipher,
+           backup_recovery_wrapper:
+             Map.get(adapters, :backup_recovery_wrapper, BackupRecoveryWrapper),
            backup_key_observer: Map.get(adapters, :backup_key_observer),
            clock: clock,
            idle_lock: idle_lock,
@@ -504,35 +524,24 @@ defmodule Singularity.Runtime.KeyCustodian do
   def handle_call({:prepare_backup_key, prepared}, {owner, _tag}, state) do
     case validate_backup_prepared(prepared) do
       {:ok, opaque_ref, entry} ->
-        if Map.has_key?(state.backup_pending, opaque_ref) or
-             Map.has_key?(state.backup_active, opaque_ref) do
-          {:reply, {:error, Error.new(:conflict)}, state}
-        else
-          monitor = Process.monitor(owner)
-
-          timer =
-            Process.send_after(
-              self(),
-              {:expire_pending, opaque_ref},
-              state.backup_pending_ttl_ms
-            )
-
-          pending_entry =
-            entry
-            |> Map.put(:monitor, monitor)
-            |> Map.put(:owner, owner)
-            |> Map.put(:timer, timer)
-
-          next_state =
-            state
-            |> put_in([:backup_pending, opaque_ref], pending_entry)
-            |> put_in([:backup_pending_monitors, monitor], opaque_ref)
-
-          notify_backup_prepared(state.adapters.backup_key_observer, opaque_ref)
-          {:reply, {:ok, opaque_ref}, next_state}
-        end
+        install_backup_pending(state, owner, opaque_ref, entry, {:ok, opaque_ref})
 
       {:error, %Error{}} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call(
+        {:prepare_backup_key, session, %BackupKeyLease.Derived{} = derived},
+        {owner, _tag},
+        state
+      ) do
+    case prepare_session_backup(state, session, derived) do
+      {:ok, opaque_ref, entry, prepared} ->
+        install_backup_pending(state, owner, opaque_ref, entry, {:ok, prepared})
+
+      {:error, %Error{}} = error ->
+        _cleared = overwrite(derived.key_material)
         {:reply, error, state}
     end
   end
@@ -2629,6 +2638,193 @@ defmodule Singularity.Runtime.KeyCustodian do
 
   defp validate_backup_prepared(_prepared),
     do: {:error, Error.new(:backup_invalid)}
+
+  defp prepare_session_backup(
+         state,
+         session,
+         %BackupKeyLease.Derived{
+           binding: binding,
+           key_material: <<_::binary-size(32)>> = key_material,
+           public_metadata: public_metadata
+         }
+       ) do
+    with {:ok, custody} <- validate_backup_session(state, session, binding),
+         :ok <- validate_derived_public_metadata(public_metadata, binding),
+         {:ok, recovery_wrapper} <-
+           call_adapter(state.adapters.backup_recovery_wrapper, :wrap, [
+             key_material,
+             custody.vault_key,
+             %{
+               label: :backup_recovery,
+               manifest_id: binding.manifest_id,
+               vault_id: binding.vault_id
+             }
+           ]),
+         true <- is_binary(recovery_wrapper) and recovery_wrapper != "",
+         {:ok, opaque_ref} <- backup_opaque_ref(state.adapters.random_bytes) do
+      public_metadata =
+        put_in(public_metadata, ["recovery", "wrapper"], recovery_wrapper)
+
+      entry = %{
+        binding: %{manifest_id: binding.manifest_id, vault_id: binding.vault_id},
+        key_material: key_material,
+        public_metadata: public_metadata,
+        recovery_wrapper: recovery_wrapper
+      }
+
+      prepared = %BackupKeyLease.Prepared{
+        opaque_ref: opaque_ref,
+        public_metadata: public_metadata
+      }
+
+      {:ok, opaque_ref, entry, prepared}
+    else
+      _invalid -> {:error, Error.new(:backup_invalid)}
+    end
+  rescue
+    _exception -> {:error, Error.new(:backup_invalid)}
+  catch
+    _kind, _reason -> {:error, Error.new(:backup_invalid)}
+  end
+
+  defp prepare_session_backup(_state, _session, _derived),
+    do: {:error, Error.new(:backup_invalid)}
+
+  defp validate_backup_session(
+         state,
+         session,
+         %{
+           expires_at: %DateTime{} = expires_at,
+           manifest_id: manifest_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           principal_id: principal_id,
+           session_id: session_id,
+           vault_authorization_epoch: vault_authorization_epoch,
+           vault_id: vault_id
+         } = binding
+       )
+       when is_map(session) and is_binary(manifest_id) and manifest_id != "" and
+              is_binary(session_id) and session_id != "" and is_binary(principal_id) and
+              principal_id != "" and is_binary(vault_id) and vault_id != "" and
+              is_integer(principal_authorization_epoch) and principal_authorization_epoch >= 0 and
+              is_integer(vault_authorization_epoch) and vault_authorization_epoch >= 0 do
+    now = state.adapters.clock.utc_now(state.context)
+    custody = Map.get(state.sessions, session_id)
+
+    with true <- Map.keys(binding) |> Enum.sort() == Enum.sort(@backup_binding_fields),
+         true <- backup_session_matches?(session, binding),
+         true <- backup_session_matches?(custody, binding),
+         %{vault_key: <<_::binary-size(32)>>} <- custody,
+         %DateTime{} <- now,
+         :lt <- DateTime.compare(now, expires_at),
+         false <- matching_revocation?(state, custody) do
+      {:ok, custody}
+    else
+      _invalid -> {:error, Error.new(:backup_invalid)}
+    end
+  end
+
+  defp validate_backup_session(_state, _session, _binding),
+    do: {:error, Error.new(:backup_invalid)}
+
+  defp backup_session_matches?(session, binding) when is_map(session) do
+    Enum.all?(
+      [
+        :expires_at,
+        :principal_authorization_epoch,
+        :principal_id,
+        :session_id,
+        :vault_authorization_epoch,
+        :vault_id
+      ],
+      &(Map.get(session, &1) == Map.get(binding, &1))
+    )
+  end
+
+  defp backup_session_matches?(_session, _binding), do: false
+
+  defp validate_derived_public_metadata(
+         %{
+           "kdf" =>
+             %{
+               "domain" => domain,
+               "parameters" => parameters,
+               "salt" => encoded_salt
+             } = kdf,
+           "recovery" =>
+             %{
+               "binding" =>
+                 %{
+                   "manifest_id" => manifest_id,
+                   "vault_id" => vault_id
+                 } = recovery_binding,
+               "label" => "backup_recovery",
+               "wrapper" => nil
+             } = recovery
+         } = public_metadata,
+         %{manifest_id: manifest_id, vault_id: vault_id}
+       )
+       when is_binary(domain) and domain != "" and is_map(parameters) and
+              is_binary(encoded_salt) do
+    with true <- Map.keys(public_metadata) |> Enum.sort() == ["kdf", "recovery"],
+         true <- Map.keys(kdf) |> Enum.sort() == ["domain", "parameters", "salt"],
+         true <-
+           Map.keys(recovery) |> Enum.sort() == ["binding", "label", "wrapper"],
+         true <- Map.keys(recovery_binding) |> Enum.sort() == ["manifest_id", "vault_id"],
+         {:ok, salt} <- Base.decode64(encoded_salt),
+         true <- byte_size(salt) == 16 do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:backup_invalid)}
+    end
+  end
+
+  defp validate_derived_public_metadata(_public_metadata, _binding),
+    do: {:error, Error.new(:backup_invalid)}
+
+  defp backup_opaque_ref(random_bytes) when is_function(random_bytes, 1) do
+    case random_bytes.(32) do
+      <<_::binary-size(32)>> = bytes -> {:ok, Base.url_encode64(bytes, padding: false)}
+      _invalid -> {:error, Error.new(:backup_invalid)}
+    end
+  rescue
+    _exception -> {:error, Error.new(:backup_invalid)}
+  catch
+    _kind, _reason -> {:error, Error.new(:backup_invalid)}
+  end
+
+  defp backup_opaque_ref(_random_bytes), do: {:error, Error.new(:backup_invalid)}
+
+  defp install_backup_pending(state, owner, opaque_ref, entry, reply) do
+    if Map.has_key?(state.backup_pending, opaque_ref) or
+         Map.has_key?(state.backup_active, opaque_ref) do
+      _cleared = overwrite(entry.key_material)
+      {:reply, {:error, Error.new(:conflict)}, state}
+    else
+      monitor = Process.monitor(owner)
+
+      timer =
+        Process.send_after(
+          self(),
+          {:expire_pending, opaque_ref},
+          state.backup_pending_ttl_ms
+        )
+
+      pending_entry =
+        entry
+        |> Map.put(:monitor, monitor)
+        |> Map.put(:owner, owner)
+        |> Map.put(:timer, timer)
+
+      next_state =
+        state
+        |> put_in([:backup_pending, opaque_ref], pending_entry)
+        |> put_in([:backup_pending_monitors, monitor], opaque_ref)
+
+      notify_backup_prepared(state.adapters.backup_key_observer, opaque_ref)
+      {:reply, reply, next_state}
+    end
+  end
 
   defp backup_public_header(entry) do
     %{

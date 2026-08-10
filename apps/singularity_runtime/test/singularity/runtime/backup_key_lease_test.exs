@@ -4,6 +4,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
   import ExUnit.CaptureLog
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Storage.Backup.Manifest
@@ -36,6 +37,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
     "t_cost" => 5,
     "version" => 4
   }
+  @expires_at ~U[2099-08-10 00:00:00Z]
 
   defmodule Recorder do
     use Agent
@@ -99,7 +101,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
     def derive(recorder, passphrase, %{domain: domain, parameters: parameters, salt: salt}) do
       Recorder.record(
         recorder,
-        {:derive, :crypto.hash(:sha256, passphrase), domain, parameters, salt}
+        {:derive, self(), :crypto.hash(:sha256, passphrase), domain, parameters, salt}
       )
 
       key =
@@ -122,7 +124,8 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
     def wrap(recorder, wrapping_key, raw_key, metadata) do
       Recorder.record(
         recorder,
-        {:wrap, :crypto.hash(:sha256, wrapping_key), :crypto.hash(:sha256, raw_key), metadata}
+        {:wrap, self(), :crypto.hash(:sha256, wrapping_key), :crypto.hash(:sha256, raw_key),
+         metadata}
       )
 
       {:ok, "authenticated-recovery-wrapper"}
@@ -150,6 +153,25 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
     def unwrap(recorder, wrapping_key, _wrapper, metadata) do
       Recorder.record(recorder, {:unwrap, :crypto.hash(:sha256, wrapping_key), metadata})
       {:error, Error.new(:backup_invalid)}
+    end
+  end
+
+  defmodule CapturingCustodian do
+    def prepare_backup_key(owner, session, derived) do
+      send(owner, {:derived_backup_key, self(), session, derived})
+
+      public_metadata =
+        put_in(
+          derived.public_metadata,
+          ["recovery", "wrapper"],
+          "captured-recovery-wrapper"
+        )
+
+      {:ok,
+       %BackupKeyLease.Prepared{
+         opaque_ref: "captured-opaque-ref",
+         public_metadata: public_metadata
+       }}
     end
   end
 
@@ -204,11 +226,13 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
     assert is_binary(prepared.opaque_ref)
 
     assert [
-             {:derive, @passphrase_hash, @backup_domain, @backup_parameters, @salt},
-             {:wrap, @derived_key_hash, @vault_key_hash, wrapper_binding},
+             {:derive, caller, @passphrase_hash, @backup_domain, @backup_parameters, @salt},
+             {:wrap, wrapper_process, @derived_key_hash, @vault_key_hash, wrapper_binding},
              {:backup_custody_prepared, opaque_ref}
            ] = Recorder.events(context.recorder)
 
+    assert caller == self()
+    assert wrapper_process == context.custodian
     assert opaque_ref == prepared.opaque_ref
 
     assert wrapper_binding == %{
@@ -216,6 +240,52 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
              manifest_id: @manifest_id,
              vault_id: @vault_id
            }
+  end
+
+  test "sends only a redacted session-bound derived-key command to custody", context do
+    runtime = Map.put(context.runtime, :custodian, {CapturingCustodian, self()})
+    caller = self()
+
+    assert {:ok, %BackupKeyLease.Prepared{opaque_ref: "captured-opaque-ref"}} =
+             api(:prepare, [runtime, request_session(), @manifest_id, @passphrase])
+
+    assert_receive {:derived_backup_key, ^caller, caller_session, derived}
+    refute Map.has_key?(caller_session, :vault_key)
+
+    assert %{
+             __struct__: BackupKeyLease.Derived,
+             binding: %{
+               expires_at: @expires_at,
+               manifest_id: @manifest_id,
+               principal_authorization_epoch: 7,
+               principal_id: @principal_id,
+               session_id: @session_id,
+               vault_authorization_epoch: 11,
+               vault_id: @vault_id
+             },
+             key_material: @derived_key,
+             public_metadata: %{
+               "kdf" => %{
+                 "domain" => @backup_domain,
+                 "parameters" => @backup_parameters,
+                 "salt" => @encoded_salt
+               },
+               "recovery" => %{
+                 "binding" => %{
+                   "manifest_id" => @manifest_id,
+                   "vault_id" => @vault_id
+                 },
+                 "label" => "backup_recovery",
+                 "wrapper" => nil
+               }
+             }
+           } = derived
+
+    assert Map.keys(Map.from_struct(derived)) |> Enum.sort() ==
+             [:binding, :key_material, :public_metadata]
+
+    assert inspect(derived) == "#BackupKeyLease.Derived<REDACTED>"
+    refute secret_leaked?(inspect(derived), [@derived_key, @passphrase, @vault_key])
   end
 
   test "returns only an opaque redacted reference and never returns key material", context do
@@ -968,19 +1038,22 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
       |> Recorder.events()
       |> Enum.drop(reentry_event_offset)
 
-    assert Enum.count(reentry_events, &match?({:derive, _, _, _, _}, &1)) == 5
+    assert Enum.count(reentry_events, &match?({:derive, _, _, _, _, _}, &1)) == 5
 
     exact_derivations =
       Enum.count(reentry_events, fn
-        {:derive, _passphrase_hash, @backup_domain, @backup_parameters, @salt} -> true
+        {:derive, _process, _passphrase_hash, @backup_domain, @backup_parameters, @salt} -> true
         _other -> false
       end)
 
     assert exact_derivations == 4
 
     assert Enum.any?(reentry_events, fn
-             {:derive, @passphrase_hash, @backup_domain, %{"m_cost" => 8}, @salt} -> true
-             _other -> false
+             {:derive, _process, @passphrase_hash, @backup_domain, %{"m_cost" => 8}, @salt} ->
+               true
+
+             _other ->
+               false
            end)
 
     assert Enum.count(reentry_events, &match?({:unwrap, _, _}, &1)) == 5
@@ -1281,7 +1354,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
   defp shutdown_task(_not_a_task), do: :ok
 
   defp prepare(runtime) do
-    api(:prepare, [runtime, session(), @manifest_id, @passphrase])
+    api(:prepare, [runtime, request_session(), @manifest_id, @passphrase])
   end
 
   defp activate(custodian, opaque_ref) do
@@ -1584,6 +1657,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
          backup_key_observer: {BackupKeyObserver, recorder},
          backup_key_deriver: {Deriver, recorder},
          backup_key_wrapper: {Wrapper, recorder},
+         backup_recovery_wrapper: {Wrapper, recorder},
          backup_pending_ttl_ms: 1_000,
          clock: Clock,
          context: %{},
@@ -1605,6 +1679,7 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
 
   defp session do
     %{
+      expires_at: @expires_at,
       principal_authorization_epoch: 7,
       principal_id: @principal_id,
       session_id: @session_id,
@@ -1613,6 +1688,8 @@ defmodule Singularity.Runtime.BackupKeyLeaseTest do
       vault_key: @vault_key
     }
   end
+
+  defp request_session, do: Map.delete(session(), :vault_key)
 
   defp lease_binding(overrides \\ []) do
     Map.merge(%{manifest_id: @manifest_id, vault_id: @vault_id}, Map.new(overrides))

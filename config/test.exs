@@ -35,6 +35,7 @@ config :singularity_runtime,
   key_custodian: %{
     authorization: Fake.Authorization,
     backup_cipher: Singularity.Storage.Crypto.ChunkedAEAD,
+    backup_recovery_wrapper: Singularity.Storage.Crypto.BackupRecoveryWrapper,
     clock: Fake.Clock,
     context: %{},
     idle_lock: fn _session -> :ok end,

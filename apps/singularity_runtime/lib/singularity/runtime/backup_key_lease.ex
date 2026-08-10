@@ -2,12 +2,13 @@ defmodule Singularity.Runtime.BackupKeyLease do
   @moduledoc """
   Short-lived, one-shot custody for an encrypted backup or restore.
 
-  Passphrase derivation and recovery-key wrapping happen in the caller before
-  custody is prepared. The lease retains only the passphrase-derived backup key
-  inside a temporary process. During restore, an authenticated recovery wrapper
-  may be claimed into a one-shot, owner-bound rewrap capability; neither raw key
-  leaves the process. Retained key references are cleared on consumption,
-  revocation, or termination on a best-effort basis.
+  Passphrase derivation happens in the caller before custody is prepared.
+  Recovery-key wrapping happens inside the session custodian with its retained
+  vault key. The lease retains only the passphrase-derived backup key inside a
+  temporary process. During restore, an authenticated recovery wrapper may be
+  claimed into a one-shot, owner-bound rewrap capability; neither raw key leaves
+  the process. Retained key references are cleared on consumption, revocation,
+  or termination on a best-effort basis.
   """
 
   use GenServer
@@ -30,6 +31,25 @@ defmodule Singularity.Runtime.BackupKeyLease do
   @max_storage_records 1_024
   @default_active_ttl_ms :timer.seconds(60)
   @storage_header_size Format.header_size()
+
+  defmodule Derived do
+    @moduledoc "A redacted, session-bound command carrying a derived backup key."
+
+    @enforce_keys [:binding, :key_material, :public_metadata]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            binding: map(),
+            key_material: <<_::256>>,
+            public_metadata: map()
+          }
+  end
+
+  defimpl Inspect, for: Derived do
+    import Inspect.Algebra
+
+    def inspect(_derived, _options), do: concat(["#BackupKeyLease.Derived<REDACTED>"])
+  end
 
   defmodule Prepared do
     @moduledoc "A redacted handle for backup-key custody awaiting activation."
@@ -1457,16 +1477,36 @@ defmodule Singularity.Runtime.BackupKeyLease do
   defp prepare_context(runtime, session, manifest_id, passphrase)
        when is_map(runtime) and is_map(session) and is_binary(manifest_id) and manifest_id != "" and
               is_binary(passphrase) and passphrase != "" do
-    with %{vault_id: vault_id, vault_key: <<_::binary-size(32)>> = vault_key} <- session,
+    with %{
+           expires_at: %DateTime{} = expires_at,
+           principal_authorization_epoch: principal_authorization_epoch,
+           principal_id: principal_id,
+           session_id: session_id,
+           vault_authorization_epoch: vault_authorization_epoch,
+           vault_id: vault_id
+         } <- session,
+         true <- is_binary(session_id) and session_id != "",
+         true <- is_binary(principal_id) and principal_id != "",
          true <- is_binary(vault_id) and vault_id != "",
+         true <-
+           is_integer(principal_authorization_epoch) and principal_authorization_epoch >= 0,
+         true <- is_integer(vault_authorization_epoch) and vault_authorization_epoch >= 0,
          {:ok, domain} <- nonempty_binary(Map.get(runtime, :backup_kdf_domain)),
          parameters when is_map(parameters) <- Map.get(runtime, :backup_kdf_parameters),
          {:ok, deriver} <- adapter(Map.get(runtime, :backup_key_deriver)),
-         {:ok, wrapper} <- adapter(Map.get(runtime, :backup_key_wrapper)),
          {:ok, custodian} <- adapter(Map.get(runtime, :custodian)),
          random_bytes when is_function(random_bytes, 1) <- Map.get(runtime, :random_bytes),
          salt when is_binary(salt) and byte_size(salt) == 16 <- safe_random(random_bytes, 16) do
-      binding = %{manifest_id: manifest_id, vault_id: vault_id}
+      binding = %{
+        expires_at: expires_at,
+        manifest_id: manifest_id,
+        principal_authorization_epoch: principal_authorization_epoch,
+        principal_id: principal_id,
+        session_id: session_id,
+        vault_authorization_epoch: vault_authorization_epoch,
+        vault_id: vault_id
+      }
+
       kdf = %{domain: domain, parameters: parameters, salt: salt}
 
       {:ok,
@@ -1476,8 +1516,7 @@ defmodule Singularity.Runtime.BackupKeyLease do
          deriver: deriver,
          kdf: kdf,
          public_metadata: public_metadata(kdf, binding, nil),
-         vault_key: vault_key,
-         wrapper: wrapper
+         session: session
        }}
     else
       _invalid -> backup_invalid()
@@ -1488,24 +1527,17 @@ defmodule Singularity.Runtime.BackupKeyLease do
 
   defp prepare_with_derived_key(context, <<_::binary-size(32)>> = derived_key) do
     try do
-      wrapper_binding = recovery_binding(context.binding)
+      command = %Derived{
+        binding: context.binding,
+        key_material: derived_key,
+        public_metadata: context.public_metadata
+      }
 
-      with {:ok, recovery_wrapper} <-
-             safe_adapter_call(context.wrapper, :wrap, [
-               derived_key,
-               context.vault_key,
-               wrapper_binding
-             ]),
-           true <- is_binary(recovery_wrapper) and recovery_wrapper != "",
-           public_metadata =
-             put_in(context.public_metadata, ["recovery", "wrapper"], recovery_wrapper),
-           {:ok, prepared} <-
-             install_pending(
-               context.custodian,
-               context.binding,
-               derived_key,
-               public_metadata
-             ) do
+      with {:ok, %Prepared{} = prepared} <-
+             safe_adapter_call(context.custodian, :prepare_backup_key, [
+               context.session,
+               command
+             ]) do
         {:ok, prepared}
       else
         _invalid -> backup_invalid()

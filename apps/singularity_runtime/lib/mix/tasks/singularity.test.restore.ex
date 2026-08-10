@@ -102,7 +102,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   defmodule OracleJobs do
     @moduledoc false
 
-    def wake_backup(_manifest_id), do: :ok
+    def wake_vault(_vault_id), do: :ok
   end
 
   defmodule OraclePartialBundles do
