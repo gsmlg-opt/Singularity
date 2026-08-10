@@ -20,12 +20,39 @@ The storage decisions are recorded in [ADR 0001](docs/adr/0001-postgresql-is-can
 
 ## Development
 
-```sh
+Run the complete local verification sequence from one shell so its cleanup trap
+remains active for the entire run:
+
+```bash
+(
+set -euo pipefail
+trap 'devenv processes down' EXIT
+
+devenv up -d
+devenv processes wait --timeout 120
+devenv shell -- bash \
+  apps/singularity_storage/priv/repo/bootstrap_roles.sh
 devenv shell -- mix deps.get
+devenv shell -- mix deps.unlock --check-unused
 devenv shell -- mix format --check-formatted
 devenv shell -- mix compile --warnings-as-errors
 devenv shell -- mix test
+devenv shell -- mix singularity.test.integration
+devenv shell -- mix singularity.test.restore
+# TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+# WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
+devenv shell -- mix npm.verify
+devenv shell -- mix duskmoon_bundler.js.check
+devenv shell -- mix npm.run test:js
+devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
+devenv shell -- mix npm.run test:e2e
 devenv shell -- mix xref graph --format cycles --fail-above 0
+)
 ```
+
+Browser acceptance ends with a sealed encrypted backup.
+`mix singularity.test.restore` is the sole independent restore-scoped integrity
+proof. Keep the backup passphrase safe: losing it makes recovery impossible.
 
 See the [Architecture and Implementation Guide](docs/guide.md) for the current system design.

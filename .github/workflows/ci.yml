@@ -55,6 +55,29 @@ jobs:
       - name: Run isolated PostgreSQL integration tests
         run: devenv shell -- mix singularity.test.integration
 
+      - name: Run isolated restore acceptance
+        run: devenv shell -- mix singularity.test.restore
+
+      - name: Install JavaScript dependencies
+        # TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+        # WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+        run: devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
+
+      - name: Verify JavaScript dependencies
+        run: devenv shell -- mix npm.verify
+
+      - name: Check JavaScript sources
+        run: devenv shell -- mix duskmoon_bundler.js.check
+
+      - name: Run JavaScript tests
+        run: devenv shell -- mix npm.run test:js
+
+      - name: Build browser assets
+        run: devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
+
+      - name: Run Chromium acceptance tests
+        run: devenv shell -- mix npm.run test:e2e
+
       - name: Check source cycles
         run: devenv shell -- mix xref graph --format cycles --fail-above 0
 
