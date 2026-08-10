@@ -13,6 +13,8 @@
   "include": [
     "apps/singularity_web/assets/**/*.ts",
     "apps/singularity_web/assets/**/*.tsx",
+    "playwright.config.ts",
+    "test/e2e/**/*.ts",
     "vitest.config.ts"
   ]
 }

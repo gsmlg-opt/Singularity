@@ -5,6 +5,7 @@ defmodule Singularity.Storage.TestEnvironment do
 
   @suffix_bytes 12
   @database_prefix "singularity_test_"
+  @playwright_run_id_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   @database_disconnect_attempts 500
   @database_disconnect_interval_ms 10
   @migration_repo Singularity.Storage.MigrationRepo
@@ -39,6 +40,27 @@ defmodule Singularity.Storage.TestEnvironment do
     }
   end
 
+  @spec from_playwright_run_id!(String.t()) :: t()
+  def from_playwright_run_id!(run_id) do
+    assert_test_environment!()
+
+    unless is_binary(run_id) and Regex.match?(@playwright_run_id_pattern, run_id) do
+      raise ArgumentError, "Playwright run ID must be a canonical crypto.randomUUID value"
+    end
+
+    suffix =
+      :sha256
+      |> :crypto.hash(run_id)
+      |> binary_part(0, @suffix_bytes)
+      |> Base.encode16(case: :lower)
+
+    %__MODULE__{
+      database: @database_prefix <> suffix,
+      storage_root: Path.join([System.tmp_dir!(), "singularity", "browser", suffix]),
+      suffix: suffix
+    }
+  end
+
   @spec create!(t()) :: :ok
   def create!(%__MODULE__{} = names) do
     assert_test_environment!()
@@ -62,6 +84,21 @@ defmodule Singularity.Storage.TestEnvironment do
       stop_repositories!()
       ensure_database_dependencies!()
       drop_database!(names.database)
+      :ok
+    after
+      File.rm_rf!(names.storage_root)
+    end
+  end
+
+  @spec force_drop!(t()) :: :ok
+  def force_drop!(%__MODULE__{} = names) do
+    assert_test_environment!()
+    validate!(names)
+
+    try do
+      stop_repositories!()
+      ensure_database_dependencies!()
+      force_drop_database!(names.database)
       :ok
     after
       File.rm_rf!(names.storage_root)
@@ -98,6 +135,17 @@ defmodule Singularity.Storage.TestEnvironment do
       SafeSQL.query!(
         @migration_repo,
         "DROP DATABASE IF EXISTS #{quoted_identifier(database)}",
+        [],
+        log: false
+      )
+    end)
+  end
+
+  defp force_drop_database!(database) do
+    with_migration_repo("postgres", fn ->
+      SafeSQL.query!(
+        @migration_repo,
+        "DROP DATABASE IF EXISTS #{quoted_identifier(database)} WITH (FORCE)",
         [],
         log: false
       )
@@ -223,12 +271,17 @@ defmodule Singularity.Storage.TestEnvironment do
 
   defp validate!(%__MODULE__{} = names) do
     expected_database = @database_prefix <> names.suffix
-    expected_root = Path.join([System.tmp_dir!(), "singularity", "integration", names.suffix])
+
+    expected_roots =
+      Enum.map(["integration", "browser"], fn environment ->
+        Path.join([System.tmp_dir!(), "singularity", environment, names.suffix])
+      end)
 
     unless names.database == expected_database and
              names.suffix =~ ~r/\A[0-9a-f]{24}\z/ and
-             Path.expand(names.storage_root) == Path.expand(expected_root) do
-      raise ArgumentError, "integration database must contain its generated random suffix"
+             names.storage_root in expected_roots do
+      raise ArgumentError,
+            "browser/integration test environment must use its generated random suffix"
     end
 
     :ok

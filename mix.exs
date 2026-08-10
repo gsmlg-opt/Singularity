@@ -11,7 +11,8 @@ defmodule Singularity.Umbrella.MixProject do
       start_permanent: Mix.env() == :prod,
       preferred_cli_env: [
         "singularity.test.integration": :test,
-        "singularity.test.restore": :test
+        "singularity.test.restore": :test,
+        "singularity.test.browser": :test
       ],
       aliases: aliases(),
       deps: deps()

@@ -2,9 +2,11 @@ import Config
 
 config :duskmoon_bundler, :singularity_web, server: [vendor_prebundle: false]
 
+browser_test_run? = System.get_env("SINGULARITY_TEST_RUN_ID") != nil
+
 config :singularity_web, Singularity.Web.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  code_reloader: true,
+  code_reloader: not browser_test_run?,
   secret_key_base:
     "test-secret-key-base-for-singularity-web-vault-shell-00000000000000000000000000000",
   server: false
