@@ -7,7 +7,6 @@ defmodule Singularity.Web.BackupsLive do
 
   @in_progress_statuses [:pending, :waiting_for_backup_key, :copying]
   @terminal_statuses [:sealed, :failed]
-  @max_poll_attempts 3
   @poll_interval_ms 1_000
   @uuid ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
@@ -22,13 +21,13 @@ defmodule Singularity.Web.BackupsLive do
         backup_status_state: :not_found,
         backup_operation_id: nil,
         backup_poll_generation: make_ref(),
-        backup_poll_attempt: 0,
-        backup_polling: false
+        backup_poll_timer: nil,
+        backup_poll_token: nil
       )
 
     case operation_id(params) do
       {:ok, operation_id} ->
-        {:ok, fetch_status(socket, current_session, operation_id, 0)}
+        {:ok, fetch_status(socket, current_session, operation_id)}
 
       :not_found ->
         {:ok, socket}
@@ -68,43 +67,37 @@ defmodule Singularity.Web.BackupsLive do
   end
 
   @impl true
-  def handle_info({:backup_status_poll, generation, attempt}, socket)
-      when is_reference(generation) and is_integer(attempt) do
-    expected_attempt = socket.assigns.backup_poll_attempt + 1
+  def handle_info(
+        {:backup_status_poll, generation, token},
+        %{
+          assigns: %{
+            backup_poll_generation: generation,
+            backup_poll_token: token
+          }
+        } = socket
+      )
+      when is_reference(generation) and is_reference(token) do
+    if in_progress?(socket.assigns.backup_status) do
+      socket = clear_poll_timer(socket)
 
-    if socket.assigns.backup_polling and
-         generation == socket.assigns.backup_poll_generation and
-         attempt == expected_attempt and attempt <= @max_poll_attempts and
-         in_progress?(socket.assigns.backup_status) do
-      socket =
-        fetch_status(
-          socket,
-          socket.assigns.current_session,
-          socket.assigns.backup_operation_id,
-          attempt
-        )
-
-      {:noreply, socket}
+      {:noreply,
+       fetch_status(
+         socket,
+         socket.assigns.current_session,
+         socket.assigns.backup_operation_id
+       )}
     else
-      {:noreply, socket}
+      {:noreply, stop_polling(socket)}
     end
   end
 
-  def handle_info({:backup_status_poll, _generation, _attempt}, socket),
+  def handle_info({:backup_status_poll, _generation, _token}, socket),
     do: {:noreply, socket}
 
-  defp fetch_status(socket, current_session, operation_id, attempt) do
+  defp fetch_status(socket, current_session, operation_id) do
     case safe_runtime(:backup_status, [current_session, operation_id]) do
-      {:ok, %BackupStatus{operation_id: ^operation_id, status: status} = backup_status}
-      when status in @in_progress_statuses or status in @terminal_statuses ->
-        socket
-        |> assign(
-          backup_status: backup_status,
-          backup_status_state: :available,
-          backup_operation_id: operation_id,
-          backup_poll_attempt: attempt
-        )
-        |> maybe_schedule_poll()
+      {:ok, candidate} ->
+        assign_status(socket, candidate, operation_id)
 
       {:error, :not_found} ->
         terminal_state(socket, :not_found)
@@ -114,34 +107,118 @@ defmodule Singularity.Web.BackupsLive do
     end
   end
 
-  defp maybe_schedule_poll(socket) do
-    if connected?(socket) and in_progress?(socket.assigns.backup_status) and
-         socket.assigns.backup_poll_attempt < @max_poll_attempts do
-      Process.send_after(
-        self(),
-        {
-          :backup_status_poll,
-          socket.assigns.backup_poll_generation,
-          socket.assigns.backup_poll_attempt + 1
-        },
-        @poll_interval_ms
-      )
+  defp assign_status(socket, candidate, operation_id) do
+    case canonical_backup_status(candidate, operation_id) do
+      {:ok, backup_status} ->
+        socket
+        |> assign(
+          backup_status: backup_status,
+          backup_status_state: :available,
+          backup_operation_id: operation_id
+        )
+        |> maybe_schedule_poll()
 
-      assign(socket, :backup_polling, true)
-    else
-      assign(socket, :backup_polling, false)
+      :error ->
+        terminal_state(socket, :unavailable)
     end
   end
 
+  defp maybe_schedule_poll(socket) do
+    if connected?(socket) and in_progress?(socket.assigns.backup_status) do
+      schedule_poll(socket)
+    else
+      stop_polling(socket)
+    end
+  end
+
+  defp schedule_poll(socket) do
+    socket = clear_poll_timer(socket)
+    token = make_ref()
+
+    timer =
+      Process.send_after(
+        self(),
+        {:backup_status_poll, socket.assigns.backup_poll_generation, token},
+        @poll_interval_ms
+      )
+
+    assign(socket, backup_poll_timer: timer, backup_poll_token: token)
+  end
+
+  defp clear_poll_timer(socket) do
+    case socket.assigns.backup_poll_timer do
+      timer when is_reference(timer) -> Process.cancel_timer(timer)
+      nil -> :ok
+    end
+
+    assign(socket, backup_poll_timer: nil, backup_poll_token: nil)
+  end
+
+  defp stop_polling(socket) do
+    socket
+    |> clear_poll_timer()
+    |> assign(:backup_poll_generation, make_ref())
+  end
+
   defp terminal_state(socket, state) when state in [:not_found, :unavailable] do
-    assign(socket,
+    socket
+    |> stop_polling()
+    |> assign(
       backup_status: nil,
       backup_status_state: state,
-      backup_operation_id: nil,
-      backup_poll_generation: make_ref(),
-      backup_polling: false
+      backup_operation_id: nil
     )
   end
+
+  defp canonical_backup_status(
+         %BackupStatus{
+           operation_id: operation_id,
+           status: status,
+           requested_at: requested_at,
+           updated_at: updated_at
+         } = candidate,
+         operation_id
+       )
+       when map_size(candidate) == 5 and
+              (status in @in_progress_statuses or status in @terminal_statuses) do
+    if canonical_utc_datetime?(requested_at) and canonical_utc_datetime?(updated_at) and
+         DateTime.compare(requested_at, updated_at) in [:lt, :eq] do
+      {:ok,
+       %BackupStatus{
+         operation_id: operation_id,
+         status: status,
+         requested_at: requested_at,
+         updated_at: updated_at
+       }}
+    else
+      :error
+    end
+  end
+
+  defp canonical_backup_status(_candidate, _operation_id), do: :error
+
+  defp canonical_utc_datetime?(
+         %DateTime{
+           calendar: Calendar.ISO,
+           time_zone: "Etc/UTC",
+           zone_abbr: "UTC",
+           utc_offset: 0,
+           std_offset: 0
+         } = datetime
+       ) do
+    with encoded when is_binary(encoded) <- DateTime.to_iso8601(datetime),
+         {:ok, ^datetime, 0} <- DateTime.from_iso8601(encoded) do
+      true
+    else
+      _invalid -> false
+    end
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp canonical_utc_datetime?(_datetime), do: false
 
   defp operation_id(%{"operation_id" => operation_id}) when is_binary(operation_id) do
     if Regex.match?(@uuid, operation_id), do: {:ok, operation_id}, else: :not_found

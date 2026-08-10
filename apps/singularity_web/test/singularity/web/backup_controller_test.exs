@@ -50,6 +50,84 @@ defmodule Singularity.Web.BackupControllerTest do
            )
   end
 
+  test "Phoenix stop telemetry receives no submitted secret parameters", %{
+    conn: conn,
+    runtime_api: runtime_api,
+    current_session: current_session
+  } do
+    passphrase_canary = "TELEMETRY_PASSPHRASE_CANARY_64ee"
+    query_passphrase_canary = "TELEMETRY_QUERY_PASSPHRASE_CANARY_13bc"
+    query_csrf_canary = "TELEMETRY_QUERY_CSRF_CANARY_981a"
+    events = [[:phoenix, :router_dispatch, :stop], [:phoenix, :endpoint, :stop]]
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn event, _measurements, metadata, owner ->
+          send(owner, {:backup_stop_telemetry, event, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    TestRuntimeApi.put(runtime_api, :request_backup, {:ok, backup_status(:pending)})
+
+    {conn, csrf_canary} = put_issued_csrf(conn)
+    conn = update_in(conn.private, &Map.delete(&1, :plug_skip_csrf_protection))
+
+    query =
+      URI.encode_query(%{
+        "passphrase" => query_passphrase_canary,
+        "_csrf_token" => query_csrf_canary
+      })
+
+    response =
+      post(conn, "/backups?#{query}", %{
+        "_csrf_token" => csrf_canary,
+        "passphrase" => passphrase_canary
+      })
+
+    assert redirected_to(response) == "/backups?operation_id=#{@operation_id}"
+
+    assert TestRuntimeApi.calls(runtime_api) == [
+             {:resolve_session, "opaque-session"},
+             {:request_backup, current_session, passphrase_canary}
+           ]
+
+    metadata_by_event =
+      Enum.reduce(events, %{}, fn _event, observed ->
+        assert_receive {:backup_stop_telemetry, event, metadata}
+        Map.put(observed, event, metadata)
+      end)
+
+    canaries = [passphrase_canary, csrf_canary, query_passphrase_canary, query_csrf_canary]
+
+    for event <- events do
+      assert %{conn: telemetry_conn} = Map.fetch!(metadata_by_event, event)
+
+      for field <- [:body_params, :params, :query_params, :path_params] do
+        params = Map.fetch!(telemetry_conn, field)
+        serialized = inspect(params, limit: :infinity, printable_limit: :infinity)
+        refute Enum.any?(canaries, &String.contains?(serialized, &1))
+      end
+
+      leaking_fields =
+        telemetry_conn
+        |> Map.from_struct()
+        |> Enum.filter(fn {_field, value} ->
+          serialized = inspect(value, limit: :infinity, printable_limit: :infinity)
+          Enum.any?(canaries, &String.contains?(serialized, &1))
+        end)
+        |> Enum.map(&elem(&1, 0))
+
+      assert leaking_fields == []
+      refute telemetry_conn.query_string =~ query_passphrase_canary
+      refute telemetry_conn.query_string =~ query_csrf_canary
+    end
+  end
+
   test "missing and expired sessions follow authentication without requesting a backup", %{
     conn: conn,
     runtime_api: runtime_api

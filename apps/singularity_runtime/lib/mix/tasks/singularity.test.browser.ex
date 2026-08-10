@@ -358,13 +358,37 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     stop_known_repositories()
 
     try do
-      __run_bounded__(
-        fn -> TestEnvironment.force_drop!(context.environment) end,
-        @force_drop_timeout_ms,
-        "browser destructive cleanup exceeded its bounded timeout"
+      __cleanup_generated_environment__(
+        context,
+        &TestEnvironment.force_drop!/1,
+        @force_drop_timeout_ms
       )
     after
       __restore_environment__(context.snapshot)
+    end
+  end
+
+  @doc false
+  def __cleanup_generated_environment__(
+        %{run_id: run_id, environment: environment},
+        force_drop,
+        timeout_ms
+      )
+      when is_function(force_drop, 1) and is_integer(timeout_ms) and timeout_ms > 0 do
+    generated_environment = TestEnvironment.from_playwright_run_id!(run_id)
+
+    if environment != generated_environment do
+      Mix.raise("browser cleanup context does not match generated environment")
+    end
+
+    try do
+      __run_bounded__(
+        fn -> force_drop.(generated_environment) end,
+        timeout_ms,
+        "browser destructive cleanup exceeded its bounded timeout"
+      )
+    after
+      File.rm_rf!(generated_environment.storage_root)
     end
   end
 

@@ -5,6 +5,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
   alias Mix.Tasks.Singularity.Test.Browser
   alias Mix.Tasks.Singularity.Test.Browser.SignalHandler
+  alias Singularity.Storage.TestEnvironment
 
   @run_id "123e4567-e89b-42d3-a456-426614174000"
   @repositories [
@@ -420,6 +421,62 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
     assert_receive {:bounded_worker, worker}
     refute Process.alive?(worker)
+  end
+
+  test "coordinator removes the canonical generated root when force-drop times out" do
+    environment = TestEnvironment.from_playwright_run_id!(@run_id)
+    backup_root = Path.join(environment.storage_root, "backups")
+    backup_canary = Path.join(backup_root, "cleanup-canary")
+
+    File.rm_rf!(environment.storage_root)
+    File.mkdir_p!(backup_root)
+    File.write!(backup_canary, "generated browser backup")
+    on_exit(fn -> File.rm_rf!(environment.storage_root) end)
+
+    test_process = self()
+
+    force_drop = fn actual_environment ->
+      send(test_process, {:force_drop_started, actual_environment, self()})
+      receive do: (:never -> :ok)
+    end
+
+    assert_raise Mix.Error, "browser destructive cleanup exceeded its bounded timeout", fn ->
+      Browser.__cleanup_generated_environment__(
+        %{run_id: @run_id, environment: environment},
+        force_drop,
+        10
+      )
+    end
+
+    assert_receive {:force_drop_started, ^environment, worker}
+    refute Process.alive?(worker)
+    refute File.exists?(environment.storage_root)
+    refute File.exists?(backup_canary)
+  end
+
+  test "generated-root cleanup rejects tampered context without removing caller paths" do
+    environment = TestEnvironment.from_playwright_run_id!(@run_id)
+    caller_root = environment.storage_root <> "-caller-controlled"
+    caller_canary = Path.join(caller_root, "must-survive")
+
+    File.rm_rf!(caller_root)
+    File.mkdir_p!(caller_root)
+    File.write!(caller_canary, "caller data")
+    on_exit(fn -> File.rm_rf!(caller_root) end)
+
+    tampered_environment = %{environment | storage_root: caller_root}
+    test_process = self()
+
+    assert_raise Mix.Error, "browser cleanup context does not match generated environment", fn ->
+      Browser.__cleanup_generated_environment__(
+        %{run_id: @run_id, environment: tampered_environment},
+        fn _environment -> send(test_process, :tampered_force_drop_called) end,
+        10
+      )
+    end
+
+    refute_receive :tampered_force_drop_called
+    assert File.read!(caller_canary) == "caller data"
   end
 
   @tag :tmp_dir
