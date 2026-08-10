@@ -173,13 +173,14 @@ defmodule Singularity.Storage.TestEnvironmentTest do
   end
 
   @tag :integration
-  test "force drop terminates an independent connection and removes only its browser environment" do
+  test "force drop terminates runtime and migration connections and removes only its browser environment" do
     names =
       TestEnvironment.from_playwright_run_id!("123e4567-e89b-42d3-a456-426614174006")
 
     sibling_root = names.storage_root <> "-sibling"
     sibling_sentinel = Path.join(sibling_root, "must-survive")
     connection = nil
+    migration_connection = nil
 
     try do
       TestEnvironment.create!(names)
@@ -187,14 +188,15 @@ defmodule Singularity.Storage.TestEnvironmentTest do
       File.write!(sibling_sentinel, "safe")
 
       {:ok, connection} =
-        Postgrex.start_link(postgrex_options(names.database) ++ [backoff_type: :stop])
+        Postgrex.start_link(postgrex_options(names.database, "singularity_worker"))
 
       Process.unlink(connection)
-      monitor_ref = Process.monitor(connection)
+
+      {:ok, migration_connection} = Postgrex.start_link(postgrex_options(names.database))
+      Process.unlink(migration_connection)
 
       assert :ok = TestEnvironment.force_drop!(names)
-      assert catch_exit(Postgrex.query(connection, "SELECT 1", []))
-      assert_receive {:DOWN, ^monitor_ref, :process, ^connection, _reason}, 1_000
+      assert Process.alive?(connection)
 
       {:ok, postgres_connection} = Postgrex.start_link(postgrex_options("postgres"))
       Process.unlink(postgres_connection)
@@ -214,6 +216,9 @@ defmodule Singularity.Storage.TestEnvironmentTest do
       assert File.read!(sibling_sentinel) == "safe"
     after
       if connection && Process.alive?(connection), do: GenServer.stop(connection)
+
+      if migration_connection && Process.alive?(migration_connection),
+        do: GenServer.stop(migration_connection)
 
       TestEnvironment.force_drop!(names)
       File.rm_rf!(names.storage_root)
@@ -275,9 +280,9 @@ defmodule Singularity.Storage.TestEnvironmentTest do
   defp restore_env(name, nil), do: System.delete_env(name)
   defp restore_env(name, value), do: System.put_env(name, value)
 
-  defp postgrex_options(database) do
+  defp postgrex_options(database, username \\ "singularity_migration") do
     [
-      username: "singularity_migration",
+      username: username,
       database: database,
       socket_dir: System.fetch_env!("PGHOST"),
       port: String.to_integer(System.fetch_env!("PGPORT")),

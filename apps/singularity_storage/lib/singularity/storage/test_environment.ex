@@ -7,7 +7,15 @@ defmodule Singularity.Storage.TestEnvironment do
   @database_prefix "singularity_test_"
   @playwright_run_id_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   @database_disconnect_attempts 500
+  @force_drop_disconnect_attempts 50
   @database_disconnect_interval_ms 10
+  @terminate_role_sessions_sql """
+  SELECT pg_catalog.pg_terminate_backend(pid)
+  FROM pg_catalog.pg_stat_activity
+  WHERE datname = $1
+    AND usename = session_user
+    AND pid <> pg_catalog.pg_backend_pid()
+  """
   @migration_repo Singularity.Storage.MigrationRepo
   @runtime_repos [
     {Singularity.Storage.RequestRepo, "singularity_web"},
@@ -143,6 +151,38 @@ defmodule Singularity.Storage.TestEnvironment do
 
   defp force_drop_database!(database) do
     with_migration_repo("postgres", fn ->
+      %{rows: [[database_exists?]]} =
+        SafeSQL.query!(
+          @migration_repo,
+          "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+          [database],
+          log: false
+        )
+
+      if database_exists? do
+        SafeSQL.query!(
+          @migration_repo,
+          "ALTER DATABASE #{quoted_identifier(database)} WITH ALLOW_CONNECTIONS false",
+          [],
+          log: false
+        )
+
+        Enum.each(@runtime_repos, fn {_repo, role} ->
+          with_runtime_connection(role, "postgres", fn connection ->
+            Postgrex.query!(connection, @terminate_role_sessions_sql, [database])
+          end)
+        end)
+
+        SafeSQL.query!(
+          @migration_repo,
+          @terminate_role_sessions_sql,
+          [database],
+          log: false
+        )
+
+        wait_for_database_disconnects!(database, @force_drop_disconnect_attempts)
+      end
+
       SafeSQL.query!(
         @migration_repo,
         "DROP DATABASE IF EXISTS #{quoted_identifier(database)} WITH (FORCE)",
@@ -230,6 +270,23 @@ defmodule Singularity.Storage.TestEnvironment do
       fun.()
     after
       stop_repo(@migration_repo)
+    end
+  end
+
+  defp with_runtime_connection(username, database, fun) do
+    options =
+      username
+      |> connection_options(database)
+      |> Keyword.delete(:url)
+      |> Keyword.merge(backoff_type: :stop, log: false)
+
+    {:ok, connection} = Postgrex.start_link(options)
+    Process.unlink(connection)
+
+    try do
+      fun.(connection)
+    after
+      if Process.alive?(connection), do: GenServer.stop(connection)
     end
   end
 
