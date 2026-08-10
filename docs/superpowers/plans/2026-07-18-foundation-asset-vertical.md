@@ -4931,6 +4931,8 @@ pagination, and browser-versus-unit coverage.
 - Create: `test/e2e/support/fixtures.ts`
 - Create:
   `apps/singularity_runtime/lib/mix/tasks/singularity.test.browser.ex`
+- Modify:
+  `apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex`
 - Create:
   `apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs`
 - Create:
@@ -5201,7 +5203,9 @@ pagination, and browser-versus-unit coverage.
   Split `BackupVault` adapter validation between fresh request and reentry.
   Replace both `wake_backup(pending.id)` calls with the existing job-runner
   `wake_vault(pending.vault_id)` call. Do not edit `JobDispatcher`,
-  `EnvelopeCodec`, or `ObanAdapter`.
+  `EnvelopeCodec`, or `ObanAdapter`. Rename the restore oracle's contextless
+  test adapter callback from `wake_backup/1` to `wake_vault/1`; this is the only
+  Task 18 change allowed in `singularity.test.restore.ex`.
 
   Rerun Step 5. Then run the pre-existing restore-boundary regression tests:
 
