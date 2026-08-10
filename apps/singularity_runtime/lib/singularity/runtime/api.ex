@@ -673,12 +673,20 @@ defmodule Singularity.Runtime.Api do
 
     backup_root = Application.fetch_env!(:singularity_storage, :backup_root)
     backup_profile = BackupKeyDeriver.profile()
+    {storage_adapter, storage_context} = StorageAdapter.configured()
 
     %{
       asset_deletions: AssetDeletionRepository,
       asset_search: AssetMetadataSearch,
       asset_search_store: AssetSearchStore,
-      asset_storage: StorageAdapter.configured(),
+      # Stage-only uploads defer deduplication, finalization, and wrapper cleanup
+      # to the authorized runtime saga.
+      asset_storage: %{
+        adapter: storage_adapter,
+        context: storage_context,
+        dedup_lookup: fn _vault_id, _domain_id, _digest -> :miss end,
+        destroy_dek_wrapper: fn _wrapper -> :ok end
+      },
       assets: AssetRepository,
       authenticated_reader: Singularity.Runtime.DownloadLease,
       audit: AuditSink,
