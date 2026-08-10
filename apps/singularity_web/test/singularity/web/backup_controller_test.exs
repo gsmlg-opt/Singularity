@@ -114,6 +114,17 @@ defmodule Singularity.Web.BackupControllerTest do
 
     safe_surfaces = [response.resp_body, redirected_to(response), inspect(response.assigns.flash)]
     refute Enum.any?(safe_surfaces, &String.contains?(&1, @passphrase_canary))
+
+    returned = response |> recycle() |> get(redirected_to(response))
+    html = html_response(returned, 200)
+    document = Floki.parse_document!(html)
+
+    assert [alert] = Floki.find(document, "[role='alert']")
+    assert alert |> Floki.text() |> String.trim() == @failure_message
+    refute html =~ @passphrase_canary
+
+    assert [password_input] = Floki.find(document, "#backup-passphrase")
+    assert Floki.attribute(password_input, "value") == []
   end
 
   test "missing or query-only passphrases never reach runtime and never repopulate the password",

@@ -39,6 +39,8 @@ defmodule Singularity.Web.BackupsLive do
   def render(assigns) do
     ~H"""
     <.page title="Backups">
+      <p :if={error = Phoenix.Flash.get(@flash, :error)} role="alert">{error}</p>
+
       <section aria-labelledby="create-backup-heading">
         <h2 id="create-backup-heading">Create encrypted backup</h2>
         <form action="/backups" method="post">
