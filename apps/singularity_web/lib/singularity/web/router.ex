@@ -27,6 +27,7 @@ defmodule Singularity.Web.Router do
     "x-upload-token",
     :"x-upload-token"
   ]
+  @sensitive_request_headers ["x-csrf-token", "x-upload-token"]
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -117,24 +118,40 @@ defmodule Singularity.Web.Router do
 
   defp scrub_sensitive_request(conn) do
     conn
-    |> Map.update!(:body_params, &scrub_parameter_map/1)
-    |> Map.update!(:params, &scrub_parameter_map/1)
-    |> Map.update!(:query_params, &scrub_parameter_map/1)
-    |> Map.update!(:path_params, &scrub_parameter_map/1)
+    |> Map.update!(:body_params, &scrub_parameter_value/1)
+    |> Map.update!(:params, &scrub_parameter_value/1)
+    |> Map.update!(:query_params, &scrub_parameter_value/1)
+    |> Map.update!(:path_params, &scrub_parameter_value/1)
+    |> Map.update!(:req_headers, &scrub_request_headers/1)
     |> Map.update!(:adapter, &scrub_test_adapter/1)
     |> Map.put(:query_string, "")
   end
 
-  defp scrub_parameter_map(%Plug.Conn.Unfetched{} = params), do: params
-  defp scrub_parameter_map(nil), do: nil
+  defp scrub_parameter_value(%Plug.Conn.Unfetched{} = value), do: value
+  defp scrub_parameter_value(value) when is_struct(value), do: value
 
-  defp scrub_parameter_map(params) when is_map(params),
-    do: Map.drop(params, @sensitive_parameter_keys)
+  defp scrub_parameter_value(value) when is_map(value) do
+    Enum.reduce(value, %{}, fn {key, nested_value}, scrubbed ->
+      if key in @sensitive_parameter_keys do
+        scrubbed
+      else
+        Map.put(scrubbed, key, scrub_parameter_value(nested_value))
+      end
+    end)
+  end
+
+  defp scrub_parameter_value(value) when is_list(value),
+    do: Enum.map(value, &scrub_parameter_value/1)
+
+  defp scrub_parameter_value(value), do: value
+
+  defp scrub_request_headers(headers),
+    do: Enum.reject(headers, fn {name, _value} -> name in @sensitive_request_headers end)
 
   defp scrub_test_adapter({Plug.Adapters.Test.Conn, %{params: params} = state}) do
     state =
       state
-      |> Map.put(:params, scrub_parameter_map(params))
+      |> Map.put(:params, scrub_parameter_value(params))
       |> Map.put(:req_body, "")
 
     {Plug.Adapters.Test.Conn, state}

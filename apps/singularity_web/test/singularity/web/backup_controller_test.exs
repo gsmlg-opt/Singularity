@@ -42,9 +42,14 @@ defmodule Singularity.Web.BackupControllerTest do
     body_csrf_canary = "INVALID_CSRF_BODY_CANARY_218d"
     query_passphrase_canary = "INVALID_CSRF_QUERY_PASSPHRASE_CANARY_900c"
     query_csrf_canary = "INVALID_CSRF_QUERY_CSRF_CANARY_283f"
+    nested_passphrase_canary = "INVALID_CSRF_NESTED_PASSPHRASE_CANARY_8c3b"
+    nested_csrf_canary = "INVALID_CSRF_NESTED_CSRF_CANARY_8b13"
+    nested_token_canary = "INVALID_CSRF_NESTED_TOKEN_CANARY_d1bf"
+    header_csrf_canary = "INVALID_CSRF_HEADER_CANARY_60e7"
     telemetry = attach_backup_telemetry()
 
     conn = update_in(conn.private, &Map.delete(&1, :plug_skip_csrf_protection))
+    conn = put_req_header(conn, "x-csrf-token", header_csrf_canary)
 
     query =
       URI.encode_query(%{
@@ -55,7 +60,16 @@ defmodule Singularity.Web.BackupControllerTest do
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
       post(conn, "/backups?#{query}", %{
         "_csrf_token" => body_csrf_canary,
-        "passphrase" => passphrase_canary
+        "passphrase" => passphrase_canary,
+        "nested" => [
+          %{"passphrase" => nested_passphrase_canary},
+          %{
+            "items" => [
+              %{"_csrf_token" => nested_csrf_canary},
+              %{"token" => nested_token_canary}
+            ]
+          }
+        ]
       })
     end
 
@@ -69,7 +83,11 @@ defmodule Singularity.Web.BackupControllerTest do
       passphrase_canary,
       body_csrf_canary,
       query_passphrase_canary,
-      query_csrf_canary
+      query_csrf_canary,
+      nested_passphrase_canary,
+      nested_csrf_canary,
+      nested_token_canary,
+      header_csrf_canary
     ])
 
     assert TestRuntimeApi.calls(runtime_api) == []
@@ -83,6 +101,10 @@ defmodule Singularity.Web.BackupControllerTest do
     passphrase_canary = "TELEMETRY_PASSPHRASE_CANARY_64ee"
     query_passphrase_canary = "TELEMETRY_QUERY_PASSPHRASE_CANARY_13bc"
     query_csrf_canary = "TELEMETRY_QUERY_CSRF_CANARY_981a"
+    nested_passphrase_canary = "TELEMETRY_NESTED_PASSPHRASE_CANARY_fa2f"
+    nested_csrf_canary = "TELEMETRY_NESTED_CSRF_CANARY_eaf5"
+    nested_token_canary = "TELEMETRY_NESTED_TOKEN_CANARY_06c6"
+    header_csrf_canary = "TELEMETRY_HEADER_CSRF_CANARY_b01e"
     events = [[:phoenix, :router_dispatch, :stop], [:phoenix, :endpoint, :stop]]
     handler_id = {__MODULE__, self(), make_ref()}
 
@@ -101,6 +123,7 @@ defmodule Singularity.Web.BackupControllerTest do
 
     {conn, csrf_canary} = put_issued_csrf(conn)
     conn = update_in(conn.private, &Map.delete(&1, :plug_skip_csrf_protection))
+    conn = put_req_header(conn, "x-csrf-token", header_csrf_canary)
 
     query =
       URI.encode_query(%{
@@ -111,7 +134,16 @@ defmodule Singularity.Web.BackupControllerTest do
     response =
       post(conn, "/backups?#{query}", %{
         "_csrf_token" => csrf_canary,
-        "passphrase" => passphrase_canary
+        "passphrase" => passphrase_canary,
+        "nested" => [
+          %{"passphrase" => nested_passphrase_canary},
+          %{
+            "items" => [
+              %{"_csrf_token" => nested_csrf_canary},
+              %{"token" => nested_token_canary}
+            ]
+          }
+        ]
       })
 
     assert redirected_to(response) == "/backups?operation_id=#{@operation_id}"
@@ -127,10 +159,20 @@ defmodule Singularity.Web.BackupControllerTest do
         Map.put(observed, event, metadata)
       end)
 
-    canaries = [passphrase_canary, csrf_canary, query_passphrase_canary, query_csrf_canary]
+    canaries = [
+      passphrase_canary,
+      csrf_canary,
+      query_passphrase_canary,
+      query_csrf_canary,
+      nested_passphrase_canary,
+      nested_csrf_canary,
+      nested_token_canary,
+      header_csrf_canary
+    ]
 
     for event <- events do
       assert %{conn: telemetry_conn} = Map.fetch!(metadata_by_event, event)
+      assert get_req_header(telemetry_conn, "x-csrf-token") == []
 
       for field <- [:body_params, :params, :query_params, :path_params] do
         params = Map.fetch!(telemetry_conn, field)
@@ -148,6 +190,11 @@ defmodule Singularity.Web.BackupControllerTest do
         |> Enum.map(&elem(&1, 0))
 
       assert leaking_fields == []
+
+      serialized_adapter =
+        inspect(telemetry_conn.adapter, limit: :infinity, printable_limit: :infinity)
+
+      refute Enum.any?(canaries, &String.contains?(serialized_adapter, &1))
       refute telemetry_conn.query_string =~ query_passphrase_canary
       refute telemetry_conn.query_string =~ query_csrf_canary
     end
@@ -350,11 +397,20 @@ defmodule Singularity.Web.BackupControllerTest do
     assert observed != []
 
     for {event, metadata} <- observed do
-      assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} = metadata
+      assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"} = telemetry_conn} =
+               metadata
+
+      assert get_req_header(telemetry_conn, "x-csrf-token") == []
       serialized = inspect(metadata, limit: :infinity, printable_limit: :infinity)
+
+      serialized_adapter =
+        inspect(telemetry_conn.adapter, limit: :infinity, printable_limit: :infinity)
 
       refute Enum.any?(canaries, &String.contains?(serialized, &1)),
              "#{inspect(event)} telemetry retained a submitted canary"
+
+      refute Enum.any?(canaries, &String.contains?(serialized_adapter, &1)),
+             "#{inspect(event)} test adapter retained a submitted canary"
     end
   end
 

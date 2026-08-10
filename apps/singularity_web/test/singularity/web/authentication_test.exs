@@ -86,6 +86,10 @@ defmodule Singularity.Web.AuthenticationTest do
       body_csrf_canary = "AUTH_REDIRECT_BODY_CSRF_CANARY_c958"
       query_passphrase_canary = "AUTH_REDIRECT_QUERY_PASSPHRASE_CANARY_d4cd"
       query_csrf_canary = "AUTH_REDIRECT_QUERY_CSRF_CANARY_c89c"
+      nested_passphrase_canary = "AUTH_REDIRECT_NESTED_PASSPHRASE_CANARY_104c"
+      nested_csrf_canary = "AUTH_REDIRECT_NESTED_CSRF_CANARY_3b00"
+      nested_token_canary = "AUTH_REDIRECT_NESTED_TOKEN_CANARY_b116"
+      header_csrf_canary = "AUTH_REDIRECT_HEADER_CSRF_CANARY_b5dc"
       telemetry = attach_backup_stop_telemetry()
 
       query =
@@ -96,12 +100,23 @@ defmodule Singularity.Web.AuthenticationTest do
 
       body = %{
         "_csrf_token" => body_csrf_canary,
-        "passphrase" => passphrase_canary
+        "passphrase" => passphrase_canary,
+        "nested" => [
+          %{"passphrase" => nested_passphrase_canary},
+          %{
+            "items" => [
+              %{"_csrf_token" => nested_csrf_canary},
+              %{"token" => nested_token_canary}
+            ]
+          }
+        ]
       }
 
       for {request_conn, expected_redirect} <- [
-            {build_conn(), "/login"},
-            {put_session_id(conn, "locked-session"), "/vault/unlock"}
+            {put_req_header(build_conn(), "x-csrf-token", header_csrf_canary), "/login"},
+            {conn
+             |> put_session_id("locked-session")
+             |> put_req_header("x-csrf-token", header_csrf_canary), "/vault/unlock"}
           ] do
         response = post(request_conn, "/backups?#{query}", body)
         assert redirected_to(response) == expected_redirect
@@ -118,15 +133,28 @@ defmodule Singularity.Web.AuthenticationTest do
         passphrase_canary,
         body_csrf_canary,
         query_passphrase_canary,
-        query_csrf_canary
+        query_csrf_canary,
+        nested_passphrase_canary,
+        nested_csrf_canary,
+        nested_token_canary,
+        header_csrf_canary
       ]
 
       for {event, metadata} <- observed do
-        assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} = metadata
+        assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"} = telemetry_conn} =
+                 metadata
+
+        assert get_req_header(telemetry_conn, "x-csrf-token") == []
         serialized = inspect(metadata, limit: :infinity, printable_limit: :infinity)
+
+        serialized_adapter =
+          inspect(telemetry_conn.adapter, limit: :infinity, printable_limit: :infinity)
 
         refute Enum.any?(canaries, &String.contains?(serialized, &1)),
                "#{inspect(event)} telemetry retained a submitted canary"
+
+        refute Enum.any?(canaries, &String.contains?(serialized_adapter, &1)),
+               "#{inspect(event)} test adapter retained a submitted canary"
       end
 
       refute Enum.any?(
