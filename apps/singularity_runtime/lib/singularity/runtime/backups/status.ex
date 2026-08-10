@@ -110,7 +110,7 @@ defmodule Singularity.Runtime.Backups.Status do
     valid_uuid?(session.session_id) and
       (is_nil(session.account_id) or valid_uuid?(session.account_id)) and
       valid_uuid?(session.principal_id) and valid_uuid?(session.vault_id) and
-      is_struct(session.expires_at, DateTime) and
+      valid_datetime?(session.expires_at) and
       valid_epoch?(session.principal_authorization_epoch) and
       valid_epoch?(session.vault_authorization_epoch) and
       valid_epoch?(session.authorization_epoch) and is_boolean(session.unlocked?)
@@ -131,6 +131,8 @@ defmodule Singularity.Runtime.Backups.Status do
   rescue
     _error -> false
   end
+
+  defp valid_datetime?(_value), do: false
 
   defp valid_epoch?(value), do: is_integer(value) and value >= 0
   defp concrete?(value), do: value not in [nil, false]

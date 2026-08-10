@@ -177,6 +177,7 @@ defmodule Singularity.Runtime.Api do
   def request_backup(config, %Session{} = session, passphrase)
       when is_map(config) and is_binary(passphrase) and byte_size(passphrase) > 0 do
     with {:ok, %SessionContext{unlocked?: true} = context} <- session_context(session),
+         :ok <- invoke(config, :authorize_backup_request, [context]),
          {:ok, created} <- invoke(config, :request_backup, [context, passphrase]),
          {:ok, operation_id} <- backup_operation_identity(created),
          {:ok, status} <- invoke(config, :backup_status, [context, operation_id]),
@@ -540,6 +541,14 @@ defmodule Singularity.Runtime.Api do
           {:error, %Error{}} = error -> error
         end
       end,
+      authorize_backup_request: fn session ->
+        OperationScope.with_read_request(
+          runtime,
+          session,
+          backup_request_requirement(session),
+          fn _repo -> :ok end
+        )
+      end,
       asset_summary: fn session, asset_id ->
         Search.fetch(runtime, session, asset_id)
       end,
@@ -735,6 +744,15 @@ defmodule Singularity.Runtime.Api do
   end
 
   defp backup_operation_identity(_identity), do: {:error, :integrity_failure}
+
+  defp backup_request_requirement(session) do
+    %{
+      vault_id: session.vault_id,
+      classification: :private,
+      required_capability: "backup.create",
+      requires_unlocked?: true
+    }
+  end
 
   defp internal_backup_identity(%{id: operation_id}) do
     if valid_uuid?(operation_id),

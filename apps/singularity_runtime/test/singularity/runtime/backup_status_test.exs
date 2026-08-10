@@ -156,6 +156,29 @@ defmodule Singularity.Runtime.BackupStatusTest do
     refute_received {:store, _repo, _selector}
   end
 
+  test "rejects malformed SessionContext fields before authorization or storage" do
+    invalid_sessions = [
+      %{session() | session_id: "not-a-uuid"},
+      %{session() | account_id: "not-a-uuid"},
+      %{session() | principal_id: "not-a-uuid"},
+      %{session() | vault_id: "not-a-uuid"},
+      %{session() | expires_at: NaiveDateTime.utc_now()},
+      %{session() | expires_at: struct(DateTime)},
+      %{session() | principal_authorization_epoch: -1},
+      %{session() | vault_authorization_epoch: "11"},
+      %{session() | authorization_epoch: nil},
+      %{session() | unlocked?: :yes}
+    ]
+
+    for invalid_session <- invalid_sessions do
+      assert {:error, %Error{code: :invalid, message: nil, details: %{}}} =
+               Status.run(runtime(), invalid_session, @operation_id)
+    end
+
+    refute_received {:scope, _runtime, _session, _requirement}
+    refute_received {:store, _repo, _selector}
+  end
+
   test "rejects malformed and mismatched status records without returning their data" do
     secret = "BACKUP_STATUS_RECORD_SECRET"
 

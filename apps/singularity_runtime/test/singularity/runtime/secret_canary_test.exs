@@ -720,7 +720,13 @@ defmodule Singularity.Runtime.SecretCanaryTest do
       updated_at: updated_at
     }
 
+    preflight = fn %SessionContext{} = context ->
+      send(self(), {:backup_facade_preflight, context})
+      :ok
+    end
+
     config = %{
+      authorize_backup_request: preflight,
       request_backup: fn _session, _passphrase ->
         {:ok, %{operation_id: operation_id}}
       end,
@@ -728,6 +734,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     }
 
     secret_error_config = %{
+      authorize_backup_request: preflight,
       request_backup: fn _session, passphrase ->
         {:error,
          Error.new(:backup_invalid,
@@ -739,6 +746,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     }
 
     raising_config = %{
+      authorize_backup_request: preflight,
       request_backup: fn _session, passphrase -> raise passphrase end,
       backup_status: fn _session, _operation_id -> {:ok, status} end
     }
@@ -786,6 +794,10 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     assert_receive {:backup_facade_exception,
                     {:error, :storage_unavailable} = contained_exception}
 
+    assert_receive {:backup_facade_preflight, %SessionContext{} = success_preflight}
+    assert_receive {:backup_facade_preflight, %SessionContext{} = error_preflight}
+    assert_receive {:backup_facade_preflight, %SessionContext{} = exception_preflight}
+
     {:messages, pending_messages} = Process.info(self(), :messages)
 
     for surface <- [
@@ -795,6 +807,9 @@ defmodule Singularity.Runtime.SecretCanaryTest do
           inspect(stable_error, limit: :infinity),
           contained_exception,
           inspect(contained_exception, limit: :infinity),
+          success_preflight,
+          error_preflight,
+          exception_preflight,
           pending_messages,
           logs
         ] do

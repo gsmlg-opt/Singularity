@@ -1229,6 +1229,66 @@ defmodule Singularity.Runtime.ApiTest do
     assert {:ok, ^dto} = Api.backup_status(api, session_dto(true), @backup_operation_id)
   end
 
+  test "request_backup requires live authorization before invoking the secret-bearing request seam" do
+    test_pid = self()
+    passphrase = "preflight-passphrase-must-not-leak"
+
+    denied_api =
+      api(
+        authorize_backup_request: fn %SessionContext{} = context ->
+          send(test_pid, {:backup_preflight, context})
+
+          {:error,
+           Error.new(:forbidden,
+             message: "preflight-internal-detail",
+             details: %{secret: "preflight-internal-detail"}
+           )}
+        end,
+        request_backup: fn _context, _passphrase ->
+          send(test_pid, :unexpected_backup_request)
+          {:ok, %{operation_id: @backup_operation_id}}
+        end
+      )
+
+    assert {:error, :forbidden} =
+             Api.request_backup(denied_api, session_dto(true), passphrase)
+
+    assert_receive {:backup_preflight, %SessionContext{} = preflight_context}
+    refute inspect(preflight_context) =~ passphrase
+    refute_received :unexpected_backup_request
+
+    order_key = {__MODULE__, make_ref()}
+    record = fn step -> Process.put(order_key, Process.get(order_key, []) ++ [step]) end
+
+    permitted_api =
+      api(
+        authorize_backup_request: fn %SessionContext{} ->
+          record.(:preflight)
+          :ok
+        end,
+        request_backup: fn %SessionContext{}, ^passphrase ->
+          record.(:request)
+          {:ok, %{operation_id: @backup_operation_id}}
+        end,
+        backup_status: fn %SessionContext{}, @backup_operation_id ->
+          record.(:status)
+          {:ok, backup_status_record()}
+        end
+      )
+
+    assert {:ok, %BackupStatus{operation_id: @backup_operation_id}} =
+             Api.request_backup(permitted_api, session_dto(true), passphrase)
+
+    assert Process.delete(order_key) == [:preflight, :request, :status]
+
+    missing_preflight = Map.delete(permitted_api, :authorize_backup_request)
+
+    assert {:error, :invalid} =
+             Api.request_backup(missing_preflight, session_dto(true), passphrase)
+
+    refute Process.get(order_key)
+  end
+
   test "backup facade validates unlocked sessions, passphrases, and operation UUIDs before seams" do
     test_pid = self()
 
@@ -1396,6 +1456,7 @@ defmodule Singularity.Runtime.ApiTest do
       abandon_upload: fn _handle, _reason -> :ok end,
       append_upload: fn _handle, _chunk -> :ok end,
       authorize_asset_subscription: fn _session -> :ok end,
+      authorize_backup_request: fn _session -> :ok end,
       begin_upload: fn _session, _grant, _owner -> {:error, Error.new(:invalid)} end,
       asset_summary: fn _session, _asset_id -> {:error, Error.new(:not_found)} end,
       backup_status: fn _session, _operation_id -> {:error, Error.new(:not_found)} end,
