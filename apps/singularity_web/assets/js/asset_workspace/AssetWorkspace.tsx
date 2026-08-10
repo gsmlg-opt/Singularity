@@ -217,6 +217,12 @@ export function AssetWorkspace({
   const accessExpired =
     expiresAt !== null && Number.isFinite(expiresAt) && expiresAt <= currentTime;
   const locallyLocked = snapshot.vault.locked || accessExpired;
+  const selectedAssetDownloadable =
+    selectedAsset !== null &&
+    !locallyLocked &&
+    (selectedAsset.state === "available" ||
+      selectedAsset.state === "processing" ||
+      selectedAsset.state === "ready");
 
   useEffect(() => {
     applyTheme(theme);
@@ -800,6 +806,16 @@ export function AssetWorkspace({
             </p>
           ) : null}
           <div className="inspector-actions">
+            {selectedAssetDownloadable ? (
+              <a
+                className="button button-secondary"
+                aria-label={`Download ${selectedAsset.title}`}
+                href={`/api/v1/assets/${encodeURIComponent(selectedAsset.id)}/content`}
+                download={selectedAsset.originalFilename}
+              >
+                Download
+              </a>
+            ) : null}
             <button
               className="button button-secondary"
               type="button"

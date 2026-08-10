@@ -580,6 +580,9 @@ describe("AssetWorkspace", () => {
     expect(button(container, "Upload asset").disabled).toBe(false);
     expect(button(container, "Retry").disabled).toBe(false);
     expect(button(container, "Delete").disabled).toBe(false);
+    expect(container.querySelector('[aria-label="Download Annual report"]')).toBeInstanceOf(
+      HTMLAnchorElement,
+    );
 
     await act(async () => vi.advanceTimersByTime(60_000));
 
@@ -589,6 +592,7 @@ describe("AssetWorkspace", () => {
     expect(button(container, "Upload asset").disabled).toBe(true);
     expect(button(container, "Retry").disabled).toBe(true);
     expect(button(container, "Delete").disabled).toBe(true);
+    expect(container.querySelector('[aria-label="Download Annual report"]')).toBeNull();
   });
 
   it("opens the inspector, uses current revisions, and restores trigger focus", async () => {
@@ -638,6 +642,75 @@ describe("AssetWorkspace", () => {
     });
     expect(document.activeElement).toBe(inspect);
   });
+
+  it.each(["available", "processing", "ready"] satisfies AssetSummary["state"][])(
+    "exposes a same-origin download for an unlocked %s asset",
+    async (state) => {
+      const store = new WorkspaceStore(
+        initialProps({
+          assets: {
+            items: [asset({ state, failure: null })],
+            nextCursor: null,
+          },
+        }),
+      );
+
+      await act(async () => {
+        root.render(<AssetWorkspace bridge={bridge()} store={store} />);
+      });
+      await act(async () => {
+        (
+          container.querySelector('[aria-label="Inspect Annual report"]') as HTMLButtonElement
+        ).click();
+      });
+
+      const download = container.querySelector(
+        '[aria-label="Download Annual report"]',
+      ) as HTMLAnchorElement | null;
+      expect(download).toBeInstanceOf(HTMLAnchorElement);
+      expect(download?.getAttribute("href")).toBe("/api/v1/assets/asset-1/content");
+      expect(download?.getAttribute("download")).toBe("annual-report.pdf");
+    },
+  );
+
+  it.each([
+    ["staging", false],
+    ["uploaded", false],
+    ["verified", false],
+    ["pending_delete", false],
+    ["deleted", false],
+    ["available", true],
+    ["processing", true],
+    ["ready", true],
+  ] satisfies Array<[AssetSummary["state"], boolean]>)(
+    "does not expose a download for a %s asset when locked is %s",
+    async (state, locked) => {
+      const store = new WorkspaceStore(
+        initialProps({
+          vault: {
+            ref: "vault-1",
+            locked,
+            expiresAt: null,
+          },
+          assets: {
+            items: [asset({ state, failure: null })],
+            nextCursor: null,
+          },
+        }),
+      );
+
+      await act(async () => {
+        root.render(<AssetWorkspace bridge={bridge()} store={store} />);
+      });
+      await act(async () => {
+        (
+          container.querySelector('[aria-label="Inspect Annual report"]') as HTMLButtonElement
+        ).click();
+      });
+
+      expect(container.querySelector('[aria-label="Download Annual report"]')).toBeNull();
+    },
+  );
 
   it("uses a non-modal selection panel and closes it with Escape", async () => {
     const store = new WorkspaceStore(initialProps());
