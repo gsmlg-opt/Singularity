@@ -122,6 +122,12 @@ defmodule Singularity.Runtime.KeyCustodian do
   def prepare_backup_key(server, session, %BackupKeyLease.Derived{} = derived),
     do: GenServer.call(server, {:prepare_backup_key, session, derived}, :infinity)
 
+  def prepare_backup_key(server, session, derived) when is_map(session) and is_map(derived),
+    do: GenServer.call(server, {:prepare_backup_key, session, derived}, :infinity)
+
+  def prepare_backup_key(_server, _session, _derived),
+    do: {:error, Error.new(:backup_invalid)}
+
   @spec activate_backup_key(GenServer.server(), binary()) ::
           :ok | {:error, Error.t()}
   def activate_backup_key(server, opaque_ref),
@@ -541,9 +547,15 @@ defmodule Singularity.Runtime.KeyCustodian do
         install_backup_pending(state, owner, opaque_ref, entry, {:ok, prepared})
 
       {:error, %Error{}} = error ->
-        _cleared = overwrite(derived.key_material)
+        _cleared = overwrite(Map.get(derived, :key_material))
         {:reply, error, state}
     end
+  end
+
+  def handle_call({:prepare_backup_key, _session, derived}, _from, state) do
+    key_material = if is_map(derived), do: Map.get(derived, :key_material)
+    _cleared = overwrite(key_material)
+    {:reply, {:error, Error.new(:backup_invalid)}, state}
   end
 
   def handle_call({:activate_backup_key, opaque_ref}, {owner, _tag}, state)

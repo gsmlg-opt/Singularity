@@ -47,6 +47,11 @@ defmodule Singularity.Runtime.KeyCustodianBackupTest do
     end
   end
 
+  defmodule FailingRecoveryWrapper do
+    def wrap(:malformed, _derived_key, _vault_key, _binding), do: :malformed
+    def wrap(:raise, _derived_key, _vault_key, _binding), do: raise("wrapper failure")
+  end
+
   defmodule Unused do
     def load_object_key(_context, _binding, _hierarchy), do: {:error, :unused}
     def load_checkpoint(_context, _binding), do: {:error, :unused}
@@ -123,6 +128,35 @@ defmodule Singularity.Runtime.KeyCustodianBackupTest do
     refute_receive {:recovery_wrap, _, _, _, _}
   end
 
+  test "malformed struct-tagged commands fail closed without terminating active custody",
+       context do
+    custodian = context.custodian
+    monitor = Process.monitor(custodian)
+
+    malformed_commands = [
+      %{__struct__: BackupKeyLease.Derived},
+      Map.delete(derived(), :key_material),
+      Map.delete(derived(), :binding),
+      Map.delete(derived(), :public_metadata)
+    ]
+
+    for malformed <- malformed_commands do
+      assert {:error, %Error{code: :backup_invalid}} =
+               detached_prepare(custodian, malformed)
+
+      refute_receive {:DOWN, ^monitor, :process, ^custodian, _reason}, 50
+      assert Process.alive?(custodian)
+      assert KeyCustodian.unlocked?(custodian, @session_id)
+
+      assert KeyCustodian.backup_key_state(custodian) == %{
+               active_refs: [],
+               pending_refs: []
+             }
+    end
+
+    Process.demonitor(monitor, [:flush])
+  end
+
   test "rejects expired, actively revoked, and missing custody without installing a ref",
        context do
     Clock.put(context.clock, @expires_at)
@@ -141,6 +175,29 @@ defmodule Singularity.Runtime.KeyCustodianBackupTest do
     assert_backup_invalid(missing)
   end
 
+  test "malformed and raising recovery wrappers fail closed without terminating custody",
+       context do
+    for mode <- [:malformed, :raise] do
+      custodian =
+        start_custodian(
+          context.clock,
+          context.lease_supervisor,
+          {FailingRecoveryWrapper, mode}
+        )
+
+      assert :ok = unlock(custodian)
+      monitor = Process.monitor(custodian)
+
+      assert {:error, %Error{code: :backup_invalid}} = detached_prepare(custodian, derived())
+
+      refute_receive {:DOWN, ^monitor, :process, ^custodian, _reason}, 50
+      assert Process.alive?(custodian)
+      assert KeyCustodian.unlocked?(custodian, @session_id)
+      assert KeyCustodian.backup_key_state(custodian) == %{active_refs: [], pending_refs: []}
+      Process.demonitor(monitor, [:flush])
+    end
+  end
+
   defp assert_backup_invalid(custodian) do
     assert {:error, %Error{code: :backup_invalid}} =
              KeyCustodian.prepare_backup_key(custodian, request_session(), derived())
@@ -149,13 +206,34 @@ defmodule Singularity.Runtime.KeyCustodianBackupTest do
     refute_receive {:recovery_wrap, _, _, _, _}
   end
 
-  defp start_custodian(clock, lease_supervisor) do
+  defp detached_prepare(custodian, command) do
+    owner = self()
+    result_ref = make_ref()
+
+    spawn(fn ->
+      result =
+        try do
+          KeyCustodian.prepare_backup_key(custodian, request_session(), command)
+        catch
+          :exit, reason -> {:exit, reason}
+        end
+
+      send(owner, {result_ref, result})
+    end)
+
+    assert_receive {^result_ref, result}, 1_000
+    result
+  end
+
+  defp start_custodian(clock, lease_supervisor, recovery_wrapper \\ nil) do
+    recovery_wrapper = recovery_wrapper || {RecoveryWrapper, self()}
+
     start_supervised!(
       {KeyCustodian,
        %{
          authorization: Unused,
          backup_cipher: ChunkedAEAD,
-         backup_recovery_wrapper: {RecoveryWrapper, self()},
+         backup_recovery_wrapper: recovery_wrapper,
          clock: Clock,
          context: clock,
          idle_lock: {Unused, self()},
