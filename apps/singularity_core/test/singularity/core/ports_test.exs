@@ -3,6 +3,7 @@ defmodule Singularity.Core.PortsTest do
 
   alias Singularity.Core.AssetSearchStore
   alias Singularity.Core.AuditSink
+  alias Singularity.Core.BackupStatusStore
   alias Singularity.Core.Clock
   alias Singularity.Core.IdGenerator
   alias Singularity.Core.JobEnvelope
@@ -37,6 +38,7 @@ defmodule Singularity.Core.PortsTest do
     KeyWrapper => [unwrap: 3, wrap: 3],
     AuditSink => [append: 2],
     AssetSearchStore => [delete: 2, fetch: 2, search: 2, upsert: 2],
+    BackupStatusStore => [fetch: 2],
     Clock => [utc_now: 1],
     IdGenerator => [generate: 1]
   }

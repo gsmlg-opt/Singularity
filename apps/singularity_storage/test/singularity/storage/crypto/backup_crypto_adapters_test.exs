@@ -50,6 +50,18 @@ defmodule Singularity.Storage.Crypto.BackupCryptoAdaptersTest do
     refute vault_kek == @expected_key
   end
 
+  test "exposes the public backup KDF profile without salt or key material" do
+    assert BackupKeyDeriver.profile() == %{
+             domain: "singularity.backup.bundle.v1",
+             parameters: %{
+               "m_cost" => 65_536,
+               "parallelism" => 2,
+               "t_cost" => 5,
+               "version" => 4
+             }
+           }
+  end
+
   test "rejects malformed or non-allowlisted KDF metadata before derivation" do
     invalid_kdfs = [
       put_in(@kdf, [:domain], "singularity:v1:vault-kek:"),

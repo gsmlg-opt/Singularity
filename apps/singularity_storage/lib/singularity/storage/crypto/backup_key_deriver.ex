@@ -19,6 +19,9 @@ defmodule Singularity.Storage.Crypto.BackupKeyDeriver do
   }
   @argon2_memory_cost 16
 
+  @spec profile() :: %{domain: String.t(), parameters: map()}
+  def profile, do: %{domain: @domain, parameters: @parameters}
+
   @spec derive(binary(), map()) :: {:ok, <<_::256>>} | {:error, Error.t()}
   def derive(
         passphrase,
