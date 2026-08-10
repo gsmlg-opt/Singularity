@@ -74,6 +74,67 @@ defmodule Singularity.Web.AuthenticationTest do
              )
     end
 
+    test "backup authentication redirects scrub submitted secrets before stop telemetry", %{
+      conn: conn,
+      runtime_api: runtime_api
+    } do
+      TestRuntimeApi.put(runtime_api, :sessions, %{
+        "locked-session" => {:ok, session(false)}
+      })
+
+      passphrase_canary = "AUTH_REDIRECT_PASSPHRASE_CANARY_daae"
+      body_csrf_canary = "AUTH_REDIRECT_BODY_CSRF_CANARY_c958"
+      query_passphrase_canary = "AUTH_REDIRECT_QUERY_PASSPHRASE_CANARY_d4cd"
+      query_csrf_canary = "AUTH_REDIRECT_QUERY_CSRF_CANARY_c89c"
+      telemetry = attach_backup_stop_telemetry()
+
+      query =
+        URI.encode_query(%{
+          "passphrase" => query_passphrase_canary,
+          "_csrf_token" => query_csrf_canary
+        })
+
+      body = %{
+        "_csrf_token" => body_csrf_canary,
+        "passphrase" => passphrase_canary
+      }
+
+      for {request_conn, expected_redirect} <- [
+            {build_conn(), "/login"},
+            {put_session_id(conn, "locked-session"), "/vault/unlock"}
+          ] do
+        response = post(request_conn, "/backups?#{query}", body)
+        assert redirected_to(response) == expected_redirect
+      end
+
+      observed = drain_backup_stop_telemetry(telemetry.tag)
+
+      assert Enum.count(observed, &match?({[:phoenix, :router_dispatch, :stop], _}, &1)) ==
+               2
+
+      assert Enum.count(observed, &match?({[:phoenix, :endpoint, :stop], _}, &1)) == 2
+
+      canaries = [
+        passphrase_canary,
+        body_csrf_canary,
+        query_passphrase_canary,
+        query_csrf_canary
+      ]
+
+      for {event, metadata} <- observed do
+        assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} = metadata
+        serialized = inspect(metadata, limit: :infinity, printable_limit: :infinity)
+
+        refute Enum.any?(canaries, &String.contains?(serialized, &1)),
+               "#{inspect(event)} telemetry retained a submitted canary"
+      end
+
+      refute Enum.any?(
+               TestRuntimeApi.calls(runtime_api),
+               &match?({:request_backup, _, _}, &1)
+             )
+    end
+
     test "login stores only the opaque session id and never renders credentials", %{
       conn: conn,
       runtime_api: runtime_api
@@ -224,6 +285,39 @@ defmodule Singularity.Web.AuthenticationTest do
       assert json_response(response, 403) == %{
                "error" => %{"code" => "vault_locked"}
              }
+    end
+  end
+
+  defp attach_backup_stop_telemetry do
+    tag = make_ref()
+    handler_id = {__MODULE__, self(), tag}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [[:phoenix, :router_dispatch, :stop], [:phoenix, :endpoint, :stop]],
+        fn event, _measurements, metadata, {owner, telemetry_tag} ->
+          case metadata do
+            %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} ->
+              send(owner, {telemetry_tag, event, metadata})
+
+            _other_request ->
+              :ok
+          end
+        end,
+        {self(), tag}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    %{tag: tag}
+  end
+
+  defp drain_backup_stop_telemetry(tag, observed \\ []) do
+    receive do
+      {^tag, event, metadata} ->
+        drain_backup_stop_telemetry(tag, [{event, metadata} | observed])
+    after
+      0 -> Enum.reverse(observed)
     end
   end
 end

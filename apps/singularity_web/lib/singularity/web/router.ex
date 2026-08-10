@@ -17,7 +17,7 @@ defmodule Singularity.Web.Router do
     plug :fetch_session
     plug :fetch_live_flash
     plug :put_root_layout, html: {Singularity.Web.Layouts, :root}
-    plug :protect_from_forgery
+    plug :protect_from_forgery_with_safe_telemetry
     plug :put_secure_browser_headers
     plug Auth, :fetch_current_session
   end
@@ -43,6 +43,20 @@ defmodule Singularity.Web.Router do
 
   pipeline :api_vault_unlocked do
     plug Auth, :require_api_unlocked
+  end
+
+  defp protect_from_forgery_with_safe_telemetry(conn, options) do
+    Phoenix.Controller.protect_from_forgery(conn, options)
+  rescue
+    exception in Plug.CSRFProtection.InvalidCSRFTokenError ->
+      scrubbed_conn = Auth.scrub_sensitive_request(conn)
+
+      Plug.Conn.WrapperError.reraise(
+        scrubbed_conn,
+        :error,
+        exception,
+        __STACKTRACE__
+      )
   end
 
   scope "/", Singularity.Web do

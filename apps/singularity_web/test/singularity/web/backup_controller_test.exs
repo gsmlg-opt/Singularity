@@ -38,16 +38,41 @@ defmodule Singularity.Web.BackupControllerTest do
     conn: conn,
     runtime_api: runtime_api
   } do
+    passphrase_canary = "INVALID_CSRF_PASSPHRASE_CANARY_366e"
+    body_csrf_canary = "INVALID_CSRF_BODY_CANARY_218d"
+    query_passphrase_canary = "INVALID_CSRF_QUERY_PASSPHRASE_CANARY_900c"
+    query_csrf_canary = "INVALID_CSRF_QUERY_CSRF_CANARY_283f"
+    telemetry = attach_backup_telemetry()
+
     conn = update_in(conn.private, &Map.delete(&1, :plug_skip_csrf_protection))
 
+    query =
+      URI.encode_query(%{
+        "passphrase" => query_passphrase_canary,
+        "_csrf_token" => query_csrf_canary
+      })
+
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
-      post(conn, "/backups", %{"passphrase" => @passphrase_canary})
+      post(conn, "/backups?#{query}", %{
+        "_csrf_token" => body_csrf_canary,
+        "passphrase" => passphrase_canary
+      })
     end
 
-    refute Enum.any?(
-             TestRuntimeApi.calls(runtime_api),
-             &match?({:request_backup, _, _}, &1)
-           )
+    observed = drain_backup_telemetry(telemetry.tag)
+    observed_events = MapSet.new(observed, &elem(&1, 0))
+
+    assert [:phoenix, :endpoint, :stop] in observed_events
+    assert [:phoenix, :error_rendered] in observed_events
+
+    assert_secret_free_telemetry(observed, [
+      passphrase_canary,
+      body_csrf_canary,
+      query_passphrase_canary,
+      query_csrf_canary
+    ])
+
+    assert TestRuntimeApi.calls(runtime_api) == []
   end
 
   test "Phoenix stop telemetry receives no submitted secret parameters", %{
@@ -279,6 +304,58 @@ defmodule Singularity.Web.BackupControllerTest do
       "_csrf_token" => csrf_token,
       "passphrase" => passphrase
     })
+  end
+
+  defp attach_backup_telemetry do
+    events = [
+      [:phoenix, :router_dispatch, :stop],
+      [:phoenix, :router_dispatch, :exception],
+      [:phoenix, :endpoint, :stop],
+      [:phoenix, :error_rendered]
+    ]
+
+    tag = make_ref()
+    handler_id = {__MODULE__, self(), tag}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        events,
+        fn event, _measurements, metadata, {owner, telemetry_tag} ->
+          case metadata do
+            %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} ->
+              send(owner, {telemetry_tag, event, metadata})
+
+            _other_request ->
+              :ok
+          end
+        end,
+        {self(), tag}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    %{tag: tag}
+  end
+
+  defp drain_backup_telemetry(tag, observed \\ []) do
+    receive do
+      {^tag, event, metadata} ->
+        drain_backup_telemetry(tag, [{event, metadata} | observed])
+    after
+      0 -> Enum.reverse(observed)
+    end
+  end
+
+  defp assert_secret_free_telemetry(observed, canaries) do
+    assert observed != []
+
+    for {event, metadata} <- observed do
+      assert %{conn: %Plug.Conn{method: "POST", request_path: "/backups"}} = metadata
+      serialized = inspect(metadata, limit: :infinity, printable_limit: :infinity)
+
+      refute Enum.any?(canaries, &String.contains?(serialized, &1)),
+             "#{inspect(event)} telemetry retained a submitted canary"
+    end
   end
 
   defp backup_status(status) do
