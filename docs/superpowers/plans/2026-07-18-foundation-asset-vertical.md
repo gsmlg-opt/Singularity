@@ -5663,17 +5663,26 @@ pagination, and browser-versus-unit coverage.
   Run:
 
   ```bash
+  set -euo pipefail
   test ! -d apps/singularity_store
-  ! rg -n 'CouchDB|couchdb|Qdrant|qdrant|Backplane|backplane|EmbeddedESS|S3' \
-    apps config mix.exs package.json
+  test -z "$(rg -n -i 'couchdb|backplane|embeddedess|s3' \
+    apps config mix.exs package.json || true)"
+  test -z "$(rg -n -i 'qdrant' \
+    config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json || true)"
+  test -z "$(rg --files apps | rg -i 'qdrant' || true)"
+  test -z "$(rg -n -i \
+    'qdrant\.|\.qdrant\b|:qdrant\b|qdrant[[:alnum:]_]*\(|qdrant[[:space:]]*:|qdrant_[[:alnum:]_]+|"qdrant"|(alias|import|require|use)[[:space:]]+[[:alnum:]_.]*qdrant\b|%[[:alnum:]_.]*qdrant\{' \
+    apps || true)"
   test "$(rg -c 'WORKAROUND\\(upstream\\): gsmlg-opt/ex_storage_service#5' \
     apps/singularity_runtime/lib/singularity/runtime/storage_adapter.ex)" = 1
   ```
 
-  Expected: the obsolete app is absent; prohibited runtime dependencies have
-  no matches; the one approved workaround marker has exactly one match.
-  Documentation references explaining future scope are allowed outside
-  production/config code.
+  Expected: the obsolete app and all CouchDB, Backplane, EmbeddedESS, and S3
+  references are absent from application/configuration/dependency scope.
+  Qdrant is absent from configuration and dependency manifests/locks, and no
+  Qdrant implementation filename or executable call/config token exists under
+  `apps`; the two approved Milestone 8 documentation strings remain allowed.
+  The one approved workaround marker has exactly one match.
 
 - [ ] **Step 2: Run all scoped gates before the full suite**
 
