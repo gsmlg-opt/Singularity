@@ -216,10 +216,10 @@ defmodule Singularity.Runtime.Observability.TelemetryTest do
     names =
       Telemetry.metrics()
       |> Enum.map(&Enum.join(&1.name, "."))
-      |> MapSet.new()
+      |> Enum.sort()
 
-    assert MapSet.subset?(
-             MapSet.new([
+    assert names ==
+             Enum.sort([
                "singularity.upload.stop.bytes",
                "singularity.upload.stop.duration",
                "singularity.asset.dedup.count",
@@ -235,9 +235,7 @@ defmodule Singularity.Runtime.Observability.TelemetryTest do
                "singularity.orphan.cleanup.count",
                "singularity.upload.reconciliation.count",
                "singularity.upload.reconciliation.stage.age"
-             ]),
-             names
-           )
+             ])
   end
 
   test "the supervised owner attaches and detaches its source handlers" do

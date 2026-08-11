@@ -15,6 +15,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Runtime.Login
+  alias Singularity.Runtime.Observability.LoggerMetadata
   alias Singularity.Runtime.Observability.Redactor
   alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Runtime.RestoreVault
@@ -31,6 +32,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   @domain_key "CANARY_DOMAIN_KEY_a477_123456789"
   @domain_dedup_key "CANARY_DOMAIN_DEDUP_KEY_b579_123"
   @object_key "CANARY_OBJECT_KEY_f862_123456789"
+  @log_correlation_id "00000000-0000-4000-8000-000000001605"
   @canaries %{
     password: @password,
     audit_fingerprint_secret: @audit_fingerprint_secret,
@@ -38,7 +40,9 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     csrf_token: @csrf_token,
     vault_key: @vault_key,
     domain_key: @domain_key,
+    domain_dedup_key: @domain_dedup_key,
     dek: "CANARY_DEK_f862",
+    object_key: @object_key,
     backup_passphrase: @backup_passphrase
   }
 
@@ -100,7 +104,8 @@ defmodule Singularity.Runtime.SecretCanaryTest do
 
     defp walk(value, path, canary, allowed_paths) when is_map(value) do
       Enum.flat_map(value, fn {key, entry} ->
-        walk(entry, path ++ [key], canary, allowed_paths)
+        walk(key, path ++ [{:key, key}], canary, allowed_paths) ++
+          walk(entry, path ++ [key], canary, allowed_paths)
       end)
     end
 
@@ -201,6 +206,18 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   defmodule BoundaryTelemetryHandler do
     def handle(event, measurements, metadata, owner) do
       send(owner, {:telemetry_surface, event, measurements, metadata})
+    end
+  end
+
+  defmodule RawLoggerHandler do
+    def adding_handler(config), do: {:ok, config}
+    def removing_handler(_config), do: :ok
+
+    def changing_config(_set_or_update, _old_config, new_config),
+      do: {:ok, new_config}
+
+    def log(event, %{config: %{receiver: receiver}}) do
+      send(receiver, {:raw_logger_event, event})
     end
   end
 
@@ -337,7 +354,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   defmodule RestoreUnused do
   end
 
-  test "all eight server-side canary categories are removed by keyed redaction" do
+  test "all server-side canary categories are removed by keyed redaction" do
     redacted = Redactor.redact(@canaries)
 
     assert Map.values(redacted) == List.duplicate("[REDACTED]", map_size(@canaries))
@@ -345,11 +362,16 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     for canary <- Map.values(@canaries) do
       assert Canary.leaks(redacted, canary) == []
     end
+
+    assert Redactor.redact(%{object_keys: %{{"object-canary", 1} => @object_key}}) == %{
+             object_keys: "[REDACTED]"
+           }
   end
 
   test "the detector covers encoded and inspected forms and allows only the grant token path" do
     for form <- Canary.forms(@password) do
       assert Canary.leaks(%{surface: form}, @password) != []
+      assert Canary.leaks(%{form => :safe}, @password) != []
     end
 
     runtime_result = %{grant: %{token: @upload_token}, echoed_token: @upload_token}
@@ -362,24 +384,51 @@ defmodule Singularity.Runtime.SecretCanaryTest do
            ]) == []
   end
 
-  test "the configured final structured log output removes every server canary" do
-    [formatter: {LoggerJSON.Formatters.Basic, formatter_options}] =
+  test "supported LoggerMetadata final JSON output removes every server canary" do
+    [formatter: {formatter_module, formatter_options}] =
       Application.fetch_env!(:logger, :default_handler)
 
-    {LoggerJSON.Formatters.Basic, formatter} =
-      LoggerJSON.Formatters.Basic.new(formatter_options)
+    {^formatter_module, formatter} = formatter_module.new(formatter_options)
 
-    encoded =
-      %{
-        level: :warning,
-        meta: %{time: System.system_time(:microsecond)},
-        msg: {:report, %{operation: :secret_canary, nested: @canaries}}
-      }
-      |> LoggerJSON.Formatters.Basic.format(formatter)
+    handler_id = :singularity_secret_canary_final_json_test
+    previous_metadata = Logger.metadata()
+
+    Logger.metadata(arbitrary: @canaries, password: @password)
+
+    on_exit(fn -> Logger.reset_metadata(previous_metadata) end)
+
+    _ = :logger.remove_handler(handler_id)
+
+    assert :ok =
+             :logger.add_handler(handler_id, RawLoggerHandler, %{
+               config: %{receiver: self()},
+               level: :all
+             })
+
+    on_exit(fn -> :logger.remove_handler(handler_id) end)
+
+    assert :ok =
+             LoggerMetadata.log(
+               :warning,
+               %{operation: :secret_canary, result: :failed, nested: @canaries},
+               %{
+                 arbitrary: @canaries,
+                 correlation_id: @log_correlation_id,
+                 password: @password
+               }
+             )
+
+    assert_receive {:raw_logger_event, %{meta: %{correlation_id: @log_correlation_id}} = event}
+
+    raw_json =
+      event
+      |> formatter_module.format(formatter)
       |> IO.iodata_to_binary()
-      |> JSON.decode!()
+
+    encoded = JSON.decode!(raw_json)
 
     for canary <- Map.values(@canaries) do
+      assert Canary.leaks(raw_json, canary) == []
       assert Canary.leaks(encoded, canary) == []
     end
   end
@@ -636,9 +685,12 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     end
   end
 
-  test "audit append and telemetry execute redact all eight server-side canaries" do
+  test "audit append and telemetry execute redact all server-side canaries" do
+    server_metadata =
+      Map.put(@canaries, :object_keys, %{{"object-canary", 1} => @object_key})
+
     audit_metadata =
-      Map.new(@canaries, fn {key, value} ->
+      Map.new(server_metadata, fn {key, value} ->
         {Atom.to_string(key), value}
       end)
 
@@ -668,7 +720,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
              Telemetry.execute(
                [:secret_canary, :executed],
                %{count: 1},
-               @canaries
+               server_metadata
              )
 
     assert_receive {:telemetry_surface, ^telemetry_event, %{count: 1} = measurements,
@@ -677,10 +729,10 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     assert Enum.all?(Map.values(measurements), &is_number/1)
 
     assert Map.values(audit_event.metadata) ==
-             List.duplicate("[REDACTED]", map_size(@canaries))
+             List.duplicate("[REDACTED]", map_size(server_metadata))
 
     assert Map.values(telemetry_metadata) ==
-             List.duplicate("[REDACTED]", map_size(@canaries))
+             List.duplicate("[REDACTED]", map_size(server_metadata))
 
     for canary <- Map.values(@canaries) do
       assert Canary.leaks([audit_event, telemetry], canary) == []

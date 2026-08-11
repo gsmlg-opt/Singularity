@@ -118,6 +118,12 @@ defmodule Singularity.Runtime.Observability.RedactionTest do
            }) == %{}
   end
 
+  test "structured logging rejects free-form messages" do
+    assert_raise FunctionClauseError, fn ->
+      LoggerMetadata.log(:warning, @secret, %{})
+    end
+  end
+
   test "structured logging is sanitized before Logger handlers receive the event" do
     handler_id = :singularity_observability_redaction_test
     previous_metadata = Logger.metadata()
