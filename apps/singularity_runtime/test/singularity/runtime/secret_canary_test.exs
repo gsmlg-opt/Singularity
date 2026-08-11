@@ -671,10 +671,9 @@ defmodule Singularity.Runtime.SecretCanaryTest do
                @canaries
              )
 
-    assert_receive {:telemetry_surface, captured_event, measurements, telemetry_metadata} =
-                     telemetry
+    assert_receive {:telemetry_surface, ^telemetry_event, %{count: 1} = measurements,
+                    telemetry_metadata} = telemetry
 
-    assert [:singularity | _] = captured_event
     assert Enum.all?(Map.values(measurements), &is_number/1)
 
     assert Map.values(audit_event.metadata) ==
