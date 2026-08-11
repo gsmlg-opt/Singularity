@@ -26,14 +26,16 @@ defmodule Singularity.Storage.UploadGrantCsrfMigrationTest do
     try do
       assert Code.ensure_loaded?(SecureUploadGrantCsrf)
 
-      assert [@version] =
-               Ecto.Migrator.run(
-                 MigrationRepo,
-                 migrations_path,
-                 :down,
-                 step: 1,
-                 log: false
-               )
+      rolled_back_versions =
+        Ecto.Migrator.run(
+          MigrationRepo,
+          migrations_path,
+          :down,
+          to: @version,
+          log: false
+        )
+
+      assert List.last(rolled_back_versions) == @version
 
       unconsumed_id = insert_legacy_grant!(fixture, nil)
       consumed_at = DateTime.add(DateTime.utc_now(:microsecond), -60, :second)
