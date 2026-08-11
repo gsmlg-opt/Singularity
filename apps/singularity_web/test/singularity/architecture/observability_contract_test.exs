@@ -42,6 +42,10 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
 
     assert [Singularity.Runtime.Observability.Telemetry] ==
              Singularity.Runtime.Application.application_children(%{start_infrastructure: false})
+
+    assert [] ==
+             production_sources()
+             |> Enum.flat_map(&indirect_telemetry_invocations/1)
   end
 
   test "raw dependency event literals remain bounded" do
@@ -60,29 +64,19 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
               "[:singularity | event]"},
              {"apps/singularity_storage/lib/singularity/storage/safe_sql.ex",
               "[:singularity, :authorization, :rls_denial]"}
-           ] ==
-             production_sources()
-             |> Enum.flat_map(&telemetry_calls/1)
-             |> Enum.filter(fn {_path, function, _arguments} -> function == :execute end)
-             |> Enum.map(fn {path, _function, [event | _arguments]} ->
-               {path, Macro.to_string(event)}
-             end)
-             |> Enum.sort()
+           ] == direct_emission_inventory(production_sources())
   end
 
   test "protected dependencies are declared and locked only from Hex" do
     assert [] == non_hex_dependency_declarations(dependency_sources())
 
-    @repo_root
-    |> Path.join("mix.lock")
-    |> Code.eval_file()
-    |> elem(0)
-    |> Enum.each(fn {dependency, lock} ->
-      dependency =
-        if is_binary(dependency), do: String.to_existing_atom(dependency), else: dependency
+    locks =
+      @repo_root
+      |> Path.join("mix.lock")
+      |> Mix.Dep.Lock.read()
+      |> Map.new(fn {dependency, lock} -> {Atom.to_string(dependency), lock} end)
 
-      assert {:hex, ^dependency, _, _, _, _, "hexpm", _} = lock
-    end)
+    assert [] == protected_lock_violations(locks)
   end
 
   test "scanners reject raw subscriptions and non-Hex protected dependencies" do
@@ -102,6 +96,75 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
     assert [{:bandit, :path}, {:phoenix, :github}, {:plug, :git}] ==
              non_hex_declarations_in_source(source)
              |> Enum.sort()
+
+    indirect_source = """
+    apply(:telemetry, :attach, arguments)
+    apply(:telemetry, function, arguments)
+    Kernel.apply(:telemetry, :attach_many, arguments)
+    :erlang.apply(:telemetry, :execute, arguments)
+    import :telemetry
+    """
+
+    assert [:kernel_apply, :kernel_apply, :kernel_apply, :erlang_apply, :import] ==
+             {"fixture.ex", indirect_source}
+             |> indirect_telemetry_invocations()
+             |> Enum.map(&elem(&1, 1))
+
+    capture_source = """
+    &:telemetry.attach/4
+    &:telemetry.attach_many/4
+    &:telemetry.execute/3
+    """
+
+    assert [:attach, :attach_many, :execute] ==
+             capture_source
+             |> calls_in_source()
+             |> Enum.map(&elem(&1, 0))
+
+    assert [:capture, :capture, :capture] ==
+             {"capture_fixture.ex", capture_source}
+             |> indirect_telemetry_invocations()
+             |> Enum.map(&elem(&1, 1))
+
+    assert [{"capture_fixture.ex", {:invalid_execute_arguments, 0}}] ==
+             direct_emission_inventory([{"capture_fixture.ex", capture_source}])
+
+    wrapper_source =
+      "def wrapper, do: :telemetry.attach(handler_id, event, callback, config)"
+
+    assert [:attach] ==
+             wrapper_source
+             |> calls_in_source()
+             |> Enum.map(&elem(&1, 0))
+
+    hex_locks =
+      Map.new(@protected_dependencies, fn dependency ->
+        {Atom.to_string(dependency),
+         {:hex, dependency, "1.0.0", "checksum", [:mix], [], "hexpm", "outer_checksum"}}
+      end)
+
+    assert [] == protected_lock_violations(hex_locks)
+
+    missing_dependency = @protected_dependencies |> Enum.sort() |> hd()
+
+    assert [{missing_dependency, :missing}] ==
+             hex_locks
+             |> Map.delete(Atom.to_string(missing_dependency))
+             |> protected_lock_violations()
+
+    unrelated_lock = {:git, "https://example.invalid/unrelated.git", "revision", []}
+
+    assert [] ==
+             hex_locks
+             |> Map.put("unrelated_dependency", unrelated_lock)
+             |> protected_lock_violations()
+
+    protected_git_lock = {:git, "https://example.invalid/telemetry.git", "revision", []}
+
+    assert [{:telemetry, {:invalid, protected_git_lock}}] ==
+             hex_locks
+             |> Map.put("telemetry", protected_git_lock)
+             |> protected_lock_violations()
   end
 
   defp production_sources do
@@ -135,6 +198,59 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
     end)
     |> elem(1)
     |> Enum.reverse()
+  end
+
+  defp indirect_telemetry_invocations({path, source}) do
+    source
+    |> Code.string_to_quoted!()
+    |> Macro.prewalk([], fn
+      {:apply, _metadata, [:telemetry, _function, _arguments]} = node, invocations ->
+        {node, [{path, :kernel_apply, Macro.to_string(node)} | invocations]}
+
+      {{:., _dot_metadata, [{:__aliases__, _alias_metadata, [:Kernel]}, :apply]}, _call_metadata,
+       [:telemetry, _function, _arguments]} = node,
+      invocations ->
+        {node, [{path, :kernel_apply, Macro.to_string(node)} | invocations]}
+
+      {{:., _dot_metadata, [:erlang, :apply]}, _call_metadata,
+       [:telemetry, _function, _arguments]} = node,
+      invocations ->
+        {node, [{path, :erlang_apply, Macro.to_string(node)} | invocations]}
+
+      {:import, _metadata, [:telemetry | _options]} = node, invocations ->
+        {node, [{path, :import, Macro.to_string(node)} | invocations]}
+
+      {:&, _capture_metadata,
+       [
+         {:/, _arity_metadata,
+          [
+            {{:., _dot_metadata, [:telemetry, function]}, _call_metadata, []},
+            _arity
+          ]}
+       ]} = node,
+      invocations
+      when function in [:attach, :attach_many, :execute] ->
+        {node, [{path, :capture, Macro.to_string(node)} | invocations]}
+
+      node, invocations ->
+        {node, invocations}
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp direct_emission_inventory(sources) do
+    sources
+    |> Enum.flat_map(&telemetry_calls/1)
+    |> Enum.filter(fn {_path, function, _arguments} -> function == :execute end)
+    |> Enum.map(fn
+      {path, _function, [event, _measurements, _metadata]} ->
+        {path, Macro.to_string(event)}
+
+      {path, _function, arguments} ->
+        {path, {:invalid_execute_arguments, length(arguments)}}
+    end)
+    |> Enum.sort()
   end
 
   defp module_attribute(source, attribute) do
@@ -222,6 +338,21 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
     for source_type <- [:github, :git, :path], Keyword.has_key?(options, source_type) do
       {dependency, source_type}
     end
+  end
+
+  defp protected_lock_violations(locks) do
+    @protected_dependencies
+    |> Enum.sort()
+    |> Enum.flat_map(&protected_lock_violation(locks, &1))
+  end
+
+  defp protected_lock_violation(locks, dependency) do
+    case Map.fetch!(locks, Atom.to_string(dependency)) do
+      {:hex, ^dependency, _, _, _, _, "hexpm", _} -> []
+      invalid_lock -> [{dependency, {:invalid, invalid_lock}}]
+    end
+  rescue
+    KeyError -> [{dependency, :missing}]
   end
 
   defp dependency_sources do
