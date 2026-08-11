@@ -3893,7 +3893,7 @@ There is no commit for this task.
 - Create:
   `apps/singularity_runtime/lib/singularity/runtime/observability/{telemetry,logger_metadata,redactor}.ex`
 - Create:
-  `apps/singularity_runtime/test/singularity/runtime/{audit_acceptance,telemetry,secret_canary}_test.exs`
+  `apps/singularity_runtime/test/singularity/runtime/{audit_acceptance,telemetry,observability_redaction,secret_canary}_test.exs`
 - Create:
   `apps/singularity_storage/test/singularity/storage/audit_test.exs`
 - Create:
@@ -3969,7 +3969,9 @@ There is no commit for this task.
 
   Logs may include correlation and permitted opaque entity IDs, never raw
   identifiers, content, credentials, tokens, filesystem paths, or keys.
-  Redaction happens before Logger and telemetry emission.
+  Telemetry metadata is redacted before telemetry emission. Structured-log
+  metadata is redacted before the configured `LoggerJSON` formatter produces
+  final output.
 
   `Singularity.Runtime.Observability.Telemetry` and the bounded RLS-denial
   emitter in `Singularity.Storage.SafeSQL` are the only direct emitters. The
