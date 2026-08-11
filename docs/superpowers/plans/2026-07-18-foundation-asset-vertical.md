@@ -4016,7 +4016,8 @@ There is no commit for this task.
   mix test apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   mix xref graph --format cycles --fail-above 0
   git diff --check
-  git add apps/singularity_runtime apps/singularity_storage config
+  git add apps/singularity_runtime apps/singularity_storage config \
+    apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   git commit -m "feat(observability): audit and redact sensitive operations"
   ```
 
@@ -5258,7 +5259,7 @@ pagination, and browser-versus-unit coverage.
   malformed status maps as `:integrity_failure`; and never include passphrase,
   KDF, wrapper, custody, destination, filesystem path, or manifest data. Add
   runtime canary assertions that inspect replies, exceptions, captured logs,
-  telemetry, and audit metadata.
+  supported `[:singularity, ...]` telemetry, and audit metadata.
 
   Run:
 
@@ -5392,7 +5393,8 @@ pagination, and browser-versus-unit coverage.
   On success redirect with only the public operation ID. On failure, discard
   the passphrase and render a stable generic flash before redirecting to
   `/backups`. Never put it in a LiveView event, assign, URL, JSON, log,
-  telemetry, audit metadata, OS process argument, or environment variable.
+  supported `[:singularity, ...]` telemetry, audit metadata, OS process
+  argument, or environment variable.
 
   Render the backup form as a normal same-origin form:
 

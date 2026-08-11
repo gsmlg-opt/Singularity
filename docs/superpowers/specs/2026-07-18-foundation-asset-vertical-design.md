@@ -1123,8 +1123,8 @@ The upload response contract is:
 | `422` | `integrity_failure` |
 | `503` | `storage_unavailable` |
 
-The upload token and CSRF token are redacted from request logs, telemetry, error
-reports, and audit metadata.
+The upload token and CSRF token are redacted from request logs, supported
+`[:singularity, ...]` telemetry, error reports, and audit metadata.
 
 ### 11.4 Asset toolchain
 
@@ -1224,9 +1224,12 @@ maintenance effects use the named system principal. The audit viewer renders
 anonymous failures identically regardless of whether the login matched an
 account.
 
-Operational logs and audit records are separate. Logs contain correlation,
+Operational logs and audit records are separate. The supported log surface is
+the final structured output after the configured `LoggerJSON` formatter and
+`Singularity.Runtime.Observability.Redactor` have run. Logs contain correlation,
 principal, vault, resource, asset, outbox, and job IDs where allowed, but never
-raw sensitive content, credentials, tokens, keys, or full identifiers.
+raw sensitive content, credentials, tokens, keys, or full identifiers. This
+guarantee does not make raw framework telemetry safe.
 
 Telemetry covers upload bytes and latency, deduplication, stage age, integrity
 failures, outbox lag, job retry/failure, authentication-audit write failures,
