@@ -142,7 +142,7 @@ defmodule Singularity.Runtime.Observability.RedactionTest do
 
     assert :ok =
              LoggerMetadata.log(
-               :notice,
+               :warning,
                %{
                  operation: :asset_download,
                  result: :completed,

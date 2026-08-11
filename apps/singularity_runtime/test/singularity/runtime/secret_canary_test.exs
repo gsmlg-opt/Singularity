@@ -362,6 +362,28 @@ defmodule Singularity.Runtime.SecretCanaryTest do
            ]) == []
   end
 
+  test "the configured final structured log output removes every server canary" do
+    [formatter: {LoggerJSON.Formatters.Basic, formatter_options}] =
+      Application.fetch_env!(:logger, :default_handler)
+
+    {LoggerJSON.Formatters.Basic, formatter} =
+      LoggerJSON.Formatters.Basic.new(formatter_options)
+
+    encoded =
+      %{
+        level: :warning,
+        meta: %{time: System.system_time(:microsecond)},
+        msg: {:report, %{operation: :secret_canary, nested: @canaries}}
+      }
+      |> LoggerJSON.Formatters.Basic.format(formatter)
+      |> IO.iodata_to_binary()
+      |> JSON.decode!()
+
+    for canary <- Map.values(@canaries) do
+      assert Canary.leaks(encoded, canary) == []
+    end
+  end
+
   test "secret-bearing lease status is redacted across key, download, backup, and restore custody" do
     key_lease = start_key_lease(SecretErrorReader, @vault_key)
     download_lease = start_download_lease(SecretErrorReader, @vault_key)
@@ -649,7 +671,11 @@ defmodule Singularity.Runtime.SecretCanaryTest do
                @canaries
              )
 
-    assert_receive {:telemetry_surface, ^telemetry_event, %{count: 1}, telemetry_metadata}
+    assert_receive {:telemetry_surface, captured_event, measurements, telemetry_metadata} =
+                     telemetry
+
+    assert [:singularity | _] = captured_event
+    assert Enum.all?(Map.values(measurements), &is_number/1)
 
     assert Map.values(audit_event.metadata) ==
              List.duplicate("[REDACTED]", map_size(@canaries))
@@ -658,7 +684,7 @@ defmodule Singularity.Runtime.SecretCanaryTest do
              List.duplicate("[REDACTED]", map_size(@canaries))
 
     for canary <- Map.values(@canaries) do
-      assert Canary.leaks([audit_event, telemetry_metadata], canary) == []
+      assert Canary.leaks([audit_event, telemetry], canary) == []
     end
   end
 

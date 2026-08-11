@@ -183,6 +183,21 @@ defmodule Singularity.Runtime.Observability.TelemetryTest do
     refute inspect(metadata) =~ @secret
   end
 
+  test "span exception telemetry omits the exception and scans the complete payload" do
+    exception_event = [:singularity, :contract, :exception]
+    attach(exception_event)
+
+    assert_raise RuntimeError, @secret, fn ->
+      Telemetry.span([:contract], %{token: @secret}, fn -> raise @secret end)
+    end
+
+    assert_receive {:telemetry, ^exception_event, measurements, metadata} = payload
+    assert Enum.all?(Map.values(measurements), &is_number/1)
+    assert metadata.kind == :error
+    assert metadata.result == :exception
+    refute inspect(payload, limit: :infinity, printable_limit: :infinity) =~ @secret
+  end
+
   test "span emits a separate integrity failure without forwarding the error" do
     integrity_event = [:singularity, :integrity, :failure]
     attach(integrity_event)
