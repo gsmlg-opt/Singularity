@@ -110,6 +110,17 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
              |> indirect_telemetry_invocations()
              |> Enum.map(&elem(&1, 1))
 
+    alias_source = """
+    alias :telemetry, as: Telemetry
+    Telemetry.attach(handler_id, event, callback, config)
+    alias :telemetry
+    """
+
+    assert [:alias, :alias] ==
+             {"alias_fixture.ex", alias_source}
+             |> indirect_telemetry_invocations()
+             |> Enum.map(&elem(&1, 1))
+
     capture_source = """
     &:telemetry.attach/4
     &:telemetry.attach_many/4
@@ -219,6 +230,9 @@ defmodule Singularity.Architecture.ObservabilityContractTest do
 
       {:import, _metadata, [:telemetry | _options]} = node, invocations ->
         {node, [{path, :import, Macro.to_string(node)} | invocations]}
+
+      {:alias, _metadata, [:telemetry | _options]} = node, invocations ->
+        {node, [{path, :alias, Macro.to_string(node)} | invocations]}
 
       {:&, _capture_metadata,
        [
