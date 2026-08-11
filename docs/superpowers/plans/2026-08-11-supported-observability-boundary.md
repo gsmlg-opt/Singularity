@@ -661,16 +661,49 @@ Run:
 
 ```bash
 set -euo pipefail
+
+assert_no_matches() {
+  local output status
+  set +e
+  output="$("$@" 2>&1)"
+  status=$?
+  set -e
+
+  case "$status" in
+    1) return 0 ;;
+    0) printf '%s\n' "$output" >&2; return 1 ;;
+    *) printf '%s\n' "$output" >&2; return "$status" ;;
+  esac
+}
+
 test ! -d apps/singularity_store
-test -z "$(rg -n -i 'couchdb|backplane|embeddedess|s3' \
-  apps config mix.exs package.json || true)"
-test -z "$(rg -n -i 'qdrant' \
-  config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json || true)"
-test -z "$(rg --files apps | rg -i 'qdrant' || true)"
-test -z "$(rg -n -i \
-  'qdrant\.|\.qdrant\b|:qdrant\b|qdrant[[:alnum:]_]*\(|qdrant[[:space:]]*:|qdrant_[[:alnum:]_]+|"qdrant"|(alias|import|require|use)[[:space:]]+[[:alnum:]_.]*qdrant\b|%[[:alnum:]_.]*qdrant\{' \
-  apps || true)"
-test "$(rg -c 'WORKAROUND\\(upstream\\): gsmlg-opt/ex_storage_service#5' \
+assert_no_matches rg -n \
+  '(?i:couchdb|backplane|embeddedess)|S3[A-Z][[:alnum:]]*|(^|[^[:alnum:]])[sS]3[[:alnum:]_]*' \
+  apps config mix.exs package.json
+assert_no_matches rg -n -i 'qdrant' \
+  config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json
+assert_no_matches rg --files -g '*[Qq][Dd][Rr][Aa][Nn][Tt]*' apps
+
+set +e
+qdrant_references="$(rg --no-line-number --with-filename --no-heading \
+  --color=never -i 'qdrant' apps 2>&1)"
+qdrant_status=$?
+set -e
+if [ "$qdrant_status" -ge 2 ]; then
+  printf '%s\n' "$qdrant_references" >&2
+  exit "$qdrant_status"
+fi
+
+qdrant_references="$(printf '%s\n' "$qdrant_references" | LC_ALL=C sort)"
+expected_qdrant_references="$(printf '%s\n' \
+  'apps/singularity_retrieval/lib/singularity/retrieval.ex:  @moduledoc "Knowledge retrieval boundary; Qdrant integration begins in Milestone 8."' \
+  'apps/singularity_storage/lib/singularity/storage/backup/integrity_audit.ex:  implementation. The Qdrant vector adapter remains a separate required')"
+if [ "$qdrant_references" != "$expected_qdrant_references" ]; then
+  printf '%s\n' "$qdrant_references" >&2
+  exit 1
+fi
+
+test "$(rg -cF 'WORKAROUND(upstream): gsmlg-opt/ex_storage_service#5' \
   apps/singularity_runtime/lib/singularity/runtime/storage_adapter.ex)" = 1
 devenv shell -- mix test \
   apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
@@ -683,9 +716,9 @@ git diff --check main...HEAD
 
 Expected: the seven-app foundation has no CouchDB, Backplane, EmbeddedESS, or
 S3 reference in application/configuration/dependency scope. Qdrant is absent
-from configuration and dependency manifests/locks, and no Qdrant implementation
-filename or executable call/config token exists under `apps`; the two approved
-Milestone 8 documentation strings remain allowed. Architecture tests pass,
-branch history contains only approved work, and the only remaining worktree
-changes are the two pre-existing unstaged parent-plan edits. Do not merge, push,
-or open a pull request without a separate user request.
+from configuration, dependency manifests/locks, and implementation filenames;
+its complete `apps` reference set equals the two approved Milestone 8
+documentation strings exactly. Architecture tests pass, branch history contains
+only approved work, and the only remaining worktree changes are the two
+pre-existing unstaged parent-plan edits. Do not merge, push, or open a pull
+request without a separate user request.
