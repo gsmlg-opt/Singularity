@@ -177,52 +177,98 @@ defmodule Singularity.Storage.TestEnvironmentTest do
     names =
       TestEnvironment.from_playwright_run_id!("123e4567-e89b-42d3-a456-426614174006")
 
+    runtime_repositories = [
+      Singularity.Storage.RequestRepo,
+      Singularity.Storage.PreAuthRepo,
+      Singularity.Storage.DispatcherRepo,
+      Singularity.Storage.WorkerRepo
+    ]
+
+    storage_configuration =
+      Enum.map(
+        [
+          :storage_root,
+          Singularity.Storage.MigrationRepo
+          | runtime_repositories
+        ],
+        fn key -> {key, Application.fetch_env(:singularity_storage, key)} end
+      )
+
+    outer_database =
+      :singularity_storage
+      |> Application.fetch_env!(Singularity.Storage.RequestRepo)
+      |> Keyword.fetch!(:database)
+
     sibling_root = names.storage_root <> "-sibling"
     sibling_sentinel = Path.join(sibling_root, "must-survive")
-    connection = nil
-    migration_connection = nil
 
     try do
-      TestEnvironment.create!(names)
-      File.mkdir_p!(sibling_root)
-      File.write!(sibling_sentinel, "safe")
-
-      {:ok, connection} =
-        Postgrex.start_link(postgrex_options(names.database, "singularity_worker"))
-
-      Process.unlink(connection)
-
-      {:ok, migration_connection} = Postgrex.start_link(postgrex_options(names.database))
-      Process.unlink(migration_connection)
-
-      assert :ok = TestEnvironment.force_drop!(names)
-      assert Process.alive?(connection)
-
-      {:ok, postgres_connection} = Postgrex.start_link(postgrex_options("postgres"))
-      Process.unlink(postgres_connection)
+      assert :ok = Application.stop(:singularity_runtime)
 
       try do
-        assert %{rows: [[false]]} =
-                 Postgrex.query!(
-                   postgres_connection,
-                   "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-                   [names.database]
-                 )
+        TestEnvironment.create!(names)
+        File.mkdir_p!(sibling_root)
+        File.write!(sibling_sentinel, "safe")
+
+        {:ok, connection} =
+          Postgrex.start_link(postgrex_options(names.database, "singularity_worker"))
+
+        Process.unlink(connection)
+
+        try do
+          {:ok, migration_connection} = Postgrex.start_link(postgrex_options(names.database))
+          Process.unlink(migration_connection)
+
+          try do
+            assert :ok = TestEnvironment.force_drop!(names)
+            assert Process.alive?(connection)
+
+            {:ok, postgres_connection} = Postgrex.start_link(postgrex_options("postgres"))
+            Process.unlink(postgres_connection)
+
+            try do
+              assert %{rows: [[false]]} =
+                       Postgrex.query!(
+                         postgres_connection,
+                         "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+                         [names.database]
+                       )
+            after
+              GenServer.stop(postgres_connection)
+            end
+
+            refute File.exists?(names.storage_root)
+            assert File.read!(sibling_sentinel) == "safe"
+          after
+            if Process.alive?(migration_connection), do: GenServer.stop(migration_connection)
+          end
+        after
+          if Process.alive?(connection), do: GenServer.stop(connection)
+        end
       after
-        GenServer.stop(postgres_connection)
+        TestEnvironment.force_drop!(names)
+        File.rm_rf!(names.storage_root)
+        File.rm_rf!(sibling_root)
       end
-
-      refute File.exists?(names.storage_root)
-      assert File.read!(sibling_sentinel) == "safe"
     after
-      if connection && Process.alive?(connection), do: GenServer.stop(connection)
+      Enum.each(storage_configuration, fn
+        {key, {:ok, value}} -> Application.put_env(:singularity_storage, key, value)
+        {key, :error} -> Application.delete_env(:singularity_storage, key)
+      end)
 
-      if migration_connection && Process.alive?(migration_connection),
-        do: GenServer.stop(migration_connection)
+      assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+    end
 
-      TestEnvironment.force_drop!(names)
-      File.rm_rf!(names.storage_root)
-      File.rm_rf!(sibling_root)
+    for repository <- runtime_repositories do
+      assert is_pid(Process.whereis(repository))
+
+      assert %{rows: [[^outer_database]]} =
+               Ecto.Adapters.SQL.query!(
+                 repository,
+                 "SELECT current_database()",
+                 [],
+                 log: false
+               )
     end
   end
 
