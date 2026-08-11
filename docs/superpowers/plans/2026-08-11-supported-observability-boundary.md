@@ -676,10 +676,35 @@ assert_no_matches() {
   esac
 }
 
+assert_no_matches_ignoring_lines() {
+  local ignored_line="$1" output status
+  shift
+  set +e
+  output="$("$@" 2>&1)"
+  status=$?
+  set -e
+
+  case "$status" in
+    1) return 0 ;;
+    0)
+      output="$(printf '%s\n' "$output" | awk -v ignored_line="$ignored_line" \
+        'index($0, ignored_line) == 0')"
+      if [ -z "$output" ]; then
+        return 0
+      fi
+      printf '%s\n' "$output" >&2
+      return 1
+      ;;
+    *) printf '%s\n' "$output" >&2; return "$status" ;;
+  esac
+}
+
 test ! -d apps/singularity_store
-assert_no_matches rg -n \
-  '(?i:couchdb|backplane|embeddedess)|S3[A-Z][[:alnum:]]*|(^|[^[:alnum:]])[sS]3[[:alnum:]_]*' \
-  apps config mix.exs package.json
+forbidden_storage_references='(?i:couchdb|backplane|embeddedess)|S3[[:alnum:]_]*|(^|[^[:alnum:]])s3((client|adapter|backend|bucket|config|object|repository|repo|sdk|service|storage|store|url|uri)[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)'
+assert_no_matches rg -n "$forbidden_storage_references" \
+  apps config mix.exs mix.lock package.json
+assert_no_matches_ignoring_lines '"integrity":' rg -n \
+  "$forbidden_storage_references" package-lock.json
 assert_no_matches rg -n -i 'qdrant' \
   config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json
 assert_no_matches rg --files -g '*[Qq][Dd][Rr][Aa][Nn][Tt]*' apps
