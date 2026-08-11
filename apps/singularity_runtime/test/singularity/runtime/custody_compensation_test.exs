@@ -86,13 +86,8 @@ defmodule Singularity.Runtime.CustodyCompensationTest do
                @vault_authorization_epoch
              )
 
-    assert_receive {:waiting_work_woken,
-                    %{
-                      session_id: @session_id,
-                      principal_id: @principal_id,
-                      vault_id: @vault_id,
-                      limit: 7
-                    }}
+    assert_receive {:waiting_work_woken, command}
+    assert command == %{vault_id: @vault_id, limit: 7}
 
     assert :ok = KeyCustodian.discard_pending(custodian, pending)
     assert KeyCustodian.unlocked?(custodian, @session_id)

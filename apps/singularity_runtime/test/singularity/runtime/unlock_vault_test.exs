@@ -348,7 +348,8 @@ defmodule Singularity.Runtime.UnlockVaultTest do
                "correlation-1"
              )
 
-    assert_receive {:wake_attempted, %{session_id: "session-1"}}
+    assert_receive {:wake_attempted, command}
+    assert command == %{vault_id: "vault-1", limit: 25}
     refute KeyCustodian.unlocked?(custodian, "session-1")
 
     assert {:error, :waiting_for_unlock} =
