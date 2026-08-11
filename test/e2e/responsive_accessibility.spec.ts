@@ -52,9 +52,9 @@ test("workbench stays usable responsively and supports its workflow by keyboard"
   await expect(page.locator(".upload-result")).toHaveText("Upload complete");
   const inspect = page.getByRole("button", { name: "Inspect sample.pdf", exact: true });
   await expect(inspect).toContainText("sample.pdf");
-  await expect(
-    page.getByRole("listitem").filter({ has: inspect }),
-  ).toContainText("Ready", { timeout: 30_000 });
+  await expect(page.getByRole("listitem").filter({ has: inspect })).toContainText("Ready", {
+    timeout: 30_000,
+  });
 
   await tabTo(page, inspect);
   await expect(inspect).toBeFocused();

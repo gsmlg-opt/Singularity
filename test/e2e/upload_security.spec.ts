@@ -1,11 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import {
-  deriveBrowserTestOwnerPassword,
-  expect,
-  test,
-  unlockVault,
-} from "./support/fixtures";
+import { deriveBrowserTestOwnerPassword, expect, test, unlockVault } from "./support/fixtures";
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -15,11 +10,7 @@ test.use({ screenshot: "off", trace: "off", video: "off" });
 
 type SecretCategory = "owner-password" | "backup-passphrase" | "upload-token" | "csrf-token";
 type SecretCanaries = Partial<Record<SecretCategory, string>>;
-type CsrfOccurrenceKind =
-  | "meta-tag"
-  | "live-socket-param"
-  | "controller-form-field"
-  | "xhr-header";
+type CsrfOccurrenceKind = "meta-tag" | "live-socket-param" | "controller-form-field" | "xhr-header";
 
 type CapturedFrame = {
   direction: "received" | "sent";
@@ -353,8 +344,7 @@ async function drainCapturePromises(
     const after = captureLengths();
     const unchanged = after.every((length, index) => length === before[index]);
     const stableAgain =
-      stableLengths !== null &&
-      after.every((length, index) => length === stableLengths?.[index]);
+      stableLengths !== null && after.every((length, index) => length === stableLengths?.[index]);
 
     if (unchanged && stableAgain) {
       return;
@@ -421,8 +411,9 @@ async function captureDocument(
         .map(({ index }) => `input:${index}`),
       controllerTokens,
       sanitizedHtml: clone.outerHTML,
-      dataProps: Array.from(document.querySelectorAll<HTMLElement>("[data-props]"), (element) =>
-        element.getAttribute("data-props") ?? "",
+      dataProps: Array.from(
+        document.querySelectorAll<HTMLElement>("[data-props]"),
+        (element) => element.getAttribute("data-props") ?? "",
       ),
     };
   });
@@ -460,100 +451,108 @@ async function auditLiveBackupPassphrase(
   backupPassphrase: string,
   allowDedicatedInput: boolean,
 ): Promise<{ dedicatedInputExact: boolean; findings: LiveSecretFinding[] }> {
-  return page.evaluate(({ canary, allowInput }) => {
-    const findings: LiveSecretFinding[] = [];
-    const contains = (value: unknown): boolean =>
-      typeof value === "string" && value.includes(canary);
-    const controls = Array.from(
-      document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
-        "input, textarea, select",
-      ),
-    );
-    const dedicatedInput = document.querySelector<HTMLInputElement>("#backup-passphrase");
-    const allowedInput = allowInput ? dedicatedInput : null;
+  return page.evaluate(
+    ({ canary, allowInput }) => {
+      const findings: LiveSecretFinding[] = [];
+      const contains = (value: unknown): boolean =>
+        typeof value === "string" && value.includes(canary);
+      const controls = Array.from(
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+          "input, textarea, select",
+        ),
+      );
+      const dedicatedInput = document.querySelector<HTMLInputElement>("#backup-passphrase");
+      const allowedInput = allowInput ? dedicatedInput : null;
 
-    controls.forEach((control, index) => {
-      if (contains(control.value) && control !== allowedInput) {
-        findings.push({ kind: "form-control-value", path: `control:${index}` });
-      }
+      controls.forEach((control, index) => {
+        if (contains(control.value) && control !== allowedInput) {
+          findings.push({ kind: "form-control-value", path: `control:${index}` });
+        }
 
-      if (contains(control.value) && control === allowedInput && control.value !== canary) {
-        findings.push({ kind: "form-control-value-shape", path: "#backup-passphrase" });
-      }
+        if (contains(control.value) && control === allowedInput && control.value !== canary) {
+          findings.push({ kind: "form-control-value-shape", path: "#backup-passphrase" });
+        }
 
-      if ("defaultValue" in control && contains(control.defaultValue)) {
-        findings.push({ kind: "form-control-default-value", path: `control:${index}` });
-      }
-    });
-
-    Array.from(document.querySelectorAll<HTMLElement>("*")).forEach((element, elementIndex) => {
-      Array.from(element.attributes).forEach((attribute, attributeIndex) => {
-        if (contains(attribute.name) || contains(attribute.value)) {
-          findings.push({
-            kind: "dom-attribute",
-            path: `element:${elementIndex}:attribute:${attributeIndex}`,
-          });
+        if ("defaultValue" in control && contains(control.defaultValue)) {
+          findings.push({ kind: "form-control-default-value", path: `control:${index}` });
         }
       });
 
-      if (element.hasAttribute("data-props") && contains(element.getAttribute("data-props"))) {
-        findings.push({ kind: "data-props", path: `element:${elementIndex}` });
-      }
-    });
-
-    if (contains(document.documentElement.outerHTML)) {
-      findings.push({ kind: "serialized-html", path: "document" });
-    }
-
-    if (contains(document.documentElement.textContent) || contains(document.body.innerText)) {
-      findings.push({ kind: "document-text", path: "document" });
-    }
-
-    const urlSurfaces = [
-      window.location.href,
-      window.location.search,
-      window.location.hash,
-      document.URL,
-      document.referrer,
-    ];
-
-    urlSurfaces.forEach((value, index) => {
-      if (contains(value)) {
-        findings.push({ kind: "url", path: `surface:${index}` });
-      }
-    });
-
-    try {
-      if (contains(JSON.stringify(window.history.state))) {
-        findings.push({ kind: "history-state", path: "current" });
-      }
-    } catch {
-      findings.push({ kind: "history-state-uninspectable", path: "current" });
-    }
-
-    [window.localStorage, window.sessionStorage].forEach((storage, storageIndex) => {
-      try {
-        for (let index = 0; index < storage.length; index += 1) {
-          const key = storage.key(index);
-
-          if (contains(key) || contains(key === null ? null : storage.getItem(key))) {
-            findings.push({ kind: "web-storage", path: `storage:${storageIndex}:entry:${index}` });
+      Array.from(document.querySelectorAll<HTMLElement>("*")).forEach((element, elementIndex) => {
+        Array.from(element.attributes).forEach((attribute, attributeIndex) => {
+          if (contains(attribute.name) || contains(attribute.value)) {
+            findings.push({
+              kind: "dom-attribute",
+              path: `element:${elementIndex}:attribute:${attributeIndex}`,
+            });
           }
+        });
+
+        if (element.hasAttribute("data-props") && contains(element.getAttribute("data-props"))) {
+          findings.push({ kind: "data-props", path: `element:${elementIndex}` });
+        }
+      });
+
+      if (contains(document.documentElement.outerHTML)) {
+        findings.push({ kind: "serialized-html", path: "document" });
+      }
+
+      if (contains(document.documentElement.textContent) || contains(document.body.innerText)) {
+        findings.push({ kind: "document-text", path: "document" });
+      }
+
+      const urlSurfaces = [
+        window.location.href,
+        window.location.search,
+        window.location.hash,
+        document.URL,
+        document.referrer,
+      ];
+
+      urlSurfaces.forEach((value, index) => {
+        if (contains(value)) {
+          findings.push({ kind: "url", path: `surface:${index}` });
+        }
+      });
+
+      try {
+        if (contains(JSON.stringify(window.history.state))) {
+          findings.push({ kind: "history-state", path: "current" });
         }
       } catch {
-        findings.push({ kind: "web-storage-uninspectable", path: `storage:${storageIndex}` });
+        findings.push({ kind: "history-state-uninspectable", path: "current" });
       }
-    });
 
-    return {
-      dedicatedInputExact: dedicatedInput?.value === canary,
-      findings,
-    };
-  }, { canary: backupPassphrase, allowInput: allowDedicatedInput });
+      [window.localStorage, window.sessionStorage].forEach((storage, storageIndex) => {
+        try {
+          for (let index = 0; index < storage.length; index += 1) {
+            const key = storage.key(index);
+
+            if (contains(key) || contains(key === null ? null : storage.getItem(key))) {
+              findings.push({
+                kind: "web-storage",
+                path: `storage:${storageIndex}:entry:${index}`,
+              });
+            }
+          }
+        } catch {
+          findings.push({ kind: "web-storage-uninspectable", path: `storage:${storageIndex}` });
+        }
+      });
+
+      return {
+        dedicatedInputExact: dedicatedInput?.value === canary,
+        findings,
+      };
+    },
+    { canary: backupPassphrase, allowInput: allowDedicatedInput },
+  );
 }
 
 function exactPath(path: string[], expected: string[]): boolean {
-  return path.length === expected.length && path.every((segment, index) => segment === expected[index]);
+  return (
+    path.length === expected.length && path.every((segment, index) => segment === expected[index])
+  );
 }
 
 function isLiveViewJoin(payload: unknown): payload is unknown[] {
@@ -576,9 +575,7 @@ function isLiveViewJoin(payload: unknown): payload is unknown[] {
   );
 }
 
-function uploadGrantFromFrames(
-  frames: CapturedFrame[],
-): { grantId: string; uploadToken: string } {
+function uploadGrantFromFrames(frames: CapturedFrame[]): { grantId: string; uploadToken: string } {
   const outgoingGrants = frames
     .map((frame, frameIndex) => ({ frame, frameIndex }))
     .filter(({ frame }) => {
@@ -602,9 +599,9 @@ function uploadGrantFromFrames(
 
   if (outgoingGrants.length !== 1) {
     throw new Error(
-      `upload grant event frame count mismatch at frames: ${outgoingGrants
-        .map(({ frameIndex }) => frameIndex)
-        .join(", ") || "none"}`,
+      `upload grant event frame count mismatch at frames: ${
+        outgoingGrants.map(({ frameIndex }) => frameIndex).join(", ") || "none"
+      }`,
     );
   }
 
@@ -640,9 +637,9 @@ function uploadGrantFromFrames(
 
   if (replies.length !== 1) {
     throw new Error(
-      `upload grant reply count mismatch for frame: ${outgoing.frameIndex}; replies: ${replies
-        .map(({ frameIndex }) => frameIndex)
-        .join(", ") || "none"}`,
+      `upload grant reply count mismatch for frame: ${outgoing.frameIndex}; replies: ${
+        replies.map(({ frameIndex }) => frameIndex).join(", ") || "none"
+      }`,
     );
   }
 
@@ -663,7 +660,9 @@ function uploadGrantFromFrames(
     typeof grantId !== "string" ||
     grantId === ""
   ) {
-    throw new Error(`upload grant reply has an invalid response shape at frame: ${reply.frameIndex}`);
+    throw new Error(
+      `upload grant reply has an invalid response shape at frame: ${reply.frameIndex}`,
+    );
   }
 
   const frameOccurrences = frames.flatMap((frame, frameIndex) =>
@@ -774,7 +773,9 @@ function assertRequestHeaderAllowances(
   });
 
   if (forbiddenLocations.length > 0) {
-    throw new Error(`browser request header allowance mismatch at: ${forbiddenLocations.join(", ")}`);
+    throw new Error(
+      `browser request header allowance mismatch at: ${forbiddenLocations.join(", ")}`,
+    );
   }
 
   if (uploadHeaderLocations.length !== 1) {
@@ -820,13 +821,10 @@ function sanitizedIodataAtOccurrence(
   const flattened: string[] = [];
 
   for (const [index, entry] of value.entries()) {
-    const part = sanitizedIodataAtOccurrence(
-      entry,
-      occurrencePath,
-      token,
-      marker,
-      [...path, `${index}`],
-    );
+    const part = sanitizedIodataAtOccurrence(entry, occurrencePath, token, marker, [
+      ...path,
+      `${index}`,
+    ]);
 
     if (part === null) {
       return null;
@@ -891,10 +889,7 @@ function renderedControllerLeaf(
   path: string[],
   token: string,
 ): RenderedControllerLeaf | null {
-  if (
-    path.length < 5 ||
-    !exactPath(path.slice(0, 3), ["4", "response", "rendered"])
-  ) {
+  if (path.length < 5 || !exactPath(path.slice(0, 3), ["4", "response", "rendered"])) {
     return null;
   }
 
@@ -929,10 +924,7 @@ function renderedControllerLeaf(
     const occurrencePath = path.slice(ancestorLength + 1);
     const dynamicOccurrences = occurrencePaths(dynamicValue, token);
 
-    if (
-      dynamicOccurrences.length !== 1 ||
-      !exactPath(dynamicOccurrences[0]!, occurrencePath)
-    ) {
+    if (dynamicOccurrences.length !== 1 || !exactPath(dynamicOccurrences[0]!, occurrencePath)) {
       return null;
     }
 
@@ -1072,9 +1064,7 @@ async function assertCsrfFrameAllowance(
         } else if (renderedControllerField) {
           csrfKinds.add("controller-form-field");
         } else {
-          forbiddenLocations.push(
-            `${frame.direction}:${frameIndex}:occurrence:${occurrenceIndex}`,
-          );
+          forbiddenLocations.push(`${frame.direction}:${frameIndex}:occurrence:${occurrenceIndex}`);
         }
       }
     }
@@ -1190,9 +1180,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
       this.addEventListener(
         "loadend",
         () => {
-          const contentType = (this.getResponseHeader("content-type") ?? "")
-            .trim()
-            .toLowerCase();
+          const contentType = (this.getResponseHeader("content-type") ?? "").trim().toLowerCase();
           const metadata = requestMetadata.get(this);
           let responseUrl: URL;
 
@@ -1227,9 +1215,19 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
                     url: responseUrl.href,
                     body: this.responseText,
                   }
-                : { ok: false, method: metadata.method, status: this.status, url: responseUrl.href };
+                : {
+                    ok: false,
+                    method: metadata.method,
+                    status: this.status,
+                    url: responseUrl.href,
+                  };
           } catch {
-            surface = { ok: false, method: metadata.method, status: this.status, url: responseUrl.href };
+            surface = {
+              ok: false,
+              method: metadata.method,
+              status: this.status,
+              url: responseUrl.href,
+            };
           }
 
           void captureWindow.__singularityCaptureXhrResponseBody(surface).catch(() => {
@@ -1283,8 +1281,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
       : contentType.includes("text/html")
         ? "html"
         : null;
-    const hasNoConsumedBody =
-      (status >= 300 && status < 400) || status === 204 || status === 304;
+    const hasNoConsumedBody = (status >= 300 && status < 400) || status === 204 || status === 304;
 
     if (!kind && !hasNoConsumedBody) {
       return;
@@ -1309,12 +1306,13 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
       .allHeaders()
       .then((headers) => ({ ok: true as const, headers }))
       .catch(() => ({ ok: false as const }));
-    const bodyPromise = hasNoConsumedBody || usesXhrResponseBodyCapture
-      ? null
-      : response
-          .text()
-          .then((body) => ({ ok: true as const, body }))
-          .catch(() => ({ ok: false as const }));
+    const bodyPromise =
+      hasNoConsumedBody || usesXhrResponseBodyCapture
+        ? null
+        : response
+            .text()
+            .then((body) => ({ ok: true as const, body }))
+            .catch(() => ({ ok: false as const }));
     responseCaptures.push(
       (async () => {
         const path = new URL(response.url()).pathname;
@@ -1500,9 +1498,11 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
 
   if (capturedXhrResponseBodies.length !== pendingXhrApplicationResponses.length) {
     throw new Error(
-      `XHR response body capture count mismatch at: ${pendingXhrApplicationResponses
-        .map(({ captureIndex }) => `response:${captureIndex}`)
-        .join(", ") || "none"}`,
+      `XHR response body capture count mismatch at: ${
+        pendingXhrApplicationResponses
+          .map(({ captureIndex }) => `response:${captureIndex}`)
+          .join(", ") || "none"
+      }`,
     );
   }
 
@@ -1515,10 +1515,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
   const expectedUploadPath = `/api/v1/uploads/${encodeURIComponent(grantId)}`;
   const expectedUploadUrl = `${uploadOrigin}${expectedUploadPath}`;
 
-  if (
-    pendingXhrApplicationResponses.length !== 1 ||
-    capturedXhrResponseBodies.length !== 1
-  ) {
+  if (pendingXhrApplicationResponses.length !== 1 || capturedXhrResponseBodies.length !== 1) {
     throw new Error("upload XHR response body proof did not have exactly one correlated pair");
   }
 
@@ -1539,10 +1536,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
   }
 
   responses.push(
-    ...correlateXhrResponseBodies(
-      pendingXhrApplicationResponses,
-      capturedXhrResponseBodies,
-    ),
+    ...correlateXhrResponseBodies(pendingXhrApplicationResponses, capturedXhrResponseBodies),
   );
   pendingXhrApplicationResponses.splice(0);
   capturedXhrResponseBodies.splice(0);
@@ -1592,9 +1586,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
   );
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await waitForNonEchoingCondition(page, "empty catalogue state", () =>
-    page
-      .getByText("No assets match the current catalogue filters.", { exact: true })
-      .isVisible(),
+    page.getByText("No assets match the current catalogue filters.", { exact: true }).isVisible(),
   );
 
   await page.getByRole("link", { name: "Backups", exact: true }).click();
@@ -1673,9 +1665,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
         url.hash === "" &&
         operationId !== null &&
         url.searchParams.size === 1 &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          operationId,
-        )
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(operationId)
       );
     },
     observedBrowserSurfaces,
@@ -1711,11 +1701,7 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
     );
   }
 
-  const returnedPassphraseAudit = await auditLiveBackupPassphrase(
-    page,
-    backupPassphrase,
-    false,
-  );
+  const returnedPassphraseAudit = await auditLiveBackupPassphrase(page, backupPassphrase, false);
 
   if (returnedPassphraseAudit.dedicatedInputExact) {
     throw new Error("backup-passphrase returned surface retained the dedicated input value");
@@ -1785,15 +1771,14 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
     );
   }
 
-  if (
-    pendingXhrApplicationResponses.length > 0 ||
-    capturedXhrResponseBodies.length > 0
-  ) {
+  if (pendingXhrApplicationResponses.length > 0 || capturedXhrResponseBodies.length > 0) {
     throw new Error("unexpected additional upload XHR response body capture");
   }
 
   if (consoleCaptureFailures.length > 0) {
-    throw new Error(`browser console surfaces were uninspectable at: ${consoleCaptureFailures.join(", ")}`);
+    throw new Error(
+      `browser console surfaces were uninspectable at: ${consoleCaptureFailures.join(", ")}`,
+    );
   }
 
   if (exceptionCaptureFailures.length > 0) {
@@ -1821,21 +1806,22 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
   for (const document of documents) {
     assertSecretFree(document.sanitizedHtml, `${document.label} sanitized HTML`, {
       ...canaries,
-      "csrf-token": [...csrfTokens].find((token) =>
-        occurrencePaths(document.sanitizedHtml, token).length > 0,
+      "csrf-token": [...csrfTokens].find(
+        (token) => occurrencePaths(document.sanitizedHtml, token).length > 0,
       ),
     });
     assertSecretFree(document.dataProps, `${document.label} data-props`, {
       ...canaries,
-      "csrf-token": [...csrfTokens].find((token) =>
-        occurrencePaths(document.dataProps, token).length > 0,
+      "csrf-token": [...csrfTokens].find(
+        (token) => occurrencePaths(document.dataProps, token).length > 0,
       ),
     });
   }
 
   for (const [responseIndex, response] of responses.entries()) {
-    const csrfInResponseSurface = [...csrfTokens].find((token) =>
-      occurrencePaths({ url: response.url, headers: response.headers }, token).length > 0,
+    const csrfInResponseSurface = [...csrfTokens].find(
+      (token) =>
+        occurrencePaths({ url: response.url, headers: response.headers }, token).length > 0,
     );
     assertSecretFree(
       { url: response.url, headers: response.headers },
@@ -1851,7 +1837,11 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
       throw new Error(`application response body was missing at response:${responseIndex}`);
     }
 
-    assertSecretFree(response.body, `${response.kind} response body at response:${responseIndex}`, canaries);
+    assertSecretFree(
+      response.body,
+      `${response.kind} response body at response:${responseIndex}`,
+      canaries,
+    );
 
     if (response.kind === "application-json") {
       const applicationJson = parseFrame(response.body);
@@ -1870,14 +1860,14 @@ test("ephemeral browser secrets stay on their exact transport surfaces", async (
 
   assertSecretFree(consoleSurfaces, "browser console", {
     ...canaries,
-    "csrf-token": [...csrfTokens].find((token) =>
-      occurrencePaths(consoleSurfaces, token).length > 0,
+    "csrf-token": [...csrfTokens].find(
+      (token) => occurrencePaths(consoleSurfaces, token).length > 0,
     ),
   });
   assertSecretFree(exceptionSurfaces, "browser exception inspection", {
     ...canaries,
-    "csrf-token": [...csrfTokens].find((token) =>
-      occurrencePaths(exceptionSurfaces, token).length > 0,
+    "csrf-token": [...csrfTokens].find(
+      (token) => occurrencePaths(exceptionSurfaces, token).length > 0,
     ),
   });
   assertSecretFree(frames, "LiveView application and server-pushed payloads", {

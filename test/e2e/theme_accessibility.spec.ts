@@ -122,9 +122,10 @@ async function expectSurfaceContrast(
   if (sample.control) {
     expect(ratios.control).not.toBeNull();
     if (sample.controlColor === "foreground") {
-      expect(ratios.control ?? 0, `${surface} text-control affordance contrast`).toBeGreaterThanOrEqual(
-        4.5,
-      );
+      expect(
+        ratios.control ?? 0,
+        `${surface} text-control affordance contrast`,
+      ).toBeGreaterThanOrEqual(4.5);
     } else {
       expect(ratios.control ?? 0, `${surface} control-boundary contrast`).toBeGreaterThanOrEqual(3);
     }
@@ -234,9 +235,9 @@ test("theme persists across navigation with accessible contrast and reduced moti
   await auditThemeSurfaces(page, "dark");
 
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  expect(
-    await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
-  ).toBe(false);
+  expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(
+    false,
+  );
 
   await page.evaluate(() => {
     const keyframes = document.createElement("style");
@@ -295,9 +296,9 @@ test("theme persists across navigation with accessible contrast and reduced moti
     expect(baselineMotion.scrollBehavior).toBe("smooth");
 
     await page.emulateMedia({ reducedMotion: "reduce" });
-    expect(
-      await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
-    ).toBe(true);
+    expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(
+      true,
+    );
 
     const reducedMotion = await motion();
     expect(reducedMotion.animationDuration).toBeLessThanOrEqual(0.01);
@@ -306,7 +307,9 @@ test("theme persists across navigation with accessible contrast and reduced moti
     expect(reducedMotion.scrollBehavior).toBe("auto");
   } finally {
     await page.evaluate(() => {
-      document.querySelectorAll("[data-step12-motion-probe]").forEach((element) => element.remove());
+      document
+        .querySelectorAll("[data-step12-motion-probe]")
+        .forEach((element) => element.remove());
     });
   }
 });
