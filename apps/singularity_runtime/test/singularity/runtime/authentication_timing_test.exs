@@ -9,6 +9,7 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
   @fingerprint_secret :binary.copy(<<0xA7>>, 32)
   @sample_count 7
   @runtime_config Path.expand("../../../../../config/runtime.exs", __DIR__)
+  @test_secret_key_base "test-only-secret-key-base-for-production-config-00000000000000000000000000000"
 
   defmodule PreAuth do
     def reserve_attempt(_context, _command),
@@ -144,7 +145,10 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
 
   defp with_production_environment(encoded_secret, callback) do
     environment = %{
+      "SECRET_KEY_BASE" => @test_secret_key_base,
       "SINGULARITY_AUDIT_FINGERPRINT_SECRET" => encoded_secret,
+      "SINGULARITY_BACKUP_ROOT" =>
+        Path.join(System.tmp_dir!(), "singularity-auth-config-backups"),
       "SINGULARITY_STORAGE_ROOT" => Path.join(System.tmp_dir!(), "singularity-auth-config"),
       "SINGULARITY_MIGRATION_DATABASE_URL" =>
         "postgresql://singularity_migration@localhost/singularity_prod",

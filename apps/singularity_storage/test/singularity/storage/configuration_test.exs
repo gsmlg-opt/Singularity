@@ -10,7 +10,11 @@ defmodule Singularity.Storage.ConfigurationTest do
     Singularity.Storage.WorkerRepo
   ]
 
-  @production_database_env %{
+  @test_secret_key_base "test-only-secret-key-base-for-production-config-00000000000000000000000000000"
+
+  @production_environment %{
+    "SECRET_KEY_BASE" => @test_secret_key_base,
+    "SINGULARITY_BACKUP_ROOT" => Path.join(System.tmp_dir!(), "singularity-production-backups"),
     "SINGULARITY_MIGRATION_DATABASE_URL" =>
       "postgresql://singularity_migration:secret@localhost/singularity_prod",
     "SINGULARITY_DATABASE_URL" =>
@@ -102,7 +106,7 @@ defmodule Singularity.Storage.ConfigurationTest do
 
     assert_raise System.EnvError, ~r/SINGULARITY_STORAGE_ROOT/, fn ->
       with_environment(
-        Map.merge(@production_database_env, %{
+        Map.merge(@production_environment, %{
           "SINGULARITY_STORAGE_ROOT" => nil,
           "SINGULARITY_MAX_CONCURRENT_UPLOADS" => nil
         }),
@@ -126,7 +130,7 @@ defmodule Singularity.Storage.ConfigurationTest do
     )
 
     environment =
-      Map.merge(@production_database_env, %{
+      Map.merge(@production_environment, %{
         "SINGULARITY_STORAGE_ROOT" => Path.join(System.tmp_dir!(), "singularity-production"),
         "SINGULARITY_MAX_CONCURRENT_UPLOADS" => "3"
       })
