@@ -16,8 +16,10 @@ Singularity supports only its application-owned observability contract:
 
 - telemetry events whose name begins with `[:singularity]` and which are emitted
   through an explicitly approved Singularity-owned boundary;
-- structured log output after the configured Singularity JSON formatter and
-  redactor have run; and
+- final JSON log records that originate from
+  `Singularity.Runtime.Observability.LoggerMetadata.log/3`, after that boundary
+  default-denies structured message and metadata fields and the configured
+  `LoggerJSON` formatter and redactor have run; and
 - immutable audit records produced through Singularity's audit boundary.
 
 Raw telemetry owned by Thousand Island, Bandit, Plug, Phoenix, Phoenix
@@ -26,6 +28,10 @@ integration surface. In particular, `[:thousand_island, ...]`,
 `[:bandit, ...]`, and `[:phoenix, ...]` events can contain request, response,
 connection, session, socket, exception, or transport data. Singularity makes no
 secret-absence guarantee for those raw events.
+
+Free-form Logger messages, OTP and crash reports, dependency or framework
+logs, and the combined raw Logger output stream are not supported Singularity
+surfaces. Operators must treat all of them as sensitive data.
 
 Supported deployments must not attach Singularity-owned reporters, exporters,
 or persistence handlers directly to dependency-owned telemetry. An external
@@ -58,8 +64,9 @@ events would require maintaining dependency forks, which this design rejects.
 
 The honest boundary is the contract Singularity controls. Singularity already
 owns a backend-neutral telemetry module that admits numeric measurements and
-redacts bounded metadata before emission. It also owns the final structured-log
-formatter/redactor and the audit persistence contract. Those remain meaningful,
+redacts bounded metadata before emission. It also owns a default-deny
+structured-log entry point, the final formatting/redaction of records that pass
+through it, and the audit persistence contract. Those remain meaningful,
 testable security surfaces without claiming control over dependency internals.
 
 ## 3. Supported telemetry contract
@@ -94,13 +101,21 @@ namespaces.
 
 ## 4. Supported logs and audit records
 
-The supported logging surface is the final structured output after the
-Singularity-configured `LoggerJSON` formatter and
-`Singularity.Runtime.Observability.Redactor` have run. Log acceptance tests
-inspect that emitted output. They do not imply that the metadata of a raw
-framework telemetry event feeding framework logging is safe.
+The only supported logging surface is each final JSON record that originates
+from `Singularity.Runtime.Observability.LoggerMetadata.log/3`. That boundary
+default-denies fields in both the structured message and structured metadata
+before the event reaches Logger. The configured `LoggerJSON` formatter and
+`Singularity.Runtime.Observability.Redactor` then format and redact the admitted
+record. Acceptance of the logging contract requires emitting through
+`LoggerMetadata.log/3` and inspecting the resulting JSON record.
 
-Application operational logs continue to use the default-deny
+Free-form Logger messages, OTP and crash reports, dependency or framework
+logs, and the combined raw Logger output stream are unsupported and must be
+treated as sensitive. Selected `capture_log` and request-log checks remain as
+defense in depth; they do not promote their captured raw output into the
+supported logging contract.
+
+Supported application operational records must use the default-deny
 `Singularity.Runtime.Observability.LoggerMetadata` contract. Only approved
 opaque identifiers and bounded operation/result values are admitted. Existing
 parameter filtering and request scrubbing remain defense in depth.
@@ -127,9 +142,11 @@ paths remain in place as defense in depth. Their focused tests may remain, but
 they do not establish or imply support for the complete Phoenix, Bandit, or
 Thousand Island event streams.
 
-Framework-internal logging or instrumentation may continue to exist. The
-supported security assertion applies to the final Singularity-configured log
-output, not to transient dependency event arguments.
+Framework-internal logging or instrumentation may continue to exist, but its
+output remains unsupported and sensitive regardless of the configured
+formatter. The supported security assertion applies only to final JSON records
+originating from `LoggerMetadata.log/3`, not to transient dependency event
+arguments or the combined raw Logger stream.
 
 ## 6. Secret-canary boundary
 
@@ -146,11 +163,11 @@ The existing browser token allowances do not change:
 Password, passphrase, key, and server-secret canaries must remain absent from:
 
 - `[:singularity, ...]` event measurements and metadata;
-- final structured log output;
+- final JSON records originating from `LoggerMetadata.log/3`;
 - audit records and persistence-adapter arguments;
 - initial and returned HTML, `data-props`, application and server-pushed
   LiveView payloads, and application JSON;
-- exception text returned or logged by Singularity; and
+- exception text returned by Singularity; and
 - browser console, page errors, and captured application responses.
 
 The upload-token and CSRF-token exact allow-lists continue to govern browser
@@ -164,11 +181,13 @@ Acceptance adds or preserves the following checks:
 1. Runtime telemetry tests attach only to expected `[:singularity, ...]`
    events and recursively scan both measurements and metadata for every seeded
    canary.
-2. Runtime secret-canary tests continue to cover telemetry, structured logs,
-   audit values, adapter arguments, and returned domain values.
+2. Runtime secret-canary and logging-contract tests continue to cover
+   telemetry, the structured fields admitted by `LoggerMetadata.log/3`, the
+   configured JSON formatter/redactor output, audit values, adapter arguments,
+   and returned domain values.
 3. Web and browser secret-canary tests continue to cover HTML, response
    headers and bodies, application JSON, LiveView application payloads,
-   browser console, page errors, and final captured log output.
+   browser console, and page errors.
 4. An architecture contract rejects production Singularity reporters,
    exporters, or persistence handlers that subscribe directly to
    dependency-owned telemetry. The existing bounded Oban-to-Singularity
@@ -178,8 +197,9 @@ Acceptance adds or preserves the following checks:
    emitter.
 5. Dependency-source checks reject Git, GitHub, path, or vendored overrides for
    Thousand Island, Bandit, Plug, Phoenix, Phoenix LiveView, and `:telemetry`.
-6. Existing focused Phoenix scrubber tests remain defense-in-depth tests and
-   are not used to claim complete framework telemetry secrecy.
+6. Existing focused Phoenix scrubber, request-log, and `capture_log` tests
+   remain defense-in-depth tests. They are not used to claim complete framework
+   telemetry secrecy or support for the combined raw Logger output stream.
 
 The scoped finish gate still runs the runtime telemetry and secret-canary
 tests, web secret-canary tests, browser workflow, restore acceptance, compile,
@@ -204,6 +224,11 @@ to "telemetry" means supported `[:singularity, ...]` telemetry. Statements
 about dependency-owned telemetry must explicitly call it raw framework
 telemetry and mark it unsupported.
 
+An unqualified logging security claim means only final JSON records originating
+from `LoggerMetadata.log/3`. Free-form messages, OTP and crash reports,
+dependency or framework logs, and the combined raw Logger stream must be
+identified as unsupported sensitive data.
+
 The parent plan already contains unrelated uncommitted user edits. The refresh
 must preserve them and stage only the observability-boundary hunks.
 
@@ -216,7 +241,8 @@ This amendment does not:
   assumption;
 - claim that raw HTTP, WebSocket, Phoenix, LiveView, Bandit, or Thousand Island
   instrumentation is secret-free;
-- remove supported Singularity metrics, structured logs, or audit records; or
+- remove supported Singularity metrics, `LoggerMetadata.log/3` final JSON
+  records, or audit records; or
 - change browser token transport allowances.
 
 The amendment is complete when the documentation consistently states the

@@ -1665,7 +1665,9 @@ Audit:
 * Permission changes
 * Destructive deletion
 
-Operational logs must not contain raw medical text, account numbers, access tokens, or decrypted secrets.
+Supported final JSON records originating from
+`Singularity.Runtime.Observability.LoggerMetadata.log/3` must not contain raw
+medical text, account numbers, access tokens, or decrypted secrets.
 
 ---
 
@@ -1868,13 +1870,22 @@ The embedded adapter is ideal for single-node deployments. S3 service mode is th
 
 # 19. Observability
 
-Only application-owned `[:singularity, ...]` events, final output from the
-configured JSON formatter/redactor, and immutable audit records are supported
-observability surfaces. Reporters and exporters consume Singularity metrics and
-events only. Supported reporters, exporters, and persistence handlers do not
-subscribe to raw Thousand Island, Bandit, Plug, Phoenix, Phoenix LiveView, Oban,
-Ecto, or other dependency events; those events remain unsupported and must be
-treated as sensitive data.
+Only application-owned `[:singularity, ...]` events, final JSON records
+originating from `Singularity.Runtime.Observability.LoggerMetadata.log/3`, and
+immutable audit records are supported observability surfaces. The logging
+boundary default-denies fields in both its structured message and metadata,
+then uses the configured `LoggerJSON` formatter and
+`Singularity.Runtime.Observability.Redactor` to format and redact the admitted
+record.
+
+Free-form Logger messages, OTP and crash reports, dependency or framework logs,
+and the combined raw Logger output stream are unsupported and must be treated
+as sensitive. Selected `capture_log` and request-log checks are defense in depth
+only; they do not expand the supported logging surface. Reporters and exporters
+consume Singularity metrics and events only. Supported reporters, exporters,
+and persistence handlers do not subscribe to raw Thousand Island, Bandit, Plug,
+Phoenix, Phoenix LiveView, Oban, Ecto, or other dependency events; those events
+remain unsupported and must be treated as sensitive data.
 
 Runtime telemetry uses numeric measurements and bounded redacted metadata. The
 explicit Oban adapter may derive safe Singularity events from allow-listed job
@@ -1993,7 +2004,7 @@ Implement:
 * Migrations
 * Job system
 * Outbox
-* Structured logging
+* Structured application logging through `LoggerMetadata.log/3`
 * Basic metrics
 * Development environment
 
@@ -2229,7 +2240,8 @@ The following rules should be enforced throughout development:
 6. **Every background operation is idempotent.**
 7. **Every destructive action creates a tombstone before physical deletion.**
 8. **Every sensitive read is authorized and auditable.**
-9. **No sensitive data appears in ordinary logs.**
+9. **No sensitive data is admitted to supported final JSON records originating
+   from `LoggerMetadata.log/3`.**
 10. **No agent receives unrestricted database access.**
 11. **No domain uses floating point for monetary or clinical values.**
 12. **No search index becomes the source of truth.**

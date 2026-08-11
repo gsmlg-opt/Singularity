@@ -63,7 +63,9 @@ The following ideas remain useful and should be preserved:
   - PostgreSQL repository and migrations.
   - Durable outbox.
   - Job-runner port and Oban adapter.
-  - Structured logging, audit telemetry, and basic metrics.
+  - Structured application logging through the default-deny
+    `Singularity.Runtime.Observability.LoggerMetadata.log/3` boundary, audit
+    telemetry, and basic metrics.
   - Reproducible `devenv` services.
   - Initial ADR set for decisions exercised by this branch.
 - Local-storage Milestone 1a identity, vault, and assets:
@@ -774,8 +776,10 @@ through the restricted pre-auth function. The HMAC fingerprint secret is a
 dedicated production configuration value of at least 256 bits; startup fails
 when it is missing or too short. The secret is used only to MAC a
 normalized login and normalized source under separate domain labels, producing
-independent rate-limit/audit fingerprints. It is never passed to persistence,
-persisted, or logged. Password-bearing request values remain in runtime;
+independent rate-limit/audit fingerprints. It is never passed to persistence
+or persisted, and application code never intentionally emits it to Logger; the
+supported `LoggerMetadata.log/3` boundary rejects it. Password-bearing request
+values remain in runtime;
 pre-auth and scoped persistence adapters receive only the normalized-login
 lookup input and sanitized fingerprint/session-digest/audit commands.
 
@@ -787,7 +791,8 @@ lookup input and sanitized fingerprint/session-digest/audit commands.
 - A cryptographically random vault key is wrapped with an authenticated
   encryption construction.
 - Passwords, derived keys, and plaintext vault keys are never persisted or
-  logged.
+  intentionally emitted to Logger; the supported `LoggerMetadata.log/3`
+  boundary rejects them.
 
 Use maintained cryptographic libraries and version the KDF and wrapping
 parameters so they can be upgraded. Authentication and wrapping use independent
@@ -926,7 +931,7 @@ the outbox dispatcher, and workers disabled:
 4. Unwraps the recovery copy of the vault key, accepts a new owner password
    through a no-echo secret input, and atomically replaces the restored
    credential hash and vault-key wrapper without exposing the key in arguments
-   or logs.
+   or intentionally emitting it to Logger.
 5. Verifies every ciphertext digest while still locked.
 6. Reconciles pending outbox rows and jobs against restored asset/object states,
    discarding stale work and preserving only effects not reflected at the cut.
@@ -1123,8 +1128,10 @@ The upload response contract is:
 | `422` | `integrity_failure` |
 | `503` | `storage_unavailable` |
 
-The upload token and CSRF token are redacted from request logs, supported
-`[:singularity, ...]` telemetry, error reports, and audit metadata.
+The upload token and CSRF token are rejected from supported final JSON records
+originating from `LoggerMetadata.log/3`, supported `[:singularity, ...]`
+telemetry, and audit metadata. Selected request-log and error-report scrubbers
+remain defense in depth; their raw Logger output is unsupported and sensitive.
 
 ### 11.4 Asset toolchain
 
@@ -1224,12 +1231,20 @@ maintenance effects use the named system principal. The audit viewer renders
 anonymous failures identically regardless of whether the login matched an
 account.
 
-Operational logs and audit records are separate. The supported log surface is
-the final structured output after the configured `LoggerJSON` formatter and
-`Singularity.Runtime.Observability.Redactor` have run. Logs contain correlation,
+Supported operational log records and audit records are separate. The only
+supported log surface is each final JSON record originating from
+`Singularity.Runtime.Observability.LoggerMetadata.log/3`. That boundary
+default-denies structured message and metadata fields before the configured
+`LoggerJSON` formatter and `Singularity.Runtime.Observability.Redactor` format
+and redact the admitted record. Supported records contain correlation,
 principal, vault, resource, asset, outbox, and job IDs where allowed, but never
-raw sensitive content, credentials, tokens, keys, or full identifiers. This
-guarantee does not make raw framework telemetry safe.
+raw sensitive content, credentials, tokens, keys, or full identifiers.
+
+Free-form Logger messages, OTP and crash reports, dependency or framework logs,
+and the combined raw Logger output stream are unsupported and must be treated
+as sensitive. Selected `capture_log`, request-log, and framework scrubber tests
+remain defense in depth; they do not expand the supported logging surface or
+make raw framework telemetry safe.
 
 Telemetry covers upload bytes and latency, deduplication, stage age, integrity
 failures, outbox lag, job retry/failure, authentication-audit write failures,
@@ -1383,22 +1398,26 @@ keyboard operation, visible focus, responsive layout at 767 and 1280 CSS
 pixels, reduced-motion behavior, and both light and dark themes.
 
 Security tests seed distinct canary values for password, audit-fingerprint
-secret, upload token, CSRF token, vault key, domain key, DEK, and backup
-passphrase. Password/key/passphrase/server-secret canaries must be absent from
-supported `[:singularity, ...]` measurements and metadata, final structured
-logs, audit/persistence-adapter arguments, rendered HTML, `data-props`,
-application and server-pushed LiveView payloads, controller JSON, and browser
-console output. Selected Phoenix stop/error scrubbers remain defense in depth;
-they do not make raw dependency telemetry supported or secret-free.
+secret, upload token, CSRF token, vault key, domain key, domain-dedup key, DEK,
+object key, and backup passphrase. Password/key/passphrase/server-secret
+canaries must be absent from supported `[:singularity, ...]` measurements and
+metadata, supported final JSON records originating from
+`LoggerMetadata.log/3`, audit/persistence-adapter arguments, rendered HTML,
+`data-props`, application and server-pushed LiveView payloads, controller JSON,
+and browser console output. Selected Phoenix
+stop/error scrubbers, request-log checks, and `capture_log` tests remain defense
+in depth; they do not make raw dependency telemetry or the combined raw Logger
+output supported or secret-free.
+
 The upload token may appear only in its one grant callback and corresponding XHR
 header. The CSRF token may appear only in the dedicated meta tag, Phoenix
 LiveSocket connection parameter, Phoenix-generated `_csrf_token` hidden fields
 on the same-origin login/unlock/logout controller forms, and the same-origin
 upload request header. The LiveSocket and hidden-field occurrences are
 framework transport, not application events or server-pushed payloads. Both
-ephemeral-token canaries must be absent from every log, audit record,
-server-pushed event, `data-props`, controller JSON/application payload, and
-console message.
+ephemeral-token canaries must be absent from every supported final JSON record
+originating from `LoggerMetadata.log/3`, audit record, server-pushed event,
+`data-props`, controller JSON/application payload, and console message.
 
 Audit acceptance asserts one immutable event for each enumerated sensitive
 operation in section 12, including denied authentication/authorization,

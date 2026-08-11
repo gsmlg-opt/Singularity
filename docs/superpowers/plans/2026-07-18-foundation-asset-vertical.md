@@ -3933,11 +3933,14 @@ There is no commit for this task.
 - [ ] **Step 2: Seed distinct server-side secret canaries**
 
   Seed password, audit-fingerprint secret, upload token, CSRF token, vault key,
-  domain key, DEK, and backup-passphrase values. At this gate assert they are
-  absent from supported `[:singularity, ...]` telemetry measurements and
-  metadata, final structured logs, audit metadata, raised exception text,
+  domain key, domain-dedup key, DEK, object key, and backup-passphrase values.
+  At this gate assert they are absent from supported `[:singularity, ...]`
+  telemetry measurements and metadata, supported final JSON records
+  originating from `LoggerMetadata.log/3`, audit metadata, raised exception text,
   persistence-adapter arguments, and runtime return values except the one
-  documented upload-grant callback.
+  documented upload-grant callback. Free-form, OTP/crash,
+  framework/dependency, and combined raw Logger outputs are unsupported and
+  sensitive; selected capture checks remain defense in depth.
 
   The upload-token canary may exist only in that callback and later XHR
   request header. The CSRF canary's browser-only allowances are added after
@@ -3951,12 +3954,14 @@ There is no commit for this task.
     csrf: "CANARY_CSRF_c091",
     vault_key: "CANARY_VAULT_KEY_d112",
     domain_key: "CANARY_DOMAIN_KEY_a477",
+    domain_dedup_key: "CANARY_DOMAIN_DEDUP_KEY_b579",
     dek: "CANARY_DEK_f862",
+    object_key: "CANARY_OBJECT_KEY_f862",
     backup_passphrase: "CANARY_BACKUP_1d0c"
   }
 
   for {kind, canary} <- @canaries do
-    refute canary in captured_logs
+    refute canary in supported_logger_metadata_json_records
     refute canary in encoded_audit
     refute canary in encoded_telemetry
     refute canary in inspected_errors
@@ -3965,13 +3970,16 @@ There is no commit for this task.
   end
   ```
 
-- [ ] **Step 3: Add redacted structured logging and telemetry**
+- [ ] **Step 3: Add default-deny application logging and telemetry**
 
-  Logs may include correlation and permitted opaque entity IDs, never raw
-  identifiers, content, credentials, tokens, filesystem paths, or keys.
-  Telemetry metadata is redacted before telemetry emission. Structured-log
-  metadata is redacted before the configured `LoggerJSON` formatter produces
-  final output.
+  Supported final JSON records originating from `LoggerMetadata.log/3` may
+  include correlation and permitted opaque entity IDs, never raw identifiers,
+  content, credentials, tokens, filesystem paths, or keys. The boundary
+  default-denies both structured message and metadata fields before the
+  configured `LoggerJSON` formatter and redactor produce the final record.
+  Free-form Logger messages, OTP/crash reports, framework/dependency logs, and
+  the combined raw Logger stream remain unsupported and sensitive. Telemetry
+  metadata is redacted before telemetry emission.
 
   `Singularity.Runtime.Observability.Telemetry` and the bounded RLS-denial
   emitter in `Singularity.Storage.SafeSQL` are the only direct emitters. The
@@ -5236,7 +5244,8 @@ pagination, and browser-versus-unit coverage.
   ```
 
   Expected: all focused runtime tests pass; no raw key or passphrase appears in
-  structs, errors, logs, or messages observable outside custody.
+  structs, errors, supported `LoggerMetadata.log/3` final JSON records, or
+  messages observable outside custody.
 
 - [ ] **Step 7: Write failing runtime facade and status-use-case tests**
 
@@ -5260,8 +5269,10 @@ pagination, and browser-versus-unit coverage.
   `DTO.BackupStatus`; normalize internal errors to stable public atoms; reject
   malformed status maps as `:integrity_failure`; and never include passphrase,
   KDF, wrapper, custody, destination, filesystem path, or manifest data. Add
-  runtime canary assertions that inspect replies, exceptions, captured logs,
-  supported `[:singularity, ...]` telemetry, and audit metadata.
+  runtime canary assertions that inspect replies, exceptions, supported final
+  JSON records originating from `LoggerMetadata.log/3`, supported
+  `[:singularity, ...]` telemetry, and audit metadata. Existing captured-log
+  checks remain defense in depth only.
 
   Run:
 
@@ -5526,11 +5537,13 @@ pagination, and browser-versus-unit coverage.
   DOM value of `#backup-passphrase` and the body of its same-origin URL-encoded
   `POST /backups`; clear the field after submission and never copy or print the
   body. It must be absent from initial/returned HTML, `data-props`, application
-  and server-pushed LiveView payloads, application JSON, final JSON logs, audit
-  metadata, supported `[:singularity, ...]` telemetry measurements and metadata,
-  exception inspection, and browser console. Raw dependency telemetry is
-  unsupported and not a blocker; selected Phoenix scrubbers are defense in
-  depth and do not make it supported or secret-free.
+  and server-pushed LiveView payloads, application JSON, supported final JSON
+  records originating from `LoggerMetadata.log/3`, audit metadata, supported
+  `[:singularity, ...]` telemetry measurements and metadata, exception
+  inspection, and browser console. Raw dependency telemetry and the combined
+  raw Logger stream are unsupported and not blockers; selected Phoenix,
+  request-log, and `capture_log` scrubbers are defense in depth and do not make
+  those streams supported or secret-free.
 
   Preserve the upload-token allowance only for its grant callback and matching
   XHR header. The CSRF token may occur only in the dedicated meta tag,
@@ -5667,49 +5680,58 @@ pagination, and browser-versus-unit coverage.
 
   assert_no_matches() {
     local output status
-    set +e
-    output="$("$@" 2>&1)"
-    status=$?
-    set -e
+    if output="$("$@" 2>&1)"; then
+      printf '%s\n' "$output" >&2
+      return 1
+    else
+      status=$?
+    fi
 
-    case "$status" in
-      1) return 0 ;;
-      0) printf '%s\n' "$output" >&2; return 1 ;;
-      *) printf '%s\n' "$output" >&2; return "$status" ;;
-    esac
+    if [ "$status" -eq 1 ]; then
+      return 0
+    fi
+
+    printf '%s\n' "$output" >&2
+    return "$status"
   }
 
-  assert_no_matches_ignoring_lines() {
-    local ignored_line="$1" output status
-    shift
-    set +e
-    output="$("$@" 2>&1)"
-    status=$?
-    set -e
+  assert_no_package_lock_matches() {
+    local output status
+    if output="$("$@" 2>&1)"; then
+      output="$(printf '%s\n' "$output" | awk \
+        '!/^[0-9]+:[[:space:]]*"integrity":[[:space:]]*/')"
+      if [ -z "$output" ]; then
+        return 0
+      fi
 
-    case "$status" in
-      1) return 0 ;;
-      0)
-        output="$(printf '%s\n' "$output" | awk -v ignored_line="$ignored_line" \
-          'index($0, ignored_line) == 0')"
-        if [ -z "$output" ]; then
-          return 0
-        fi
-        printf '%s\n' "$output" >&2
-        return 1
-        ;;
-      *) printf '%s\n' "$output" >&2; return "$status" ;;
-    esac
+      printf '%s\n' "$output" >&2
+      return 1
+    else
+      status=$?
+    fi
+
+    if [ "$status" -eq 1 ]; then
+      return 0
+    fi
+
+    printf '%s\n' "$output" >&2
+    return "$status"
   }
 
   test ! -d apps/singularity_store
-  forbidden_storage_references='(?i:couchdb|backplane|embeddedess)|S3[[:alnum:]_]*|(^|[^[:alnum:]])s3((client|adapter|backend|bucket|config|object|repository|repo|sdk|service|storage|store|url|uri)[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)'
+  forbidden_storage_references='(?i:couchdb|backplane|embeddedess)|S3[A-Z_][[:alnum:]_]*|(^|[^[:alnum:]])S3((?i:client|adapter|backend|bucket|config|object|provider|repository|repo|sdk|service|storage|store|url|uri|api)[[:alnum:]_]*|[A-Z_][[:alnum:]_]*|[an]([^[:alnum:]]|$)|fs[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)|(^|[^[:alnum:]])s3([A-Z][[:alnum:]_]*|(?i:client|adapter|backend|bucket|config|object|provider|repository|repo|sdk|service|storage|store|url|uri|api)[[:alnum:]_]*|[an]([^[:alnum:]]|$)|fs[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)'
   assert_no_matches rg -n "$forbidden_storage_references" \
-    apps config mix.exs mix.lock package.json
-  assert_no_matches_ignoring_lines '"integrity":' rg -n \
+    apps build config test .github/workflows .formatter.exs mix.exs mix.lock \
+    package.json playwright.config.ts tsconfig.json vitest.config.ts \
+    devenv.nix devenv.yaml devenv.lock
+  assert_no_package_lock_matches rg -n --color=never \
     "$forbidden_storage_references" package-lock.json
   assert_no_matches rg -n -i 'qdrant' \
-    config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json
+    build config test .github/workflows .formatter.exs mix.exs mix.lock \
+    apps/*/mix.exs package.json playwright.config.ts tsconfig.json \
+    vitest.config.ts devenv.nix devenv.yaml devenv.lock
+  assert_no_package_lock_matches rg -n --color=never -i 'qdrant' \
+    package-lock.json
   assert_no_matches rg --files -g '*[Qq][Dd][Rr][Aa][Nn][Tt]*' apps
 
   set +e
@@ -5733,6 +5755,13 @@ pagination, and browser-versus-unit coverage.
 
   test "$(rg -cF 'WORKAROUND(upstream): gsmlg-opt/ex_storage_service#5' \
     apps/singularity_runtime/lib/singularity/runtime/storage_adapter.ex)" = 1
+  devenv shell -- mix test \
+    apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
+    apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
+  git status --short --branch
+  git log --oneline --decorate main..HEAD
+  git diff --stat main...HEAD
+  git diff --check main...HEAD
   ```
 
   Expected: the obsolete app and all CouchDB, Backplane, EmbeddedESS, and S3
@@ -5796,11 +5825,13 @@ pagination, and browser-versus-unit coverage.
   git diff --check main...HEAD
   ```
 
-  Expected: clean `codex/vault-workbench-app-clip`, only the approved vertical
+  Expected: `codex/vault-workbench-app-clip` contains only the approved vertical
   in its commits, no whitespace errors, only protected Hex dependency sources,
-  and no unsupported raw dependency telemetry subscriptions. Do not merge,
-  push, or open a pull request unless the user explicitly requests that
-  external action.
+  and no unsupported raw dependency telemetry subscriptions. The worktree has
+  no staged changes and exactly the two pre-existing unstaged parent-plan edits:
+  the `devenv processes down` teardown and the temporary npm copy-link
+  workaround for `duskmoon-dev/phoenix-duskmoon-ui#129`. Do not merge, push, or
+  open a pull request unless the user explicitly requests that external action.
 
 There is no commit for this task unless verification finds an in-scope defect.
 
@@ -5828,10 +5859,11 @@ Stop only when all are true:
 - [ ] Logical deletion precedes safe, idempotent physical cleanup.
 - [ ] Encrypted backup/restore passes the exact row, object, hash, audit, job,
       and search-equivalence oracle under concurrent mutation pressure.
-- [ ] Audit, final structured logs, supported `[:singularity, ...]` telemetry,
-      HTML, LiveView application payloads, JSON, and browser console satisfy
-      the secret-canary rules; no production raw dependency telemetry
-      subscription exists.
+- [ ] Audit, supported final JSON records originating from
+      `LoggerMetadata.log/3`, supported `[:singularity, ...]` telemetry, HTML,
+      LiveView application payloads, JSON, and browser console satisfy the
+      secret-canary rules; no production raw dependency telemetry subscription
+      exists and application logs emit only through `LoggerMetadata.log/3`.
 - [ ] The Phoenix/React seam uses the versioned contract, stale-event rules,
       XHR upload, reconnect snapshot, and mandatory unmount.
 - [ ] Vault Workbench passes keyboard, responsive, reduced-motion, theme, and

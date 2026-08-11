@@ -4,13 +4,13 @@
 
 **Goal:** Enforce and document Singularity's supported, application-owned observability boundary so Steps 13 and 15 and final Task 19 can finish without claiming that raw dependency telemetry is secret-free.
 
-**Architecture:** Keep `Singularity.Runtime.Observability.Telemetry` and the bounded `Singularity.Storage.SafeSQL` RLS emitter as the only direct `[:singularity, ...]` emission boundaries. Add a static ExUnit architecture contract that inventories production subscriptions, dependency-event literals, direct emitters, and dependency sources; strengthen canaries over supported telemetry and final JSON logs; and state that raw framework telemetry is unsupported. Do not fork, vendor, patch, or replace Thousand Island, Bandit, Plug, Phoenix, Phoenix LiveView, or `:telemetry`.
+**Architecture:** Keep `Singularity.Runtime.Observability.Telemetry` and the bounded `Singularity.Storage.SafeSQL` RLS emitter as the only direct `[:singularity, ...]` emission boundaries. Keep `Singularity.Runtime.Observability.LoggerMetadata.log/3` as the only application logging boundary. Add a static ExUnit architecture contract that inventories production subscriptions, dependency-event literals, direct emitters, telemetry and Logger module references, and dependency sources; strengthen canaries over supported telemetry and final JSON records originating from `LoggerMetadata.log/3`; and state that raw framework telemetry and the combined raw Logger stream are unsupported. Do not fork, vendor, patch, or replace Thousand Island, Bandit, Plug, Phoenix, Phoenix LiveView, or `:telemetry`.
 
 **Tech Stack:** Elixir 1.19, OTP Logger, `:telemetry`, Telemetry.Metrics, LoggerJSON, ExUnit, Phoenix 1.8, Git, devenv
 
 ---
 
-### Task 1: Close the supported telemetry and final-log canary gaps
+### Task 1: Close the supported telemetry and application-log canary gaps
 
 **Files:**
 
@@ -79,7 +79,13 @@ test "span exception telemetry omits the exception and scans the complete payloa
 end
 ```
 
-- [ ] **Step 4: Scan full supported telemetry tuples and final JSON output**
+Change the metric-name assertion from a subset check to exact sorted-list
+equality so neither an unapproved nor a duplicate metric can enter the
+supported namespace. Add a logging-contract assertion that
+`LoggerMetadata.log/3` rejects free-form binary messages with
+`FunctionClauseError`.
+
+- [ ] **Step 4: Scan full supported telemetry tuples and supported final JSON output**
 
 In the existing audit/telemetry canary test, retain the full tuple and scan it:
 
@@ -101,32 +107,59 @@ for canary <- Map.values(@canaries) do
 end
 ```
 
-After the detector test, add a test using the application's real configured
-LoggerJSON formatter:
+After the detector test, add a raw test handler and use it only to capture the
+real event produced by `LoggerMetadata.log/3`. Format that event through the
+application's configured LoggerJSON formatter:
 
 ```elixir
-test "the configured final structured log output removes every server canary" do
-  assert [formatter: {LoggerJSON.Formatters.Basic, formatter_options}] =
-           Application.fetch_env!(:logger, :default_handler)
+test "supported LoggerMetadata final JSON output removes every server canary" do
+  [formatter: {formatter_module, formatter_options}] =
+    Application.fetch_env!(:logger, :default_handler)
 
-  assert {LoggerJSON.Formatters.Basic, formatter} =
-           LoggerJSON.Formatters.Basic.new(formatter_options)
+  {^formatter_module, formatter} = formatter_module.new(formatter_options)
+  handler_id = :singularity_secret_canary_final_json_test
+  previous_metadata = Logger.metadata()
 
-  encoded =
-    %{
-      level: :warning,
-      meta: %{time: System.system_time(:microsecond)},
-      msg: {:report, %{operation: :secret_canary, nested: @canaries}}
-    }
-    |> LoggerJSON.Formatters.Basic.format(formatter)
+  Logger.metadata(arbitrary: @canaries, password: @password)
+  on_exit(fn -> Logger.reset_metadata(previous_metadata) end)
+  _ = :logger.remove_handler(handler_id)
+
+  assert :ok =
+           :logger.add_handler(handler_id, RawLoggerHandler, %{
+             config: %{receiver: self()},
+             level: :all
+           })
+
+  on_exit(fn -> :logger.remove_handler(handler_id) end)
+
+  assert :ok =
+           LoggerMetadata.log(
+             :warning,
+             %{operation: :secret_canary, result: :failed, nested: @canaries},
+             %{correlation_id: @log_correlation_id, arbitrary: @canaries}
+           )
+
+  assert_receive {:raw_logger_event,
+                  %{meta: %{correlation_id: @log_correlation_id}} = event}
+
+  raw_json =
+    event
+    |> formatter_module.format(formatter)
     |> IO.iodata_to_binary()
-    |> JSON.decode!()
+
+  encoded = JSON.decode!(raw_json)
 
   for canary <- Map.values(@canaries) do
+    assert Canary.leaks(raw_json, canary) == []
     assert Canary.leaks(encoded, canary) == []
   end
 end
 ```
+
+This assertion covers only the supported `LoggerMetadata.log/3` record; it does
+not claim that free-form, OTP/crash, framework/dependency, or combined raw
+Logger output is safe. The canary inventory includes domain-dedup and object-key
+values, and the recursive detector scans both map keys and values.
 
 - [ ] **Step 5: Run the focused runtime gate**
 
@@ -401,6 +434,17 @@ defp dependency_sources(dependency, options, declarations) do
 end
 ```
 
+The final scanner must also inventory every exact production `:telemetry`
+module reference and every Elixir/Erlang Logger module reference across
+`apps/*/lib`, executable `apps/*/priv/**/*.exs`, configuration, and HEEx
+templates. It recognizes `Logger`, `Elixir.Logger`, raw `:"Elixir.Logger"`,
+direct `execute/3` and `span/3` calls, capture syntax, `Function.capture/3`,
+`:erlang.make_fun/3`, `apply/3`, `Kernel.apply/3`, and `:erlang.apply/3`.
+Direct Logger emission is allowed only as `Logger.log/3` inside
+`LoggerMetadata`; all application Logger module references are confined to
+that module. HEEx uses a conservative forbidden-reference scan. Fixture
+assertions must prove these alternate and indirect forms are detected.
+
 - [ ] **Step 4: Run the focused architecture gate**
 
 Run:
@@ -414,7 +458,7 @@ devenv shell -- mix test \
 git diff --check
 ```
 
-Expected: the existing dependency graph and all five new observability-contract
+Expected: the existing dependency graph and all six observability-contract
 tests pass.
 
 - [ ] **Step 5: Commit the architecture contract**
@@ -457,11 +501,13 @@ Replace the security-test telemetry statement with:
 
 ```markdown
 Password/key/passphrase/server-secret canaries must be absent from supported
-`[:singularity, ...]` event measurements and metadata, final structured log
-output, audit metadata, persistence-adapter arguments, rendered HTML,
+`[:singularity, ...]` event measurements and metadata, final JSON records
+originating from `LoggerMetadata.log/3`, audit metadata, persistence-adapter
+arguments, rendered HTML,
 `data-props`, LiveView application payloads, controller JSON, and browser console
 output. Focused Phoenix stop/error scrubber tests remain defense in depth and do
-not make raw dependency telemetry a supported or secret-free surface.
+not make raw dependency telemetry or the combined raw Logger stream a supported
+or secret-free surface.
 ```
 
 Keep the existing upload-token and CSRF browser allow-list paragraphs.
@@ -486,12 +532,16 @@ Immediately below `# 19. Observability`, add:
 
 ```markdown
 Singularity supports only application-owned telemetry events beginning with
-`[:singularity]`, final structured output from the configured JSON
-formatter/redactor, and immutable audit records. Reporters and exporters must
-consume the Singularity metric definitions and events only. Do not subscribe a
-supported deployment to raw Thousand Island, Bandit, Plug, Phoenix, Phoenix
-LiveView, Oban, Ecto, or other dependency events; those payloads are outside the
-secret-absence guarantee and must be treated as sensitive.
+`[:singularity]`, final JSON records originating from
+`LoggerMetadata.log/3`, and immutable audit records. The logging boundary
+default-denies structured message and metadata fields before the configured
+formatter/redactor runs. Free-form, OTP/crash, framework/dependency, and the
+combined raw Logger stream remain unsupported and sensitive. Reporters and
+exporters must consume the Singularity metric definitions and events only. Do
+not subscribe a supported deployment to raw Thousand Island, Bandit, Plug,
+Phoenix, Phoenix LiveView, Oban, Ecto, or other dependency events; those
+payloads are outside the secret-absence guarantee and must be treated as
+sensitive.
 
 The runtime telemetry boundary accepts numeric measurements and bounded,
 redacted metadata. Its explicitly allow-listed Oban adapter derives safe job
@@ -507,8 +557,9 @@ inventory and logging/audit separation.
 Make these exact contract changes:
 
 1. Step 13 says canaries are absent from supported `[:singularity, ...]`
-   measurements and metadata and final JSON logs; raw dependency telemetry is
-   unsupported and no longer a blocker.
+   measurements and metadata and supported final JSON records originating from
+   `LoggerMetadata.log/3`; raw dependency telemetry and the combined raw Logger
+   stream are unsupported and no longer blockers.
 2. Step 13's ExUnit command includes runtime `telemetry_test.exs`, runtime
    `observability_redaction_test.exs`, and the new web architecture
    `observability_contract_test.exs`.
@@ -534,10 +585,12 @@ Change the branch-history expectation from `codex/foundation-asset-vertical` to
 `codex/vault-workbench-app-clip`. Replace the unqualified checklist item with:
 
 ```markdown
-- [ ] Audit, final structured logs, supported `[:singularity, ...]` telemetry,
-      HTML, LiveView application payloads, JSON, and browser console satisfy the
+- [ ] Audit, supported final JSON records originating from
+      `LoggerMetadata.log/3`, supported `[:singularity, ...]` telemetry, HTML,
+      LiveView application payloads, JSON, and browser console satisfy the
       secret-canary rules; production code subscribes to no unsupported raw
-      dependency telemetry.
+      dependency telemetry and emits application logs only through
+      `LoggerMetadata.log/3`.
 ```
 
 Keep the final no-later-milestone dependency item unchanged.
@@ -664,49 +717,58 @@ set -euo pipefail
 
 assert_no_matches() {
   local output status
-  set +e
-  output="$("$@" 2>&1)"
-  status=$?
-  set -e
+  if output="$("$@" 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    return 1
+  else
+    status=$?
+  fi
 
-  case "$status" in
-    1) return 0 ;;
-    0) printf '%s\n' "$output" >&2; return 1 ;;
-    *) printf '%s\n' "$output" >&2; return "$status" ;;
-  esac
+  if [ "$status" -eq 1 ]; then
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  return "$status"
 }
 
-assert_no_matches_ignoring_lines() {
-  local ignored_line="$1" output status
-  shift
-  set +e
-  output="$("$@" 2>&1)"
-  status=$?
-  set -e
+assert_no_package_lock_matches() {
+  local output status
+  if output="$("$@" 2>&1)"; then
+    output="$(printf '%s\n' "$output" | awk \
+      '!/^[0-9]+:[[:space:]]*"integrity":[[:space:]]*/')"
+    if [ -z "$output" ]; then
+      return 0
+    fi
 
-  case "$status" in
-    1) return 0 ;;
-    0)
-      output="$(printf '%s\n' "$output" | awk -v ignored_line="$ignored_line" \
-        'index($0, ignored_line) == 0')"
-      if [ -z "$output" ]; then
-        return 0
-      fi
-      printf '%s\n' "$output" >&2
-      return 1
-      ;;
-    *) printf '%s\n' "$output" >&2; return "$status" ;;
-  esac
+    printf '%s\n' "$output" >&2
+    return 1
+  else
+    status=$?
+  fi
+
+  if [ "$status" -eq 1 ]; then
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  return "$status"
 }
 
 test ! -d apps/singularity_store
-forbidden_storage_references='(?i:couchdb|backplane|embeddedess)|S3[[:alnum:]_]*|(^|[^[:alnum:]])s3((client|adapter|backend|bucket|config|object|repository|repo|sdk|service|storage|store|url|uri)[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)'
+forbidden_storage_references='(?i:couchdb|backplane|embeddedess)|S3[A-Z_][[:alnum:]_]*|(^|[^[:alnum:]])S3((?i:client|adapter|backend|bucket|config|object|provider|repository|repo|sdk|service|storage|store|url|uri|api)[[:alnum:]_]*|[A-Z_][[:alnum:]_]*|[an]([^[:alnum:]]|$)|fs[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)|(^|[^[:alnum:]])s3([A-Z][[:alnum:]_]*|(?i:client|adapter|backend|bucket|config|object|provider|repository|repo|sdk|service|storage|store|url|uri|api)[[:alnum:]_]*|[an]([^[:alnum:]]|$)|fs[[:alnum:]_]*|[_-][[:alnum:]_]*|[^[:alnum:]_]|$)'
 assert_no_matches rg -n "$forbidden_storage_references" \
-  apps config mix.exs mix.lock package.json
-assert_no_matches_ignoring_lines '"integrity":' rg -n \
+  apps build config test .github/workflows .formatter.exs mix.exs mix.lock \
+  package.json playwright.config.ts tsconfig.json vitest.config.ts \
+  devenv.nix devenv.yaml devenv.lock
+assert_no_package_lock_matches rg -n --color=never \
   "$forbidden_storage_references" package-lock.json
 assert_no_matches rg -n -i 'qdrant' \
-  config mix.exs mix.lock apps/*/mix.exs package.json package-lock.json
+  build config test .github/workflows .formatter.exs mix.exs mix.lock \
+  apps/*/mix.exs package.json playwright.config.ts tsconfig.json \
+  vitest.config.ts devenv.nix devenv.yaml devenv.lock
+assert_no_package_lock_matches rg -n --color=never -i 'qdrant' \
+  package-lock.json
 assert_no_matches rg --files -g '*[Qq][Dd][Rr][Aa][Nn][Tt]*' apps
 
 set +e
