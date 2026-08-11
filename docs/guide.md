@@ -1868,7 +1868,18 @@ The embedded adapter is ideal for single-node deployments. S3 service mode is th
 
 # 19. Observability
 
-Operational telemetry should include:
+Only application-owned `[:singularity, ...]` events, final output from the
+configured JSON formatter/redactor, and immutable audit records are supported
+observability surfaces. Reporters and exporters consume Singularity metrics and
+events only. Supported deployments do not subscribe to raw Thousand Island,
+Bandit, Plug, Phoenix, Phoenix LiveView, Oban, Ecto, or other dependency events;
+treat those as sensitive data.
+
+Runtime telemetry uses numeric measurements and bounded redacted metadata. The
+explicit Oban adapter may derive safe Singularity events from allow-listed job
+events without promoting the raw source event to the supported contract.
+
+Supported Singularity telemetry should include:
 
 ## Ingestion
 

@@ -3896,6 +3896,8 @@ There is no commit for this task.
   `apps/singularity_runtime/test/singularity/runtime/{audit_acceptance,telemetry,secret_canary}_test.exs`
 - Create:
   `apps/singularity_storage/test/singularity/storage/audit_test.exs`
+- Create:
+  `apps/singularity_web/test/singularity/architecture/observability_contract_test.exs`
 - Modify:
   `apps/singularity_runtime/lib/singularity/runtime/application.ex`
 - Modify: `config/config.exs`
@@ -3932,9 +3934,10 @@ There is no commit for this task.
 
   Seed password, audit-fingerprint secret, upload token, CSRF token, vault key,
   domain key, DEK, and backup-passphrase values. At this gate assert they are
-  absent from structured logs, audit metadata, raised exception text,
-  telemetry metadata, persistence-adapter arguments, and runtime return values
-  except the one documented upload-grant callback.
+  absent from supported `[:singularity, ...]` telemetry measurements and
+  metadata, final structured logs, audit metadata, raised exception text,
+  persistence-adapter arguments, and runtime return values except the one
+  documented upload-grant callback.
 
   The upload-token canary may exist only in that callback and later XHR
   request header. The CSRF canary's browser-only allowances are added after
@@ -3968,6 +3971,13 @@ There is no commit for this task.
   identifiers, content, credentials, tokens, filesystem paths, or keys.
   Redaction happens before Logger and telemetry emission.
 
+  `Singularity.Runtime.Observability.Telemetry` and the bounded RLS-denial
+  emitter in `Singularity.Storage.SafeSQL` are the only direct emitters. The
+  raw Oban source remains adapter-only: it may yield a bounded safe
+  `[:singularity, ...]` event but is not part of the supported contract.
+  Production reporters, exporters, and persistence handlers must not subscribe
+  to raw dependency events.
+
   Emit metrics for upload bytes/latency, dedup, stage age, integrity failure,
   outbox lag, job retry/failure, authentication-audit write failure, RLS
   denial, unlock, backup/restore duration, and orphan cleanup. Telemetry
@@ -3998,10 +4008,12 @@ There is no commit for this task.
   mix format
   mix test apps/singularity_runtime/test/singularity/runtime/audit_acceptance_test.exs
   mix test apps/singularity_runtime/test/singularity/runtime/telemetry_test.exs
+  mix test apps/singularity_runtime/test/singularity/runtime/observability_redaction_test.exs
   mix test apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
   devenv shell -- mix singularity.test.integration
   mix compile --warnings-as-errors
   mix test apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs
+  mix test apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   mix xref graph --format cycles --fail-above 0
   git diff --check
   git add apps/singularity_runtime apps/singularity_storage config
@@ -5510,8 +5522,11 @@ pagination, and browser-versus-unit coverage.
   DOM value of `#backup-passphrase` and the body of its same-origin URL-encoded
   `POST /backups`; clear the field after submission and never copy or print the
   body. It must be absent from initial/returned HTML, `data-props`, application
-  and server-pushed LiveView payloads, application JSON, logs, audit metadata,
-  telemetry, exception inspection, and browser console.
+  and server-pushed LiveView payloads, application JSON, final JSON logs, audit
+  metadata, supported `[:singularity, ...]` telemetry measurements and metadata,
+  exception inspection, and browser console. Raw dependency telemetry is
+  unsupported and not a blocker; selected Phoenix scrubbers are defense in
+  depth and do not make it supported or secret-free.
 
   Preserve the upload-token allowance only for its grant callback and matching
   XHR header. The CSRF token may occur only in the dedicated meta tag,
@@ -5534,7 +5549,10 @@ pagination, and browser-versus-unit coverage.
   ```bash
   mix test \
     apps/singularity_web/test/singularity/web/secret_canary_test.exs \
-    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs
+    apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/telemetry_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/observability_redaction_test.exs \
+    apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   devenv shell -- mix npm.run test:e2e -- \
     test/e2e/upload_security.spec.ts \
     test/e2e/vault_workbench.spec.ts
@@ -5596,6 +5614,8 @@ pagination, and browser-versus-unit coverage.
     apps/singularity_runtime/test/singularity/runtime/backup_status_test.exs \
     apps/singularity_runtime/test/singularity/runtime/api_test.exs \
     apps/singularity_runtime/test/singularity/runtime/secret_canary_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/telemetry_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/observability_redaction_test.exs \
     apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs \
     apps/singularity_web/test/singularity/web/backup_controller_test.exs \
     apps/singularity_web/test/singularity/web/live/backups_live_test.exs \
@@ -5604,7 +5624,8 @@ pagination, and browser-versus-unit coverage.
     apps/singularity_web/test/singularity/web/authentication_test.exs \
     apps/singularity_web/test/singularity/web/route_contract_test.exs \
     apps/singularity_web/test/singularity/web/secret_canary_test.exs \
-    apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs
+    apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
+    apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   devenv shell -- mix singularity.test.integration \
     apps/singularity_storage/test/singularity/storage/postgres/backup_status_store_test.exs
   devenv shell -- mix singularity.test.restore
@@ -5619,8 +5640,9 @@ pagination, and browser-versus-unit coverage.
   ```
 
   Expected: every scoped test, the complete Chromium workflow, and the
-  independent restore/integrity oracle pass. If an out-of-scope test fails,
-  list it and stop instead of changing unrelated code.
+  independent restore/integrity oracle pass; raw framework telemetry is outside
+  this gate. If an out-of-scope test fails, list it and stop instead of changing
+  unrelated code.
 
   Stage only Task 18 paths and make small green commits at the storage/status,
   custody, facade, web surface, browser workflow, and CI/doc boundaries. The
@@ -5695,16 +5717,19 @@ pagination, and browser-versus-unit coverage.
   Run:
 
   ```bash
+  mix test apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs
+  mix test apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
   git status --short --branch
   git log --oneline --decorate main..HEAD
   git diff --stat main...HEAD
   git diff --check main...HEAD
   ```
 
-  Expected: clean `codex/foundation-asset-vertical`, only the approved
-  vertical in its commits, and no whitespace errors. Do not merge, push, or
-  open a pull request unless the user explicitly requests that external
-  action.
+  Expected: clean `codex/vault-workbench-app-clip`, only the approved vertical
+  in its commits, no whitespace errors, only protected Hex dependency sources,
+  and no unsupported raw dependency telemetry subscriptions. Do not merge,
+  push, or open a pull request unless the user explicitly requests that
+  external action.
 
 There is no commit for this task unless verification finds an in-scope defect.
 
@@ -5732,8 +5757,10 @@ Stop only when all are true:
 - [ ] Logical deletion precedes safe, idempotent physical cleanup.
 - [ ] Encrypted backup/restore passes the exact row, object, hash, audit, job,
       and search-equivalence oracle under concurrent mutation pressure.
-- [ ] Audit, logs, telemetry, HTML, LiveView, JSON, and browser console satisfy
-      the secret-canary rules.
+- [ ] Audit, final structured logs, supported `[:singularity, ...]` telemetry,
+      HTML, LiveView application payloads, JSON, and browser console satisfy
+      the secret-canary rules; no production raw dependency telemetry
+      subscription exists.
 - [ ] The Phoenix/React seam uses the versioned contract, stale-event rules,
       XHR upload, reconnect snapshot, and mandatory unmount.
 - [ ] Vault Workbench passes keyboard, responsive, reduced-motion, theme, and

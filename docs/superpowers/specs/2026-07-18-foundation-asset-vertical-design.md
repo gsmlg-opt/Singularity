@@ -1233,6 +1233,20 @@ failures, outbox lag, job retry/failure, authentication-audit write failures,
 RLS denials, vault unlocks, backup duration, restore duration, and orphan
 cleanup.
 
+Supported telemetry is limited to events whose names begin with
+`[:singularity]` and which pass through approved Singularity boundaries. Its
+measurements are numeric and its metadata is bounded and redacted.
+`Singularity.Runtime.Observability.Telemetry` is the public runtime emission
+API; the bounded RLS-denial emitter in `Singularity.Storage.SafeSQL` is the one
+approved lower-layer direct emitter.
+
+Raw Thousand Island, Bandit, Plug, Phoenix, Phoenix LiveView, Oban, Ecto, and
+other dependency telemetry is unsupported and has no secret-absence guarantee.
+Supported deployments do not attach Singularity reporters, exporters, or
+persistence handlers to it. The bounded runtime Oban adapter may derive safe
+Singularity events from only allow-listed job events; its raw source event does
+not become supported telemetry.
+
 ## 13. Testing strategy
 
 ### 13.1 Core
@@ -1368,8 +1382,11 @@ pixels, reduced-motion behavior, and both light and dark themes.
 Security tests seed distinct canary values for password, audit-fingerprint
 secret, upload token, CSRF token, vault key, domain key, DEK, and backup
 passphrase. Password/key/passphrase/server-secret canaries must be absent from
-structured logs, audit metadata, persistence-adapter arguments, rendered HTML,
-`data-props`, LiveView payloads, controller JSON, and browser console output.
+supported `[:singularity, ...]` measurements and metadata, final structured
+logs, audit/persistence-adapter arguments, rendered HTML, `data-props`,
+application and server-pushed LiveView payloads, controller JSON, and browser
+console output. Selected Phoenix stop/error scrubbers remain defense in depth;
+they do not make raw dependency telemetry supported or secret-free.
 The upload token may appear only in its one grant callback and corresponding XHR
 header. The CSRF token may appear only in the dedicated meta tag, Phoenix
 LiveSocket connection parameter, Phoenix-generated `_csrf_token` hidden fields

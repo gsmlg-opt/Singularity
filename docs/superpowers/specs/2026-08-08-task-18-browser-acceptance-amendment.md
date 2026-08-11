@@ -61,8 +61,8 @@ that command is the authoritative proof.
 The backup passphrase is submitted through an authenticated, unlocked,
 same-origin, CSRF-protected HTML `POST /backups` controller action. It must not
 cross a LiveView event, LiveView assign, React property, JSON response, URL,
-OS process argument, environment variable, log, telemetry field, or audit
-metadata.
+OS process argument, environment variable, log, supported
+`[:singularity, ...]` telemetry field, or audit metadata.
 
 The controller calls only `Singularity.Runtime.Api`. The runtime facade accepts
 the non-secret session DTO plus the request passphrase. Argon2id derivation runs
@@ -97,14 +97,21 @@ The browser secret canary permits the backup passphrase only in the transient
 DOM value of its password input and the body of its same-origin URL-encoded
 backup form submission. It must be absent from initial and returned HTML,
 `data-props`, application and server-pushed LiveView payloads, application
-JSON, logs, audit metadata, telemetry, and the browser console.
+JSON, logs, audit metadata, supported `[:singularity, ...]` telemetry, and the
+browser console.
 
 The CSRF allow-list adds the Phoenix-generated hidden field on the backup form
 to the existing framework locations: the dedicated meta tag, LiveSocket
 connection parameter, Phoenix-generated controller-form fields, and the
 same-origin upload request header. The token remains forbidden from
 application/server-pushed events, `data-props`, application JSON, logs, audit
-metadata, telemetry, and the browser console.
+metadata, supported `[:singularity, ...]` telemetry, and the browser console.
+
+These canaries cover application responses and supported observability. Raw
+Thousand Island, Bandit, Plug, Phoenix, and Phoenix LiveView telemetry is
+unsupported: the browser gate neither attaches to it nor claims it is safe, and
+supported deployments must not persist or export it. Selected scrubbers remain
+defense in depth.
 
 The deterministic browser owner gains only the existing `backup.create`
 capability needed for this workflow. Task 18 does not widen the production
