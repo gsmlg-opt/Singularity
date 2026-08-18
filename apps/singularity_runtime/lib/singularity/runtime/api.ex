@@ -21,6 +21,7 @@ defmodule Singularity.Runtime.Api do
 
   alias Singularity.Core.Error
   alias Singularity.Retrieval.AssetMetadataSearch
+  alias Singularity.Retrieval.NoteLexicalSearch
   alias Singularity.Runtime.Api.UploadHandle
   alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.AcceptUpload
@@ -44,6 +45,12 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.Login
   alias Singularity.Runtime.Logout
+  alias Singularity.Runtime.Notes.DTO, as: NotesDTO
+  alias Singularity.Runtime.Notes.Export, as: NoteExportReader
+  alias Singularity.Runtime.Notes.Get, as: NoteGet
+  alias Singularity.Runtime.Notes.History, as: NoteHistory
+  alias Singularity.Runtime.Notes.Search, as: NoteSearch
+  alias Singularity.Runtime.Notes.Trash, as: NoteTrash
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.ResolveSession
   alias Singularity.Runtime.SessionContext
@@ -66,6 +73,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Postgres.BackupRepository
   alias Singularity.Storage.Postgres.BackupStatusStore
   alias Singularity.Storage.Postgres.IdentityRepository
+  alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.Postgres.NoteSearchStore
   alias Singularity.Storage.Postgres.PreAuth
   alias Singularity.Storage.PreAuthRepo
   alias Singularity.Storage.RequestRepo
@@ -230,6 +239,160 @@ defmodule Singularity.Runtime.Api do
   end
 
   def list_assets(_config, _session, _params), do: {:error, :invalid}
+
+  @spec search_notes(Session.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.NoteSearchPage.t()} | {:error, atom()}
+  def search_notes(session, params),
+    do: with_production(&search_notes(&1, session, params))
+
+  @doc false
+  def search_notes(config, %Session{} = session, params) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, page} <- invoke(config, :search_notes, [context, params]),
+         :ok <- note_page_scope(page, context.vault_id, false),
+         {:ok, dto} <- NotesDTO.search_page(page) do
+      {:ok, dto}
+    else
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def search_notes(_config, _session, _params), do: {:error, :invalid}
+
+  @spec trash_notes(Session.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.NoteTrashPage.t()} | {:error, atom()}
+  def trash_notes(session, params),
+    do: with_production(&trash_notes(&1, session, params))
+
+  @doc false
+  def trash_notes(config, %Session{} = session, params) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, page} <- invoke(config, :trash_notes, [context, params]),
+         :ok <- note_page_scope(page, context.vault_id, true),
+         {:ok, dto} <- NotesDTO.trash_page(page) do
+      {:ok, dto}
+    else
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def trash_notes(_config, _session, _params), do: {:error, :invalid}
+
+  @spec get_note(Session.t(), String.t()) ::
+          {:ok, Singularity.Runtime.DTO.Note.t()} | {:error, atom()}
+  def get_note(session, resource_id),
+    do: with_production(&get_note(&1, session, resource_id))
+
+  @doc false
+  def get_note(config, %Session{} = session, resource_id) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, note} <- invoke(config, :get_note, [context, resource_id]),
+         :ok <- note_value_scope(note, context.vault_id),
+         {:ok, dto} <- NotesDTO.note(note),
+         :ok <- exact_identity(dto.resource_id, resource_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def get_note(_config, _session, _resource_id), do: {:error, :invalid}
+
+  @spec get_note_version(Session.t(), String.t(), String.t()) ::
+          {:ok, Singularity.Runtime.DTO.NoteVersion.t()} | {:error, atom()}
+  def get_note_version(session, resource_id, version_id),
+    do: with_production(&get_note_version(&1, session, resource_id, version_id))
+
+  @doc false
+  def get_note_version(config, %Session{} = session, resource_id, version_id)
+      when is_map(config) do
+    with true <- valid_uuid?(resource_id) and valid_uuid?(version_id),
+         {:ok, context} <- session_context(session),
+         {:ok, version} <-
+           invoke(config, :get_note_version, [context, resource_id, version_id]),
+         :ok <- note_version_scope(version, context.vault_id),
+         {:ok, dto} <- NotesDTO.version(version),
+         :ok <- exact_identity(dto.resource_id, resource_id),
+         :ok <- exact_identity(dto.resource_version_id, version_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def get_note_version(_config, _session, _resource_id, _version_id),
+    do: {:error, :invalid}
+
+  @spec get_note_conflict(Session.t(), String.t(), String.t()) ::
+          {:ok, Singularity.Runtime.DTO.NoteConflictDetail.t()} | {:error, atom()}
+  def get_note_conflict(session, resource_id, conflict_id),
+    do: with_production(&get_note_conflict(&1, session, resource_id, conflict_id))
+
+  @doc false
+  def get_note_conflict(config, %Session{} = session, resource_id, conflict_id)
+      when is_map(config) do
+    with true <- valid_uuid?(resource_id) and valid_uuid?(conflict_id),
+         {:ok, context} <- session_context(session),
+         {:ok, detail} <-
+           invoke(config, :get_note_conflict, [context, resource_id, conflict_id]),
+         :ok <- conflict_detail_scope(detail, context.vault_id, resource_id),
+         {:ok, dto} <- NotesDTO.conflict_detail(detail),
+         :ok <- exact_identity(dto.current.resource_id, resource_id),
+         :ok <- exact_identity(dto.conflict_id, conflict_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def get_note_conflict(_config, _session, _resource_id, _conflict_id),
+    do: {:error, :invalid}
+
+  @spec note_history(Session.t(), String.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.NoteHistoryPage.t()} | {:error, atom()}
+  def note_history(session, resource_id, params),
+    do: with_production(&note_history(&1, session, resource_id, params))
+
+  @doc false
+  def note_history(config, %Session{} = session, resource_id, params) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, page} <- invoke(config, :note_history, [context, resource_id, params]),
+         {:ok, dto} <- NotesDTO.history_page(page) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def note_history(_config, _session, _resource_id, _params),
+    do: {:error, :invalid}
+
+  @spec export_note(Session.t(), String.t()) ::
+          {:ok, Singularity.Runtime.DTO.NoteExport.t()} | {:error, atom()}
+  def export_note(session, resource_id),
+    do: with_production(&export_note(&1, session, resource_id))
+
+  @doc false
+  def export_note(config, %Session{} = session, resource_id) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, export} <- invoke(config, :export_note, [context, resource_id]),
+         {:ok, dto} <- NotesDTO.export(export),
+         :ok <- exact_identity(dto.resource_id, resource_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def export_note(_config, _session, _resource_id), do: {:error, :invalid}
 
   @spec subscribe_assets(Session.t()) :: :ok | {:error, atom()}
   def subscribe_assets(session),
@@ -573,7 +736,19 @@ defmodule Singularity.Runtime.Api do
       download_descriptor: fn session, asset_id ->
         Download.describe(runtime, session, asset_id)
       end,
+      export_note: fn session, resource_id ->
+        NoteExportReader.run(runtime, session, resource_id)
+      end,
       finish_upload: &UploadSession.finish/1,
+      get_note: fn session, resource_id ->
+        NoteGet.run(runtime, session, resource_id)
+      end,
+      get_note_conflict: fn session, resource_id, conflict_id ->
+        NoteGet.conflict(runtime, session, resource_id, conflict_id)
+      end,
+      get_note_version: fn session, resource_id, version_id ->
+        NoteGet.version(runtime, session, resource_id, version_id)
+      end,
       list_assets: fn session, params ->
         Search.run(runtime, session, params)
       end,
@@ -589,6 +764,9 @@ defmodule Singularity.Runtime.Api do
       login: &Login.run(login_adapters(), &1),
       logout: fn session ->
         Logout.run(runtime, session, Ecto.UUID.generate())
+      end,
+      note_history: fn session, resource_id, params ->
+        NoteHistory.run(runtime, session, resource_id, params)
       end,
       publish_asset: &AssetEvents.publish/2,
       request_backup: fn session, passphrase ->
@@ -608,7 +786,13 @@ defmodule Singularity.Runtime.Api do
       retry_asset: fn session, asset_id, state_revision ->
         Retry.run(runtime, session, asset_id, state_revision)
       end,
+      search_notes: fn session, params ->
+        NoteSearch.run(runtime, session, params)
+      end,
       subscribe_assets: &AssetEvents.subscribe/1,
+      trash_notes: fn session, params ->
+        NoteTrash.run(runtime, session, params)
+      end,
       unlock: fn session, password ->
         UnlockVault.run(
           runtime,
@@ -707,6 +891,9 @@ defmodule Singularity.Runtime.Api do
       jobs: {ObanAdapter, %{}},
       key_deriver: Argon2KeyDeriver,
       key_wrapper: KeyWrapper,
+      note_repository: NoteRepository,
+      note_search: NoteLexicalSearch,
+      note_search_store: NoteSearchStore,
       operation_scope: OperationScope,
       object_lock: ObjectLock,
       request_repo: RequestRepo,
@@ -1307,6 +1494,9 @@ defmodule Singularity.Runtime.Api do
   defp normalize_error({:error, _reason}), do: {:error, :storage_unavailable}
   defp normalize_error(_invalid), do: {:error, :storage_unavailable}
 
+  defp normalize_note_error({:error, _reason} = error), do: normalize_error(error)
+  defp normalize_note_error(_malformed_success), do: {:error, :integrity_failure}
+
   defp normalize_upload_error({:error, %Error{code: :not_found}}),
     do: {:error, :forbidden}
 
@@ -1354,6 +1544,67 @@ defmodule Singularity.Runtime.Api do
   catch
     _kind, _reason -> {:error, :storage_unavailable}
   end
+
+  defp exact_identity(value, value), do: :ok
+  defp exact_identity(_value, _expected), do: {:error, Error.new(:integrity_failure)}
+
+  defp note_value_scope(%{vault_id: vault_id, classification: :private}, vault_id), do: :ok
+  defp note_value_scope(%Singularity.Runtime.DTO.Note{}, _vault_id), do: :ok
+
+  defp note_value_scope(_note, _vault_id),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp note_version_scope(%{vault_id: vault_id, classification: :private}, vault_id), do: :ok
+  defp note_version_scope(%Singularity.Runtime.DTO.NoteVersion{}, _vault_id), do: :ok
+
+  defp note_version_scope(_version, _vault_id),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp note_page_scope(%Singularity.Runtime.DTO.NoteSearchPage{}, _vault_id, false), do: :ok
+  defp note_page_scope(%Singularity.Runtime.DTO.NoteTrashPage{}, _vault_id, true), do: :ok
+
+  defp note_page_scope(%{items: items}, vault_id, deleted?) when is_list(items) do
+    if Enum.all?(items, &note_page_item_scope?(&1, vault_id, deleted?)),
+      do: :ok,
+      else: {:error, Error.new(:integrity_failure)}
+  end
+
+  defp note_page_scope(_page, _vault_id, _deleted?),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp note_page_item_scope?(
+         %{vault_id: vault_id, classification: :private, deleted?: deleted?},
+         vault_id,
+         deleted?
+       ),
+       do: true
+
+  defp note_page_item_scope?(%{summary: %{deleted?: deleted?}}, _vault_id, deleted?), do: true
+  defp note_page_item_scope?(_item, _vault_id, _deleted?), do: false
+
+  defp conflict_detail_scope(
+         %{
+           conflict: %{vault_id: vault_id, resource_id: resource_id},
+           current: %{vault_id: vault_id, resource_id: resource_id},
+           competing: %{vault_id: vault_id, resource_id: resource_id}
+         },
+         vault_id,
+         resource_id
+       ),
+       do: :ok
+
+  defp conflict_detail_scope(
+         %Singularity.Runtime.DTO.NoteConflictDetail{
+           current: %{resource_id: resource_id},
+           competing: %{resource_id: resource_id}
+         },
+         _vault_id,
+         resource_id
+       ),
+       do: :ok
+
+  defp conflict_detail_scope(_detail, _vault_id, _resource_id),
+    do: {:error, Error.new(:integrity_failure)}
 
   defp valid_uuid?(value),
     do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
