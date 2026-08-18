@@ -175,6 +175,132 @@ defmodule Singularity.Storage.NoteMutationConcurrencyTest do
     end)
   end
 
+  test "Save wins the lock before Delete, so Delete conflicts without side effects", %{
+    fixture: fixture
+  } do
+    assert {:ok, %NoteSaveResult{} = created} =
+             scoped(fixture, &NoteRepository.create(&1, create_intent(fixture)))
+
+    save = save_intent(fixture, created, "save-delete", make_ref())
+    delete = tombstone_intent(fixture, created.resource_id, created.canonical_version_id)
+
+    assert {
+             {:ok, %NoteSaveResult{outcome: :saved} = saved},
+             {:error, %{code: :conflict}}
+           } = ordered_race(fixture, {:save, save}, {:tombstone, delete})
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[head, nil, projection, 2, 0]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT resource.current_version_id::text, resource.deleted_at,
+                        projection.resource_version_id::text,
+                        (SELECT count(*) FROM content.resource_versions WHERE resource_id = resource.id),
+                        (SELECT count(*) FROM content.note_mutation_receipts WHERE mutation_id = $2)
+                 FROM content.resources AS resource
+                 JOIN content.note_search_documents AS projection ON projection.resource_id = resource.id
+                 WHERE resource.id = $1
+                 """,
+                 [Ecto.UUID.dump!(created.resource_id), Ecto.UUID.dump!(delete.mutation_id)]
+               )
+
+      assert head == saved.canonical_version_id
+      assert projection == saved.canonical_version_id
+      :ok
+    end)
+  end
+
+  test "Delete wins the lock before Merge, so Merge is not found", %{fixture: fixture} do
+    scenario = conflict_scenario(fixture, "merge-delete")
+
+    delete =
+      tombstone_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.accepted.canonical_version_id
+      )
+
+    merge =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        scenario.conflict.submitted_version_id
+      )
+
+    before_versions = version_count(fixture, scenario.created.resource_id)
+
+    assert {
+             {:ok, %{state: :tombstoned}},
+             {:error, %{code: :not_found}}
+           } = ordered_race(fixture, {:tombstone, delete}, {:merge, merge})
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[deleted_at, 0, ^before_versions, 0]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT resource.deleted_at,
+                        (SELECT count(*) FROM content.note_search_documents WHERE resource_id = resource.id),
+                        (SELECT count(*) FROM content.resource_versions WHERE resource_id = resource.id),
+                        (SELECT count(*) FROM content.note_mutation_receipts WHERE mutation_id = $2)
+                 FROM content.resources AS resource
+                 WHERE resource.id = $1
+                 """,
+                 [
+                   Ecto.UUID.dump!(scenario.created.resource_id),
+                   Ecto.UUID.dump!(merge.mutation_id)
+                 ]
+               )
+
+      assert %DateTime{} = deleted_at
+      :ok
+    end)
+  end
+
+  test "Restore wins the lock before Delete, and serialized Delete leaves the note tombstoned", %{
+    fixture: fixture
+  } do
+    assert {:ok, %NoteSaveResult{} = created} =
+             scoped(fixture, &NoteRepository.create(&1, create_intent(fixture)))
+
+    initial_delete =
+      tombstone_intent(fixture, created.resource_id, created.canonical_version_id)
+
+    assert {:ok, %{state: :tombstoned}} =
+             scoped(fixture, &NoteRepository.tombstone(&1, initial_delete))
+
+    restore = restore_intent(fixture, created.resource_id)
+
+    final_delete =
+      tombstone_intent(fixture, created.resource_id, created.canonical_version_id)
+
+    assert {
+             {:ok, %{state: :restored}},
+             {:ok, %{state: :tombstoned}}
+           } = ordered_race(fixture, {:restore, restore}, {:tombstone, final_delete})
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[deleted_at, 0, 1]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT resource.deleted_at,
+                        (SELECT count(*) FROM content.note_search_documents WHERE resource_id = resource.id),
+                        (SELECT count(*) FROM content.resource_versions WHERE resource_id = resource.id)
+                 FROM content.resources AS resource
+                 WHERE resource.id = $1
+                 """,
+                 [Ecto.UUID.dump!(created.resource_id)]
+               )
+
+      assert %DateTime{} = deleted_at
+      :ok
+    end)
+  end
+
   defp start_save_tasks(fixture, intents, gate) do
     parent = self()
 
@@ -245,6 +371,67 @@ defmodule Singularity.Storage.NoteMutationConcurrencyTest do
     end
   end
 
+  defp ordered_race(fixture, first, second) do
+    gate = make_ref()
+    first_task = start_mutation_task(fixture, first, :first, gate)
+
+    assert_receive {:mutation_ready, ^gate, :first, first_task_pid, first_backend},
+                   @barrier_timeout
+
+    send(first_task_pid, {gate, :start})
+    assert_receive {:mutation_locked, ^gate, :first, first_lock_holder}, @barrier_timeout
+
+    second_task = start_mutation_task(fixture, second, :second, gate)
+
+    assert_receive {:mutation_ready, ^gate, :second, second_task_pid, second_backend},
+                   @barrier_timeout
+
+    send(second_task_pid, {gate, :start})
+    await_blocked_by!(second_backend, first_backend)
+    send(first_lock_holder, {gate, :continue})
+
+    assert_receive {:mutation_locked, ^gate, :second, second_lock_holder}, @barrier_timeout
+    send(second_lock_holder, {gate, :continue})
+
+    {Task.await(first_task, @barrier_timeout), Task.await(second_task, @barrier_timeout)}
+  end
+
+  defp start_mutation_task(fixture, {operation, intent}, label, gate) do
+    parent = self()
+
+    Task.async(fn ->
+      RequestRepo.checkout(fn ->
+        ScopedRepo.transact(
+          RequestRepo,
+          %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+          fn repo ->
+            %{rows: [[backend_pid]]} = query!(repo, "SELECT pg_backend_pid()")
+            send(parent, {:mutation_ready, gate, label, self(), backend_pid})
+
+            receive do
+              {^gate, :start} -> :ok
+            after
+              @barrier_timeout -> raise "mutation start barrier timed out"
+            end
+
+            checkpoint = fn ->
+              send(parent, {:mutation_locked, gate, label, self()})
+
+              receive do
+                {^gate, :continue} -> :ok
+              after
+                @barrier_timeout -> raise "mutation lock barrier timed out"
+              end
+            end
+
+            intent = Map.put(intent, :failure_injector, %{after_resource_lock: checkpoint})
+            apply(NoteRepository, operation, [repo, intent])
+          end
+        )
+      end)
+    end)
+  end
+
   defp create_intent(fixture) do
     {:ok, snapshot} =
       NoteSnapshot.initial(%{
@@ -288,6 +475,86 @@ defmodule Singularity.Storage.NoteMutationConcurrencyTest do
       request_fingerprint:
         :crypto.hash(:sha256, [label, gate |> :erlang.phash2() |> Integer.to_string()])
     }
+  end
+
+  defp tombstone_intent(fixture, resource_id, expected_current_version_id) do
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      expected_current_version_id: expected_current_version_id,
+      request_fingerprint:
+        :crypto.hash(:sha256, [resource_id, expected_current_version_id, "delete"])
+    }
+  end
+
+  defp restore_intent(fixture, resource_id) do
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      request_fingerprint: :crypto.hash(:sha256, [resource_id, "restore"])
+    }
+  end
+
+  defp merge_intent(fixture, resource_id, conflict_id, expected_head, competing_id) do
+    {:ok, snapshot} =
+      NoteSnapshot.merge(%{
+        classification: :private,
+        title: "Concurrent merge",
+        markdown: "# Concurrent merge",
+        parent_version_id: expected_head,
+        merge_parent_version_id: competing_id
+      })
+
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      conflict_id: conflict_id,
+      expected_current_version_id: expected_head,
+      competing_version_id: competing_id,
+      snapshot: snapshot,
+      request_fingerprint:
+        :crypto.hash(:sha256, [resource_id, conflict_id, expected_head, competing_id])
+    }
+  end
+
+  defp conflict_scenario(fixture, label) do
+    assert {:ok, %NoteSaveResult{} = created} =
+             scoped(fixture, &NoteRepository.create(&1, create_intent(fixture)))
+
+    accepted_intent = save_intent(fixture, created, "#{label}-accepted", make_ref())
+
+    assert {:ok, %NoteSaveResult{} = accepted} =
+             scoped(fixture, &NoteRepository.save(&1, accepted_intent))
+
+    stale_intent = save_intent(fixture, created, "#{label}-competing", make_ref())
+
+    assert {:ok, %NoteSaveResult{outcome: :conflict} = conflict} =
+             scoped(fixture, &NoteRepository.save(&1, stale_intent))
+
+    %{created: created, accepted: accepted, conflict: conflict}
+  end
+
+  defp version_count(fixture, resource_id) do
+    scoped(fixture, fn repo ->
+      %{rows: [[count]]} =
+        query!(repo, "SELECT count(*) FROM content.resource_versions WHERE resource_id = $1", [
+          Ecto.UUID.dump!(resource_id)
+        ])
+
+      count
+    end)
   end
 
   defp scoped(fixture, fun) do

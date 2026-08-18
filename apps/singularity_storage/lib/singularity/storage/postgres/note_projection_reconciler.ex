@@ -37,6 +37,53 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
 
   def reconcile(_repo, _selector), do: {:error, Error.new(:invalid)}
 
+  @spec reconcile_event(Ecto.Repo.t(), map(), String.t()) :: :ok | {:error, Error.t()}
+  def reconcile_event(repo, %{"resource_id" => resource_id} = payload, vault_id)
+      when map_size(payload) == 1 do
+    with :ok <- UUID.validate([resource_id, vault_id]) do
+      reconcile(repo, %{vault_id: vault_id, resource_id: resource_id})
+    end
+  end
+
+  def reconcile_event(
+        repo,
+        %{"resource_id" => resource_id, "conflict_id" => conflict_id} = payload,
+        vault_id
+      )
+      when map_size(payload) == 2 do
+    with :ok <- UUID.validate([resource_id, conflict_id, vault_id]) do
+      reconcile(repo, %{vault_id: vault_id, resource_id: resource_id})
+    end
+  end
+
+  def reconcile_event(_repo, _payload, _vault_id), do: {:error, Error.new(:invalid)}
+
+  @spec rebuild_vault(Ecto.Repo.t(), String.t()) :: :ok | {:error, Error.t()}
+  def rebuild_vault(repo, vault_id) do
+    with :ok <- UUID.validate(vault_id) do
+      resources =
+        repo.all(
+          from resource in Resource,
+            where: resource.vault_id == ^vault_id and resource.kind == :note,
+            order_by: [asc: resource.id],
+            select: resource.id
+        )
+
+      Enum.reduce_while(resources, :ok, fn resource_id, :ok ->
+        case reconcile(repo, %{vault_id: vault_id, resource_id: resource_id}) do
+          :ok -> {:cont, :ok}
+          {:error, %Error{}} = error -> {:halt, error}
+        end
+      end)
+    end
+  rescue
+    _error in [Ecto.Query.CastError, Ecto.CastError] ->
+      {:error, Error.new(:invalid)}
+
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
   defp load_canonical(repo, vault_id, resource_id) do
     resource_query =
       from resource in Resource,

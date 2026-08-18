@@ -864,6 +864,267 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     assert note_effect_counts(fixture, created.resource_id) == before
   end
 
+  test "canonical, exact-version, conflict-detail, history, and Trash reads are scoped and deterministic",
+       %{
+         fixture: fixture
+       } do
+    scenario = conflict_scenario(fixture, "reads")
+
+    scoped(fixture, fn repo ->
+      assert {:ok, canonical} =
+               NoteRepository.get(repo, fixture.vault_id, scenario.created.resource_id)
+
+      assert canonical.resource_id == scenario.created.resource_id
+      assert canonical.resource_version_id == scenario.accepted.canonical_version_id
+      assert canonical.title == "reads accepted"
+      assert canonical.markdown == "# reads accepted"
+      assert canonical.revision == 1
+      assert canonical.classification == :private
+      assert canonical.deleted_at == nil
+
+      assert {:ok, initial} =
+               NoteRepository.get_version(
+                 repo,
+                 fixture.vault_id,
+                 scenario.created.resource_id,
+                 scenario.created.canonical_version_id
+               )
+
+      assert initial.resource_version_id == scenario.created.canonical_version_id
+      assert initial.title == "reads original"
+      assert initial.revision == 0
+      assert initial.canonical? == false
+
+      assert {:ok, detail} =
+               NoteRepository.get_conflict(
+                 repo,
+                 fixture.vault_id,
+                 scenario.created.resource_id,
+                 scenario.conflict.conflict_id
+               )
+
+      assert detail.conflict.conflict_id == scenario.conflict.conflict_id
+      assert detail.conflict.state == :open
+      assert detail.current.resource_version_id == scenario.accepted.canonical_version_id
+      assert detail.competing.resource_version_id == scenario.conflict.submitted_version_id
+
+      assert {:ok, %{items: [revision_two, revision_one], next_cursor: cursor}} =
+               NoteRepository.history(
+                 repo,
+                 fixture.vault_id,
+                 scenario.created.resource_id,
+                 %{limit: 2, cursor: nil}
+               )
+
+      assert [revision_two.revision, revision_one.revision] == [2, 1]
+      assert is_binary(cursor)
+      refute Map.has_key?(revision_two, :markdown)
+
+      assert {:ok, %{items: [revision_zero], next_cursor: :done}} =
+               NoteRepository.history(
+                 repo,
+                 fixture.vault_id,
+                 scenario.created.resource_id,
+                 %{limit: 2, cursor: cursor}
+               )
+
+      assert revision_zero.revision == 0
+
+      assert {:ok, %{items: [], next_cursor: :done}} =
+               NoteRepository.trash(repo, fixture.vault_id, %{limit: 10, cursor: nil})
+
+      :ok
+    end)
+  end
+
+  test "same-vault foreign read IDs are invalid while absent and cross-vault IDs are not found",
+       %{
+         fixture: fixture,
+         other_fixture: other_fixture
+       } do
+    assert {:ok, %NoteSaveResult{} = target} =
+             scoped(
+               fixture,
+               &NoteRepository.create(
+                 &1,
+                 create_intent(fixture, "Read target", "# Read target")
+               )
+             )
+
+    other = conflict_scenario(fixture, "read-other")
+
+    cross =
+      create_intent(other_fixture, "Cross-vault read", "# Cross-vault read")
+
+    assert {:ok, %NoteSaveResult{} = cross_note} =
+             scoped(other_fixture, &NoteRepository.create(&1, cross))
+
+    scoped(fixture, fn repo ->
+      assert {:error, %Error{code: :invalid}} =
+               NoteRepository.get_version(
+                 repo,
+                 fixture.vault_id,
+                 target.resource_id,
+                 other.created.canonical_version_id
+               )
+
+      assert {:error, %Error{code: :invalid}} =
+               NoteRepository.get_conflict(
+                 repo,
+                 fixture.vault_id,
+                 target.resource_id,
+                 other.conflict.conflict_id
+               )
+
+      for resource_id <- [Ecto.UUID.generate(), cross_note.resource_id] do
+        assert {:error, %Error{code: :not_found}} =
+                 NoteRepository.get(repo, fixture.vault_id, resource_id)
+      end
+
+      :ok
+    end)
+  end
+
+  test "tombstone and restore are receipt-first, replayable, and create no content versions", %{
+    fixture: fixture
+  } do
+    scenario = conflict_scenario(fixture, "lifecycle")
+    before_versions = version_count(fixture, scenario.created.resource_id)
+
+    tombstone =
+      tombstone_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.accepted.canonical_version_id
+      )
+
+    assert {:ok,
+            %{
+              state: :tombstoned,
+              resource_id: resource_id,
+              canonical_version_id: canonical_version_id
+            } = tombstoned} = scoped(fixture, &NoteRepository.tombstone(&1, tombstone))
+
+    assert resource_id == scenario.created.resource_id
+    assert canonical_version_id == scenario.accepted.canonical_version_id
+    assert {:ok, ^tombstoned} = scoped(fixture, &NoteRepository.tombstone(&1, tombstone))
+    assert version_count(fixture, resource_id) == before_versions
+
+    scoped(fixture, fn repo ->
+      assert {:error, %Error{code: :not_found}} =
+               NoteRepository.get(repo, fixture.vault_id, resource_id)
+
+      assert {:ok, %{items: [trash_item], next_cursor: :done}} =
+               NoteRepository.trash(repo, fixture.vault_id, %{limit: 10, cursor: nil})
+
+      assert trash_item.resource_id == resource_id
+      assert trash_item.resource_version_id == canonical_version_id
+      assert %DateTime{} = trash_item.deleted_at
+      assert trash_item.deleted? == true
+      assert trash_item.open_conflict_count == 1
+
+      assert Enum.sort(Map.keys(trash_item)) ==
+               Enum.sort([
+                 :resource_id,
+                 :resource_version_id,
+                 :vault_id,
+                 :classification,
+                 :title,
+                 :revision,
+                 :updated_at,
+                 :deleted?,
+                 :open_conflict_count,
+                 :deleted_at
+               ])
+
+      assert %{rows: [[0]]} =
+               query!(
+                 repo,
+                 "SELECT count(*) FROM content.note_search_documents WHERE resource_id = $1",
+                 [Ecto.UUID.dump!(resource_id)]
+               )
+
+      :ok
+    end)
+
+    blocked_save =
+      save_intent(
+        fixture,
+        resource_id,
+        canonical_version_id,
+        "Blocked tombstone save",
+        "# Blocked tombstone save"
+      )
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, &NoteRepository.save(&1, blocked_save))
+
+    blocked_merge =
+      merge_intent(
+        fixture,
+        resource_id,
+        scenario.conflict.conflict_id,
+        canonical_version_id,
+        scenario.conflict.submitted_version_id,
+        "Blocked tombstone merge",
+        "# Blocked tombstone merge"
+      )
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, &NoteRepository.merge(&1, blocked_merge))
+
+    restore = restore_intent(fixture, resource_id)
+
+    assert {:ok,
+            %{
+              state: :restored,
+              resource_id: ^resource_id,
+              canonical_version_id: ^canonical_version_id
+            } = restored} = scoped(fixture, &NoteRepository.restore(&1, restore))
+
+    assert {:ok, ^restored} = scoped(fixture, &NoteRepository.restore(&1, restore))
+    assert version_count(fixture, resource_id) == before_versions
+
+    scoped(fixture, fn repo ->
+      assert {:ok, %{resource_version_id: ^canonical_version_id}} =
+               NoteRepository.get(repo, fixture.vault_id, resource_id)
+
+      assert %{rows: [[^canonical_version_id]]} =
+               query!(
+                 repo,
+                 "SELECT resource_version_id::text FROM content.note_search_documents WHERE resource_id = $1",
+                 [Ecto.UUID.dump!(resource_id)]
+               )
+
+      :ok
+    end)
+
+    assert {:error, %Error{code: :not_found}} =
+             scoped(fixture, &NoteRepository.restore(&1, restore_intent(fixture, resource_id)))
+
+    refute_lifecycle_plaintext(fixture, [tombstone, restore], [
+      "lifecycle accepted",
+      "# lifecycle accepted"
+    ])
+  end
+
+  test "stale tombstone returns conflict without writes", %{fixture: fixture} do
+    scenario = conflict_scenario(fixture, "stale-delete")
+    before = mutation_state(fixture, scenario.created.resource_id)
+
+    stale =
+      tombstone_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.created.canonical_version_id
+      )
+
+    assert {:error, %Error{code: :conflict}} =
+             scoped(fixture, &NoteRepository.tombstone(&1, stale))
+
+    assert mutation_state(fixture, scenario.created.resource_id) == before
+  end
+
   test "malformed create and save intents return invalid without effects", %{fixture: fixture} do
     malformed_create =
       fixture
@@ -976,6 +1237,32 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     }
   end
 
+  defp tombstone_intent(fixture, resource_id, expected_current_version_id) do
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      expected_current_version_id: expected_current_version_id,
+      request_fingerprint:
+        :crypto.hash(:sha256, [resource_id, expected_current_version_id, "tombstone"])
+    }
+  end
+
+  defp restore_intent(fixture, resource_id) do
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      request_fingerprint: :crypto.hash(:sha256, [resource_id, "restore"])
+    }
+  end
+
   defp conflict_scenario(fixture, prefix) do
     create = create_intent(fixture, "#{prefix} original", "# #{prefix} original")
 
@@ -1038,6 +1325,53 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
           rows
         end)
     }
+  end
+
+  defp version_count(fixture, resource_id) do
+    scoped(fixture, fn repo ->
+      %{rows: [[count]]} =
+        query!(
+          repo,
+          "SELECT count(*) FROM content.resource_versions WHERE resource_id = $1",
+          [Ecto.UUID.dump!(resource_id)]
+        )
+
+      count
+    end)
+  end
+
+  defp refute_lifecycle_plaintext(fixture, intents, canaries) do
+    scoped(fixture, fn repo ->
+      correlations = Enum.map(intents, &Ecto.UUID.dump!(&1.correlation_id))
+      mutations = Enum.map(intents, &Ecto.UUID.dump!(&1.mutation_id))
+
+      %{rows: audit_rows} =
+        query!(
+          repo,
+          "SELECT to_jsonb(event) FROM audit.events AS event WHERE correlation_id = ANY($1)",
+          [
+            correlations
+          ]
+        )
+
+      %{rows: outbox_rows} =
+        query!(
+          repo,
+          "SELECT to_jsonb(event) FROM core.outbox_events AS event WHERE correlation_id = ANY($1)",
+          [correlations]
+        )
+
+      %{rows: receipt_rows} =
+        query!(
+          repo,
+          "SELECT to_jsonb(receipt) FROM content.note_mutation_receipts AS receipt WHERE mutation_id = ANY($1)",
+          [mutations]
+        )
+
+      encoded = JSON.encode!([audit_rows, outbox_rows, receipt_rows])
+      Enum.each(canaries, &refute(String.contains?(encoded, &1)))
+      :ok
+    end)
   end
 
   defp assert_create_effects(repo, fixture, intent, resource_id, version_id) do
