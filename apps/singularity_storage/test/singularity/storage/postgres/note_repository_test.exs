@@ -693,6 +693,58 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     assert mutation_state(fixture, scenario.created.resource_id) == before_closed
   end
 
+  test "merge classifies a same-vault conflict owned by another note as invalid without writes",
+       %{
+         fixture: fixture
+       } do
+    assert {:ok, %NoteSaveResult{} = target} =
+             scoped(
+               fixture,
+               &NoteRepository.create(
+                 &1,
+                 create_intent(fixture, "Target merge note", "# Target merge note")
+               )
+             )
+
+    other = conflict_scenario(fixture, "other-note-conflict")
+
+    merge =
+      merge_intent(
+        fixture,
+        target.resource_id,
+        other.conflict.conflict_id,
+        target.canonical_version_id,
+        other.conflict.submitted_version_id,
+        "Wrong note merge",
+        "# Wrong note merge"
+      )
+
+    target_before = mutation_state(fixture, target.resource_id)
+    other_before = mutation_state(fixture, other.created.resource_id)
+
+    assert {:error, %Error{code: :invalid, retryable?: false}} =
+             scoped(fixture, &NoteRepository.merge(&1, merge))
+
+    assert mutation_state(fixture, target.resource_id) == target_before
+    assert mutation_state(fixture, other.created.resource_id) == other_before
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[0, 0, 0]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT
+                   (SELECT count(*) FROM content.note_mutation_receipts WHERE mutation_id = $1),
+                   (SELECT count(*) FROM audit.events WHERE correlation_id = $2),
+                   (SELECT count(*) FROM core.outbox_events WHERE correlation_id = $2)
+                 """,
+                 [Ecto.UUID.dump!(merge.mutation_id), Ecto.UUID.dump!(merge.correlation_id)]
+               )
+
+      :ok
+    end)
+  end
+
   test "a missing typed base is not found and writes nothing", %{fixture: fixture} do
     create = create_intent(fixture, "Missing base", "# Missing base")
 

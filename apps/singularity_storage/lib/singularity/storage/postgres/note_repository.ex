@@ -520,7 +520,6 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
       from conflict in NoteConflict,
         where:
           conflict.id == ^intent.conflict_id and
-            conflict.resource_id == ^intent.resource_id and
             conflict.vault_id == ^intent.vault_id and
             conflict.classification == :private,
         lock: "FOR UPDATE"
@@ -528,6 +527,9 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     case repo.one(query) do
       nil ->
         {:error, Error.new(:not_found)}
+
+      %NoteConflict{resource_id: resource_id} when resource_id != intent.resource_id ->
+        invalid()
 
       %NoteConflict{
         state: :open,
