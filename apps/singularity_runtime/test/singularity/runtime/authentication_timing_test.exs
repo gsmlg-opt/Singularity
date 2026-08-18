@@ -7,6 +7,7 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
 
   @params %{version: 1, t_cost: 3, m_cost: 16, parallelism: 1}
   @fingerprint_secret :binary.copy(<<0xA7>>, 32)
+  @mutation_fingerprint_secret :binary.copy(<<0xB8>>, 32)
   @sample_count 7
   @runtime_config Path.expand("../../../../../config/runtime.exs", __DIR__)
   @test_secret_key_base "test-only-secret-key-base-for-production-config-00000000000000000000000000000"
@@ -81,11 +82,18 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
     assert slower / faster < 2.5
   end
 
-  test "test configuration injects a fixed non-production fingerprint secret" do
+  test "test configuration injects fixed distinct non-production fingerprint secrets" do
     assert Application.fetch_env!(
              :singularity_runtime,
              :audit_fingerprint_secret
            ) == @fingerprint_secret
+
+    assert Application.fetch_env!(
+             :singularity_runtime,
+             :mutation_fingerprint_secret
+           ) == @mutation_fingerprint_secret
+
+    refute @mutation_fingerprint_secret == @fingerprint_secret
   end
 
   test "production rejects absent, malformed, and short fingerprint secrets" do
@@ -122,6 +130,44 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
              @fingerprint_secret
   end
 
+  test "production rejects absent, malformed, 31-byte, and 33-byte mutation secrets" do
+    assert_raise System.EnvError,
+                 ~r/SINGULARITY_MUTATION_FINGERPRINT_SECRET/,
+                 fn ->
+                   with_mutation_production_environment(nil, fn ->
+                     Config.Reader.read!(@runtime_config, env: :prod)
+                   end)
+                 end
+
+    for encoded <- [
+          "not base64!",
+          Base.encode64(:binary.copy(<<0xB8>>, 31)),
+          Base.encode64(:binary.copy(<<0xB8>>, 33))
+        ] do
+      assert_raise ArgumentError,
+                   ~r/SINGULARITY_MUTATION_FINGERPRINT_SECRET must decode to exactly 32 bytes/,
+                   fn ->
+                     with_mutation_production_environment(encoded, fn ->
+                       Config.Reader.read!(@runtime_config, env: :prod)
+                     end)
+                   end
+    end
+  end
+
+  test "production accepts and decodes an exact 32-byte mutation secret" do
+    encoded = Base.encode64(@mutation_fingerprint_secret)
+
+    config =
+      with_mutation_production_environment(encoded, fn ->
+        Config.Reader.read!(@runtime_config, env: :prod)
+      end)
+
+    assert config
+           |> Keyword.fetch!(:singularity_runtime)
+           |> Keyword.fetch!(:mutation_fingerprint_secret) ==
+             @mutation_fingerprint_secret
+  end
+
   defp median_duration(adapters, request) do
     durations =
       for _sample <- 1..@sample_count do
@@ -144,9 +190,22 @@ defmodule Singularity.Runtime.AuthenticationTimingTest do
   end
 
   defp with_production_environment(encoded_secret, callback) do
+    with_production_environment(
+      encoded_secret,
+      Base.encode64(@mutation_fingerprint_secret),
+      callback
+    )
+  end
+
+  defp with_mutation_production_environment(encoded_secret, callback) do
+    with_production_environment(Base.encode64(@fingerprint_secret), encoded_secret, callback)
+  end
+
+  defp with_production_environment(encoded_audit_secret, encoded_mutation_secret, callback) do
     environment = %{
       "SECRET_KEY_BASE" => @test_secret_key_base,
-      "SINGULARITY_AUDIT_FINGERPRINT_SECRET" => encoded_secret,
+      "SINGULARITY_AUDIT_FINGERPRINT_SECRET" => encoded_audit_secret,
+      "SINGULARITY_MUTATION_FINGERPRINT_SECRET" => encoded_mutation_secret,
       "SINGULARITY_BACKUP_ROOT" =>
         Path.join(System.tmp_dir!(), "singularity-auth-config-backups"),
       "SINGULARITY_STORAGE_ROOT" => Path.join(System.tmp_dir!(), "singularity-auth-config"),

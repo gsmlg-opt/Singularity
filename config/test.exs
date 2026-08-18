@@ -28,6 +28,7 @@ config :singularity_storage,
 config :singularity_runtime,
   start_infrastructure: false,
   audit_fingerprint_secret: :binary.copy(<<0xA7>>, 32),
+  mutation_fingerprint_secret: :binary.copy(<<0xB8>>, 32),
   authorization_dependencies: %{
     store: Fake.Authorization,
     custodian: Singularity.Runtime.KeyCustodian

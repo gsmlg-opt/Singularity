@@ -6,9 +6,12 @@ defmodule Singularity.Runtime.BootstrapOwner do
   @default_capabilities [
     "asset.read",
     "asset.write",
+    "note.export",
+    "note.read",
+    "note.write",
     "vault.lock",
-    "vault.unlock",
-    "vault.password_change"
+    "vault.password_change",
+    "vault.unlock"
   ]
 
   @spec run(map(), map()) :: {:ok, map()} | {:error, Error.t()}

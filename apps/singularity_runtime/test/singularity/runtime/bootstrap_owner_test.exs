@@ -250,6 +250,56 @@ defmodule Singularity.Runtime.BootstrapOwnerTest do
     assert_receive {:derive_kek, ^second_password, _salt, _params}
   end
 
+  test "uses the exact sorted note-capable defaults when no capability override is injected" do
+    {:ok, repository} =
+      start_supervised({Singularity.Runtime.BootstrapOwnerTest.Repository, self()})
+
+    ids =
+      for suffix <- 1..18 do
+        "00000000-0000-0000-0000-#{String.pad_leading(Integer.to_string(suffix), 12, "0")}"
+      end
+
+    id_source = start_supervised!({Agent, fn -> ids end})
+
+    adapters = %{
+      repository: Singularity.Runtime.BootstrapOwnerTest.Repository,
+      repository_context: repository,
+      password_hasher: Singularity.Runtime.BootstrapOwnerTest.PasswordHasher,
+      password_hasher_context: self(),
+      key_deriver: Singularity.Runtime.BootstrapOwnerTest.KeyDeriver,
+      key_deriver_context: self(),
+      key_wrapper: Singularity.Runtime.BootstrapOwnerTest.KeyWrapper,
+      key_wrapper_context: self(),
+      id_generator: fn -> Agent.get_and_update(id_source, &{hd(&1), tl(&1)}) end,
+      random_bytes: fn
+        16 -> :binary.copy(<<0x16>>, 16)
+        32 -> :binary.copy(<<0x32>>, 32)
+      end,
+      password_hash_params: %{version: 1},
+      vault_kdf_params: %{version: 1, t_cost: 3, m_cost: 16, parallelism: 1}
+    }
+
+    assert {:ok, _owner} =
+             BootstrapOwner.run(adapters, %{
+               display_name: "Default Owner",
+               login: "default-owner@example.test",
+               password: "default-owner-password"
+             })
+
+    assert_receive {:bootstrap_command, command}
+
+    assert command.capabilities == [
+             "asset.read",
+             "asset.write",
+             "note.export",
+             "note.read",
+             "note.write",
+             "vault.lock",
+             "vault.password_change",
+             "vault.unlock"
+           ]
+  end
+
   test "bootstrap task rejects positional password arguments without echoing them" do
     password = "CANARY_BOOTSTRAP_PASSWORD"
     Mix.Task.reenable("singularity.bootstrap_owner")

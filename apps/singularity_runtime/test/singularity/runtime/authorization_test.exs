@@ -91,6 +91,101 @@ defmodule Singularity.Runtime.AuthorizationTest do
              )
   end
 
+  test "plural requirements authorize only when every sorted unique capability is active", %{
+    dependencies: dependencies,
+    store: store
+  } do
+    requirement = plural_requirement(["asset.read", "vault.unlock"])
+
+    assert :ok = Authorize.check(dependencies, :repo, session(), requirement)
+
+    put_live(store, %{live_session() | capabilities: ["asset.read"]})
+
+    assert {:error, %Error{code: :forbidden, retryable?: false}} =
+             Authorize.check(dependencies, :repo, session(), requirement)
+  end
+
+  test "plural requirements retain principal membership and epoch revocation checks", %{
+    dependencies: dependencies,
+    store: store
+  } do
+    requirement = plural_requirement(["asset.read", "vault.unlock"])
+
+    assert :ok = Authorize.check(dependencies, :repo, session(), requirement)
+
+    for live <- [
+          %{live_session() | principal_revoked_at: DateTime.utc_now()},
+          %{live_session() | membership_revoked_at: DateTime.utc_now()},
+          %{live_session() | principal_authorization_epoch: 8},
+          %{live_session() | vault_authorization_epoch: 24}
+        ] do
+      put_live(store, live)
+
+      assert {:error, %Error{code: :forbidden, retryable?: false}} =
+               Authorize.check(dependencies, :repo, session(), requirement)
+    end
+  end
+
+  test "plural requirements reject malformed and non-exclusive shapes as invalid", %{
+    dependencies: dependencies
+  } do
+    base = requirement()
+
+    malformed = [
+      base |> Map.delete(:required_capability),
+      base |> Map.delete(:required_capability) |> Map.put(:required_capabilities, []),
+      base
+      |> Map.delete(:required_capability)
+      |> Map.put(:required_capabilities, ["vault.unlock", "asset.read"]),
+      base
+      |> Map.delete(:required_capability)
+      |> Map.put(:required_capabilities, ["asset.read", "asset.read"]),
+      base
+      |> Map.delete(:required_capability)
+      |> Map.put(:required_capabilities, ["asset.read", "  "]),
+      base
+      |> Map.delete(:required_capability)
+      |> Map.put(:required_capabilities, ["asset.read", :vault_unlock]),
+      Map.put(base, :required_capabilities, ["asset.read", "vault.unlock"])
+    ]
+
+    for requirement <- malformed do
+      assert {:error, %Error{code: :invalid, retryable?: false}} =
+               Authorize.check(dependencies, :repo, session(), requirement)
+    end
+  end
+
+  test "singular request and job authorization contracts remain unchanged", %{
+    dependencies: dependencies
+  } do
+    assert :ok = Authorize.check(dependencies, :repo, session(), requirement())
+
+    legacy_requirement =
+      requirement()
+      |> Map.delete(:required_capability)
+      |> Map.put(:capability, "asset.read")
+
+    assert :ok = Authorize.check(dependencies, :repo, session(), legacy_requirement)
+
+    for malformed <- [
+          Map.put(requirement(), :required_capability, "  "),
+          Map.put(requirement(), :required_capability, :asset_read)
+        ] do
+      assert {:error, %Error{code: :invalid}} =
+               Authorize.check(dependencies, :repo, session(), malformed)
+    end
+
+    assert :ok =
+             Authorize.check_job(dependencies, :repo, %{
+               principal_id: @principal_id,
+               vault_id: @vault_id,
+               principal_authorization_epoch: 7,
+               vault_authorization_epoch: 23,
+               required_capability: "asset.read",
+               classification: :sensitive
+             })
+  end
+
   test "rejects stale, revoked, cross-vault, capability, and classification state", %{
     dependencies: dependencies,
     store: store
@@ -414,6 +509,15 @@ defmodule Singularity.Runtime.AuthorizationTest do
       },
       Map.new(overrides)
     )
+  end
+
+  defp plural_requirement(capabilities, overrides \\ []) do
+    overrides = Map.new(overrides)
+
+    requirement()
+    |> Map.delete(:required_capability)
+    |> Map.put(:required_capabilities, capabilities)
+    |> Map.merge(overrides)
   end
 
   defp live_session do

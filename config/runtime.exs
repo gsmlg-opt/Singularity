@@ -47,8 +47,20 @@ if config_env() == :prod do
               "SINGULARITY_AUDIT_FINGERPRINT_SECRET must decode to at least 32 bytes"
     end
 
+  mutation_fingerprint_secret =
+    case System.fetch_env!("SINGULARITY_MUTATION_FINGERPRINT_SECRET")
+         |> Base.decode64() do
+      {:ok, <<_::binary-size(32)>> = secret} ->
+        secret
+
+      _invalid ->
+        raise ArgumentError,
+              "SINGULARITY_MUTATION_FINGERPRINT_SECRET must decode to exactly 32 bytes"
+    end
+
   config :singularity_runtime,
     audit_fingerprint_secret: audit_fingerprint_secret,
+    mutation_fingerprint_secret: mutation_fingerprint_secret,
     max_concurrent_uploads: max_concurrent_uploads
 
   config :singularity_storage,

@@ -118,7 +118,8 @@ defmodule Singularity.Runtime.Authorize do
   defp check_authority(live, session, requirement) do
     with :ok <- check_live_principal(live),
          :ok <- check_requirement_binding(live, session, requirement),
-         :ok <- check_capability(live, requirement),
+         {:ok, required_capabilities} <- required_capabilities(requirement),
+         :ok <- check_capabilities(live, required_capabilities),
          :ok <- check_classification(live, requirement) do
       :ok
     end
@@ -244,6 +245,45 @@ defmodule Singularity.Runtime.Authorize do
     end
   end
 
+  defp required_capabilities(requirement) do
+    case {
+      Map.fetch(requirement, :required_capability),
+      Map.fetch(requirement, :required_capabilities)
+    } do
+      {{:ok, capability}, :error} ->
+        if nonempty_binary?(capability), do: {:ok, [capability]}, else: invalid()
+
+      {:error, {:ok, capabilities}} when is_list(capabilities) ->
+        valid? =
+          not Map.has_key?(requirement, :capability) and capabilities != [] and
+            capabilities == Enum.sort(capabilities) and
+            capabilities == Enum.uniq(capabilities) and
+            Enum.all?(capabilities, &nonempty_binary?/1)
+
+        if valid?, do: {:ok, capabilities}, else: invalid()
+
+      {:error, :error} ->
+        case Map.fetch(requirement, :capability) do
+          {:ok, capability} ->
+            if nonempty_binary?(capability), do: {:ok, [capability]}, else: invalid()
+
+          :error ->
+            invalid()
+        end
+
+      _invalid ->
+        invalid()
+    end
+  end
+
+  defp check_capabilities(live, required) do
+    capabilities = Map.get(live, :capabilities)
+
+    if is_list(capabilities) and Enum.all?(required, &(&1 in capabilities)),
+      do: :ok,
+      else: forbidden()
+  end
+
   defp check_classification(live, requirement) do
     with {:ok, clearance} <- classification(live[:clearance]),
          {:ok, required} <- classification(Map.get(requirement, :classification)),
@@ -308,5 +348,6 @@ defmodule Singularity.Runtime.Authorize do
     do: is_binary(value) and byte_size(String.trim(value)) > 0
 
   defp unauthenticated, do: {:error, Error.new(:unauthenticated)}
+  defp invalid, do: {:error, Error.new(:invalid)}
   defp forbidden, do: {:error, Error.new(:forbidden)}
 end
