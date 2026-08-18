@@ -6,8 +6,12 @@ defmodule Singularity.Domains.Notes do
   alias Singularity.Core.NoteSaveResult
   alias Singularity.Core.Types
   alias Singularity.Domains.Notes.Command
+  alias Singularity.Domains.Notes.Repository
 
-  @spec execute(map(), Command.t(), binary()) :: {:ok, term()} | {:error, Error.t()}
+  @type execute_success ::
+          NoteSaveResult.t() | Repository.tombstone_result() | Repository.restore_result()
+
+  @spec execute(map(), Command.t(), binary()) :: {:ok, execute_success()} | {:error, Error.t()}
   def execute(adapters, %Command{} = command, <<_::binary-size(32)>> = fingerprint) do
     with {:ok, repository, repository_context} <- repository(adapters),
          {:ok, canonical_command} <- canonical_command(command),

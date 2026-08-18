@@ -382,6 +382,35 @@ defmodule Singularity.Domains.NotesTest do
     end
   end
 
+  test "execute accepts and rebuilds canonical save conflicts" do
+    {:ok, conflict} =
+      NoteSaveResult.conflict(%{
+        resource_id: @resource_id,
+        canonical_version_id: @expected_current_version_id,
+        submitted_version_id: @base_version_id,
+        conflict_id: @conflict_id
+      })
+
+    {:ok, repository_context} = Fake.NoteRepository.start_link(self(), %{save: {:ok, conflict}})
+    adapters = %{repository: Fake.NoteRepository, repository_context: repository_context}
+
+    assert {:ok,
+            %NoteSaveResult{
+              outcome: :conflict,
+              resource_id: @resource_id,
+              canonical_version_id: @expected_current_version_id,
+              submitted_version_id: @base_version_id,
+              conflict_id: @conflict_id
+            }} = Notes.execute(adapters, valid_command(:save), @fingerprint)
+
+    assert_receive {:save,
+                    %{
+                      resource_id: @resource_id,
+                      base_version_id: @base_version_id,
+                      request_fingerprint: @fingerprint
+                    }}
+  end
+
   test "command preparation canonicalizes string-only and identical duplicate keys", %{
     adapters: adapters
   } do
