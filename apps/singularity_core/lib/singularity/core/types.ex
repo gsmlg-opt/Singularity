@@ -3,6 +3,8 @@ defmodule Singularity.Core.Types do
 
   alias Singularity.Core.Error
 
+  @canonical_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+
   @type id :: String.t()
   @type hash :: String.t()
   @type version :: pos_integer()
@@ -25,6 +27,17 @@ defmodule Singularity.Core.Types do
     case Map.fetch(attrs, key) do
       {:ok, value} when is_binary(value) ->
         if String.trim(value) == "", do: invalid(), else: {:ok, value}
+
+      _other ->
+        invalid()
+    end
+  end
+
+  @spec canonical_uuid(map(), atom()) :: {:ok, String.t()} | {:error, Error.t()}
+  def canonical_uuid(attrs, key) when is_map(attrs) and is_atom(key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} when is_binary(value) ->
+        if Regex.match?(@canonical_uuid, value), do: {:ok, value}, else: invalid()
 
       _other ->
         invalid()
