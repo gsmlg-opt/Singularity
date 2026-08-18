@@ -269,12 +269,15 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
       from note in NoteVersion,
         where:
           note.resource_version_id == ^intent.base_version_id and
-            note.resource_id == ^intent.resource_id and
-            note.vault_id == ^intent.vault_id and
             note.classification == :private,
-        select: 1
+        select: %{resource_id: note.resource_id, vault_id: note.vault_id}
 
-    if repo.exists?(query), do: :ok, else: {:error, Error.new(:conflict)}
+    case repo.one(query) do
+      nil -> {:error, Error.new(:not_found)}
+      %{vault_id: vault_id} when vault_id != intent.vault_id -> {:error, Error.new(:not_found)}
+      %{resource_id: resource_id} when resource_id != intent.resource_id -> invalid()
+      %{resource_id: _resource_id, vault_id: _vault_id} -> :ok
+    end
   end
 
   defp require_canonical_base(%Resource{current_version_id: version_id}, version_id), do: :ok

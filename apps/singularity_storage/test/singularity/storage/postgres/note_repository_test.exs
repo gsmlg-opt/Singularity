@@ -11,8 +11,8 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
   alias Singularity.Storage.ScopedRepo
 
   setup do
-    %{one: fixture} = Fixtures.two_vaults!()
-    {:ok, fixture: load_ids(fixture)}
+    %{one: fixture, two: other_fixture} = Fixtures.two_vaults!()
+    {:ok, fixture: load_ids(fixture), other_fixture: load_ids(other_fixture)}
   end
 
   test "create atomically persists revision zero, canonical projections, effects, and receipt", %{
@@ -347,6 +347,94 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
 
     assert note_effect_counts(fixture, created.resource_id) == before
     assert canonical_state(fixture, created.resource_id) == canonical_before
+  end
+
+  test "a missing typed base is not found and writes nothing", %{fixture: fixture} do
+    create = create_intent(fixture, "Missing base", "# Missing base")
+
+    assert {:ok, %NoteSaveResult{} = created} =
+             scoped(fixture, &NoteRepository.create(&1, create))
+
+    before = note_effect_counts(fixture, created.resource_id)
+    canonical_before = canonical_state(fixture, created.resource_id)
+
+    save =
+      save_intent(
+        fixture,
+        created.resource_id,
+        Ecto.UUID.generate(),
+        "Missing base save",
+        "# Missing base save"
+      )
+
+    assert {:error, %Error{code: :not_found, retryable?: false}} =
+             scoped(fixture, &NoteRepository.save(&1, save))
+
+    assert note_effect_counts(fixture, created.resource_id) == before
+    assert canonical_state(fixture, created.resource_id) == canonical_before
+  end
+
+  test "a cross-vault typed base is not found and writes nothing", %{
+    fixture: fixture,
+    other_fixture: other_fixture
+  } do
+    target_create = create_intent(fixture, "Cross-vault target", "# Cross-vault target")
+    foreign_create = create_intent(other_fixture, "Foreign base", "# Foreign base")
+
+    assert {:ok, %NoteSaveResult{} = target} =
+             scoped(fixture, &NoteRepository.create(&1, target_create))
+
+    assert {:ok, %NoteSaveResult{} = foreign} =
+             scoped(other_fixture, &NoteRepository.create(&1, foreign_create))
+
+    before = note_effect_counts(fixture, target.resource_id)
+    canonical_before = canonical_state(fixture, target.resource_id)
+
+    save =
+      save_intent(
+        fixture,
+        target.resource_id,
+        foreign.canonical_version_id,
+        "Cross-vault save",
+        "# Cross-vault save"
+      )
+
+    assert {:error, %Error{code: :not_found, retryable?: false}} =
+             scoped(fixture, &NoteRepository.save(&1, save))
+
+    assert note_effect_counts(fixture, target.resource_id) == before
+    assert canonical_state(fixture, target.resource_id) == canonical_before
+  end
+
+  test "a same-vault base owned by another note is invalid and writes nothing", %{
+    fixture: fixture
+  } do
+    target_create = create_intent(fixture, "Target note", "# Target note")
+    other_create = create_intent(fixture, "Other note", "# Other note")
+
+    assert {:ok, %NoteSaveResult{} = target} =
+             scoped(fixture, &NoteRepository.create(&1, target_create))
+
+    assert {:ok, %NoteSaveResult{} = other} =
+             scoped(fixture, &NoteRepository.create(&1, other_create))
+
+    before = note_effect_counts(fixture, target.resource_id)
+    canonical_before = canonical_state(fixture, target.resource_id)
+
+    save =
+      save_intent(
+        fixture,
+        target.resource_id,
+        other.canonical_version_id,
+        "Other note base",
+        "# Other note base"
+      )
+
+    assert {:error, %Error{code: :invalid, retryable?: false}} =
+             scoped(fixture, &NoteRepository.save(&1, save))
+
+    assert note_effect_counts(fixture, target.resource_id) == before
+    assert canonical_state(fixture, target.resource_id) == canonical_before
   end
 
   test "a tombstoned note is not found and writes no receipt or effects", %{fixture: fixture} do
