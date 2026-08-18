@@ -13,7 +13,7 @@ defmodule Singularity.Retrieval.NoteSearchPage do
           next_cursor: String.t() | nil
         }
 
-  @spec new(list(), nil | :done | String.t()) :: {:ok, t()} | {:error, Error.t()}
+  @spec new(list(), :done | String.t()) :: {:ok, t()} | {:error, Error.t()}
   def new(items, cursor) when is_list(items) do
     case normalize_cursor(cursor) do
       {:ok, next_cursor} -> {:ok, %__MODULE__{items: items, next_cursor: next_cursor}}
@@ -23,7 +23,6 @@ defmodule Singularity.Retrieval.NoteSearchPage do
 
   def new(_items, _cursor), do: integrity_failure()
 
-  defp normalize_cursor(nil), do: {:ok, nil}
   defp normalize_cursor(:done), do: {:ok, nil}
 
   defp normalize_cursor(cursor) when is_binary(cursor) do

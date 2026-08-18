@@ -92,7 +92,6 @@ defmodule Singularity.Retrieval.NoteLexicalSearch do
   defp valid_datetime?(value),
     do: match?({:ok, _}, Types.utc_datetime(%{updated_at: value}, :updated_at))
 
-  defp valid_cursor?(nil), do: true
   defp valid_cursor?(:done), do: true
 
   defp valid_cursor?(cursor) when is_binary(cursor) do

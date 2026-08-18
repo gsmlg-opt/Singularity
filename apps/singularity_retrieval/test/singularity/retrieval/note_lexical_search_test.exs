@@ -171,8 +171,6 @@ defmodule Singularity.Retrieval.NoteLexicalSearchTest do
     assert {:ok, %NoteSearchPage{items: [:summary], next_cursor: nil}} =
              NoteSearchPage.new([:summary], :done)
 
-    assert {:ok, %NoteSearchPage{items: [], next_cursor: nil}} = NoteSearchPage.new([], nil)
-
     assert {:ok, %NoteSearchPage{next_cursor: "next-page"}} =
              NoteSearchPage.new([], "next-page")
   end
@@ -180,6 +178,7 @@ defmodule Singularity.Retrieval.NoteLexicalSearchTest do
   test "page rejects malformed or unsafe cursors" do
     for {items, cursor} <- [
           {:not_a_list, :done},
+          {[], nil},
           {[], ""},
           {[], " \t"},
           {[], <<0xFF>>},
@@ -224,6 +223,7 @@ defmodule Singularity.Retrieval.NoteLexicalSearchTest do
           {:ok, %{items: [:not_a_map], next_cursor: :done}},
           {:ok, %{items: [item()]}},
           {:ok, %{items: [item()], next_cursor: :done, unexpected: true}},
+          {:ok, %{items: [item()], next_cursor: nil}},
           {:ok, %{items: [item()], next_cursor: " "}},
           {:ok, %{items: [item()], next_cursor: <<0xFF>>}},
           {:ok, %{items: [item()], next_cursor: :unexpected}}
