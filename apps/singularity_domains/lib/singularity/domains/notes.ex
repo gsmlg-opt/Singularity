@@ -3,6 +3,8 @@ defmodule Singularity.Domains.Notes do
 
   alias Singularity.Core.Error
   alias Singularity.Core.NoteSnapshot
+  alias Singularity.Core.NoteSaveResult
+  alias Singularity.Core.Types
   alias Singularity.Domains.Notes.Command
 
   @spec execute(map(), Command.t(), binary()) :: {:ok, term()} | {:error, Error.t()}
@@ -11,7 +13,7 @@ defmodule Singularity.Domains.Notes do
          {:ok, canonical_command} <- canonical_command(command),
          {:ok, intent} <- intent(canonical_command, fingerprint),
          result <- apply(repository, canonical_command.operation, [repository_context, intent]) do
-      repository_result(result)
+      repository_result(canonical_command.operation, result)
     end
   end
 
@@ -128,13 +130,67 @@ defmodule Singularity.Domains.Notes do
      })}
   end
 
-  defp repository_result({:ok, result}), do: {:ok, result}
+  defp repository_result(operation, {:ok, %NoteSaveResult{} = result})
+       when operation in [:create, :save, :merge] do
+    note_save_result(operation, result)
+  end
 
-  defp repository_result({:error, %Error{} = error}) do
+  defp repository_result(:tombstone, {:ok, result}), do: lifecycle_result(result, :tombstoned)
+  defp repository_result(:restore, {:ok, result}), do: lifecycle_result(result, :restored)
+
+  defp repository_result(_operation, {:error, %Error{} = error}) do
     if valid_error?(error), do: {:error, error}, else: invalid()
   end
 
-  defp repository_result(_result), do: invalid()
+  defp repository_result(_operation, _result), do: invalid()
+
+  defp note_save_result(:create, %NoteSaveResult{outcome: :saved} = result),
+    do: rebuild_note_save_result(result, :saved)
+
+  defp note_save_result(:save, %NoteSaveResult{outcome: outcome} = result)
+       when outcome in [:saved, :conflict],
+       do: rebuild_note_save_result(result, outcome)
+
+  defp note_save_result(:merge, %NoteSaveResult{outcome: :saved} = result),
+    do: rebuild_note_save_result(result, :saved)
+
+  defp note_save_result(_operation, _result), do: invalid()
+
+  defp rebuild_note_save_result(result, :saved) do
+    with {:ok, ^result} <- NoteSaveResult.saved(Map.from_struct(result)) do
+      {:ok, result}
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp rebuild_note_save_result(result, :conflict) do
+    with {:ok, ^result} <- NoteSaveResult.conflict(Map.from_struct(result)) do
+      {:ok, result}
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp lifecycle_result(result, state) when is_map(result) do
+    with true <-
+           Map.keys(result) |> MapSet.new() ==
+             MapSet.new([:resource_id, :canonical_version_id, :state]),
+         {:ok, resource_id} <- Types.canonical_uuid(result, :resource_id),
+         {:ok, canonical_version_id} <- Types.canonical_uuid(result, :canonical_version_id),
+         true <- result.state == state do
+      {:ok,
+       %{
+         resource_id: resource_id,
+         canonical_version_id: canonical_version_id,
+         state: state
+       }}
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp lifecycle_result(_result, _state), do: invalid()
 
   defp valid_error?(%Error{
          code: code,

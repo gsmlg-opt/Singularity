@@ -5,6 +5,7 @@ defmodule Singularity.Domains.NotesTest do
 
   alias Singularity.Core.Error
   alias Singularity.Core.NoteSnapshot
+  alias Singularity.Core.NoteSaveResult
   alias Singularity.Domains.Notes
   alias Singularity.Domains.Notes.Command
 
@@ -20,7 +21,7 @@ defmodule Singularity.Domains.NotesTest do
   @fingerprint :binary.copy(<<7>>, 32)
 
   setup do
-    results = Map.new([:create, :save, :merge, :tombstone, :restore], &{&1, {:ok, &1}})
+    results = happy_results()
     {:ok, repository_context} = Fake.NoteRepository.start_link(self(), results)
 
     {:ok,
@@ -34,7 +35,8 @@ defmodule Singularity.Domains.NotesTest do
     assert {:ok, command} =
              Command.new(:create, create_command(title: "  First  ", markdown: "body\n"))
 
-    assert {:ok, :create} = Notes.execute(adapters, command, @fingerprint)
+    assert {:ok, %NoteSaveResult{outcome: :saved}} =
+             Notes.execute(adapters, command, @fingerprint)
 
     assert_receive {:create,
                     %{
@@ -68,7 +70,8 @@ defmodule Singularity.Domains.NotesTest do
     assert {:ok, command} =
              Command.new(:save, save_command(title: "  Revised  ", markdown: "body\n"))
 
-    assert {:ok, :save} = Notes.execute(adapters, command, @fingerprint)
+    assert {:ok, %NoteSaveResult{outcome: :saved}} =
+             Notes.execute(adapters, command, @fingerprint)
 
     assert_receive {:save,
                     %{
@@ -104,7 +107,9 @@ defmodule Singularity.Domains.NotesTest do
 
   test "merge forwards a two-parent immutable intent", %{adapters: adapters} do
     assert {:ok, command} = Command.new(:merge, merge_command())
-    assert {:ok, :merge} = Notes.execute(adapters, command, @fingerprint)
+
+    assert {:ok, %NoteSaveResult{outcome: :saved}} =
+             Notes.execute(adapters, command, @fingerprint)
 
     assert_receive {:merge,
                     %{
@@ -142,7 +147,7 @@ defmodule Singularity.Domains.NotesTest do
 
   test "tombstone forwards no snapshot or unneeded nil keys", %{adapters: adapters} do
     assert {:ok, command} = Command.new(:tombstone, tombstone_command())
-    assert {:ok, :tombstone} = Notes.execute(adapters, command, @fingerprint)
+    assert {:ok, %{state: :tombstoned}} = Notes.execute(adapters, command, @fingerprint)
 
     assert_receive {:tombstone,
                     %{
@@ -171,7 +176,7 @@ defmodule Singularity.Domains.NotesTest do
 
   test "restore forwards no snapshot or unneeded nil keys", %{adapters: adapters} do
     assert {:ok, command} = Command.new(:restore, restore_command())
-    assert {:ok, :restore} = Notes.execute(adapters, command, @fingerprint)
+    assert {:ok, %{state: :restored}} = Notes.execute(adapters, command, @fingerprint)
 
     assert_receive {:restore,
                     %{
@@ -323,6 +328,103 @@ defmodule Singularity.Domains.NotesTest do
     end
   end
 
+  test "execute rejects malformed repository successes for every operation" do
+    malformed_results = %{
+      create:
+        {:ok,
+         %NoteSaveResult{
+           outcome: :saved,
+           resource_id: @resource_id,
+           canonical_version_id: @expected_current_version_id,
+           submitted_version_id: @base_version_id,
+           conflict_id: nil
+         }},
+      save:
+        {:ok,
+         %NoteSaveResult{
+           outcome: :conflict,
+           resource_id: @resource_id,
+           canonical_version_id: @expected_current_version_id,
+           submitted_version_id: @base_version_id,
+           conflict_id: nil
+         }},
+      merge:
+        {:ok,
+         %NoteSaveResult{
+           outcome: :conflict,
+           resource_id: @resource_id,
+           canonical_version_id: @expected_current_version_id,
+           submitted_version_id: @competing_version_id,
+           conflict_id: @conflict_id
+         }},
+      tombstone:
+        {:ok,
+         %{
+           resource_id: @resource_id,
+           canonical_version_id: @expected_current_version_id,
+           state: :restored
+         }},
+      restore:
+        {:ok,
+         %{
+           resource_id: @resource_id,
+           canonical_version_id: "INVALID",
+           state: :restored
+         }}
+    }
+
+    for {operation, result} <- malformed_results do
+      {:ok, repository_context} = Fake.NoteRepository.start_link(self(), %{operation => result})
+      adapters = %{repository: Fake.NoteRepository, repository_context: repository_context}
+
+      assert {:error, %{code: :invalid}} =
+               Notes.execute(adapters, valid_command(operation), @fingerprint)
+    end
+  end
+
+  test "command preparation canonicalizes string-only and identical duplicate keys", %{
+    adapters: adapters
+  } do
+    inputs = [
+      {:save, string_keys(save_command(title: "  Revised  ", markdown: "body\n")),
+       {:note_mutation_v1, :save, @mutation_id, @resource_id, @base_version_id, "Revised",
+        "body\n"}},
+      {:restore, duplicate_keys(restore_command()),
+       {:note_mutation_v1, :restore, @mutation_id, @resource_id}}
+    ]
+
+    for {operation, raw, expected_fingerprint_term} <- inputs do
+      assert {:ok, command} = Command.new(operation, raw)
+      assert ^expected_fingerprint_term = Command.fingerprint_term(command)
+      assert {:ok, _result} = Notes.execute(adapters, command, @fingerprint)
+      assert_receive {^operation, intent}
+      assert intent.request_fingerprint == @fingerprint
+
+      case operation do
+        :save ->
+          assert %{
+                   resource_id: @resource_id,
+                   base_version_id: @base_version_id,
+                   snapshot: %NoteSnapshot{
+                     title: "Revised",
+                     markdown: "body\n",
+                     parent_version_id: @base_version_id,
+                     merge_parent_version_id: nil
+                   }
+                 } = intent
+
+        :restore ->
+          assert %{
+                   resource_id: @resource_id,
+                   principal_id: @principal_id,
+                   vault_id: @vault_id,
+                   classification: :private,
+                   correlation_id: @correlation_id
+                 } = intent
+      end
+    end
+  end
+
   test "execute rejects handcrafted invalid commands without dispatch", %{adapters: adapters} do
     assert {:ok, save} = Command.new(:save, save_command())
     assert {:ok, merge} = Command.new(:merge, merge_command())
@@ -339,8 +441,16 @@ defmodule Singularity.Domains.NotesTest do
 
     for command <- invalid_commands do
       assert {:error, %{code: :invalid}} = Notes.execute(adapters, command, @fingerprint)
-      refute_note_dispatch()
     end
+
+    refute Enum.any?(elem(Process.info(self(), :messages), 1), fn
+             {operation, _intent}
+             when operation in [:create, :save, :merge, :tombstone, :restore] ->
+               true
+
+             _message ->
+               false
+           end)
   end
 
   defp create_command(overrides \\ []) do
@@ -411,11 +521,45 @@ defmodule Singularity.Domains.NotesTest do
 
   defp add_operation_fields(command, :restore), do: Map.put(command, :resource_id, @resource_id)
 
-  defp refute_note_dispatch do
-    refute_receive {:create, _intent}
-    refute_receive {:save, _intent}
-    refute_receive {:merge, _intent}
-    refute_receive {:tombstone, _intent}
-    refute_receive {:restore, _intent}
+  defp happy_results do
+    %{
+      create: {:ok, saved_result()},
+      save: {:ok, saved_result()},
+      merge: {:ok, saved_result()},
+      tombstone: {:ok, lifecycle_result(:tombstoned)},
+      restore: {:ok, lifecycle_result(:restored)}
+    }
+  end
+
+  defp valid_command(operation) do
+    {:ok, command} = Command.new(operation, command(operation))
+    command
+  end
+
+  defp saved_result do
+    {:ok, result} =
+      NoteSaveResult.saved(%{
+        resource_id: @resource_id,
+        canonical_version_id: @expected_current_version_id,
+        submitted_version_id: @expected_current_version_id
+      })
+
+    result
+  end
+
+  defp lifecycle_result(state) do
+    %{
+      resource_id: @resource_id,
+      canonical_version_id: @expected_current_version_id,
+      state: state
+    }
+  end
+
+  defp string_keys(raw) do
+    Map.new(raw, fn {key, value} -> {Atom.to_string(key), value} end)
+  end
+
+  defp duplicate_keys(raw) do
+    Enum.reduce(raw, raw, fn {key, value}, acc -> Map.put(acc, Atom.to_string(key), value) end)
   end
 end
