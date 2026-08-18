@@ -465,6 +465,19 @@ Authorization requirements are:
 Classification is fixed by server composition. No client request includes a
 classification selector.
 
+The request-authorization requirement accepts exactly one of:
+
+```text
+required_capability: "one.name"
+required_capabilities: ["first.name", "second.name"]
+```
+
+The plural form is a non-empty, sorted, duplicate-free conjunction; every named
+capability must be active. Existing asset, vault, backup, and job requirements
+retain the singular field unchanged. Note export uses
+`required_capabilities: ["note.export", "note.read"]`. Supplying both fields or
+a malformed list is `invalid`.
+
 ### 6.5 Runtime API and DTOs
 
 `Singularity.Runtime.Api` remains the only application-facing facade. It adds
@@ -516,6 +529,27 @@ snippets.
 opaque cursor. It is ordered by canonical deletion time and never queries the
 lexical projection.
 
+`NoteHistoryPage` contains `NoteVersionSummary` items and an opaque
+`next_cursor`.
+
+`NoteConflictDetail` contains the conflict ID, base and observed-canonical
+references, the current canonical `NoteVersion`, and the competing
+`NoteVersion`. Merge always names the returned current canonical version rather
+than assuming the observed canonical reference is still current.
+
+`NoteSaveResult` contains:
+
+```text
+outcome                  `saved | conflict`
+canonical                Note
+submitted_version_id     uuid
+conflict_id              uuid, present only for `conflict`
+```
+
+For `saved`, `submitted_version_id` equals the canonical version and
+`conflict_id` is absent. For `conflict`, canonical remains the accepted head and
+the submitted version is the preserved competitor.
+
 `NoteExport` contains:
 
 ```text
@@ -526,8 +560,9 @@ media_type
 markdown
 ```
 
-A Save returns `{:ok, SaveResult}` with outcome `saved` or `conflict`. A stale
-Save is therefore a successful persistence result, not `Core.Error(:conflict)`.
+A Save returns `{:ok, NoteSaveResult}` with outcome `saved` or `conflict`. A
+stale Save is therefore a successful persistence result, not
+`Core.Error(:conflict)`.
 
 ## 7. Mutation semantics
 
@@ -1037,6 +1072,8 @@ failures.
 
 - Authenticated, locked/unlocked, capability, clearance, and cross-vault
   matrices for every public operation.
+- Conjunctive `required_capabilities` validation and authorization while every
+  existing singular-capability flow remains unchanged.
 - Stable error mapping and stale Save success semantics.
 - Stale merge/delete no-mutation behavior.
 - Exact export authorization and bytes.
@@ -1062,6 +1099,8 @@ failures.
 
 - Route and authentication contract.
 - Exact initial-props and reply decoders.
+- Exact Search, Trash, History, Save-result, conflict-detail, and export DTO
+  shapes.
 - Explicit Save and dirty-navigation confirmation.
 - Stale async reply rejection.
 - Conflict and merge mode.
