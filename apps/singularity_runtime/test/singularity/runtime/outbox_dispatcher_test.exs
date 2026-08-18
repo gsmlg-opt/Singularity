@@ -216,6 +216,70 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     refute_receive {:runner_submit, _envelope, _runner_id}
   end
 
+  test "all note lifecycle events become one identifier-only projection job", %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+    resource_id = load_uuid(fixture.resource_id)
+
+    event_types = [
+      "note.current_changed",
+      "note.conflict_created",
+      "note.conflict_resolved",
+      "note.deleted",
+      "note.restored"
+    ]
+
+    for {event_type, index} <- Enum.with_index(event_types, 1) do
+      event = Fixtures.outbox_event!(fixture)
+
+      suffix =
+        if event_type in ["note.deleted", "note.restored"],
+          do: Ecto.UUID.generate(),
+          else: Integer.to_string(index)
+
+      owner_query(
+        """
+        UPDATE core.outbox_events
+        SET event_type = $1,
+            idempotency_key = $2,
+            required_capability = 'note.write',
+            expected_entity_revision = $3,
+            payload = $4::text::jsonb
+        WHERE id = $5
+        """,
+        [
+          event_type,
+          "#{String.replace(event_type, ".", "-")}:#{resource_id}:#{suffix}",
+          index,
+          JSON.encode!(%{
+            "resource_id" => resource_id,
+            "conflict_id" => Ecto.UUID.generate(),
+            "markdown" => "must-not-enter-envelope"
+          }),
+          event.id
+        ]
+      )
+    end
+
+    assert {:ok, %{submitted: 5, skipped: 0, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    envelopes =
+      for _index <- 1..5 do
+        assert_receive {:runner_submit, envelope, _runner_id}
+        envelope
+      end
+
+    assert Enum.all?(envelopes, fn envelope ->
+             envelope.job_type == "note_projection" and
+               envelope.required_capability == "note.write" and
+               envelope.classification == :private and
+               envelope.payload == %{"resource_id" => resource_id}
+           end)
+
+    refute inspect(envelopes, limit: :infinity, printable_limit: :infinity) =~
+             "must-not-enter-envelope"
+  end
+
   test "does not advertise an unimplemented maintenance job", %{runner: runner} do
     fixture = Fixtures.two_vaults!().one
     event = Fixtures.outbox_event!(fixture)
@@ -225,6 +289,29 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
       UPDATE core.outbox_events
       SET event_type = 'maintenance.requested',
           required_capability = 'maintenance.run',
+          payload = '{}'::jsonb
+      WHERE id = $1
+      """,
+      [event.id]
+    )
+
+    assert {:ok, %{submitted: 0, skipped: 0, failed: 1}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    refute_receive {:runner_submit, _envelope, _runner_id}
+  end
+
+  test "malformed note lifecycle payload fails one event without crashing the batch", %{
+    runner: runner
+  } do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+
+    owner_query(
+      """
+      UPDATE core.outbox_events
+      SET event_type = 'note.current_changed',
+          required_capability = 'note.write',
           payload = '{}'::jsonb
       WHERE id = $1
       """,

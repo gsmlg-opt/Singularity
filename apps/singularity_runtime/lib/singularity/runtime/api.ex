@@ -20,6 +20,7 @@ defmodule Singularity.Runtime.Api do
   """
 
   alias Singularity.Core.Error
+  alias Singularity.Domains.Notes
   alias Singularity.Retrieval.AssetMetadataSearch
   alias Singularity.Retrieval.NoteLexicalSearch
   alias Singularity.Runtime.Api.UploadHandle
@@ -46,9 +47,15 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Login
   alias Singularity.Runtime.Logout
   alias Singularity.Runtime.Notes.DTO, as: NotesDTO
+  alias Singularity.Runtime.Notes.Create, as: NoteCreate
+  alias Singularity.Runtime.Notes.Delete, as: NoteDelete
   alias Singularity.Runtime.Notes.Export, as: NoteExportReader
   alias Singularity.Runtime.Notes.Get, as: NoteGet
   alias Singularity.Runtime.Notes.History, as: NoteHistory
+  alias Singularity.Runtime.Notes.Merge, as: NoteMerge
+  alias Singularity.Runtime.Notes.MutationFingerprint
+  alias Singularity.Runtime.Notes.Restore, as: NoteRestore
+  alias Singularity.Runtime.Notes.Save, as: NoteSave
   alias Singularity.Runtime.Notes.Search, as: NoteSearch
   alias Singularity.Runtime.Notes.Trash, as: NoteTrash
   alias Singularity.Runtime.OperationScope
@@ -394,6 +401,110 @@ defmodule Singularity.Runtime.Api do
 
   def export_note(_config, _session, _resource_id), do: {:error, :invalid}
 
+  @spec create_note(Session.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.Note.t()} | {:error, atom()}
+  def create_note(session, attrs),
+    do: with_production(&create_note(&1, session, attrs))
+
+  @doc false
+  def create_note(config, %Session{} = session, attrs) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, note} <- invoke(config, :create_note, [context, attrs]),
+         :ok <- note_value_scope(note, context.vault_id),
+         {:ok, dto} <- NotesDTO.note(note) do
+      {:ok, dto}
+    else
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def create_note(_config, _session, _attrs), do: {:error, :invalid}
+
+  @spec save_note(Session.t(), String.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.NoteSaveResult.t()} | {:error, atom()}
+  def save_note(session, resource_id, attrs),
+    do: with_production(&save_note(&1, session, resource_id, attrs))
+
+  @doc false
+  def save_note(config, %Session{} = session, resource_id, attrs) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, result} <- invoke(config, :save_note, [context, resource_id, attrs]),
+         :ok <- note_save_value_scope(result, context.vault_id),
+         {:ok, dto} <- NotesDTO.save_result(result),
+         :ok <- exact_identity(dto.canonical.resource_id, resource_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def save_note(_config, _session, _resource_id, _attrs), do: {:error, :invalid}
+
+  @spec merge_note(Session.t(), String.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.NoteSaveResult.t()} | {:error, atom()}
+  def merge_note(session, resource_id, attrs),
+    do: with_production(&merge_note(&1, session, resource_id, attrs))
+
+  @doc false
+  def merge_note(config, %Session{} = session, resource_id, attrs) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, result} <- invoke(config, :merge_note, [context, resource_id, attrs]),
+         :ok <- note_save_value_scope(result, context.vault_id),
+         {:ok, dto} <- NotesDTO.save_result(result),
+         :ok <- exact_identity(dto.canonical.resource_id, resource_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def merge_note(_config, _session, _resource_id, _attrs), do: {:error, :invalid}
+
+  @spec delete_note(Session.t(), String.t(), map() | keyword()) ::
+          {:ok, true} | {:error, atom()}
+  def delete_note(session, resource_id, attrs),
+    do: with_production(&delete_note(&1, session, resource_id, attrs))
+
+  @doc false
+  def delete_note(config, %Session{} = session, resource_id, attrs) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, true} <- invoke(config, :delete_note, [context, resource_id, attrs]) do
+      {:ok, true}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def delete_note(_config, _session, _resource_id, _attrs), do: {:error, :invalid}
+
+  @spec restore_note(Session.t(), String.t(), map() | keyword()) ::
+          {:ok, Singularity.Runtime.DTO.Note.t()} | {:error, atom()}
+  def restore_note(session, resource_id, attrs),
+    do: with_production(&restore_note(&1, session, resource_id, attrs))
+
+  @doc false
+  def restore_note(config, %Session{} = session, resource_id, attrs) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, note} <- invoke(config, :restore_note, [context, resource_id, attrs]),
+         :ok <- note_value_scope(note, context.vault_id),
+         {:ok, dto} <- NotesDTO.note(note),
+         :ok <- exact_identity(dto.resource_id, resource_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  def restore_note(_config, _session, _resource_id, _attrs), do: {:error, :invalid}
+
   @spec subscribe_assets(Session.t()) :: :ok | {:error, atom()}
   def subscribe_assets(session),
     do: with_production(&subscribe_assets(&1, session))
@@ -727,6 +838,12 @@ defmodule Singularity.Runtime.Api do
       create_upload_grant: fn session, attrs, csrf_token ->
         CreateUploadGrant.run(runtime, session, attrs, csrf_token)
       end,
+      create_note: fn session, attrs ->
+        NoteCreate.run(runtime, session, attrs)
+      end,
+      delete_note: fn session, resource_id, attrs ->
+        NoteDelete.run(runtime, session, resource_id, attrs)
+      end,
       delete_asset: fn session, asset_id, state_revision ->
         Delete.run(runtime, session, asset_id, state_revision)
       end,
@@ -768,6 +885,9 @@ defmodule Singularity.Runtime.Api do
       note_history: fn session, resource_id, params ->
         NoteHistory.run(runtime, session, resource_id, params)
       end,
+      merge_note: fn session, resource_id, attrs ->
+        NoteMerge.run(runtime, session, resource_id, attrs)
+      end,
       publish_asset: &AssetEvents.publish/2,
       request_backup: fn session, passphrase ->
         relative_destination = "web/" <> Ecto.UUID.generate() <> ".bundle"
@@ -785,6 +905,12 @@ defmodule Singularity.Runtime.Api do
       resolve_session: &ResolveSession.run(resolve_session_adapters(), &1),
       retry_asset: fn session, asset_id, state_revision ->
         Retry.run(runtime, session, asset_id, state_revision)
+      end,
+      restore_note: fn session, resource_id, attrs ->
+        NoteRestore.run(runtime, session, resource_id, attrs)
+      end,
+      save_note: fn session, resource_id, attrs ->
+        NoteSave.run(runtime, session, resource_id, attrs)
       end,
       search_notes: fn session, params ->
         NoteSearch.run(runtime, session, params)
@@ -894,6 +1020,10 @@ defmodule Singularity.Runtime.Api do
       note_repository: NoteRepository,
       note_search: NoteLexicalSearch,
       note_search_store: NoteSearchStore,
+      notes: Notes,
+      mutation_fingerprint: MutationFingerprint,
+      fingerprint_secret:
+        Application.fetch_env!(:singularity_runtime, :mutation_fingerprint_secret),
       operation_scope: OperationScope,
       object_lock: ObjectLock,
       request_repo: RequestRepo,
@@ -1558,6 +1688,17 @@ defmodule Singularity.Runtime.Api do
   defp note_version_scope(%Singularity.Runtime.DTO.NoteVersion{}, _vault_id), do: :ok
 
   defp note_version_scope(_version, _vault_id),
+    do: {:error, Error.new(:integrity_failure)}
+
+  defp note_save_value_scope(
+         %{canonical: %{vault_id: vault_id, classification: :private}},
+         vault_id
+       ),
+       do: :ok
+
+  defp note_save_value_scope(%Singularity.Runtime.DTO.NoteSaveResult{}, _vault_id), do: :ok
+
+  defp note_save_value_scope(_result, _vault_id),
     do: {:error, Error.new(:integrity_failure)}
 
   defp note_page_scope(%Singularity.Runtime.DTO.NoteSearchPage{}, _vault_id, false), do: :ok

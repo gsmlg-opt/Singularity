@@ -27,6 +27,8 @@ defmodule Singularity.Runtime.ApplicationTest do
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.BackupRepository
   alias Singularity.Storage.Postgres.CustodyRepository
+  alias Singularity.Storage.Postgres.NoteProjectionReconciler
+  alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.WorkerRepo
 
   test "pure tests opt out of every infrastructure child" do
@@ -223,6 +225,8 @@ defmodule Singularity.Runtime.ApplicationTest do
              bundle_writer: BundleWriter,
              destination: {LocalDestination, %{backup_root: backup_root}},
              exporter: Exporter,
+             note_projection: NoteProjectionReconciler,
+             note_repository: NoteRepository,
              object_lock: ObjectLock,
              object_storage: {Exporter, {LocalFilesystemAdapter, %{root: storage_root}}},
              storage: {LocalFilesystemAdapter, %{root: storage_root}}
@@ -236,7 +240,7 @@ defmodule Singularity.Runtime.ApplicationTest do
              JobDispatcher.handle(JobDispatcher.dependencies(), :unregistered)
   end
 
-  test "runtime handler dispatches only the exact six implemented durable job types" do
+  test "runtime handler dispatches only the exact seven implemented durable job types" do
     for job_type <- [
           "asset_verify",
           "asset_finalize",
@@ -249,6 +253,27 @@ defmodule Singularity.Runtime.ApplicationTest do
                JobDispatcher.handle(%{}, %{job_type: job_type})
     end
 
+    assert {:ok, note_projection} =
+             Singularity.Core.JobEnvelope.new(%{
+               version: 1,
+               job_id: "00000000-0000-4000-8000-000000001911",
+               job_type: "note_projection",
+               idempotency_key: "note-current-changed:00000000-0000-4000-8000-000000001912:1",
+               vault_id: "00000000-0000-4000-8000-000000001913",
+               principal_id: "00000000-0000-4000-8000-000000001914",
+               required_capability: "note.write",
+               principal_authorization_epoch: 0,
+               vault_authorization_epoch: 0,
+               classification: :private,
+               correlation_id: "00000000-0000-4000-8000-000000001915",
+               causation_id: "00000000-0000-4000-8000-000000001916",
+               expected_entity_revision: 1,
+               attempt: 0,
+               payload: %{"resource_id" => "00000000-0000-4000-8000-000000001912"}
+             })
+
+    assert {:error, %{code: :invalid}} = JobDispatcher.handle(%{}, note_projection)
+
     for unregistered_job_type <- [
           "integrity_audit",
           "metadata_extract",
@@ -258,6 +283,11 @@ defmodule Singularity.Runtime.ApplicationTest do
       assert {:error, %{code: :job_failed}} =
                JobDispatcher.handle(%{}, %{job_type: unregistered_job_type})
     end
+  end
+
+  test "Oban composition gives the closed note projection queue two workers" do
+    oban = Application.fetch_env!(:singularity_storage, Oban)
+    assert Keyword.fetch!(oban, :queues)[:note_projection] == 2
   end
 
   defp valid_composition do

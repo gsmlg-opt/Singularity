@@ -32,6 +32,12 @@ defmodule Singularity.Runtime.SecretCanaryTest do
   @domain_key "CANARY_DOMAIN_KEY_a477_123456789"
   @domain_dedup_key "CANARY_DOMAIN_DEDUP_KEY_b579_123"
   @object_key "CANARY_OBJECT_KEY_f862_123456789"
+  @mutation_fingerprint_secret "CANARY_MUTATION_FINGERPRINT_SECRET_f918"
+  @note_title "CANARY_NOTE_TITLE_b101"
+  @markdown "CANARY_MARKDOWN_b102"
+  @raw_search_query "CANARY_RAW_SEARCH_QUERY_b103"
+  @rendered_html "CANARY_RENDERED_HTML_b104"
+  @export_bytes "CANARY_EXPORT_BYTES_b105"
   @log_correlation_id "00000000-0000-4000-8000-000000001605"
   @canaries %{
     password: @password,
@@ -43,7 +49,13 @@ defmodule Singularity.Runtime.SecretCanaryTest do
     domain_dedup_key: @domain_dedup_key,
     dek: "CANARY_DEK_f862",
     object_key: @object_key,
-    backup_passphrase: @backup_passphrase
+    backup_passphrase: @backup_passphrase,
+    mutation_fingerprint_secret: @mutation_fingerprint_secret,
+    note_title: @note_title,
+    markdown: @markdown,
+    raw_search_query: @raw_search_query,
+    rendered_html: @rendered_html,
+    export_bytes: @export_bytes
   }
 
   defmodule Canary do

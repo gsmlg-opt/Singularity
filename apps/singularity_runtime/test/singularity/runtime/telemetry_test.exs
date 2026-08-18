@@ -151,11 +151,27 @@ defmodule Singularity.Runtime.Observability.TelemetryTest do
              Telemetry.execute(
                [:contract, :executed],
                %{count: 1},
-               %{token: @secret, outcome: :ok}
+               %{
+                 token: @secret,
+                 title: @secret,
+                 note_title: @secret,
+                 markdown: @secret,
+                 raw_search_query: @secret,
+                 rendered_html: @secret,
+                 export_bytes: @secret,
+                 mutation_fingerprint_secret: @secret,
+                 outcome: :ok
+               }
              )
 
     assert_receive {:telemetry, ^event, %{count: 1}, metadata}
     assert metadata.outcome == :ok
+
+    assert Enum.all?(
+             ~w[title note_title markdown raw_search_query rendered_html export_bytes mutation_fingerprint_secret]a,
+             &(Map.fetch!(metadata, &1) == "[REDACTED]")
+           )
+
     refute inspect(metadata) =~ @secret
 
     assert :ok =

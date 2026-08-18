@@ -34,6 +34,8 @@ defmodule Singularity.Runtime.Observability.Telemetry do
     :asset_cleanup => :asset_cleanup,
     "object_cleanup" => :object_cleanup,
     :object_cleanup => :object_cleanup,
+    "note_projection" => :note_projection,
+    :note_projection => :note_projection,
     "backup" => :backup,
     :backup => :backup
   }
@@ -53,6 +55,13 @@ defmodule Singularity.Runtime.Observability.Telemetry do
                     :authorization,
                     :cookie,
                     :path,
+                    :mutation_fingerprint_secret,
+                    :title,
+                    :note_title,
+                    :markdown,
+                    :raw_search_query,
+                    :rendered_html,
+                    :export_bytes,
                     "password",
                     "passphrase",
                     "token",
@@ -67,7 +76,14 @@ defmodule Singularity.Runtime.Observability.Telemetry do
                     "plaintext",
                     "authorization",
                     "cookie",
-                    "path"
+                    "path",
+                    "mutation_fingerprint_secret",
+                    "title",
+                    "note_title",
+                    "markdown",
+                    "raw_search_query",
+                    "rendered_html",
+                    "export_bytes"
                   ])
 
   @type event_suffix :: [atom()]

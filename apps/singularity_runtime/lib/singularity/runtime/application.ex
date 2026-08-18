@@ -22,6 +22,8 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.BackupRepository
+  alias Singularity.Storage.Postgres.NoteProjectionReconciler
+  alias Singularity.Storage.Postgres.NoteRepository
 
   @impl true
   def start(_type, _args) do
@@ -111,6 +113,8 @@ defmodule Singularity.Runtime.Application do
         {LocalDestination,
          %{backup_root: Application.fetch_env!(:singularity_storage, :backup_root)}},
       exporter: Exporter,
+      note_projection: NoteProjectionReconciler,
+      note_repository: NoteRepository,
       object_lock: ObjectLock,
       object_storage: {Exporter, storage},
       storage: storage

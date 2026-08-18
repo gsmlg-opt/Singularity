@@ -13,10 +13,12 @@ defmodule Singularity.Runtime.Observability.Redactor do
     password passphrase token csrf audit_fingerprint_secret vault_key
     domain_key domain_dedup_key dek plaintext authorization cookie path key_material
     wrapped_dek object_dek object_key object_keys raw_key wrapping_key recovery_key secret
+    mutation_fingerprint_secret title note_title markdown raw_search_query rendered_html export_bytes
   ]
   @redacted_suffixes ~w[
     password passphrase token csrf secret vault_key domain_key dek plaintext
     authorization cookie path key_material object_key object_keys
+    title markdown raw_search_query rendered_html export_bytes
   ]
   @replacement "[REDACTED]"
 

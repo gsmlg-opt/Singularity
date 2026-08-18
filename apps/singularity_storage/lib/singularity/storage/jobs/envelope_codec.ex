@@ -12,7 +12,7 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
     "asset_metadata" => {"asset.read", "asset-metadata"},
     "asset_cleanup" => {"asset.write", "asset-cleanup"}
   }
-  @job_types Map.keys(@asset_jobs) ++ ~w[object_cleanup backup]
+  @job_types Map.keys(@asset_jobs) ++ ~w[object_cleanup note_projection backup]
 
   @spec encode(JobEnvelope.t()) :: {:ok, map()} | {:error, Error.t()}
   def encode(%JobEnvelope{} = envelope) do
@@ -154,6 +154,19 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
   end
 
   defp safe_job_contract?(%JobEnvelope{
+         job_type: "note_projection",
+         required_capability: "note.write",
+         classification: :private,
+         idempotency_key: idempotency_key,
+         expected_entity_revision: revision,
+         payload: %{"resource_id" => resource_id} = payload
+       })
+       when map_size(payload) == 1 do
+    canonical_uuid?(resource_id) and
+      safe_note_idempotency?(idempotency_key, resource_id, revision)
+  end
+
+  defp safe_job_contract?(%JobEnvelope{
          job_type: "backup",
          required_capability: "backup.create",
          idempotency_key: idempotency_key,
@@ -165,6 +178,21 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
   end
 
   defp safe_job_contract?(_envelope), do: false
+
+  defp safe_note_idempotency?(key, resource_id, revision) do
+    case String.split(key, ":") do
+      [prefix, ^resource_id, suffix]
+      when prefix in ["note-current-changed", "note-conflict-created", "note-conflict-resolved"] ->
+        integer_text?(suffix, revision)
+
+      [prefix, ^resource_id, mutation_id]
+      when prefix in ["note-deleted", "note-restored"] ->
+        canonical_uuid?(mutation_id)
+
+      _invalid ->
+        false
+    end
+  end
 
   defp safe_asset_idempotency?(job_type, key, prefix, asset_id, revision) do
     key == "#{prefix}:#{asset_id}:#{revision}" or

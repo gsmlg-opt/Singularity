@@ -153,6 +153,7 @@ config :singularity_storage, Oban,
     asset_metadata: 2,
     asset_cleanup: 1,
     object_cleanup: 1,
+    note_projection: 2,
     backup: 1,
     maintenance: 1
   ]

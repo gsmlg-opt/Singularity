@@ -15,6 +15,7 @@ defmodule Singularity.Runtime.JobDispatcher do
   alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
+  alias Singularity.Runtime.Notes.Projection
   alias Singularity.Storage.Jobs.Progress
   alias Singularity.Storage.Jobs.ObanAdapter
 
@@ -47,6 +48,9 @@ defmodule Singularity.Runtime.JobDispatcher do
 
   def handle(context, %{job_type: "backup"} = envelope),
     do: BackupVault.run(context, envelope)
+
+  def handle(context, %{job_type: "note_projection"} = envelope),
+    do: Projection.run(context, envelope)
 
   def handle(_context, _envelope), do: {:error, Error.new(:job_failed)}
 

@@ -126,6 +126,8 @@ defmodule Singularity.Storage.OutboxObanTest do
       {"asset_cleanup", "asset.write", %{"asset_id" => asset_id}, "asset-cleanup:#{asset_id}:7"},
       {"object_cleanup", "object.cleanup", %{"asset_id" => asset_id, "object_id" => object_id},
        "object-cleanup:#{object_id}:7"},
+      {"note_projection", "note.write", %{"resource_id" => asset_id},
+       "note-current-changed:#{asset_id}:7"},
       {"backup", "backup.create", %{"pending_manifest_id" => manifest_id},
        "backup:#{manifest_id}"}
     ]
@@ -140,6 +142,33 @@ defmodule Singularity.Storage.OutboxObanTest do
 
       assert {:ok, %JobEnvelope{job_type: ^job_type, payload: ^payload}} =
                EnvelopeCodec.decode(encoded)
+
+      assert EnvelopeCodec.known_job_type?(job_type)
+    end
+  end
+
+  test "note projection accepts only one canonical resource id and private write authority" do
+    resource_id = uuid(7)
+
+    valid =
+      encoded_envelope()
+      |> Map.put("job_type", "note_projection")
+      |> Map.put("required_capability", "note.write")
+      |> Map.put("payload", %{"resource_id" => resource_id})
+      |> Map.put("idempotency_key", "note-restored:#{resource_id}:#{uuid(8)}")
+
+    assert {:ok, %JobEnvelope{payload: %{"resource_id" => ^resource_id}}} =
+             EnvelopeCodec.decode(valid)
+
+    for invalid <- [
+          put_in(valid, ["payload"], %{"resource_id" => resource_id, "title" => @secret}),
+          put_in(valid, ["payload"], %{"resource_id" => "bad"}),
+          Map.put(valid, "required_capability", "note.read"),
+          Map.put(valid, "classification", "sensitive"),
+          Map.put(valid, "idempotency_key", "note-current-changed:#{resource_id}:#{@secret}")
+        ] do
+      assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
+      refute inspect(EnvelopeCodec.decode(invalid)) =~ @secret
     end
   end
 

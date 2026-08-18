@@ -15,6 +15,11 @@ defmodule Singularity.Runtime.OutboxDispatcher do
     "asset.metadata_requested" => "asset_metadata",
     "asset.cleanup_requested" => "asset_cleanup",
     "object.cleanup_requested" => "object_cleanup",
+    "note.current_changed" => "note_projection",
+    "note.conflict_created" => "note_projection",
+    "note.conflict_resolved" => "note_projection",
+    "note.deleted" => "note_projection",
+    "note.restored" => "note_projection",
     "backup.requested" => "backup"
   }
 
@@ -108,7 +113,8 @@ defmodule Singularity.Runtime.OutboxDispatcher do
   end
 
   defp envelope(%OutboxEvent{} = event) do
-    with {:ok, job_type} <- Map.fetch(@event_jobs, event.event_type) do
+    with {:ok, job_type} <- Map.fetch(@event_jobs, event.event_type),
+         {:ok, payload} <- envelope_payload(job_type, event.payload) do
       JobEnvelope.new(%{
         version: 1,
         job_id: event.outbox_event_id,
@@ -124,12 +130,21 @@ defmodule Singularity.Runtime.OutboxDispatcher do
         causation_id: event.causation_id,
         expected_entity_revision: event.expected_entity_revision,
         attempt: 0,
-        payload: event.payload
+        payload: payload
       })
     else
       :error -> {:error, Error.new(:job_failed)}
+      {:error, %Error{}} = error -> error
     end
   end
+
+  defp envelope_payload("note_projection", %{"resource_id" => resource_id})
+       when is_binary(resource_id),
+       do: {:ok, %{"resource_id" => resource_id}}
+
+  defp envelope_payload("note_projection", _payload), do: {:error, Error.new(:job_failed)}
+  defp envelope_payload(_job_type, payload) when is_map(payload), do: {:ok, payload}
+  defp envelope_payload(_job_type, _payload), do: {:error, Error.new(:job_failed)}
 
   defp with_dispatch_shared_lock(repo, vault_id, fun) do
     key = "singularity:vault:" <> uuid!(vault_id)
@@ -223,6 +238,17 @@ defmodule Singularity.Runtime.OutboxDispatcher do
   defp job_type_label("asset.metadata_requested"), do: :asset_metadata
   defp job_type_label("asset.cleanup_requested"), do: :asset_cleanup
   defp job_type_label("object.cleanup_requested"), do: :object_cleanup
+
+  defp job_type_label(event_type)
+       when event_type in [
+              "note.current_changed",
+              "note.conflict_created",
+              "note.conflict_resolved",
+              "note.deleted",
+              "note.restored"
+            ],
+       do: :note_projection
+
   defp job_type_label("backup.requested"), do: :backup
   defp job_type_label(_event_type), do: :unknown
 end

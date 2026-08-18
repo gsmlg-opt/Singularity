@@ -6,6 +6,7 @@ defmodule Singularity.Runtime.JobRestartTest do
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.Jobs.GenericWorker
   alias Singularity.Storage.Jobs.ObanAdapter
+  alias Singularity.Storage.Jobs.EnvelopeCodec
   alias Singularity.Runtime.OutboxDispatcher
 
   setup do
@@ -127,6 +128,33 @@ defmodule Singularity.Runtime.JobRestartTest do
              )
   end
 
+  test "note projection envelope remains executable across runtime restart" do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+    {envelope, encoded} = note_projection_envelope(fixture, event)
+
+    assert {:ok, runner_job_id} = ObanAdapter.submit(%{}, envelope)
+
+    assert %{rows: [["note_projection"]]} =
+             query!(
+               WorkerRepo,
+               "SELECT queue FROM jobs.oban_jobs WHERE id = $1",
+               [String.to_integer(runner_job_id)]
+             )
+
+    assert :ok = Application.stop(:singularity_runtime)
+    assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+    assert Oban.whereis(Singularity.Oban)
+
+    assert Keyword.fetch!(Application.fetch_env!(:singularity_storage, Oban), :queues)[
+             :note_projection
+           ] == 2
+
+    assert {:ok, ^runner_job_id} = ObanAdapter.submit(%{}, envelope)
+    assert :ok = GenericWorker.perform(%Oban.Job{args: encoded})
+    assert_receive {:job_handler_called, _context, %{job_type: "note_projection"}}
+  end
+
   defp mark_existing_events_delivered! do
     owner_query(
       """
@@ -144,5 +172,31 @@ defmodule Singularity.Runtime.JobRestartTest do
     Fixtures.with_owner(fn ->
       query!(Singularity.Storage.MigrationRepo, statement, parameters)
     end)
+  end
+
+  defp note_projection_envelope(fixture, event) do
+    resource_id = Ecto.UUID.load!(fixture.resource_id)
+
+    {:ok, envelope} =
+      Singularity.Core.JobEnvelope.new(%{
+        version: 1,
+        job_id: Ecto.UUID.load!(event.id),
+        job_type: "note_projection",
+        idempotency_key: "note-current-changed:#{resource_id}:0",
+        vault_id: Ecto.UUID.load!(fixture.vault_id),
+        principal_id: Ecto.UUID.load!(fixture.principal_id),
+        required_capability: "note.write",
+        principal_authorization_epoch: 0,
+        vault_authorization_epoch: 0,
+        classification: :private,
+        correlation_id: Ecto.UUID.generate(),
+        causation_id: Ecto.UUID.generate(),
+        expected_entity_revision: 0,
+        attempt: 0,
+        payload: %{"resource_id" => resource_id}
+      })
+
+    {:ok, encoded} = EnvelopeCodec.encode(envelope)
+    {envelope, encoded}
   end
 end

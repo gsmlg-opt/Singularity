@@ -27,6 +27,13 @@ defmodule Singularity.Runtime.Observability.RedactionTest do
       "upload-token" => @secret,
       asset_id: "asset-1",
       password: @secret,
+      mutation_fingerprint_secret: @secret,
+      title: @secret,
+      note_title: @secret,
+      markdown: @secret,
+      raw_search_query: @secret,
+      rendered_html: @secret,
+      export_bytes: @secret,
       nested: [
         %{domain_dedup_key: @secret, vault_key: @secret, safe: "visible"},
         [backup_passphrase: @secret]
@@ -37,6 +44,13 @@ defmodule Singularity.Runtime.Observability.RedactionTest do
              "upload-token" => "[REDACTED]",
              asset_id: "asset-1",
              password: "[REDACTED]",
+             mutation_fingerprint_secret: "[REDACTED]",
+             title: "[REDACTED]",
+             note_title: "[REDACTED]",
+             markdown: "[REDACTED]",
+             raw_search_query: "[REDACTED]",
+             rendered_html: "[REDACTED]",
+             export_bytes: "[REDACTED]",
              nested: [
                %{
                  domain_dedup_key: "[REDACTED]",
