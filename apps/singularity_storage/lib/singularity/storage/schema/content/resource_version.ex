@@ -22,11 +22,18 @@ defmodule Singularity.Storage.Schema.Content.ResourceVersion do
     |> validate_required([:id, :resource_id, :vault_id, :classification, :revision])
     |> validate_number(:revision, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:resource_id, name: :resource_versions_resource_vault_fkey)
+    |> foreign_key_constraint(:resource_id,
+      name: :resource_versions_resource_classification_fkey
+    )
     |> unique_constraint([:id, :vault_id], name: :resource_versions_id_vault_id_key)
+    |> unique_constraint([:id, :resource_id, :vault_id, :classification],
+      name: :resource_versions_identity_aggregate_key
+    )
     |> unique_constraint([:resource_id, :vault_id, :revision],
       name: :resource_versions_resource_id_vault_id_revision_key
     )
     |> check_constraint(:classification, name: :resource_versions_classification_check)
+    |> check_constraint(:revision, name: :resource_versions_note_identity_immutable_check)
     |> check_constraint(:revision, name: :resource_versions_revision_check)
   end
 end

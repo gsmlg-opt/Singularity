@@ -11,6 +11,8 @@ defmodule Singularity.Storage.Schema.Content.Resource do
   schema "resources" do
     field :vault_id, Ecto.UUID
     field :classification, Ecto.Enum, values: [:private, :sensitive, :restricted]
+    field :kind, Ecto.Enum, values: [:asset, :note], default: :asset
+    field :current_version_id, Ecto.UUID
     field :title, :string
     field :deleted_at, :utc_datetime_usec
     field :metadata, :map, default: %{}
@@ -19,12 +21,30 @@ defmodule Singularity.Storage.Schema.Content.Resource do
 
   def create_changeset(resource, attrs) do
     resource
-    |> cast(attrs, [:id, :vault_id, :classification, :title, :metadata])
-    |> validate_required([:id, :vault_id, :classification, :title, :metadata])
+    |> cast(attrs, [
+      :id,
+      :vault_id,
+      :classification,
+      :kind,
+      :current_version_id,
+      :title,
+      :metadata
+    ])
+    |> validate_required([:id, :vault_id, :classification, :kind, :title, :metadata])
     |> validate_change(:metadata, &string_keyed_json/2)
     |> foreign_key_constraint(:vault_id, name: :resources_vault_id_fkey)
+    |> foreign_key_constraint(:current_version_id, name: :resources_note_version_head_fkey)
     |> unique_constraint([:id, :vault_id], name: :resources_id_vault_id_key)
+    |> unique_constraint([:id, :vault_id, :classification],
+      name: :resources_id_vault_classification_key
+    )
+    |> unique_constraint([:id, :current_version_id, :vault_id, :classification],
+      name: :resources_head_vault_classification_key
+    )
     |> check_constraint(:classification, name: :resources_classification_check)
+    |> check_constraint(:kind, name: :resources_kind_check)
+    |> check_constraint(:kind, name: :resources_note_kind_immutable_check)
+    |> check_constraint(:current_version_id, name: :resources_note_head_check)
     |> check_constraint(:title, name: :resources_title_check)
   end
 

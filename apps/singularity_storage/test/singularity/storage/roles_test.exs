@@ -50,6 +50,10 @@ defmodule Singularity.Storage.RolesTest do
       {"singularity_authorization_definer", ["singularity_web"]},
     "core.principal_is_authorized(uuid,uuid)" =>
       {"singularity_authorization_definer", ["singularity_web", "singularity_worker"]},
+    "core.reconcile_note_capabilities()" => {"singularity_table_owner", []},
+    "content.enforce_note_version_aggregate()" => {"singularity_table_owner", []},
+    "content.enforce_note_resource_kind_update()" => {"singularity_table_owner", []},
+    "content.enforce_note_resource_version_update()" => {"singularity_table_owner", []},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>
@@ -428,6 +432,52 @@ defmodule Singularity.Storage.RolesTest do
           )
         """
       )
+  end
+
+  test "note tables and capability reconciliation use the exact least-privilege contract" do
+    expected = %{
+      "content.note_versions" => %{
+        "singularity_web" => [true, true, false, false],
+        "singularity_worker" => [true, false, false, false]
+      },
+      "content.note_conflicts" => %{
+        "singularity_web" => [true, true, true, false],
+        "singularity_worker" => [false, false, false, false]
+      },
+      "content.note_search_documents" => %{
+        "singularity_web" => [true, true, true, true],
+        "singularity_worker" => [true, true, true, true]
+      },
+      "content.note_mutation_receipts" => %{
+        "singularity_web" => [true, true, true, false],
+        "singularity_worker" => [false, false, false, false]
+      }
+    }
+
+    for {table, roles} <- expected, {role, privileges} <- roles do
+      assert %{rows: [^privileges]} =
+               query!(
+                 RequestRepo,
+                 """
+                 SELECT has_table_privilege($1, $2, 'SELECT'),
+                        has_table_privilege($1, $2, 'INSERT'),
+                        has_table_privilege($1, $2, 'UPDATE'),
+                        has_table_privilege($1, $2, 'DELETE')
+                 """,
+                 [role, table]
+               )
+    end
+
+    assert %{rows: [[true, false, false, false]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT has_function_privilege('singularity_migration', 'core.reconcile_note_capabilities()', 'EXECUTE'),
+                      has_function_privilege('singularity_web', 'core.reconcile_note_capabilities()', 'EXECUTE'),
+                      has_function_privilege('singularity_worker', 'core.reconcile_note_capabilities()', 'EXECUTE'),
+                      has_function_privilege('public', 'core.reconcile_note_capabilities()', 'EXECUTE')
+               """
+             )
   end
 
   test "backup persistence uses narrow table columns and definer transitions" do

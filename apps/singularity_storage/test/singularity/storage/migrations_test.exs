@@ -6,6 +6,8 @@ defmodule Singularity.Storage.MigrationsTest do
   alias Singularity.Storage.{Fixtures, MigrationRepo, ScopedRepo}
   alias Singularity.Storage.Schema.Audit.BackupManifest
 
+  @notes_migration_version 20_260_818_000_100
+  @notes_migration Singularity.Storage.Migrations.CreatePrivateMarkdownNotes
   @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
   @schemas ~w(identity core content jobs audit)
   @tables [
@@ -36,6 +38,10 @@ defmodule Singularity.Storage.MigrationsTest do
     {"content", "asset_key_envelopes"},
     {"content", "asset_metadata"},
     {"content", "asset_search_documents"},
+    {"content", "note_versions"},
+    {"content", "note_conflicts"},
+    {"content", "note_search_documents"},
+    {"content", "note_mutation_receipts"},
     {"content", "resource_assets"},
     {"content", "source_references"},
     {"content", "tombstones"},
@@ -52,7 +58,10 @@ defmodule Singularity.Storage.MigrationsTest do
   ]
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
 
-  setup do
+  setup context do
+    prepare_private_notes_migration!(context[:with_private_notes] == true)
+    on_exit(&restore_all_migrations!/0)
+
     Fixtures.with_owner(fn ->
       query!(
         MigrationRepo,
@@ -77,6 +86,73 @@ defmodule Singularity.Storage.MigrationsTest do
     :ok
   end
 
+  defp migrations_path do
+    :singularity_storage
+    |> :code.priv_dir()
+    |> to_string()
+    |> Path.join("repo/migrations")
+  end
+
+  defp prepare_private_notes_migration!(true) do
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      unless notes_migration_up?() do
+        Ecto.Migrator.run(MigrationRepo, migrations_path(), :up, all: true, log: false)
+      end
+    after
+      Supervisor.stop(migration_repo)
+    end
+  end
+
+  defp prepare_private_notes_migration!(false) do
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      if notes_migration_up?() do
+        cleanup_notes_with_started_repo!()
+
+        :ok =
+          Ecto.Migrator.down(
+            MigrationRepo,
+            @notes_migration_version,
+            @notes_migration,
+            log: false
+          )
+
+        :code.purge(@notes_migration)
+        :code.delete(@notes_migration)
+      end
+    after
+      Supervisor.stop(migration_repo)
+    end
+  end
+
+  defp restore_all_migrations! do
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    compiler_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      Ecto.Migrator.run(MigrationRepo, migrations_path(), :up, all: true, log: false)
+    after
+      Supervisor.stop(migration_repo)
+      Code.compiler_options(compiler_options)
+    end
+  end
+
+  defp notes_migration_up? do
+    %{rows: rows} =
+      query!(
+        MigrationRepo,
+        "SELECT 1 FROM public.schema_migrations WHERE version = $1",
+        [@notes_migration_version]
+      )
+
+    rows == [[1]]
+  end
+
+  @tag :with_private_notes
   test "creates the exact logical schemas and Task 6 tables" do
     %{rows: schema_rows} =
       query!(
@@ -112,6 +188,145 @@ defmodule Singularity.Storage.MigrationsTest do
       )
 
     assert table_rows == @tables |> Enum.sort() |> Enum.map(&Tuple.to_list/1)
+  end
+
+  @tag :with_private_notes
+  test "private notes migration refuses destructive downgrade with canonical rows" do
+    note = Singularity.Storage.NoteFixtures.note!()
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      assert_raise Postgrex.Error,
+                   ~r/cannot downgrade private notes while canonical note data exists/i,
+                   fn ->
+                     Ecto.Migrator.down(
+                       MigrationRepo,
+                       @notes_migration_version,
+                       @notes_migration,
+                       log: false
+                     )
+                   end
+
+      assert %{rows: [[1]]} =
+               Singularity.Storage.NoteFixtures.scoped(note, RequestRepo, fn repo ->
+                 query!(
+                   repo,
+                   "SELECT count(*) FROM content.note_versions WHERE resource_id = $1",
+                   [Ecto.UUID.dump!(note.resource_id)]
+                 )
+               end)
+    after
+      cleanup_notes_with_started_repo!()
+
+      Ecto.Migrator.up(
+        MigrationRepo,
+        @notes_migration_version,
+        @notes_migration,
+        log: false
+      )
+
+      Supervisor.stop(migration_repo)
+    end
+  end
+
+  defp cleanup_notes_with_started_repo! do
+    MigrationRepo.transaction(fn ->
+      query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+      query!(MigrationRepo, "SET CONSTRAINTS ALL DEFERRED")
+      query!(MigrationRepo, "DELETE FROM content.note_mutation_receipts")
+      query!(MigrationRepo, "DELETE FROM content.note_search_documents")
+      query!(MigrationRepo, "DELETE FROM content.note_conflicts")
+      query!(MigrationRepo, "DELETE FROM content.note_versions")
+
+      query!(
+        MigrationRepo,
+        """
+        DELETE FROM content.resource_versions AS version
+        USING content.resources AS resource
+        WHERE version.resource_id = resource.id AND resource.kind = 'note'
+        """
+      )
+
+      query!(MigrationRepo, "DELETE FROM content.resources WHERE kind = 'note'")
+    end)
+  end
+
+  @tag :with_private_notes
+  test "private notes migration safely restores the prior empty schema on downgrade" do
+    Singularity.Storage.NoteFixtures.cleanup_notes!()
+    %{one: raw_eligible} = Fixtures.two_vaults!()
+
+    eligible = %{
+      principal_id: Ecto.UUID.load!(raw_eligible.principal_id),
+      vault_id: Ecto.UUID.load!(raw_eligible.vault_id)
+    }
+
+    Singularity.Storage.NoteFixtures.grant_password_change!(eligible)
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      assert :ok =
+               Singularity.Storage.Postgres.NoteCapabilityReconciler.reconcile(MigrationRepo)
+
+      assert :ok =
+               Ecto.Migrator.down(
+                 MigrationRepo,
+                 @notes_migration_version,
+                 @notes_migration,
+                 log: false
+               )
+
+      assert {:ok, %{rows: [[nil, nil, nil, nil, nil, nil]]}} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT to_regclass('content.note_versions'),
+                          to_regclass('content.note_conflicts'),
+                          to_regclass('content.note_search_documents'),
+                          to_regclass('content.note_mutation_receipts'),
+                          (SELECT 1 FROM information_schema.columns WHERE table_schema = 'content' AND table_name = 'resources' AND column_name = 'kind'),
+                          (SELECT 1 FROM information_schema.columns WHERE table_schema = 'content' AND table_name = 'resources' AND column_name = 'current_version_id')
+                   """
+                 )
+               end)
+
+      assert {:ok, %{rows: [[0, 0]]}} =
+               MigrationRepo.transaction(fn ->
+                 query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT
+                     (SELECT count(*) FROM core.capabilities WHERE name LIKE 'note.%'),
+                     (
+                       SELECT count(*)
+                       FROM core.principal_capabilities AS assignment
+                       JOIN core.capabilities AS capability
+                         ON capability.id = assignment.capability_id
+                       WHERE capability.name LIKE 'note.%'
+                     )
+                   """
+                 )
+               end)
+    after
+      MigrationRepo.transaction(fn ->
+        query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+        query!(MigrationRepo, "TRUNCATE TABLE identity.people CASCADE")
+      end)
+
+      Ecto.Migrator.up(
+        MigrationRepo,
+        @notes_migration_version,
+        @notes_migration,
+        log: false
+      )
+
+      Supervisor.stop(migration_repo)
+    end
   end
 
   test "Task 17 upload grant retirement guards ambiguous upgrade history and downgrade" do
@@ -519,6 +734,7 @@ defmodule Singularity.Storage.MigrationsTest do
     end
   end
 
+  @tag :with_private_notes
   test "tables are owned by the no-login table owner" do
     %{rows: rows} =
       query!(
@@ -1652,7 +1868,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_900,
                20_260_722_001_000,
                20_260_728_000_100,
-               20_260_729_000_100
+               20_260_729_000_100,
+               @notes_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -1767,7 +1984,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_900,
                20_260_722_001_000,
                20_260_728_000_100,
-               20_260_729_000_100
+               20_260_729_000_100,
+               @notes_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2151,7 +2369,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_000_900,
                20_260_722_001_000,
                20_260_728_000_100,
-               20_260_729_000_100
+               20_260_729_000_100,
+               @notes_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2721,6 +2940,7 @@ defmodule Singularity.Storage.MigrationsTest do
     end
   end
 
+  @tag :with_private_notes
   test "forces row-level security on every user-data table" do
     %{rows: rows} =
       query!(
