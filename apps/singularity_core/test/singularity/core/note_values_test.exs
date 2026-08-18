@@ -143,6 +143,37 @@ defmodule Singularity.Core.NoteValuesTest do
              )
   end
 
+  test "open conflicts require pairwise distinct lineage references" do
+    for duplicate_lineage <- [
+          %{canonical_version_id: @base_version_id},
+          %{competing_version_id: @base_version_id},
+          %{competing_version_id: @canonical_version_id},
+          %{
+            canonical_version_id: @base_version_id,
+            competing_version_id: @base_version_id
+          }
+        ] do
+      assert {:error, %{code: :invalid}} =
+               NoteConflict.open(open_conflict_attrs(duplicate_lineage))
+    end
+  end
+
+  test "resolved conflicts require a resolution distinct from every lineage reference" do
+    for resolution_version_id <- [
+          @base_version_id,
+          @canonical_version_id,
+          @competing_version_id
+        ] do
+      assert {:error, %{code: :invalid}} =
+               NoteConflict.resolved(
+                 open_conflict_attrs(
+                   resolution_version_id: resolution_version_id,
+                   resolved_at: @resolved_at
+                 )
+               )
+    end
+  end
+
   test "save results contain only canonical references" do
     assert {:ok,
             %NoteSaveResult{

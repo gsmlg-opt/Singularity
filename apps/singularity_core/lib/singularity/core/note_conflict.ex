@@ -51,7 +51,14 @@ defmodule Singularity.Core.NoteConflict do
          {:ok, canonical_version_id} <- Types.canonical_uuid(attrs, :canonical_version_id),
          {:ok, competing_version_id} <- Types.canonical_uuid(attrs, :competing_version_id),
          {:ok, created_at} <- Types.utc_datetime(attrs, :created_at),
-         {:ok, resolution_version_id, resolved_at} <- resolution(attrs, state) do
+         {:ok, resolution_version_id, resolved_at} <- resolution(attrs, state),
+         :ok <-
+           require_distinct([
+             base_version_id,
+             canonical_version_id,
+             competing_version_id,
+             resolution_version_id
+           ]) do
       {:ok,
        %__MODULE__{
          conflict_id: conflict_id,
@@ -80,6 +87,10 @@ defmodule Singularity.Core.NoteConflict do
          {:ok, resolved_at} <- Types.utc_datetime(attrs, :resolved_at) do
       {:ok, resolution_version_id, resolved_at}
     end
+  end
+
+  defp require_distinct(ids) do
+    if length(ids) == length(Enum.uniq(ids)), do: :ok, else: invalid()
   end
 
   defp require_private(:private), do: :ok
