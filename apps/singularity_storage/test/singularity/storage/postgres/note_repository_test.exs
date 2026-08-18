@@ -314,7 +314,10 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     assert note_effect_counts(fixture, first_create.resource_id) == [2, 2, 1, 2, 2, 2]
   end
 
-  test "a stale canonical save is a conflict with no writes in Task 5", %{fixture: fixture} do
+  test "a stale save preserves a competing snapshot and open conflict without moving canonical state",
+       %{
+         fixture: fixture
+       } do
     create = create_intent(fixture, "Stale original", "# Stale original")
 
     assert {:ok, %NoteSaveResult{} = created} =
@@ -329,8 +332,9 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
         "# Accepted"
       )
 
-    assert {:ok, %NoteSaveResult{}} = scoped(fixture, &NoteRepository.save(&1, first_save))
-    before = note_effect_counts(fixture, created.resource_id)
+    assert {:ok, %NoteSaveResult{canonical_version_id: accepted_id}} =
+             scoped(fixture, &NoteRepository.save(&1, first_save))
+
     canonical_before = canonical_state(fixture, created.resource_id)
 
     stale =
@@ -342,11 +346,351 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
         "# Stale"
       )
 
-    assert {:error, %Error{code: :conflict, retryable?: false}} =
-             scoped(fixture, &NoteRepository.save(&1, stale))
+    assert {:ok,
+            %NoteSaveResult{
+              outcome: :conflict,
+              resource_id: resource_id,
+              canonical_version_id: ^accepted_id,
+              submitted_version_id: competing_id,
+              conflict_id: conflict_id
+            }} = scoped(fixture, &NoteRepository.save(&1, stale))
 
-    assert note_effect_counts(fixture, created.resource_id) == before
+    assert resource_id == created.resource_id
     assert canonical_state(fixture, created.resource_id) == canonical_before
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [[0], [1], [2]]} =
+               query!(
+                 repo,
+                 "SELECT revision FROM content.resource_versions WHERE resource_id = $1 ORDER BY revision",
+                 [Ecto.UUID.dump!(created.resource_id)]
+               )
+
+      assert %{rows: [[parent_dump, nil, "Stale", "# Stale"]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT parent_version_id, merge_parent_version_id, title, markdown
+                 FROM content.note_versions
+                 WHERE resource_version_id = $1
+                 """,
+                 [Ecto.UUID.dump!(competing_id)]
+               )
+
+      assert load_uuid(parent_dump) == created.canonical_version_id
+
+      assert %{
+               rows: [
+                 [
+                   base_dump,
+                   canonical_dump,
+                   competing_dump,
+                   "open",
+                   nil,
+                   nil
+                 ]
+               ]
+             } =
+               query!(
+                 repo,
+                 """
+                 SELECT base_version_id, canonical_version_id, competing_version_id,
+                        state, resolution_version_id, resolved_at
+                 FROM content.note_conflicts
+                 WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(conflict_id)]
+               )
+
+      assert load_uuid(base_dump) == created.canonical_version_id
+      assert load_uuid(canonical_dump) == accepted_id
+      assert load_uuid(competing_dump) == competing_id
+
+      assert %{rows: [["completed", "conflict", receipt_version, receipt_conflict]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT state, outcome, version_id, conflict_id
+                 FROM content.note_mutation_receipts
+                 WHERE mutation_id = $1
+                 """,
+                 [Ecto.UUID.dump!(stale.mutation_id)]
+               )
+
+      assert load_uuid(receipt_version) == competing_id
+      assert load_uuid(receipt_conflict) == conflict_id
+
+      assert %{
+               rows: [
+                 [
+                   "note.save",
+                   "completed",
+                   %{"conflict_id" => ^conflict_id, "version_id" => ^competing_id}
+                 ]
+               ]
+             } =
+               query!(
+                 repo,
+                 "SELECT operation, result, metadata FROM audit.events WHERE correlation_id = $1",
+                 [Ecto.UUID.dump!(stale.correlation_id)]
+               )
+
+      assert %{
+               rows: [
+                 [
+                   "note.conflict_created",
+                   %{"conflict_id" => ^conflict_id, "resource_id" => ^resource_id}
+                 ]
+               ]
+             } =
+               query!(
+                 repo,
+                 "SELECT event_type, payload FROM core.outbox_events WHERE correlation_id = $1",
+                 [Ecto.UUID.dump!(stale.correlation_id)]
+               )
+
+      refute_canaries_in_side_channels(repo, stale, ["Stale", "# Stale"])
+      :ok
+    end)
+  end
+
+  test "merge requires the expected current head and returns conflict without writes when stale",
+       %{
+         fixture: fixture
+       } do
+    scenario = conflict_scenario(fixture, "stale-merge")
+    before = mutation_state(fixture, scenario.created.resource_id)
+
+    merge =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.created.canonical_version_id,
+        scenario.conflict.submitted_version_id,
+        "Stale merge",
+        "# Stale merge"
+      )
+
+    assert {:error, %Error{code: :conflict, retryable?: false}} =
+             scoped(fixture, &NoteRepository.merge(&1, merge))
+
+    assert mutation_state(fixture, scenario.created.resource_id) == before
+  end
+
+  test "merge creates a two-parent canonical snapshot and resolves only the selected conflict", %{
+    fixture: fixture
+  } do
+    scenario = conflict_scenario(fixture, "merge")
+
+    second_stale =
+      save_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.created.canonical_version_id,
+        "Other competing",
+        "# Other competing"
+      )
+
+    assert {:ok, %NoteSaveResult{outcome: :conflict} = other_conflict} =
+             scoped(fixture, &NoteRepository.save(&1, second_stale))
+
+    merge =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        scenario.conflict.submitted_version_id,
+        "Merged title",
+        "# Merged markdown"
+      )
+
+    assert {:ok,
+            %NoteSaveResult{
+              outcome: :saved,
+              canonical_version_id: merged_id,
+              submitted_version_id: merged_id,
+              conflict_id: nil
+            }} = scoped(fixture, &NoteRepository.merge(&1, merge))
+
+    historical_conflict = scenario.conflict
+    after_merge = mutation_state(fixture, scenario.created.resource_id)
+
+    assert {:ok, ^historical_conflict} =
+             scoped(fixture, &NoteRepository.save(&1, scenario.stale_intent))
+
+    assert mutation_state(fixture, scenario.created.resource_id) == after_merge
+
+    scoped(fixture, fn repo ->
+      assert %{
+               rows: [
+                 [head_dump, "Merged title", projection_dump, "Merged title", "# Merged markdown"]
+               ]
+             } =
+               query!(
+                 repo,
+                 """
+                 SELECT resource.current_version_id, resource.title,
+                        projection.resource_version_id, projection.title, projection.markdown
+                 FROM content.resources AS resource
+                 JOIN content.note_search_documents AS projection
+                   ON projection.resource_id = resource.id
+                 WHERE resource.id = $1
+                 """,
+                 [Ecto.UUID.dump!(scenario.created.resource_id)]
+               )
+
+      assert load_uuid(head_dump) == merged_id
+      assert load_uuid(projection_dump) == merged_id
+
+      assert %{rows: [[4]]} =
+               query!(
+                 repo,
+                 "SELECT revision FROM content.resource_versions WHERE id = $1",
+                 [Ecto.UUID.dump!(merged_id)]
+               )
+
+      assert %{rows: [[parent_dump, merge_parent_dump]]} =
+               query!(
+                 repo,
+                 "SELECT parent_version_id, merge_parent_version_id FROM content.note_versions WHERE resource_version_id = $1",
+                 [Ecto.UUID.dump!(merged_id)]
+               )
+
+      assert load_uuid(parent_dump) == scenario.accepted.canonical_version_id
+      assert load_uuid(merge_parent_dump) == scenario.conflict.submitted_version_id
+
+      assert %{rows: conflict_rows} =
+               query!(
+                 repo,
+                 """
+                 SELECT id, state, resolution_version_id, resolved_at
+                 FROM content.note_conflicts
+                 WHERE id = ANY($1)
+                 ORDER BY id
+                 """,
+                 [
+                   [
+                     Ecto.UUID.dump!(scenario.conflict.conflict_id),
+                     Ecto.UUID.dump!(other_conflict.conflict_id)
+                   ]
+                 ]
+               )
+
+      conflicts =
+        Map.new(conflict_rows, fn [id, state, resolution_id, resolved_at] ->
+          {load_uuid(id), {state, load_optional_uuid(resolution_id), resolved_at}}
+        end)
+
+      assert {"resolved", ^merged_id, %DateTime{}} =
+               Map.fetch!(conflicts, scenario.conflict.conflict_id)
+
+      assert {"open", nil, nil} = Map.fetch!(conflicts, other_conflict.conflict_id)
+
+      assert %{rows: [["completed", "saved", receipt_version, nil]]} =
+               query!(
+                 repo,
+                 "SELECT state, outcome, version_id, conflict_id FROM content.note_mutation_receipts WHERE mutation_id = $1",
+                 [Ecto.UUID.dump!(merge.mutation_id)]
+               )
+
+      assert load_uuid(receipt_version) == merged_id
+
+      assert %{
+               rows: [
+                 [
+                   "note.merge",
+                   "completed",
+                   %{"conflict_id" => selected_conflict, "version_id" => ^merged_id}
+                 ]
+               ]
+             } =
+               query!(
+                 repo,
+                 "SELECT operation, result, metadata FROM audit.events WHERE correlation_id = $1",
+                 [Ecto.UUID.dump!(merge.correlation_id)]
+               )
+
+      assert selected_conflict == scenario.conflict.conflict_id
+
+      assert %{rows: event_rows} =
+               query!(
+                 repo,
+                 "SELECT event_type, payload FROM core.outbox_events WHERE correlation_id = $1 ORDER BY event_type",
+                 [Ecto.UUID.dump!(merge.correlation_id)]
+               )
+
+      assert event_rows == [
+               [
+                 "note.conflict_resolved",
+                 %{
+                   "conflict_id" => scenario.conflict.conflict_id,
+                   "resource_id" => scenario.created.resource_id
+                 }
+               ],
+               ["note.current_changed", %{"resource_id" => scenario.created.resource_id}]
+             ]
+
+      refute_canaries_in_side_channels(repo, merge, ["Merged title", "# Merged markdown"])
+      :ok
+    end)
+  end
+
+  test "merge rejects a mismatched competitor or resolved conflict as invalid without writes", %{
+    fixture: fixture
+  } do
+    scenario = conflict_scenario(fixture, "invalid-merge")
+
+    mismatched =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        Ecto.UUID.generate(),
+        "Mismatched merge",
+        "# Mismatched merge"
+      )
+
+    before_mismatch = mutation_state(fixture, scenario.created.resource_id)
+
+    assert {:error, %Error{code: :invalid, retryable?: false}} =
+             scoped(fixture, &NoteRepository.merge(&1, mismatched))
+
+    assert mutation_state(fixture, scenario.created.resource_id) == before_mismatch
+
+    valid =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        scenario.conflict.submitted_version_id,
+        "Resolved merge",
+        "# Resolved merge"
+      )
+
+    assert {:ok, %NoteSaveResult{outcome: :saved} = resolved} =
+             scoped(fixture, &NoteRepository.merge(&1, valid))
+
+    closed =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        resolved.canonical_version_id,
+        scenario.conflict.submitted_version_id,
+        "Closed merge",
+        "# Closed merge"
+      )
+
+    before_closed = mutation_state(fixture, scenario.created.resource_id)
+
+    assert {:error, %Error{code: :invalid, retryable?: false}} =
+             scoped(fixture, &NoteRepository.merge(&1, closed))
+
+    assert mutation_state(fixture, scenario.created.resource_id) == before_closed
   end
 
   test "a missing typed base is not found and writes nothing", %{fixture: fixture} do
@@ -539,6 +883,111 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     }
   end
 
+  defp merge_intent(
+         fixture,
+         resource_id,
+         conflict_id,
+         expected_current_version_id,
+         competing_version_id,
+         title,
+         markdown
+       ) do
+    {:ok, snapshot} =
+      NoteSnapshot.merge(%{
+        classification: :private,
+        title: title,
+        markdown: markdown,
+        parent_version_id: expected_current_version_id,
+        merge_parent_version_id: competing_version_id
+      })
+
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      conflict_id: conflict_id,
+      expected_current_version_id: expected_current_version_id,
+      competing_version_id: competing_version_id,
+      snapshot: snapshot,
+      request_fingerprint:
+        :crypto.hash(:sha256, [
+          resource_id,
+          conflict_id,
+          expected_current_version_id,
+          competing_version_id,
+          title,
+          markdown
+        ])
+    }
+  end
+
+  defp conflict_scenario(fixture, prefix) do
+    create = create_intent(fixture, "#{prefix} original", "# #{prefix} original")
+
+    assert {:ok, %NoteSaveResult{} = created} =
+             scoped(fixture, &NoteRepository.create(&1, create))
+
+    accepted_intent =
+      save_intent(
+        fixture,
+        created.resource_id,
+        created.canonical_version_id,
+        "#{prefix} accepted",
+        "# #{prefix} accepted"
+      )
+
+    assert {:ok, %NoteSaveResult{} = accepted} =
+             scoped(fixture, &NoteRepository.save(&1, accepted_intent))
+
+    stale_intent =
+      save_intent(
+        fixture,
+        created.resource_id,
+        created.canonical_version_id,
+        "#{prefix} competing",
+        "# #{prefix} competing"
+      )
+
+    assert {:ok, %NoteSaveResult{outcome: :conflict} = conflict} =
+             scoped(fixture, &NoteRepository.save(&1, stale_intent))
+
+    %{
+      create: create,
+      created: created,
+      accepted_intent: accepted_intent,
+      accepted: accepted,
+      stale_intent: stale_intent,
+      conflict: conflict
+    }
+  end
+
+  defp mutation_state(fixture, resource_id) do
+    %{
+      canonical: canonical_state(fixture, resource_id),
+      counts: note_effect_counts(fixture, resource_id),
+      conflicts:
+        scoped(fixture, fn repo ->
+          %{rows: rows} =
+            query!(
+              repo,
+              """
+              SELECT id, base_version_id, canonical_version_id, competing_version_id,
+                     state, resolution_version_id, resolved_at
+              FROM content.note_conflicts
+              WHERE resource_id = $1
+              ORDER BY id
+              """,
+              [Ecto.UUID.dump!(resource_id)]
+            )
+
+          rows
+        end)
+    }
+  end
+
   defp assert_create_effects(repo, fixture, intent, resource_id, version_id) do
     request_fingerprint = intent.request_fingerprint
 
@@ -651,12 +1100,15 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
                ]
              )
 
-    assert %{rows: [[outbox_json]]} =
+    assert %{rows: outbox_rows} =
              query!(
                repo,
                "SELECT to_jsonb(event) FROM core.outbox_events AS event WHERE correlation_id = $1",
                [Ecto.UUID.dump!(intent.correlation_id)]
              )
+
+    assert outbox_rows != []
+    outbox_json = Enum.map(outbox_rows, fn [row] -> row end)
 
     assert %{rows: [[receipt_json]]} =
              query!(
@@ -744,4 +1196,6 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
   end
 
   defp load_uuid(uuid), do: Ecto.UUID.load!(uuid)
+  defp load_optional_uuid(nil), do: nil
+  defp load_optional_uuid(uuid), do: load_uuid(uuid)
 end
