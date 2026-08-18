@@ -252,6 +252,116 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   @tag :with_private_notes
+  test "private notes downgrade declares the complete runtime-compatible lock order" do
+    migration =
+      migrations_path()
+      |> Path.join("20260818000100_create_private_markdown_notes.exs")
+      |> File.read!()
+
+    assert [_, lock_block] =
+             Regex.run(~r/LOCK TABLE\s+(.*?)\s+IN ACCESS EXCLUSIVE MODE/s, migration)
+
+    expected_order = [
+      "content.note_mutation_receipts",
+      "content.resources",
+      "content.resource_versions",
+      "content.note_versions",
+      "content.note_conflicts",
+      "content.note_search_documents"
+    ]
+
+    positions =
+      Enum.map(expected_order, fn table ->
+        case :binary.match(lock_block, table) do
+          {position, _length} -> position
+          :nomatch -> flunk("downgrade lock order is missing #{table}")
+        end
+      end)
+
+    assert positions == Enum.sort(positions)
+  end
+
+  @tag :with_private_notes
+  test "private notes downgrade serializes behind capability reconciliation" do
+    Singularity.Storage.NoteFixtures.cleanup_notes!()
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+    {:ok, blocker} = Postgrex.start_link(postgrex_options())
+    {:ok, observer} = Postgrex.start_link(postgrex_options())
+    Postgrex.query!(blocker, "BEGIN", [])
+    Postgrex.query!(blocker, "SELECT core.reconcile_note_capabilities()", [])
+    %{rows: [[blocker_pid]]} = Postgrex.query!(blocker, "SELECT pg_backend_pid()", [])
+
+    migrator =
+      Task.async(fn ->
+        Ecto.Migrator.down(
+          MigrationRepo,
+          @notes_migration_version,
+          @notes_migration,
+          log: false
+        )
+      end)
+
+    try do
+      assert nil == Task.yield(migrator, 200)
+      await_reconcile_advisory_waiter!(observer, blocker_pid)
+      Postgrex.query!(blocker, "COMMIT", [])
+      assert {:ok, :ok} = Task.yield(migrator, 5_000)
+    after
+      Postgrex.query(blocker, "ROLLBACK", [])
+      Task.shutdown(migrator, :brutal_kill)
+
+      _ =
+        Ecto.Migrator.up(
+          MigrationRepo,
+          @notes_migration_version,
+          @notes_migration,
+          log: false
+        )
+
+      GenServer.stop(blocker)
+      GenServer.stop(observer)
+      Supervisor.stop(migration_repo)
+    end
+  end
+
+  defp await_reconcile_advisory_waiter!(observer, blocker_pid, attempts \\ 200)
+
+  defp await_reconcile_advisory_waiter!(_observer, _blocker_pid, 0) do
+    flunk("private notes downgrade did not wait on the reconciliation advisory lock")
+  end
+
+  defp await_reconcile_advisory_waiter!(observer, blocker_pid, attempts) do
+    %{rows: [[waiting?]]} =
+      Postgrex.query!(
+        observer,
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_locks AS waiting
+          JOIN pg_catalog.pg_locks AS held
+            ON held.locktype = waiting.locktype
+           AND held.database IS NOT DISTINCT FROM waiting.database
+           AND held.classid IS NOT DISTINCT FROM waiting.classid
+           AND held.objid IS NOT DISTINCT FROM waiting.objid
+           AND held.objsubid IS NOT DISTINCT FROM waiting.objsubid
+          WHERE waiting.locktype = 'advisory'
+            AND NOT waiting.granted
+            AND held.granted
+            AND held.pid = $1
+        )
+        """,
+        [blocker_pid]
+      )
+
+    if waiting? do
+      :ok
+    else
+      Process.sleep(10)
+      await_reconcile_advisory_waiter!(observer, blocker_pid, attempts - 1)
+    end
+  end
+
+  @tag :with_private_notes
   test "private notes migration safely restores the prior empty schema on downgrade" do
     Singularity.Storage.NoteFixtures.cleanup_notes!()
     %{one: raw_eligible} = Fixtures.two_vaults!()
@@ -312,6 +422,43 @@ defmodule Singularity.Storage.MigrationsTest do
                    """
                  )
                end)
+
+      assert %{rows: [[resource_id, "Resource one", "private"]]} =
+               owner_query!(
+                 "SELECT id, title, classification FROM content.resources WHERE id = $1",
+                 [raw_eligible.resource_id]
+               )
+
+      assert resource_id == raw_eligible.resource_id
+
+      assert %{rows: [[version_id, resource_id, 0]]} =
+               owner_query!(
+                 "SELECT id, resource_id, revision FROM content.resource_versions WHERE id = $1",
+                 [raw_eligible.resource_version_id]
+               )
+
+      assert version_id == raw_eligible.resource_version_id
+      assert resource_id == raw_eligible.resource_id
+
+      assert :ok =
+               Ecto.Migrator.up(
+                 MigrationRepo,
+                 @notes_migration_version,
+                 @notes_migration,
+                 log: false
+               )
+
+      assert %{rows: [["asset", nil]]} =
+               owner_query!(
+                 "SELECT kind, current_version_id FROM content.resources WHERE id = $1",
+                 [raw_eligible.resource_id]
+               )
+
+      assert %{rows: [[0]]} =
+               owner_query!(
+                 "SELECT revision FROM content.resource_versions WHERE id = $1",
+                 [raw_eligible.resource_version_id]
+               )
     after
       MigrationRepo.transaction(fn ->
         query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")

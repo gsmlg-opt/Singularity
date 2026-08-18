@@ -43,6 +43,9 @@ defmodule Singularity.Storage.Schema.Content.NoteVersion do
     |> unique_constraint([:resource_version_id, :resource_id, :vault_id, :classification],
       name: :note_versions_identity_aggregate_key
     )
+    |> unique_constraint([:resource_version_id, :resource_id, :vault_id],
+      name: :note_versions_receipt_identity_key
+    )
     |> foreign_key_constraint(:resource_version_id,
       name: :note_versions_resource_version_fkey
     )

@@ -54,6 +54,7 @@ defmodule Singularity.Storage.RolesTest do
     "content.enforce_note_version_aggregate()" => {"singularity_table_owner", []},
     "content.enforce_note_resource_kind_update()" => {"singularity_table_owner", []},
     "content.enforce_note_resource_version_update()" => {"singularity_table_owner", []},
+    "content.enforce_note_mutation_receipt_resource()" => {"singularity_table_owner", []},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>

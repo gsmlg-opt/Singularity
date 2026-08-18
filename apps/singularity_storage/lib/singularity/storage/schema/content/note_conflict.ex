@@ -52,6 +52,9 @@ defmodule Singularity.Storage.Schema.Content.NoteConflict do
   defp map_constraints(changeset) do
     changeset
     |> unique_constraint(:id, name: :note_conflicts_pkey)
+    |> unique_constraint([:id, :resource_id, :vault_id],
+      name: :note_conflicts_receipt_identity_key
+    )
     |> foreign_key_constraint(:base_version_id, name: :note_conflicts_base_version_fkey)
     |> foreign_key_constraint(:canonical_version_id,
       name: :note_conflicts_canonical_version_fkey

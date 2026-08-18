@@ -56,11 +56,15 @@ defmodule Singularity.Storage.Schema.Content.NoteMutationReceipt do
     |> foreign_key_constraint(:principal_id,
       name: :note_mutation_receipts_membership_fkey
     )
+    |> foreign_key_constraint(:resource_id, name: :note_mutation_receipts_resource_fkey)
+    |> foreign_key_constraint(:version_id, name: :note_mutation_receipts_version_fkey)
+    |> foreign_key_constraint(:conflict_id, name: :note_mutation_receipts_conflict_fkey)
     |> check_constraint(:operation, name: :note_mutation_receipts_operation_check)
     |> check_constraint(:request_fingerprint,
       name: :note_mutation_receipts_fingerprint_check
     )
     |> check_constraint(:state, name: :note_mutation_receipts_state_check)
     |> check_constraint(:outcome, name: :note_mutation_receipts_result_shape_check)
+    |> check_constraint(:resource_id, name: :note_mutation_receipts_private_note_check)
   end
 end

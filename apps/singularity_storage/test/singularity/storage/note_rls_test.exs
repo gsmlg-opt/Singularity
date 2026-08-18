@@ -102,6 +102,80 @@ defmodule Singularity.Storage.NoteRlsTest do
     end
   end
 
+  test "receipt rows are isolated to the exact principal within one vault" do
+    note = NoteFixtures.note_with_conflict!()
+    other_principal_id = same_vault_principal!(note)
+
+    other_mutation_id =
+      ScopedRepo.transact(
+        RequestRepo,
+        %{principal_id: other_principal_id, vault_id: note.vault_id},
+        fn repo -> insert_pending_receipt!(repo, note, other_principal_id) end
+      )
+
+    assert %{rows: [[owner_principal_id]]} =
+             NoteFixtures.scoped(note, RequestRepo, fn repo ->
+               query!(repo, "SELECT principal_id FROM content.note_mutation_receipts")
+             end)
+
+    assert Ecto.UUID.load!(owner_principal_id) == note.principal_id
+
+    assert %{rows: [[other_principal_id_dump]]} =
+             ScopedRepo.transact(
+               RequestRepo,
+               %{principal_id: other_principal_id, vault_id: note.vault_id},
+               fn repo ->
+                 query!(repo, "SELECT principal_id FROM content.note_mutation_receipts")
+               end
+             )
+
+    assert Ecto.UUID.load!(other_principal_id_dump) == other_principal_id
+
+    assert %{num_rows: 0} =
+             ScopedRepo.transact(
+               RequestRepo,
+               %{principal_id: other_principal_id, vault_id: note.vault_id},
+               fn repo ->
+                 query!(
+                   repo,
+                   "UPDATE content.note_mutation_receipts SET request_fingerprint = $1 WHERE mutation_id = $2",
+                   [
+                     :crypto.hash(:sha256, "other-principal-update"),
+                     Ecto.UUID.dump!(note.mutation_id)
+                   ]
+                 )
+               end
+             )
+
+    assert_raise Postgrex.Error, fn ->
+      ScopedRepo.transact(
+        RequestRepo,
+        %{principal_id: other_principal_id, vault_id: note.vault_id},
+        fn repo -> insert_pending_receipt!(repo, note, note.principal_id) end
+      )
+    end
+
+    assert Ecto.UUID.cast!(other_mutation_id)
+  end
+
+  test "missing context cannot insert or update receipts" do
+    note = NoteFixtures.note_with_conflict!()
+
+    assert_raise Postgrex.Error, fn ->
+      insert_pending_receipt!(RequestRepo, note, note.principal_id)
+    end
+
+    assert %{num_rows: 0} =
+             query!(
+               RequestRepo,
+               "UPDATE content.note_mutation_receipts SET request_fingerprint = $1 WHERE mutation_id = $2",
+               [
+                 :crypto.hash(:sha256, "missing-context-update"),
+                 Ecto.UUID.dump!(note.mutation_id)
+               ]
+             )
+  end
+
   defp readable_tables do
     [
       {RequestRepo, "note_versions"},
@@ -114,4 +188,66 @@ defmodule Singularity.Storage.NoteRlsTest do
   end
 
   defp context(note), do: %{principal_id: note.principal_id, vault_id: note.vault_id}
+
+  defp same_vault_principal!(note) do
+    person_id = Ecto.UUID.generate()
+    account_id = Ecto.UUID.generate()
+    principal_id = Ecto.UUID.generate()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO identity.people (id, display_name) VALUES ($1, 'Receipt peer')",
+        [Ecto.UUID.dump!(person_id)]
+      )
+
+      query!(MigrationRepo, "INSERT INTO identity.accounts (id, person_id) VALUES ($1, $2)", [
+        Ecto.UUID.dump!(account_id),
+        Ecto.UUID.dump!(person_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO identity.principals (id, account_id, kind) VALUES ($1, $2, 'owner')",
+        [
+          Ecto.UUID.dump!(principal_id),
+          Ecto.UUID.dump!(account_id)
+        ]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.vault_members (principal_id, vault_id) VALUES ($1, $2)",
+        [
+          Ecto.UUID.dump!(principal_id),
+          Ecto.UUID.dump!(note.vault_id)
+        ]
+      )
+    end)
+
+    principal_id
+  end
+
+  defp insert_pending_receipt!(repo, note, principal_id) do
+    mutation_id = Ecto.UUID.generate()
+
+    query!(
+      repo,
+      """
+      INSERT INTO content.note_mutation_receipts (
+        vault_id, principal_id, mutation_id, operation,
+        request_fingerprint, state, resource_id
+      ) VALUES ($1, $2, $3, 'save', $4, 'pending', $5)
+      """,
+      [
+        Ecto.UUID.dump!(note.vault_id),
+        Ecto.UUID.dump!(principal_id),
+        Ecto.UUID.dump!(mutation_id),
+        :crypto.hash(:sha256, "pending-receipt-#{mutation_id}"),
+        Ecto.UUID.dump!(note.resource_id)
+      ]
+    )
+
+    mutation_id
+  end
 end

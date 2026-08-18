@@ -21,8 +21,28 @@ defmodule Singularity.Storage.NoteFixtures do
   end
 
   def note_with_conflict! do
-    note = note!()
+    note!()
+    |> add_conflict!()
+  end
 
+  def note_with_conflict_in_context!(context) do
+    context
+    |> Map.drop([
+      :resource_id,
+      :resource_version_id,
+      :initial_version_id,
+      :canonical_version_id,
+      :competing_version_id,
+      :conflict_id,
+      :mutation_id,
+      :title,
+      :markdown
+    ])
+    |> create_note!()
+    |> add_conflict!()
+  end
+
+  defp add_conflict!(note) do
     accepted =
       insert_note_version!(note, %{
         title: "Accepted fixture note",
@@ -498,8 +518,11 @@ defmodule Singularity.Storage.NoteFixtures do
 
   defp load_ids(fixture) do
     Map.new(fixture, fn
-      {key, value} when key in @uuid_fields -> {key, Ecto.UUID.load!(value)}
-      pair -> pair
+      {key, value} when key in @uuid_fields and is_binary(value) and byte_size(value) == 16 ->
+        {key, Ecto.UUID.load!(value)}
+
+      pair ->
+        pair
     end)
   end
 

@@ -31,6 +31,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
     note_versions_parent_fkey
     note_versions_merge_parent_fkey
     note_versions_created_by_principal_fkey
+    note_versions_receipt_identity_key
     note_conflicts_pkey
     note_conflicts_private_check
     note_conflicts_state_check
@@ -41,6 +42,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
     note_conflicts_canonical_version_fkey
     note_conflicts_competing_version_fkey
     note_conflicts_resolution_version_fkey
+    note_conflicts_receipt_identity_key
     note_search_documents_pkey
     note_search_documents_private_check
     note_search_documents_title_check
@@ -53,6 +55,9 @@ defmodule Singularity.Storage.NoteSchemaTest do
     note_mutation_receipts_state_check
     note_mutation_receipts_result_shape_check
     note_mutation_receipts_membership_fkey
+    note_mutation_receipts_resource_fkey
+    note_mutation_receipts_version_fkey
+    note_mutation_receipts_conflict_fkey
   )
 
   @indexes ~w(
@@ -154,6 +159,14 @@ defmodule Singularity.Storage.NoteSchemaTest do
     assert constraint_definition!("note_versions_merge_parent_fkey") =~
              "DEFERRABLE INITIALLY DEFERRED"
 
+    for constraint <- ~w(
+          note_mutation_receipts_resource_fkey
+          note_mutation_receipts_version_fkey
+          note_mutation_receipts_conflict_fkey
+        ) do
+      assert constraint_definition!(constraint) =~ "DEFERRABLE INITIALLY DEFERRED"
+    end
+
     assert %{rows: trigger_rows} =
              query!(
                RequestRepo,
@@ -167,6 +180,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
                [
                  [
                    "note_versions_aggregate_check",
+                   "note_mutation_receipts_resource_check",
                    "resource_versions_note_identity_immutable",
                    "resources_note_kind_immutable"
                  ]
@@ -174,6 +188,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
              )
 
     assert trigger_rows == [
+             ["note_mutation_receipts_resource_check", true, true],
              ["note_versions_aggregate_check", true, true],
              ["resource_versions_note_identity_immutable", false, false],
              ["resources_note_kind_immutable", false, false]
@@ -322,6 +337,110 @@ defmodule Singularity.Storage.NoteSchemaTest do
     end)
   end
 
+  test "receipt result references are deferred and stay within one private note aggregate" do
+    note = NoteFixtures.note_with_conflict!()
+    other = NoteFixtures.note_with_conflict_in_context!(note)
+    cross_vault = NoteFixtures.note_with_conflict!()
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        state: "pending",
+        outcome: nil,
+        resource_id: Ecto.UUID.generate(),
+        version_id: nil,
+        conflict_id: nil
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "saved",
+        resource_id: note.resource_id,
+        version_id: Ecto.UUID.generate(),
+        conflict_id: nil
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "conflict",
+        resource_id: note.resource_id,
+        version_id: note.competing_version_id,
+        conflict_id: Ecto.UUID.generate()
+      })
+    end)
+
+    %{one: asset} = Fixtures.two_vaults!()
+
+    assert_constraint(fn ->
+      insert_pending_receipt_for_raw_fixture!(asset)
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        state: "pending",
+        outcome: nil,
+        resource_id: cross_vault.resource_id,
+        version_id: nil,
+        conflict_id: nil
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "saved",
+        resource_id: note.resource_id,
+        version_id: cross_vault.competing_version_id,
+        conflict_id: nil
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "conflict",
+        resource_id: note.resource_id,
+        version_id: note.competing_version_id,
+        conflict_id: cross_vault.conflict_id
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "saved",
+        resource_id: note.resource_id,
+        version_id: other.competing_version_id,
+        conflict_id: nil
+      })
+    end)
+
+    assert_constraint(fn ->
+      NoteFixtures.insert_receipt!(note, %{
+        operation: "save",
+        state: "completed",
+        outcome: "conflict",
+        resource_id: note.resource_id,
+        version_id: note.competing_version_id,
+        conflict_id: other.conflict_id
+      })
+    end)
+
+    assert %{resource_id: resource_id, mutation_id: mutation_id} =
+             insert_pending_receipt_before_note!()
+
+    assert Ecto.UUID.cast!(resource_id)
+    assert Ecto.UUID.cast!(mutation_id)
+  end
+
   test "web cannot update or delete immutable note snapshots" do
     note = NoteFixtures.note_with_conflict!()
 
@@ -421,6 +540,15 @@ defmodule Singularity.Storage.NoteSchemaTest do
     assert :ok = reconcile_capabilities!()
     assert note_capability_recipients() == [{eligible.principal_id, eligible.vault_id}]
     assert authorization_epochs(eligible) == [1, 1]
+
+    NoteFixtures.grant_password_change!(ordinary)
+
+    for state <- [:disabled_account, :revoked_principal, :revoked_membership, :revoked_assignment] do
+      set_capability_candidate_state!(ordinary, state)
+      assert :ok = reconcile_capabilities!()
+      assert note_capability_recipients() == [{eligible.principal_id, eligible.vault_id}]
+      reset_capability_candidate_state!(ordinary, state)
+    end
   end
 
   defp assert_constraint(fun) do
@@ -598,5 +726,160 @@ defmodule Singularity.Storage.NoteSchemaTest do
 
       query!(MigrationRepo, "DELETE FROM core.capabilities WHERE name LIKE 'note.%'")
     end)
+  end
+
+  defp set_capability_candidate_state!(note, :disabled_account) do
+    owner_query!("UPDATE identity.accounts SET status = 'disabled' WHERE id = $1", [
+      Ecto.UUID.dump!(note.account_id)
+    ])
+  end
+
+  defp set_capability_candidate_state!(note, :revoked_principal) do
+    owner_query!("UPDATE identity.principals SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1", [
+      Ecto.UUID.dump!(note.principal_id)
+    ])
+  end
+
+  defp set_capability_candidate_state!(note, :revoked_membership) do
+    owner_query!(
+      "UPDATE core.vault_members SET revoked_at = CURRENT_TIMESTAMP WHERE principal_id = $1 AND vault_id = $2",
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp set_capability_candidate_state!(note, :revoked_assignment) do
+    owner_query!(
+      """
+      UPDATE core.principal_capabilities AS assignment
+      SET revoked_at = CURRENT_TIMESTAMP
+      FROM core.capabilities AS capability
+      WHERE assignment.capability_id = capability.id
+        AND assignment.principal_id = $1
+        AND assignment.vault_id = $2
+        AND capability.name = 'vault.password_change'
+      """,
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp reset_capability_candidate_state!(note, :disabled_account) do
+    owner_query!("UPDATE identity.accounts SET status = 'active' WHERE id = $1", [
+      Ecto.UUID.dump!(note.account_id)
+    ])
+  end
+
+  defp reset_capability_candidate_state!(note, :revoked_principal) do
+    owner_query!("UPDATE identity.principals SET revoked_at = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(note.principal_id)
+    ])
+  end
+
+  defp reset_capability_candidate_state!(note, :revoked_membership) do
+    owner_query!(
+      "UPDATE core.vault_members SET revoked_at = NULL WHERE principal_id = $1 AND vault_id = $2",
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp reset_capability_candidate_state!(_note, :revoked_assignment), do: :ok
+
+  defp owner_query!(statement, params) do
+    Fixtures.with_owner(fn -> query!(MigrationRepo, statement, params) end)
+  end
+
+  defp insert_pending_receipt_before_note! do
+    %{one: fixture} = Fixtures.two_vaults!()
+    resource_id = Ecto.UUID.generate()
+    version_id = Ecto.UUID.generate()
+    mutation_id = Ecto.UUID.generate()
+
+    Singularity.Storage.ScopedRepo.transact(
+      RequestRepo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      fn repo ->
+        query!(repo, "SET CONSTRAINTS ALL DEFERRED")
+
+        query!(
+          repo,
+          """
+          INSERT INTO content.note_mutation_receipts (
+            vault_id, principal_id, mutation_id, operation,
+            request_fingerprint, state, resource_id
+          ) VALUES ($1, $2, $3, 'create', $4, 'pending', $5)
+          """,
+          [
+            fixture.vault_id,
+            fixture.principal_id,
+            Ecto.UUID.dump!(mutation_id),
+            :crypto.hash(:sha256, "receipt-before-note"),
+            Ecto.UUID.dump!(resource_id)
+          ]
+        )
+
+        query!(
+          repo,
+          """
+          INSERT INTO content.resources (
+            id, vault_id, classification, title, kind, current_version_id
+          ) VALUES ($1, $2, 'private', 'Deferred receipt note', 'note', $3)
+          """,
+          [Ecto.UUID.dump!(resource_id), fixture.vault_id, Ecto.UUID.dump!(version_id)]
+        )
+
+        query!(
+          repo,
+          """
+          INSERT INTO content.resource_versions (
+            id, resource_id, vault_id, classification, revision
+          ) VALUES ($1, $2, $3, 'private', 0)
+          """,
+          [Ecto.UUID.dump!(version_id), Ecto.UUID.dump!(resource_id), fixture.vault_id]
+        )
+
+        query!(
+          repo,
+          """
+          INSERT INTO content.note_versions (
+            resource_version_id, resource_id, vault_id, classification,
+            title, markdown, created_by_principal_id,
+            parent_version_id, merge_parent_version_id
+          ) VALUES ($1, $2, $3, 'private', 'Deferred receipt note', '# Deferred', $4, NULL, NULL)
+          """,
+          [
+            Ecto.UUID.dump!(version_id),
+            Ecto.UUID.dump!(resource_id),
+            fixture.vault_id,
+            fixture.principal_id
+          ]
+        )
+
+        %{resource_id: resource_id, mutation_id: mutation_id}
+      end
+    )
+  end
+
+  defp insert_pending_receipt_for_raw_fixture!(fixture) do
+    Singularity.Storage.ScopedRepo.transact(
+      RequestRepo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      fn repo ->
+        query!(
+          repo,
+          """
+          INSERT INTO content.note_mutation_receipts (
+            vault_id, principal_id, mutation_id, operation,
+            request_fingerprint, state, resource_id
+          ) VALUES ($1, $2, $3, 'save', $4, 'pending', $5)
+          """,
+          [
+            fixture.vault_id,
+            fixture.principal_id,
+            Ecto.UUID.dump!(Ecto.UUID.generate()),
+            :crypto.hash(:sha256, "asset-receipt"),
+            fixture.resource_id
+          ]
+        )
+      end
+    )
   end
 end

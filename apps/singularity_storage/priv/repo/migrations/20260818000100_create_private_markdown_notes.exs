@@ -11,6 +11,7 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     create_deferred_constraints()
     create_note_version_aggregate_guard()
     create_note_aggregate_reference_guards()
+    create_note_mutation_receipt_guard()
     create_indexes()
     create_rls_and_grants()
     create_capability_reconciler()
@@ -23,12 +24,19 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     execute("SET LOCAL ROLE singularity_table_owner")
 
     execute("""
+    SELECT pg_advisory_xact_lock(
+      hashtextextended('singularity.reconcile_note_capabilities', 0)
+    )
+    """)
+
+    execute("""
     LOCK TABLE
-      content.note_search_documents,
       content.note_mutation_receipts,
-      content.note_conflicts,
+      content.resources,
+      content.resource_versions,
       content.note_versions,
-      content.resources
+      content.note_conflicts,
+      content.note_search_documents
     IN ACCESS EXCLUSIVE MODE
     """)
 
@@ -56,6 +64,7 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
 
     execute("DROP TABLE content.note_search_documents")
     execute("DROP TABLE content.note_mutation_receipts")
+    execute("DROP FUNCTION content.enforce_note_mutation_receipt_resource()")
     execute("DROP TABLE content.note_conflicts")
 
     execute("DROP TRIGGER resources_note_kind_immutable ON content.resources")
@@ -140,6 +149,8 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
         CHECK (merge_parent_version_id IS NULL OR merge_parent_version_id <> parent_version_id),
       CONSTRAINT note_versions_identity_aggregate_key
         UNIQUE (resource_version_id, resource_id, vault_id, classification),
+      CONSTRAINT note_versions_receipt_identity_key
+        UNIQUE (resource_version_id, resource_id, vault_id),
       CONSTRAINT note_versions_resource_version_fkey
         FOREIGN KEY (resource_version_id, resource_id, vault_id, classification)
         REFERENCES content.resource_versions(id, resource_id, vault_id, classification),
@@ -186,7 +197,9 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
             AND resolution_version_id <> canonical_version_id
             AND resolution_version_id <> competing_version_id
           )
-        )
+        ),
+      CONSTRAINT note_conflicts_receipt_identity_key
+        UNIQUE (id, resource_id, vault_id)
     )
     """)
 
@@ -331,6 +344,23 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
       ADD CONSTRAINT resources_note_version_head_fkey
         FOREIGN KEY (current_version_id, id, vault_id, classification)
         REFERENCES content.note_versions(resource_version_id, resource_id, vault_id, classification)
+        DEFERRABLE INITIALLY DEFERRED
+    """)
+
+    execute("""
+    ALTER TABLE content.note_mutation_receipts
+      ADD CONSTRAINT note_mutation_receipts_resource_fkey
+        FOREIGN KEY (resource_id, vault_id)
+        REFERENCES content.resources(id, vault_id)
+        MATCH FULL
+        DEFERRABLE INITIALLY DEFERRED,
+      ADD CONSTRAINT note_mutation_receipts_version_fkey
+        FOREIGN KEY (version_id, resource_id, vault_id)
+        REFERENCES content.note_versions(resource_version_id, resource_id, vault_id)
+        DEFERRABLE INITIALLY DEFERRED,
+      ADD CONSTRAINT note_mutation_receipts_conflict_fkey
+        FOREIGN KEY (conflict_id, resource_id, vault_id)
+        REFERENCES content.note_conflicts(id, resource_id, vault_id)
         DEFERRABLE INITIALLY DEFERRED
     """)
   end
@@ -526,6 +556,49 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     """)
   end
 
+  defp create_note_mutation_receipt_guard do
+    execute("""
+    CREATE FUNCTION content.enforce_note_mutation_receipt_resource()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, content
+    AS $function$
+    BEGIN
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended('singularity.note.aggregate:' || NEW.resource_id::text, 0)
+      );
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM content.resources AS resource
+        WHERE resource.id = NEW.resource_id
+          AND resource.vault_id = NEW.vault_id
+          AND resource.kind = 'note'
+          AND resource.classification = 'private'
+      ) THEN
+        RAISE EXCEPTION 'note mutation receipt requires a private note resource'
+          USING ERRCODE = '23514',
+                CONSTRAINT = 'note_mutation_receipts_private_note_check';
+      END IF;
+
+      RETURN NEW;
+    END
+    $function$
+    """)
+
+    execute("REVOKE ALL ON FUNCTION content.enforce_note_mutation_receipt_resource() FROM PUBLIC")
+
+    execute("""
+    CREATE CONSTRAINT TRIGGER note_mutation_receipts_resource_check
+    AFTER INSERT OR UPDATE
+    ON content.note_mutation_receipts
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION content.enforce_note_mutation_receipt_resource()
+    """)
+  end
+
   defp create_rls_and_grants do
     Enum.each(@note_tables, fn table ->
       execute("ALTER TABLE content.#{table} ENABLE ROW LEVEL SECURITY")
@@ -540,13 +613,15 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
       WITH CHECK (true)
       """)
 
+      runtime_policy = runtime_policy(table)
+
       execute("""
       CREATE POLICY #{table}_vault_isolation
       ON content.#{table}
       FOR ALL
       TO singularity_web, singularity_worker
-      USING (#{vault_policy()})
-      WITH CHECK (#{vault_policy()})
+      USING (#{runtime_policy})
+      WITH CHECK (#{runtime_policy})
       """)
     end)
 
@@ -575,6 +650,15 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     )
     """
   end
+
+  defp runtime_policy("note_mutation_receipts") do
+    """
+    #{vault_policy()}
+    AND principal_id = NULLIF(current_setting('singularity.principal_id', true), '')::uuid
+    """
+  end
+
+  defp runtime_policy(_table), do: vault_policy()
 
   defp create_capability_reconciler do
     execute("GRANT USAGE ON SCHEMA core TO singularity_migration")
