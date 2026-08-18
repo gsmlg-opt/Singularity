@@ -1,6 +1,6 @@
 # Milestone 2 Private Markdown Notes Design
 
-**Status:** Approved design; written-spec review pending
+**Status:** Approved design
 
 **Date:** 2026-08-18
 
