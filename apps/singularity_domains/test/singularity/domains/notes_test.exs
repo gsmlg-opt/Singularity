@@ -251,21 +251,42 @@ defmodule Singularity.Domains.NotesTest do
              Command.new(:save, Map.put(save_command(), :markdown, <<0>>))
   end
 
-  test "command preparation rejects every malformed UUID position" do
-    for {operation, key, raw} <- [
-          {:create, :mutation_id, create_command()},
-          {:create, :principal_id, create_command()},
-          {:create, :vault_id, create_command()},
-          {:create, :correlation_id, create_command()},
-          {:save, :resource_id, save_command()},
-          {:save, :base_version_id, save_command()},
-          {:merge, :conflict_id, merge_command()},
-          {:merge, :expected_current_version_id, merge_command()},
-          {:merge, :competing_version_id, merge_command()},
-          {:tombstone, :expected_current_version_id, tombstone_command()},
-          {:restore, :resource_id, restore_command()}
-        ] do
-      assert {:error, %{code: :invalid}} = Command.new(operation, Map.put(raw, key, "INVALID"))
+  test "command preparation rejects every malformed UUID occurrence for every operation" do
+    uuid_keys = %{
+      create: [:mutation_id, :principal_id, :vault_id, :correlation_id],
+      save: [
+        :mutation_id,
+        :principal_id,
+        :vault_id,
+        :correlation_id,
+        :resource_id,
+        :base_version_id
+      ],
+      merge: [
+        :mutation_id,
+        :principal_id,
+        :vault_id,
+        :correlation_id,
+        :resource_id,
+        :conflict_id,
+        :expected_current_version_id,
+        :competing_version_id
+      ],
+      tombstone: [
+        :mutation_id,
+        :principal_id,
+        :vault_id,
+        :correlation_id,
+        :resource_id,
+        :expected_current_version_id
+      ],
+      restore: [:mutation_id, :principal_id, :vault_id, :correlation_id, :resource_id]
+    }
+
+    for {operation, keys} <- uuid_keys,
+        key <- keys do
+      assert {:error, %{code: :invalid}} =
+               Command.new(operation, Map.put(command(operation), key, "INVALID"))
     end
   end
 
@@ -299,6 +320,26 @@ defmodule Singularity.Domains.NotesTest do
       adapters = %{repository: Fake.NoteRepository, repository_context: repository_context}
 
       assert ^expected = Notes.execute(adapters, command, @fingerprint)
+    end
+  end
+
+  test "execute rejects handcrafted invalid commands without dispatch", %{adapters: adapters} do
+    assert {:ok, save} = Command.new(:save, save_command())
+    assert {:ok, merge} = Command.new(:merge, merge_command())
+    assert {:ok, create} = Command.new(:create, create_command())
+    assert {:ok, restore} = Command.new(:restore, restore_command())
+
+    invalid_commands = [
+      %{create | mutation_id: "INVALID"},
+      %{save | snapshot: %{save.snapshot | parent_version_id: @expected_current_version_id}},
+      %{merge | snapshot: %{merge.snapshot | merge_parent_version_id: @base_version_id}},
+      %{restore | classification: :sensitive},
+      %{create | resource_id: @resource_id}
+    ]
+
+    for command <- invalid_commands do
+      assert {:error, %{code: :invalid}} = Notes.execute(adapters, command, @fingerprint)
+      refute_note_dispatch()
     end
   end
 
@@ -369,4 +410,12 @@ defmodule Singularity.Domains.NotesTest do
   end
 
   defp add_operation_fields(command, :restore), do: Map.put(command, :resource_id, @resource_id)
+
+  defp refute_note_dispatch do
+    refute_receive {:create, _intent}
+    refute_receive {:save, _intent}
+    refute_receive {:merge, _intent}
+    refute_receive {:tombstone, _intent}
+    refute_receive {:restore, _intent}
+  end
 end
