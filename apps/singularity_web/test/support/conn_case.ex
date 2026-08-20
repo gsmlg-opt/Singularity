@@ -153,6 +153,102 @@ defmodule Singularity.Web.TestRuntimeApi do
         {:error, :not_found}
       )
 
+  def search_notes(agent, session, params),
+    do:
+      call_configured(
+        agent,
+        {:search_notes, session, params},
+        :search_notes,
+        {:ok, %Singularity.Runtime.DTO.NoteSearchPage{items: [], next_cursor: nil}}
+      )
+
+  def trash_notes(agent, session, params),
+    do:
+      call_configured(
+        agent,
+        {:trash_notes, session, params},
+        :trash_notes,
+        {:ok, %Singularity.Runtime.DTO.NoteTrashPage{items: [], next_cursor: nil}}
+      )
+
+  def get_note(agent, session, resource_id),
+    do: call_configured(agent, {:get_note, session, resource_id}, :get_note, {:error, :not_found})
+
+  def get_note_version(agent, session, resource_id, version_id),
+    do:
+      call_configured(
+        agent,
+        {:get_note_version, session, resource_id, version_id},
+        :get_note_version,
+        {:error, :not_found}
+      )
+
+  def get_note_conflict(agent, session, resource_id, conflict_id),
+    do:
+      call_configured(
+        agent,
+        {:get_note_conflict, session, resource_id, conflict_id},
+        :get_note_conflict,
+        {:error, :not_found}
+      )
+
+  def note_history(agent, session, resource_id, params),
+    do:
+      call_configured(
+        agent,
+        {:note_history, session, resource_id, params},
+        :note_history,
+        {:ok, %Singularity.Runtime.DTO.NoteHistoryPage{items: [], next_cursor: nil}}
+      )
+
+  def export_note(agent, session, resource_id),
+    do:
+      call_configured(
+        agent,
+        {:export_note, session, resource_id},
+        :export_note,
+        {:error, :not_found}
+      )
+
+  def create_note(agent, session, attrs),
+    do: call_configured(agent, {:create_note, session, attrs}, :create_note, {:error, :invalid})
+
+  def save_note(agent, session, resource_id, attrs),
+    do:
+      call_configured(
+        agent,
+        {:save_note, session, resource_id, attrs},
+        :save_note,
+        {:error, :invalid}
+      )
+
+  def merge_note(agent, session, resource_id, attrs),
+    do:
+      call_configured(
+        agent,
+        {:merge_note, session, resource_id, attrs},
+        :merge_note,
+        {:error, :invalid}
+      )
+
+  def delete_note(agent, session, resource_id, attrs),
+    do:
+      call_configured(
+        agent,
+        {:delete_note, session, resource_id, attrs},
+        :delete_note,
+        {:error, :invalid}
+      )
+
+  def restore_note(agent, session, resource_id, attrs),
+    do:
+      call_configured(
+        agent,
+        {:restore_note, session, resource_id, attrs},
+        :restore_note,
+        {:error, :invalid}
+      )
+
   defp call(agent, invocation, result) do
     Agent.get_and_update(agent, fn state ->
       {result.(state), Map.update!(state, :calls, &[invocation | &1])}
@@ -206,6 +302,17 @@ defmodule Singularity.Web.ConnCase do
       alias Singularity.Runtime.DTO.SearchPage
       alias Singularity.Runtime.DTO.Session
       alias Singularity.Runtime.DTO.UploadGrant
+      alias Singularity.Runtime.DTO.Note
+      alias Singularity.Runtime.DTO.NoteConflict
+      alias Singularity.Runtime.DTO.NoteConflictDetail
+      alias Singularity.Runtime.DTO.NoteExport
+      alias Singularity.Runtime.DTO.NoteHistoryPage
+      alias Singularity.Runtime.DTO.NoteSaveResult
+      alias Singularity.Runtime.DTO.NoteSearchPage
+      alias Singularity.Runtime.DTO.NoteSummary
+      alias Singularity.Runtime.DTO.NoteTrashPage
+      alias Singularity.Runtime.DTO.NoteVersion
+      alias Singularity.Runtime.DTO.NoteVersionSummary
       alias Singularity.Web.TestRuntimeApi
     end
   end

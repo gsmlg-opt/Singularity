@@ -108,6 +108,12 @@ defmodule Singularity.Web.LiveShellTest do
                "a[href='/activity'][data-phx-link='redirect'][data-phx-link-state='push']"
            )
 
+    assert has_element?(
+             view,
+             "header.vault-shell-header nav.vault-shell-nav[aria-label='Vault'] " <>
+               "a[href='/notes'][data-phx-link='redirect'][data-phx-link-state='push']"
+           )
+
     refute has_element?(
              view,
              "nav.vault-shell-nav a:not([data-phx-link='redirect'])"

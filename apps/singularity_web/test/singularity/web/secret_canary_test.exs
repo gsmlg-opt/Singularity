@@ -5,6 +5,8 @@ defmodule Singularity.Web.SecretCanaryTest do
   import Phoenix.LiveViewTest
 
   alias Singularity.Runtime.DTO.BackupStatus
+  alias Singularity.Runtime.DTO.NoteSearchPage
+  alias Singularity.Runtime.DTO.NoteSummary
 
   @asset_id "019f9f65-acde-7a31-bf09-9238cb428701"
   @grant_id "019f9f65-acde-7a31-bf09-9238cb428702"
@@ -295,6 +297,65 @@ defmodule Singularity.Web.SecretCanaryTest do
 
     if Floki.attribute(password_input, "value") != [],
       do: flunk("returned backup passphrase value attribute was present")
+  end
+
+  test "note content is confined to authorized calls and never enters props, errors, or logs", %{
+    conn: conn,
+    runtime_api: runtime_api
+  } do
+    title = "NOTE_TITLE_CANARY_4d2f"
+    markdown = "# NOTE_MARKDOWN_CANARY_18aa"
+    mutation_id = "019f9f65-acde-7a31-bf09-9238cb428704"
+
+    TestRuntimeApi.put(runtime_api, :search_notes, {
+      :ok,
+      %NoteSearchPage{
+        items: [
+          %NoteSummary{
+            resource_id: @asset_id,
+            resource_version_id: @grant_id,
+            title: title,
+            revision: 0,
+            display_version: 1,
+            updated_at: ~U[2026-08-20 12:00:00Z],
+            deleted?: false,
+            open_conflict_count: 0
+          }
+        ],
+        next_cursor: nil
+      }
+    })
+
+    {:ok, view, html} = live(conn, "/notes")
+    assert html =~ title
+    refute html =~ markdown
+
+    TestRuntimeApi.put(runtime_api, :create_note, {:error, :storage_unavailable})
+
+    logs =
+      capture_log(fn ->
+        send(
+          self(),
+          {:note_reply,
+           hook_reply(view, "note:create", %{
+             "version" => 1,
+             "mutationId" => mutation_id,
+             "title" => title,
+             "markdown" => markdown
+           })}
+        )
+      end)
+
+    assert_receive {:note_reply, reply}
+    refute inspect(reply) =~ title
+    refute inspect(reply) =~ markdown
+    refute logs =~ title
+    refute logs =~ markdown
+
+    assert Enum.any?(TestRuntimeApi.calls(runtime_api), fn
+             {:create_note, _session, %{title: ^title, markdown: ^markdown}} -> true
+             _other -> false
+           end)
   end
 
   defp assert_occurrence_paths(surface, canary, expected, label) do

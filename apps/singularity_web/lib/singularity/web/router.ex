@@ -68,6 +68,13 @@ defmodule Singularity.Web.Router do
     plug Auth, :require_api_unlocked
   end
 
+  pipeline :private_no_store do
+    plug :put_private_no_store
+  end
+
+  defp put_private_no_store(conn, _options),
+    do: Plug.Conn.put_resp_header(conn, "cache-control", "no-store")
+
   defp protect_from_forgery_with_safe_telemetry(conn, options) do
     Phoenix.Controller.protect_from_forgery(conn, options)
   rescue
@@ -212,5 +219,33 @@ defmodule Singularity.Web.Router do
 
     put "/uploads/:grant_id", UploadController, :update
     get "/assets/:asset_id/content", DownloadController, :show
+  end
+
+  scope "/", Singularity.Web do
+    pipe_through [
+      :browser,
+      :browser_authenticated,
+      :browser_vault_unlocked,
+      :private_no_store
+    ]
+
+    live_session :notes_unlocked,
+      on_mount: [
+        {Auth, :require_authenticated},
+        {Auth, :require_unlocked}
+      ] do
+      live "/notes", NotesLive
+    end
+  end
+
+  scope "/api/v1", Singularity.Web do
+    pipe_through [
+      :api_session,
+      :api_authenticated,
+      :api_vault_unlocked,
+      :private_no_store
+    ]
+
+    get "/notes/:resource_id/export", NoteExportController, :show
   end
 end
