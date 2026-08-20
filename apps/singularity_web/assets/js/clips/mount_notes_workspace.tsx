@@ -65,6 +65,7 @@ type Mounted = {
 const unavailableMessage = "Notes workspace is unavailable.";
 const maxTimerDelay = 2_147_483_647;
 const alert = (): ReactNode => createElement("div", { role: "alert" }, unavailableMessage);
+// TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#144
 const workspaceModules = import.meta.glob<NotesWorkspaceModule>(
   "../notes_workspace/NotesWorkspace.tsx",
 );
@@ -120,9 +121,15 @@ export function createMountNotesWorkspace(
       state.store = store;
       scheduleExpiry(state, initial.vault.expiresAt);
       const bridge = bridgeFor(this, store);
+      let loading: Promise<NotesWorkspaceModule>;
+      try {
+        loading = dependencies.loadWorkspace();
+      } catch {
+        root.render(alert());
+        return;
+      }
 
-      dependencies
-        .loadWorkspace()
+      void loading
         .then(({ NotesWorkspace }) => {
           if (!state.destroyed) root.render(createElement(NotesWorkspace, { bridge, store }));
         })

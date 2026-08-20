@@ -265,6 +265,16 @@ describe("MountNotesWorkspace", () => {
     expect(JSON.stringify(alert)).not.toContain("loader-secret");
   });
 
+  it("renders the generic alert when the injected loader throws synchronously", () => {
+    const failed = harness(JSON.stringify(initial), () => {
+      throw new Error("sync-loader-secret");
+    });
+
+    const alert = failed.root.render.mock.calls.at(-1)?.[0] as ReactElement;
+    expect(alert.props).toEqual({ role: "alert", children: "Notes workspace is unavailable." });
+    expect(JSON.stringify(alert)).not.toContain("sync-loader-secret");
+  });
+
   it("unmounts exactly once and ignores a late loader completion", async () => {
     let resolve!: (module: NotesWorkspaceModule) => void;
     const loading = new Promise<NotesWorkspaceModule>((done) => {
