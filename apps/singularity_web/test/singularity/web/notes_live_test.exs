@@ -19,7 +19,10 @@ defmodule Singularity.Web.NotesLiveTest do
     {:ok, conn: put_session_id(conn, "opaque-session"), current_session: current_session}
   end
 
-  test "mount is no-store and exposes only versioned summaries", %{conn: conn} do
+  test "mount is no-store and exposes only versioned summaries", %{
+    conn: conn,
+    current_session: current_session
+  } do
     conn = get(conn, "/notes")
     assert conn.status == 200
     assert get_resp_header(conn, "cache-control") == ["no-store"]
@@ -39,8 +42,26 @@ defmodule Singularity.Web.NotesLiveTest do
 
     assert Map.keys(props) |> Enum.sort() == ["filters", "summaries", "vault", "version"]
     assert props["version"] == 1
-    assert props["vault"] == %{"ref" => session(true).vault_id}
+
+    assert props["vault"] == %{
+             "ref" => current_session.vault_id,
+             "expiresAt" => DateTime.to_iso8601(current_session.expires_at)
+           }
+
     assert props["filters"] == %{"q" => ""}
+    refute inspect(props) =~ "markdown"
+  end
+
+  test "malformed session expiry is exposed as nil", %{conn: conn, runtime_api: runtime_api} do
+    current_session = %{session(true) | expires_at: nil}
+    TestRuntimeApi.put(runtime_api, :sessions, %{"opaque-session" => {:ok, current_session}})
+
+    {:ok, _view, html} = live(conn, "/notes")
+
+    [{"div", attributes, []}] = html |> Floki.parse_document!() |> Floki.find("#notes-workspace")
+    props = attributes |> Map.new() |> Map.fetch!("data-props") |> JSON.decode!()
+
+    assert props["vault"] == %{"ref" => current_session.vault_id, "expiresAt" => nil}
     refute inspect(props) =~ "markdown"
   end
 

@@ -54,14 +54,24 @@ type Dependencies = {
   createRoot(element: HTMLElement): Root;
   loadWorkspace(): Promise<NotesWorkspaceModule>;
 };
-type Mounted = { destroyed: boolean; unmounted: boolean; root: Root; store?: WorkspaceStore };
+type Mounted = {
+  destroyed: boolean;
+  unmounted: boolean;
+  root: Root;
+  store?: WorkspaceStore;
+  expiryTimer?: ReturnType<typeof setTimeout>;
+};
 
 const unavailableMessage = "Notes workspace is unavailable.";
+const maxTimerDelay = 2_147_483_647;
 const alert = (): ReactNode => createElement("div", { role: "alert" }, unavailableMessage);
+const workspaceModules = import.meta.glob<NotesWorkspaceModule>(
+  "../notes_workspace/NotesWorkspace.tsx",
+);
 
 function defaultLoader(): Promise<NotesWorkspaceModule> {
-  const modulePath = "../notes_workspace/NotesWorkspace";
-  return import(/* @vite-ignore */ modulePath) as Promise<NotesWorkspaceModule>;
+  const load = workspaceModules["../notes_workspace/NotesWorkspace.tsx"];
+  return load ? load() : Promise.reject(new Error(unavailableMessage));
 }
 
 function parseProps(element: HTMLElement) {
@@ -70,6 +80,24 @@ function parseProps(element: HTMLElement) {
   } catch {
     return null;
   }
+}
+
+function scheduleExpiry(state: Mounted, expiresAt: string | null): void {
+  if (expiresAt === null) return;
+  const expiry = Date.parse(expiresAt);
+
+  const schedule = () => {
+    if (state.destroyed) return;
+    const remaining = expiry - Date.now();
+    if (remaining <= 0) {
+      state.expiryTimer = undefined;
+      state.store?.purgePrivateState("expiry");
+      return;
+    }
+    state.expiryTimer = setTimeout(schedule, Math.min(remaining, maxTimerDelay));
+  };
+
+  schedule();
 }
 
 export function createMountNotesWorkspace(
@@ -90,6 +118,7 @@ export function createMountNotesWorkspace(
 
       const store = new WorkspaceStore(initial);
       state.store = store;
+      scheduleExpiry(state, initial.vault.expiresAt);
       const bridge = bridgeFor(this, store);
 
       dependencies
@@ -107,7 +136,8 @@ export function createMountNotesWorkspace(
       if (!state || state.unmounted) return;
       state.destroyed = true;
       state.unmounted = true;
-      state.store?.purge("expiry");
+      if (state.expiryTimer !== undefined) clearTimeout(state.expiryTimer);
+      state.expiryTimer = undefined;
       state.root.unmount();
     },
   };
@@ -123,7 +153,9 @@ function bridgeFor(context: HookContext, store: WorkspaceStore): NotesBridge {
       const reply = decode(await context.pushEvent(event, payload));
       if (typeof reply === "object" && reply !== null && "ok" in reply && reply.ok === false) {
         const code = (reply as { error: { code: string } }).error.code;
-        if (code === "unauthenticated" || code === "vault_locked") store.purge(code);
+        if (code === "unauthenticated" || code === "vault_locked") {
+          store.purgePrivateState(code);
+        }
       }
       return reply;
     } catch {

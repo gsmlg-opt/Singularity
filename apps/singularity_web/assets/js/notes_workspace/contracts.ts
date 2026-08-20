@@ -60,7 +60,7 @@ export type NoteTrashPage = {
 export type NoteHistoryPage = { items: NoteVersionSummary[]; nextCursor: string | null };
 export type InitialProps = {
   version: 1;
-  vault: { ref: string };
+  vault: { ref: string; expiresAt: string | null };
   filters: { q: string };
   summaries: NoteSummary[];
 };
@@ -181,7 +181,7 @@ function cursor(value: unknown): value is string | null {
 }
 function utc(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?Z$/.exec(value);
   if (!match) return false;
   const parsed = new Date(value);
   return (
@@ -400,8 +400,9 @@ export function decodeInitialProps(value: unknown): InitialProps | null {
     exact(value, ["version", "vault", "filters", "summaries"]) &&
     value.version === 1 &&
     record(value.vault) &&
-    exact(value.vault, ["ref"]) &&
+    exact(value.vault, ["ref", "expiresAt"]) &&
     id(value.vault.ref) &&
+    (value.vault.expiresAt === null || utc(value.vault.expiresAt)) &&
     record(value.filters) &&
     exact(value.filters, ["q"]) &&
     safeText(value.filters.q, 1024) &&

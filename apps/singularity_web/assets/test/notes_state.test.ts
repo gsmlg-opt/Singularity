@@ -144,7 +144,7 @@ function preservedConflict(overrides: Partial<NoteSaveResult> = {}): NoteSaveRes
 function initialProps(overrides: Partial<InitialProps> = {}): InitialProps {
   return {
     version: 1,
-    vault: { ref: vaultId },
+    vault: { ref: vaultId, expiresAt: null },
     filters: { q: "" },
     summaries: [summary()],
     ...overrides,
@@ -304,6 +304,38 @@ const replyCases: Array<{ name: string; decode: Decoder; valid: Record<string, u
 ];
 
 describe("Notes App-Clip contracts", () => {
+  it("requires an exact nullable canonical UTC vault expiry", () => {
+    const initial = initialProps();
+    const withoutExpiry = { ...initial, vault: { ref: vaultId } };
+    const noExpiry = { ...initial, vault: { ref: vaultId, expiresAt: null } };
+    const expiring = {
+      ...initial,
+      vault: { ref: vaultId, expiresAt: "2026-08-21T12:00:00.000000Z" },
+    };
+
+    expect(decodeInitialProps(noExpiry)).toEqual(noExpiry);
+    expect(decodeInitialProps(expiring)).toEqual(expiring);
+    expect(decodeInitialProps(withoutExpiry)).toBeNull();
+    expect(
+      decodeInitialProps({
+        ...initial,
+        vault: { ref: vaultId, expiresAt: "2026-08-21T13:00:00+01:00" },
+      }),
+    ).toBeNull();
+    expect(
+      decodeInitialProps({
+        ...initial,
+        vault: { ref: vaultId, expiresAt: "2026-02-30T12:00:00Z" },
+      }),
+    ).toBeNull();
+    expect(
+      decodeInitialProps({
+        ...initial,
+        vault: { ref: vaultId, expiresAt: "2026-08-21T12:00:00.0000000Z" },
+      }),
+    ).toBeNull();
+  });
+
   it("decodes the exact Task 13 initial props and every request/reply shape", () => {
     const initial = initialProps();
     expect(decodeInitialProps(initial)).toEqual(initial);
@@ -908,7 +940,7 @@ describe("Notes workspace state", () => {
   it.each(["vault_locked", "unauthenticated", "expiry"] as const)(
     "purges every private field and invalidates all lanes on %s",
     (reason) => {
-      const store = new WorkspaceStore(initialProps());
+      const store = new WorkspaceStore(initialProps({ filters: { q: "private search" } }));
 
       const search = store.beginLane("search");
       expect(
@@ -933,9 +965,10 @@ describe("Notes workspace state", () => {
       };
       const before = clone(store.getSnapshot());
 
-      store.purge(reason);
+      store.purgePrivateState(reason);
 
       expect(store.getSnapshot()).toMatchObject({
+        filters: { q: "" },
         summaries: [],
         selection: null,
         draft: null,

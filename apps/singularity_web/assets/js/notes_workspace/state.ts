@@ -167,13 +167,14 @@ export class WorkspaceStore {
     return true;
   }
 
-  purge(_reason: PurgeReason): void {
+  purgePrivateState(_reason: PurgeReason): void {
     const lanes = Object.fromEntries(
       laneNames.map((lane) => [lane, this.snapshot.lanes[lane] + 1]),
     ) as Record<Lane, number>;
     this.terminal = true;
     this.commit({
       ...this.snapshot,
+      filters: { ...this.snapshot.filters, q: "" },
       summaries: [],
       selection: null,
       draft: null,

@@ -361,11 +361,43 @@ defmodule Singularity.Web.NotesLive do
 
     %{
       version: @version,
-      vault: %{ref: session.vault_id},
+      vault: %{ref: session.vault_id, expiresAt: session_expiry(session.expires_at)},
       filters: %{q: ""},
       summaries: encoded.items
     }
   end
+
+  defp session_expiry(expires_at) do
+    case iso8601(expires_at) do
+      {:ok, value} -> value
+      {:error, :invalid} -> nil
+    end
+  end
+
+  defp iso8601(
+         %DateTime{
+           calendar: Calendar.ISO,
+           time_zone: "Etc/UTC",
+           zone_abbr: "UTC",
+           utc_offset: 0,
+           std_offset: 0
+         } = datetime
+       ) do
+    try do
+      value = DateTime.to_iso8601(datetime)
+
+      case DateTime.from_iso8601(value) do
+        {:ok, ^datetime, 0} -> {:ok, value}
+        _invalid -> {:error, :invalid}
+      end
+    rescue
+      _error -> {:error, :invalid}
+    catch
+      _kind, _reason -> {:error, :invalid}
+    end
+  end
+
+  defp iso8601(_datetime), do: {:error, :invalid}
 
   defp encode_page(%NoteSearchPage{} = page), do: encode_search_page(page)
   defp encode_page(%NoteTrashPage{} = page), do: encode_trash_page(page)

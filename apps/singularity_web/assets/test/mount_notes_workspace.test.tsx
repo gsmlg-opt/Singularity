@@ -1,6 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import mountSource from "../js/clips/mount_notes_workspace.tsx?raw";
 import type { InitialProps, NotesBridge } from "../js/notes_workspace/contracts";
 import type { NotesWorkspaceProps } from "../js/clips/mount_notes_workspace";
 import {
@@ -13,7 +14,7 @@ const id = (suffix: string) => `019f9f65-acde-7a31-bf09-${suffix.padStart(12, "0
 
 const initial: InitialProps = {
   version: 1,
-  vault: { ref: id("1") },
+  vault: { ref: id("1"), expiresAt: null },
   filters: { q: "" },
   summaries: [
     {
@@ -87,6 +88,19 @@ async function mountedProps(
 }
 
 describe("MountNotesWorkspace", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("uses a statically analyzable exact NotesWorkspace glob", () => {
+    expect(mountSource).toMatch(
+      /import\.meta\.glob(?:<NotesWorkspaceModule>)?\(\s*"\.\.\/notes_workspace\/NotesWorkspace\.tsx"/,
+    );
+    expect(mountSource).not.toContain("@vite-ignore");
+    expect(mountSource).not.toMatch(/import\(\s*modulePath/);
+  });
+
   it("creates the root synchronously, parses exact props, and loads one component", async () => {
     const test = harness();
     expect(test.order).toEqual(["root", "load"]);
@@ -163,6 +177,75 @@ describe("MountNotesWorkspace", () => {
     });
     await expect(trash).resolves.toEqual({ ok: false, error: { code: "invalid" } });
     expect(store.getSnapshot()).toBe(before);
+  });
+
+  it("retains private state before local expiry, then purges it and rejects late completions", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T00:00:00Z"));
+    const expiring = {
+      ...initial,
+      vault: { ...initial.vault, expiresAt: "2026-08-21T00:01:00Z" },
+      filters: { q: "private search" },
+    };
+    const test = harness(JSON.stringify(expiring));
+    const { store } = await mountedProps(test.root);
+    const open = store.beginLane("open");
+    expect(
+      store.acceptOpen(open, {
+        ...initial.summaries[0],
+        markdown: "# private canonical",
+      }),
+    ).toBe(true);
+    expect(store.updateDraft({ title: "Private draft", markdown: "# private draft" })).toBe(true);
+    const lateSearch = store.beginLane("search");
+    const before = store.getSnapshot();
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(store.getSnapshot()).toBe(before);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getSnapshot()).toMatchObject({
+      filters: { q: "" },
+      summaries: [],
+      selection: null,
+      draft: null,
+      history: [],
+      conflict: null,
+      dirty: false,
+      searchNextCursor: null,
+      historyNextCursor: null,
+      terminalEpoch: before.terminalEpoch + 1,
+      lanes: {
+        search: before.lanes.search + 1,
+        open: before.lanes.open + 1,
+        history: before.lanes.history + 1,
+        conflict: before.lanes.conflict + 1,
+        mutation: before.lanes.mutation + 1,
+      },
+    });
+    expect(store.acceptSearch(lateSearch, { items: initial.summaries, nextCursor: "late" })).toBe(
+      false,
+    );
+  });
+
+  it("bounds long expiry timers and cancels them on ordinary destroy", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T00:00:00Z"));
+    const timeout = vi.spyOn(globalThis, "setTimeout");
+    const expiring = {
+      ...initial,
+      vault: { ...initial.vault, expiresAt: "2026-10-21T00:00:00Z" },
+    };
+    const test = harness(JSON.stringify(expiring));
+    const { store } = await mountedProps(test.root);
+
+    expect(timeout.mock.calls.some(([, delay]) => delay === 2_147_483_647)).toBe(true);
+    const beforeDestroy = store.getSnapshot();
+    test.hook.destroyed.call(test.context);
+    await vi.advanceTimersByTimeAsync(2_147_483_647);
+
+    expect(store.getSnapshot()).toBe(beforeDestroy);
+    expect(test.root.unmount).toHaveBeenCalledTimes(1);
   });
 
   it("renders one accessible generic alert for malformed props or loader failure", async () => {
