@@ -9,6 +9,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Local.PathGuard
 
   defmodule Imported do
@@ -122,6 +123,8 @@ defmodule Singularity.Storage.Backup.Restorer do
     content.asset_stages
     content.upload_grants
     content.asset_search_documents
+    content.note_search_documents
+    content.note_mutation_receipts
     audit.backup_manifests
     audit.backup_manifest_objects
     jobs.oban_jobs
@@ -134,8 +137,9 @@ defmodule Singularity.Storage.Backup.Restorer do
     with true <- exact_keys?(input, @input_keys),
          %BundleReader.Verified{} = verified <- input.verified,
          {:ok, authenticated_cut} <- authenticated_cut(verified, input.binding),
-         true <- authenticated_cut == input.cut or backup_invalid() do
-      import_verified(context, migration_repo, verified, authenticated_cut)
+         true <- authenticated_cut == input.cut or backup_invalid(),
+         {:ok, schema_module} <- logical_schema(authenticated_cut.logical_version) do
+      import_verified(context, migration_repo, verified, authenticated_cut, schema_module)
     else
       {:error, %Error{}} = error -> error
       _invalid -> backup_invalid()
@@ -400,14 +404,15 @@ defmodule Singularity.Storage.Backup.Restorer do
          context,
          migration_repo,
          %BundleReader.Verified{replay: %BundleReader.Replay{}} = verified,
-         cut
+         cut,
+         schema_module
        ) do
-    import_verified_streaming(context, migration_repo, verified, cut)
+    import_verified_streaming(context, migration_repo, verified, cut, schema_module)
   end
 
-  defp import_verified(context, migration_repo, verified, cut) do
+  defp import_verified(context, migration_repo, verified, cut, schema_module) do
     with {:ok, storage} <- object_storage(context),
-         {:ok, decoded} <- decode_bundle(verified, cut),
+         {:ok, decoded} <- decode_bundle(verified, cut, schema_module),
          {:ok, owner} <- validate_relations(decoded.groups, cut),
          :ok <- validate_object_inventory(decoded.groups, cut.object_inventory),
          {:ok, marker} <- import_marker(storage, verified, cut) do
@@ -426,7 +431,7 @@ defmodule Singularity.Storage.Backup.Restorer do
     _kind, _reason -> storage_unavailable()
   end
 
-  defp import_verified_streaming(context, migration_repo, verified, cut) do
+  defp import_verified_streaming(context, migration_repo, verified, cut, schema_module) do
     with {:ok, storage} <- object_storage(context),
          {:ok, marker} <- import_marker(storage, verified, cut) do
       try do
@@ -438,6 +443,7 @@ defmodule Singularity.Storage.Backup.Restorer do
               storage,
               verified,
               cut,
+              schema_module,
               marker
             )
           end
@@ -455,22 +461,30 @@ defmodule Singularity.Storage.Backup.Restorer do
     _kind, _reason -> storage_unavailable()
   end
 
-  defp continue_stream_import(:pending, repo, storage, verified, cut, marker) do
+  defp continue_stream_import(:pending, repo, storage, verified, cut, schema_module, marker) do
     with :ok <- require_pending_database(repo, marker),
          :ok <- rollback_inventory(storage, cut.object_inventory),
          :ok <- require_empty_storage(storage) do
-      stream_pending_import(repo, storage, verified, cut, marker)
+      stream_pending_import(repo, storage, verified, cut, schema_module, marker)
     end
   end
 
-  defp continue_stream_import(:imported, repo, storage, verified, cut, marker) do
-    stream_verify_imported(repo, storage, verified, cut, marker)
+  defp continue_stream_import(:imported, repo, storage, verified, cut, schema_module, marker) do
+    stream_verify_imported(repo, storage, verified, cut, schema_module, marker)
   end
 
-  defp continue_stream_import(_state, _repo, _storage, _verified, _cut, _marker),
-    do: conflict()
+  defp continue_stream_import(
+         _state,
+         _repo,
+         _storage,
+         _verified,
+         _cut,
+         _schema_module,
+         _marker
+       ),
+       do: conflict()
 
-  defp stream_pending_import(repo, storage, verified, cut, marker) do
+  defp stream_pending_import(repo, storage, verified, cut, schema_module, marker) do
     result =
       transact(
         repo,
@@ -479,17 +493,27 @@ defmodule Singularity.Storage.Backup.Restorer do
                :ok <- verify_migration_authority(repo),
                :ok <- lock_restore_import_sagas(repo),
                :ok <- lock_destination_tables(repo),
+               :ok <- defer_constraints(repo),
                {:ok, state} <- load_import_marker(repo),
                :pending <- require_marker(state, marker),
                :ok <- require_empty_tables(repo),
                :ok <- verify_seed_rows(repo),
                {:ok, dummy_verifier} <- dummy_verifier(repo),
-               accumulator <- stream_accumulator(:import, repo, storage, cut, dummy_verifier),
+               accumulator <-
+                 stream_accumulator(
+                   :import,
+                   repo,
+                   storage,
+                   cut,
+                   dummy_verifier,
+                   schema_module
+                 ),
                {:ok, accumulator} <-
                  BundleReader.reduce_verified(verified, accumulator, &reduce_stream_event/2),
                {:ok, accumulator} <- finish_stream_accumulator(accumulator),
                :ok <- restore_cleanup_principal(repo, accumulator.groups, cut.vault_id),
-               :ok <- verify_stream_counts(repo, accumulator.row_counts),
+               :ok <-
+                 verify_stream_counts(repo, accumulator.row_counts, accumulator.schema_module),
                :ok <- verify_owner_handoff(repo, accumulator.owner, cut.vault_id),
                :ok <- repair_outbox_sequence(repo, cut.outbox_high_water_mark),
                :ok <- require_excluded_tables_empty(repo),
@@ -512,7 +536,15 @@ defmodule Singularity.Storage.Backup.Restorer do
         imported(verified, cut, accumulator.owner)
 
       {:error, %Error{}} = error ->
-        finish_failed_stream_import(error, repo, storage, verified, cut, marker, accumulator)
+        finish_failed_stream_import(
+          error,
+          repo,
+          storage,
+          verified,
+          cut,
+          marker,
+          accumulator
+        )
 
       _invalid ->
         finish_failed_stream_import(
@@ -527,13 +559,12 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp finish_failed_stream_import(error, repo, storage, verified, cut, marker, accumulator) do
+  defp finish_failed_stream_import(error, repo, storage, _verified, cut, marker, accumulator) do
     case current_marker_state(repo, marker) do
       {:ok, :imported} when is_map(accumulator) ->
-        with :ok <- verify_stream_database_digest(repo, accumulator),
-             :ok <- verify_no_staged_objects(storage),
+        with :ok <- verify_no_staged_objects(storage),
              :ok <- verify_exact_published_inventory(storage, cut.object_inventory) do
-          imported(verified, cut, accumulator.owner)
+          storage_unavailable()
         end
 
       {:ok, :pending} ->
@@ -550,7 +581,7 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp stream_verify_imported(repo, storage, verified, cut, marker) do
+  defp stream_verify_imported(repo, storage, verified, cut, schema_module, marker) do
     case transact(
            repo,
            fn ->
@@ -558,10 +589,19 @@ defmodule Singularity.Storage.Backup.Restorer do
                   :ok <- verify_migration_authority(repo),
                   :ok <- lock_restore_import_sagas(repo),
                   :ok <- lock_destination_tables(repo),
+                  :ok <- defer_constraints(repo),
                   {:ok, state} <- load_import_marker(repo),
                   :imported <- require_marker(state, marker),
                   {:ok, dummy_verifier} <- dummy_verifier(repo),
-                  accumulator <- stream_accumulator(:verify, repo, storage, cut, dummy_verifier),
+                  accumulator <-
+                    stream_accumulator(
+                      :verify,
+                      repo,
+                      storage,
+                      cut,
+                      dummy_verifier,
+                      schema_module
+                    ),
                   {:ok, accumulator} <-
                     BundleReader.reduce_verified(verified, accumulator, &reduce_stream_event/2),
                   {:ok, accumulator} <- finish_stream_accumulator(accumulator),
@@ -591,7 +631,7 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp stream_accumulator(mode, repo, storage, cut, dummy_verifier)
+  defp stream_accumulator(mode, repo, storage, cut, dummy_verifier, schema_module)
        when mode in [:import, :verify] do
     %{
       current: nil,
@@ -603,7 +643,8 @@ defmodule Singularity.Storage.Backup.Restorer do
       mode: mode,
       raw_index: 0,
       repo: repo,
-      row_counts: Map.new(LogicalSchema.all(), &{&1.table, 0}),
+      row_counts: Map.new(schema_module.all(), &{&1.table, 0}),
+      schema_module: schema_module,
       staged: [],
       storage: storage,
       table_count_vector: nil
@@ -616,7 +657,7 @@ defmodule Singularity.Storage.Backup.Restorer do
        )
        when type in [@cut_record_type, @row_record_type, @object_evidence_record_type] and
               is_integer(payload_length) and payload_length >= 0 do
-    buffering? = type in [@cut_record_type, @row_record_type]
+    buffering? = type in [@cut_record_type, @row_record_type, @object_evidence_record_type]
 
     {:ok,
      %{
@@ -698,7 +739,8 @@ defmodule Singularity.Storage.Backup.Restorer do
        ) do
     with {:ok, %{kind: :cut} = wire_cut} <-
            LogicalRecordCodec.decode(@cut_record_type, payload),
-         true <- cut_matches?(wire_cut, cut) do
+         true <- cut_matches?(wire_cut, cut),
+         true <- wire_cut.logical_version == accumulator.schema_module.version() do
       {:ok,
        %{
          accumulator
@@ -717,7 +759,9 @@ defmodule Singularity.Storage.Backup.Restorer do
        ) do
     with {:ok, %{kind: :row, table: table, table_ordinal: ordinal} = wire_row} <-
            LogicalRecordCodec.decode(@row_record_type, payload),
-         %{table: ^table, ordinal: ^ordinal} = schema <- Enum.at(LogicalSchema.all(), ordinal),
+         true <- wire_row.logical_version == accumulator.schema_module.version(),
+         %{table: ^table, ordinal: ^ordinal} = schema <-
+           Enum.at(accumulator.schema_module.all(), ordinal),
          row = %{schema: schema, values: wire_row.ordered_column_values},
          :ok <- apply_stream_row(accumulator, schema, row),
          {:ok, groups} <- add_relation_row(accumulator.groups, table, row) do
@@ -736,9 +780,15 @@ defmodule Singularity.Storage.Backup.Restorer do
   defp finish_stream_record(
          %{cut_seen?: true} = accumulator,
          %{type: @object_evidence_record_type},
-         _payload
+         payload
        ) do
-    {:ok, %{accumulator | evidence_count: accumulator.evidence_count + 1}}
+    with {:ok, %{kind: :object, logical_version: logical_version}} <-
+           LogicalRecordCodec.decode(@object_evidence_record_type, payload),
+         true <- logical_version == accumulator.schema_module.version() do
+      {:ok, %{accumulator | evidence_count: accumulator.evidence_count + 1}}
+    else
+      _invalid -> backup_invalid()
+    end
   end
 
   defp finish_stream_record(
@@ -823,16 +873,17 @@ defmodule Singularity.Storage.Backup.Restorer do
            groups: groups,
            raw_index: raw_count,
            row_counts: row_counts,
+           schema_module: schema_module,
            table_count_vector: counts
          } = accumulator
        )
        when is_list(counts) do
     expected_counts =
-      LogicalSchema.all()
+      schema_module.all()
       |> Enum.zip(counts)
       |> Map.new(fn {schema, count} -> {schema.table, count} end)
 
-    with true <- length(counts) == length(LogicalSchema.all()),
+    with true <- length(counts) == length(schema_module.all()),
          true <- row_counts == expected_counts,
          true <- evidence_count == length(inventory),
          true <- raw_count == length(inventory),
@@ -847,8 +898,8 @@ defmodule Singularity.Storage.Backup.Restorer do
 
   defp finish_stream_accumulator(_accumulator), do: backup_invalid()
 
-  defp verify_stream_counts(repo, row_counts) do
-    LogicalSchema.all()
+  defp verify_stream_counts(repo, row_counts, schema_module) do
+    schema_module.all()
     |> Enum.reduce_while(:ok, fn schema, :ok ->
       expected_count = Map.fetch!(row_counts, schema.table)
 
@@ -861,7 +912,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   end
 
   defp verify_stream_database_digest(repo, accumulator),
-    do: verify_stream_counts(repo, accumulator.row_counts)
+    do: verify_stream_counts(repo, accumulator.row_counts, accumulator.schema_module)
 
   defp verify_stream_row(repo, schema, row, dummy_verifier) do
     {columns, tagged_values} = destination_row(schema, row, dummy_verifier)
@@ -1041,15 +1092,18 @@ defmodule Singularity.Storage.Backup.Restorer do
          repo,
          storage,
          staged,
-         verified,
-         decoded,
+         _verified,
+         _decoded,
          cut,
-         owner,
+         _owner,
          marker
        ) do
     case current_marker_state(repo, marker) do
       {:ok, :imported} ->
-        verify_imported_destination(repo, storage, verified, decoded, cut, owner, marker)
+        with :ok <- verify_no_staged_objects(storage),
+             :ok <- verify_exact_published_inventory(storage, cut.object_inventory) do
+          storage_unavailable()
+        end
 
       {:ok, :pending} ->
         with :ok <- require_pending_database(repo, marker),
@@ -1345,26 +1399,34 @@ defmodule Singularity.Storage.Backup.Restorer do
 
   defp decode_bundle(
          %BundleReader.Verified{records: [cut_record | remaining]},
-         cut
+         cut,
+         schema_module
        ) do
     with %{type: @cut_record_type, payload: cut_payload} <- cut_record,
          {:ok, %{kind: :cut} = wire_cut} <-
            LogicalRecordCodec.decode(@cut_record_type, cut_payload),
          true <- cut_matches?(wire_cut, cut),
+         true <- wire_cut.logical_version == schema_module.version(),
          {:ok, groups, remaining} <-
-           decode_row_groups(remaining, wire_cut.table_count_vector),
-         {:ok, remaining} <- drop_object_evidence(remaining, length(cut.object_inventory)),
+           decode_row_groups(remaining, wire_cut.table_count_vector, schema_module),
+         {:ok, remaining} <-
+           drop_object_evidence(
+             remaining,
+             length(cut.object_inventory),
+             schema_module.version()
+           ),
          {:ok, raw_payloads} <- raw_payloads(remaining, length(cut.object_inventory)) do
-      {:ok, %{groups: groups, raw_payloads: raw_payloads}}
+      {:ok, %{groups: groups, raw_payloads: raw_payloads, schema_module: schema_module}}
     else
       _invalid -> backup_invalid()
     end
   end
 
-  defp decode_bundle(_verified, _cut), do: backup_invalid()
+  defp decode_bundle(_verified, _cut, _schema_module), do: backup_invalid()
 
   defp cut_matches?(wire_cut, cut) do
-    wire_cut.database_snapshot == cut.database_snapshot and
+    wire_cut.logical_version == cut.logical_version and
+      wire_cut.database_snapshot == cut.database_snapshot and
       wire_cut.manifest_id == cut.manifest_id and
       wire_cut.outbox_high_water_mark == cut.outbox_high_water_mark and
       wire_cut.snapshot_id == cut.snapshot_id and
@@ -1372,15 +1434,16 @@ defmodule Singularity.Storage.Backup.Restorer do
       wire_cut.object_count == length(cut.object_inventory)
   end
 
-  defp decode_row_groups(records, counts) do
-    LogicalSchema.all()
+  defp decode_row_groups(records, counts, schema_module) do
+    schema_module.all()
     |> Enum.zip(counts)
     |> Enum.reduce_while({:ok, %{}, records}, fn {schema, count}, {:ok, groups, remaining} ->
       {table_records, tail} = Enum.split(remaining, count)
 
       result =
         with true <- length(table_records) == count,
-             {:ok, rows} <- decode_table_rows(table_records, schema) do
+             {:ok, rows} <-
+               decode_table_rows(table_records, schema, schema_module.version()) do
           {:ok, Map.put(groups, schema.table, rows), tail}
         end
 
@@ -1394,12 +1457,18 @@ defmodule Singularity.Storage.Backup.Restorer do
     end)
   end
 
-  defp decode_table_rows(records, schema) do
+  defp decode_table_rows(records, schema, logical_version) do
     records
     |> Enum.reduce_while({:ok, []}, fn
       %{type: @row_record_type, payload: payload}, {:ok, rows} ->
         case LogicalRecordCodec.decode(@row_record_type, payload) do
-          {:ok, %{kind: :row, table: table, table_ordinal: ordinal} = row}
+          {:ok,
+           %{
+             kind: :row,
+             logical_version: ^logical_version,
+             table: table,
+             table_ordinal: ordinal
+           } = row}
           when table == schema.table and ordinal == schema.ordinal ->
             {:cont, {:ok, [%{schema: schema, values: row.ordered_column_values} | rows]}}
 
@@ -1416,14 +1485,20 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp drop_object_evidence(records, count) do
+  defp drop_object_evidence(records, count, logical_version) do
     {evidence, remaining} = Enum.split(records, count)
 
     if length(evidence) == count and
-         Enum.all?(
-           evidence,
-           &match?(%{type: 0x0003, payload: payload} when is_binary(payload), &1)
-         ) do
+         Enum.all?(evidence, fn
+           %{type: @object_evidence_record_type, payload: payload} when is_binary(payload) ->
+             match?(
+               {:ok, %{kind: :object, logical_version: ^logical_version}},
+               LogicalRecordCodec.decode(@object_evidence_record_type, payload)
+             )
+
+           _record ->
+             false
+         end) do
       {:ok, remaining}
     else
       backup_invalid()
@@ -1630,14 +1705,16 @@ defmodule Singularity.Storage.Backup.Restorer do
              :ok <- verify_migration_authority(repo),
              :ok <- lock_restore_import_sagas(repo),
              :ok <- lock_destination_tables(repo),
+             :ok <- defer_constraints(repo),
              {:ok, state} <- load_import_marker(repo),
              :pending <- require_marker(state, marker),
              :ok <- require_empty_tables(repo),
              :ok <- verify_seed_rows(repo),
              {:ok, dummy_verifier} <- dummy_verifier(repo),
-             :ok <- insert_groups(repo, decoded.groups, dummy_verifier),
+             :ok <-
+               insert_groups(repo, decoded.groups, dummy_verifier, decoded.schema_module),
              :ok <- restore_cleanup_principal(repo, decoded.groups, cut.vault_id),
-             :ok <- verify_inserted_counts(repo, decoded.groups),
+             :ok <- verify_inserted_counts(repo, decoded.groups, decoded.schema_module),
              :ok <- verify_owner_handoff(repo, owner, cut.vault_id),
              :ok <- repair_outbox_sequence(repo, cut.outbox_high_water_mark),
              :ok <- require_excluded_tables_empty(repo),
@@ -2484,12 +2561,14 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp destination_tables, do: LogicalSchema.tables() ++ @excluded_tables
+  defp destination_tables, do: LogicalSchemaV2.tables() ++ @excluded_tables
 
   defp lock_destination_tables(repo) do
     tables = destination_tables() |> Enum.sort() |> Enum.map_join(", ", &quote_table/1)
     query_ok(repo, "LOCK TABLE #{tables} IN ACCESS EXCLUSIVE MODE", [])
   end
+
+  defp defer_constraints(repo), do: query_ok(repo, "SET CONSTRAINTS ALL DEFERRED", [])
 
   defp require_empty_tables(repo) do
     destination_tables()
@@ -2554,8 +2633,8 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp insert_groups(repo, groups, dummy_verifier) do
-    LogicalSchema.all()
+  defp insert_groups(repo, groups, dummy_verifier, schema_module) do
+    schema_module.all()
     |> Enum.reduce_while(:ok, fn schema, :ok ->
       groups
       |> Map.fetch!(schema.table)
@@ -2688,8 +2767,8 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp verify_inserted_counts(repo, groups) do
-    LogicalSchema.all()
+  defp verify_inserted_counts(repo, groups, schema_module) do
+    schema_module.all()
     |> Enum.reduce_while(:ok, fn schema, :ok ->
       expected_count = length(Map.fetch!(groups, schema.table))
 
@@ -2771,7 +2850,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   defp verify_imported_destination(repo, storage, verified, decoded, cut, owner, marker) do
     with :ok <- verify_imported_database(repo, decoded, cut, owner, marker),
          :ok <- verify_no_staged_objects(storage),
-         :ok <- verify_published_inventory(storage, cut.object_inventory) do
+         :ok <- verify_exact_published_inventory(storage, cut.object_inventory) do
       imported(verified, cut, owner)
     end
   end
@@ -2787,7 +2866,15 @@ defmodule Singularity.Storage.Backup.Restorer do
                   {:ok, state} <- load_import_marker(repo),
                   :imported <- require_marker(state, marker),
                   :ok <- verify_seed_rows(repo),
-                  :ok <- verify_inserted_counts(repo, decoded.groups),
+                  {:ok, dummy_verifier} <- dummy_verifier(repo),
+                  :ok <-
+                    verify_groups(
+                      repo,
+                      decoded.groups,
+                      dummy_verifier,
+                      decoded.schema_module
+                    ),
+                  :ok <- verify_inserted_counts(repo, decoded.groups, decoded.schema_module),
                   :ok <- verify_owner_handoff(repo, owner, cut.vault_id),
                   :ok <- require_excluded_tables_empty(repo) do
                :imported
@@ -2802,6 +2889,24 @@ defmodule Singularity.Storage.Backup.Restorer do
       {:error, %Error{}} = error -> error
       _invalid -> storage_unavailable()
     end
+  end
+
+  defp verify_groups(repo, groups, dummy_verifier, schema_module) do
+    schema_module.all()
+    |> Enum.reduce_while(:ok, fn schema, :ok ->
+      groups
+      |> Map.fetch!(schema.table)
+      |> Enum.reduce_while(:ok, fn row, :ok ->
+        case verify_stream_row(repo, schema, row, dummy_verifier) do
+          :ok -> {:cont, :ok}
+          {:error, %Error{}} = error -> {:halt, error}
+        end
+      end)
+      |> case do
+        :ok -> {:cont, :ok}
+        {:error, %Error{}} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp verify_no_staged_objects(%{module: module, context: context}) do
@@ -3412,6 +3517,10 @@ defmodule Singularity.Storage.Backup.Restorer do
   defp sanitize(%Error{} = error), do: %{error | message: nil, details: %{}}
 
   defp exact_keys?(map, keys), do: Map.keys(map) |> Enum.sort() == Enum.sort(keys)
+
+  defp logical_schema(1), do: {:ok, LogicalSchema}
+  defp logical_schema(2), do: {:ok, LogicalSchemaV2}
+  defp logical_schema(_version), do: backup_invalid()
 
   defp backup_invalid, do: {:error, Error.new(:backup_invalid)}
   defp conflict, do: {:error, Error.new(:conflict)}

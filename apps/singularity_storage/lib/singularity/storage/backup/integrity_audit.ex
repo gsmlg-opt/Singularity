@@ -11,6 +11,7 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Postgres.AssetRepository
+  alias Singularity.Storage.Postgres.NoteProjectionReconciler
 
   @classifications [:private, :sensitive, :restricted]
   @entry_keys ~w[
@@ -499,13 +500,18 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
          {_, nil} <-
            repo.delete_all(from_document_in_vault(vault_id)),
          :ok <- rebuild_assets(repo, asset_ids),
-         {:ok, result_rows} <- search_result_rows(repo, vault_id) do
+         :ok <- verify_note_aggregate_integrity(repo, vault_id),
+         :ok <- NoteProjectionReconciler.rebuild_vault(repo, vault_id),
+         :ok <- verify_note_projection_identity(repo, vault_id),
+         {:ok, asset_rows} <- search_result_rows(repo, vault_id),
+         {:ok, note_rows} <- note_search_result_rows(repo, vault_id) do
+      evidence = %{assets: asset_rows, notes: note_rows}
+
       {:ok,
        %SearchSummary{
          projection: "postgres_metadata_v1",
-         document_count: length(result_rows),
-         result_sha256:
-           :crypto.hash(:sha256, :erlang.term_to_binary(result_rows, [:deterministic]))
+         document_count: length(asset_rows) + length(note_rows),
+         result_sha256: :crypto.hash(:sha256, :erlang.term_to_binary(evidence, [:deterministic]))
        }}
     else
       {:error, %Error{}} = error -> error
@@ -550,6 +556,169 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
          ) do
       {:ok, %{rows: rows}} when is_list(rows) -> {:ok, rows}
       {:ok, _malformed} -> unavailable()
+      {:error, _reason} -> unavailable()
+    end
+  end
+
+  defp note_search_result_rows(repo, vault_id) do
+    case SQL.query(
+           repo,
+           """
+           SELECT
+             resource_id::text,
+             resource_version_id::text,
+             classification,
+             title,
+             markdown,
+             to_char(head_inserted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+             search_vector::text
+           FROM content.note_search_documents
+           WHERE vault_id = $1
+           ORDER BY resource_id
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: rows}} when is_list(rows) -> {:ok, rows}
+      {:ok, _malformed} -> unavailable()
+      {:error, _reason} -> unavailable()
+    end
+  end
+
+  defp verify_note_aggregate_integrity(repo, vault_id) do
+    case SQL.query(
+           repo,
+           """
+           SELECT NOT EXISTS (
+             SELECT 1
+             FROM content.resources AS resource
+             LEFT JOIN content.resource_versions AS version
+               ON version.id = resource.current_version_id
+              AND version.resource_id = resource.id
+              AND version.vault_id = resource.vault_id
+              AND version.classification = resource.classification
+             LEFT JOIN content.note_versions AS note
+               ON note.resource_version_id = version.id
+              AND note.resource_id = version.resource_id
+              AND note.vault_id = version.vault_id
+              AND note.classification = version.classification
+             WHERE resource.vault_id = $1
+               AND resource.kind = 'note'
+               AND (
+                 resource.classification <> 'private'
+                 OR version.id IS NULL
+                 OR note.resource_version_id IS NULL
+               )
+           ) AND NOT EXISTS (
+             SELECT 1
+             FROM content.note_versions AS note
+             LEFT JOIN content.resource_versions AS version
+               ON version.id = note.resource_version_id
+              AND version.resource_id = note.resource_id
+              AND version.vault_id = note.vault_id
+              AND version.classification = note.classification
+             LEFT JOIN content.note_versions AS parent
+               ON parent.resource_version_id = note.parent_version_id
+              AND parent.resource_id = note.resource_id
+              AND parent.vault_id = note.vault_id
+              AND parent.classification = note.classification
+             LEFT JOIN content.note_versions AS merge_parent
+               ON merge_parent.resource_version_id = note.merge_parent_version_id
+              AND merge_parent.resource_id = note.resource_id
+              AND merge_parent.vault_id = note.vault_id
+              AND merge_parent.classification = note.classification
+             WHERE note.vault_id = $1
+               AND (
+                 note.classification <> 'private'
+                 OR version.id IS NULL
+                 OR (note.parent_version_id IS NOT NULL AND parent.resource_version_id IS NULL)
+                 OR (
+                   note.merge_parent_version_id IS NOT NULL
+                   AND merge_parent.resource_version_id IS NULL
+                 )
+               )
+           ) AND NOT EXISTS (
+             SELECT 1
+             FROM content.note_conflicts AS conflict
+             LEFT JOIN content.note_versions AS base
+               ON base.resource_version_id = conflict.base_version_id
+              AND base.resource_id = conflict.resource_id
+              AND base.vault_id = conflict.vault_id
+              AND base.classification = conflict.classification
+             LEFT JOIN content.note_versions AS canonical
+               ON canonical.resource_version_id = conflict.canonical_version_id
+              AND canonical.resource_id = conflict.resource_id
+              AND canonical.vault_id = conflict.vault_id
+              AND canonical.classification = conflict.classification
+             LEFT JOIN content.note_versions AS competing
+               ON competing.resource_version_id = conflict.competing_version_id
+              AND competing.resource_id = conflict.resource_id
+              AND competing.vault_id = conflict.vault_id
+              AND competing.classification = conflict.classification
+             LEFT JOIN content.note_versions AS resolution
+               ON resolution.resource_version_id = conflict.resolution_version_id
+              AND resolution.resource_id = conflict.resource_id
+              AND resolution.vault_id = conflict.vault_id
+              AND resolution.classification = conflict.classification
+             WHERE conflict.vault_id = $1
+               AND (
+                 conflict.classification <> 'private'
+                 OR base.resource_version_id IS NULL
+                 OR canonical.resource_version_id IS NULL
+                 OR competing.resource_version_id IS NULL
+                 OR (
+                   conflict.resolution_version_id IS NOT NULL
+                   AND resolution.resource_version_id IS NULL
+                 )
+               )
+           )
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, _invalid} -> integrity_failure()
+      {:error, _reason} -> unavailable()
+    end
+  end
+
+  defp verify_note_projection_identity(repo, vault_id) do
+    case SQL.query(
+           repo,
+           """
+           SELECT NOT EXISTS (
+             SELECT 1
+             FROM content.resources AS resource
+             JOIN content.note_versions AS note
+               ON note.resource_version_id = resource.current_version_id
+              AND note.resource_id = resource.id
+              AND note.vault_id = resource.vault_id
+              AND note.classification = resource.classification
+             JOIN content.resource_versions AS version
+               ON version.id = note.resource_version_id
+              AND version.resource_id = note.resource_id
+              AND version.vault_id = note.vault_id
+              AND version.classification = note.classification
+             LEFT JOIN content.note_search_documents AS document
+               ON document.resource_id = resource.id
+             WHERE resource.vault_id = $1
+               AND resource.kind = 'note'
+               AND (
+                 (resource.deleted_at IS NULL AND (
+                   document.resource_id IS NULL
+                   OR document.resource_version_id <> resource.current_version_id
+                   OR document.vault_id <> resource.vault_id
+                   OR document.classification <> resource.classification
+                   OR document.title <> note.title
+                   OR document.markdown <> note.markdown
+                   OR document.head_inserted_at <> version.inserted_at
+                 ))
+                 OR (resource.deleted_at IS NOT NULL AND document.resource_id IS NOT NULL)
+               )
+           )
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, _invalid} -> integrity_failure()
       {:error, _reason} -> unavailable()
     end
   end

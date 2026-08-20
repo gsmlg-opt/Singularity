@@ -6,10 +6,76 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
   alias Singularity.Storage.Backup.Reconciler
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.NoteFixtures
+
+  @note_lifecycle_events ~w[
+    note.current_changed
+    note.conflict_created
+    note.conflict_resolved
+    note.deleted
+    note.restored
+  ]
 
   test "rejects a malformed restored cut" do
     assert {:error, %Singularity.Core.Error{code: :invalid}} =
              Reconciler.reconcile(MigrationRepo, %{})
+  end
+
+  test "restores note capabilities and resets every lifecycle event to current-state projection" do
+    raw_fixture = Fixtures.two_vaults!().one
+    note = NoteFixtures.note_with_conflict_in_context!(raw_fixture)
+    NoteFixtures.grant_password_change!(note)
+
+    events =
+      Enum.map(@note_lifecycle_events, fn _event_type -> Fixtures.outbox_event!(raw_fixture) end)
+
+    cut =
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          """
+          DELETE FROM core.principal_capabilities AS assignment
+          USING core.capabilities AS capability
+          WHERE assignment.capability_id = capability.id
+            AND assignment.principal_id = $1
+            AND assignment.vault_id = $2
+            AND capability.name LIKE 'note.%'
+          """,
+          [raw_fixture.principal_id, raw_fixture.vault_id]
+        )
+
+        Enum.zip(events, @note_lifecycle_events)
+        |> Enum.each(fn {event, event_type} ->
+          set_note_event!(event.id, event_type, note.resource_id, note.conflict_id)
+          mark_restored_runner!(event.id)
+          insert_submission!(event.id, "note_projection")
+        end)
+
+        restored_cut!(raw_fixture.vault_id, List.last(events).id)
+      end)
+
+    assert :ok = reconcile(cut)
+    assert :ok = reconcile(cut)
+
+    Fixtures.with_owner(fn ->
+      assert %{rows: [["note.export"], ["note.read"], ["note.write"]]} =
+               query!(
+                 MigrationRepo,
+                 """
+                 SELECT capability.name
+                 FROM core.principal_capabilities AS assignment
+                 JOIN core.capabilities AS capability ON capability.id = assignment.capability_id
+                 WHERE assignment.principal_id = $1
+                   AND assignment.vault_id = $2
+                   AND assignment.revoked_at IS NULL
+                   AND capability.name LIKE 'note.%'
+                 ORDER BY capability.name
+                 """,
+                 [raw_fixture.principal_id, raw_fixture.vault_id]
+               )
+
+      Enum.each(events, &assert_note_event_reset/1)
+    end)
   end
 
   test "preserves an unapplied effect after the restored Oban runner is lost" do
@@ -659,6 +725,38 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
     )
   end
 
+  defp set_note_event!(event_id, event_type, resource_id, conflict_id)
+       when event_type in ["note.conflict_created", "note.conflict_resolved"] do
+    query!(
+      MigrationRepo,
+      """
+      UPDATE core.outbox_events
+      SET event_type = $2,
+          required_capability = 'note.write',
+          payload = jsonb_build_object(
+            'resource_id', $3::uuid::text,
+            'conflict_id', $4::uuid::text
+          )
+      WHERE id = $1
+      """,
+      [event_id, event_type, Ecto.UUID.dump!(resource_id), Ecto.UUID.dump!(conflict_id)]
+    )
+  end
+
+  defp set_note_event!(event_id, event_type, resource_id, _conflict_id) do
+    query!(
+      MigrationRepo,
+      """
+      UPDATE core.outbox_events
+      SET event_type = $2,
+          required_capability = 'note.write',
+          payload = jsonb_build_object('resource_id', $3::uuid::text)
+      WHERE id = $1
+      """,
+      [event_id, event_type, Ecto.UUID.dump!(resource_id)]
+    )
+  end
+
   defp insert_object!(fixture, lifecycle, lifecycle_revision) do
     key_domain_id = Ecto.UUID.dump!(Ecto.UUID.generate())
     object_id = Ecto.UUID.dump!(Ecto.UUID.generate())
@@ -821,6 +919,27 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
                  [event_id]
                )
     end)
+  end
+
+  defp assert_note_event_reset(event) do
+    assert %{rows: [[nil, nil, nil, nil, nil, nil, nil]]} =
+             query!(
+               MigrationRepo,
+               """
+               SELECT
+                 event.claim_token,
+                 event.claimed_until,
+                 event.runner_job_id,
+                 event.delivered_at,
+                 event.retired_at,
+                 event.retirement_reason,
+                 submission.runner_job_id
+               FROM core.outbox_events AS event
+               JOIN jobs.job_submissions AS submission ON submission.outbox_event_id = event.id
+               WHERE event.id = $1
+               """,
+               [event.id]
+             )
   end
 
   defp audit_count(vault_id) do

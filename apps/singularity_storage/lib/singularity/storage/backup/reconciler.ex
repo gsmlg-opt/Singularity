@@ -3,6 +3,17 @@ defmodule Singularity.Storage.Backup.Reconciler do
 
   alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
+  alias Singularity.Storage.Postgres.NoteCapabilityReconciler
+
+  @note_lifecycle_events ~w[
+    note.current_changed
+    note.conflict_created
+    note.conflict_resolved
+    note.deleted
+    note.restored
+  ]
+  @note_conflict_events ~w[note.conflict_created note.conflict_resolved]
+  @note_resource_events @note_lifecycle_events -- @note_conflict_events
 
   @retirement_reasons [
     "legacy_missing_principal_authorization_epoch_provenance",
@@ -34,7 +45,8 @@ defmodule Singularity.Storage.Backup.Reconciler do
 
   defp transact(repo, vault_id, outbox_high_water_mark, manifest_id) do
     case repo.transaction(fn ->
-           with :ok <- set_owner_role(repo),
+           with :ok <- NoteCapabilityReconciler.reconcile(repo),
+                :ok <- set_owner_role(repo),
                 {:ok, events} <- restored_events(repo, vault_id, outbox_high_water_mark),
                 :ok <- reconcile_events(repo, events, vault_id, manifest_id) do
              :ok
@@ -127,6 +139,51 @@ defmodule Singularity.Storage.Backup.Reconciler do
         {:error, %Error{}} = error -> {:halt, error}
       end
     end)
+  end
+
+  defp reconcile_event(
+         repo,
+         [
+           event_id,
+           event_type,
+           idempotency_key,
+           classification,
+           expected_revision,
+           payload,
+           nil,
+           nil
+         ],
+         vault_id,
+         _manifest_id
+       )
+       when event_type in @note_lifecycle_events do
+    with true <- is_integer(expected_revision) and expected_revision >= 0,
+         {:ok, resource_id, conflict_id} <- note_event_ids(event_type, payload),
+         :ok <-
+           validate_submission(
+             repo,
+             event_id,
+             vault_id,
+             classification,
+             idempotency_key,
+             "note_projection"
+           ),
+         :ok <- require_no_progress(repo, event_id),
+         :ok <- validate_note_scope(repo, resource_id, vault_id, classification),
+         :ok <-
+           validate_note_conflict_scope(
+             repo,
+             conflict_id,
+             resource_id,
+             vault_id,
+             classification
+           ),
+         :ok <- reset_for_dispatch(repo, event_id) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> integrity_failure()
+    end
   end
 
   defp reconcile_event(
@@ -569,6 +626,46 @@ defmodule Singularity.Storage.Backup.Reconciler do
     end
   end
 
+  defp validate_note_scope(repo, resource_id, vault_id, classification) do
+    case SQL.query(
+           repo,
+           """
+           SELECT vault_id, classification
+           FROM content.resources
+           WHERE id = $1
+             AND kind = 'note'
+           FOR UPDATE
+           """,
+           [resource_id],
+           log: false
+         ) do
+      {:ok, %{rows: [[^vault_id, ^classification]]}} -> :ok
+      {:ok, _missing_or_conflicting} -> integrity_failure()
+      {:error, _reason} -> storage_unavailable()
+    end
+  end
+
+  defp validate_note_conflict_scope(_repo, nil, _resource_id, _vault_id, _classification),
+    do: :ok
+
+  defp validate_note_conflict_scope(repo, conflict_id, resource_id, vault_id, classification) do
+    case SQL.query(
+           repo,
+           """
+           SELECT resource_id, vault_id, classification
+           FROM content.note_conflicts
+           WHERE id = $1
+           FOR UPDATE
+           """,
+           [conflict_id],
+           log: false
+         ) do
+      {:ok, %{rows: [[^resource_id, ^vault_id, ^classification]]}} -> :ok
+      {:ok, _missing_or_conflicting} -> integrity_failure()
+      {:error, _reason} -> storage_unavailable()
+    end
+  end
+
   defp object_state(repo, object_id) do
     case SQL.query(
            repo,
@@ -764,6 +861,10 @@ defmodule Singularity.Storage.Backup.Reconciler do
   defp event_job_type("asset.cleanup_requested"), do: {:ok, "asset_cleanup"}
   defp event_job_type("object.cleanup_requested"), do: {:ok, "object_cleanup"}
   defp event_job_type("backup.requested"), do: {:ok, "backup"}
+
+  defp event_job_type(event_type) when event_type in @note_lifecycle_events,
+    do: {:ok, "note_projection"}
+
   defp event_job_type(_event_type), do: integrity_failure()
 
   defp require_delivered(repo, event_id) do
@@ -893,6 +994,26 @@ defmodule Singularity.Storage.Backup.Reconciler do
     do: dumped_uuid(asset_id)
 
   defp asset_id(_payload), do: integrity_failure()
+
+  defp note_event_ids(
+         event_type,
+         %{"resource_id" => resource_id, "conflict_id" => conflict_id} = payload
+       )
+       when event_type in @note_conflict_events and map_size(payload) == 2 do
+    with {:ok, resource_id} <- dumped_uuid(resource_id),
+         {:ok, conflict_id} <- dumped_uuid(conflict_id) do
+      {:ok, resource_id, conflict_id}
+    end
+  end
+
+  defp note_event_ids(event_type, %{"resource_id" => resource_id} = payload)
+       when event_type in @note_resource_events and map_size(payload) == 1 do
+    with {:ok, resource_id} <- dumped_uuid(resource_id) do
+      {:ok, resource_id, nil}
+    end
+  end
+
+  defp note_event_ids(_event_type, _payload), do: integrity_failure()
 
   defp object_cleanup_ids(%{"asset_id" => asset_id, "object_id" => object_id} = payload)
        when map_size(payload) == 2 do

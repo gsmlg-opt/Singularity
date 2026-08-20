@@ -6,7 +6,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   alias Ecto.Adapters.SQL
   alias Singularity.Core.Error
   alias Singularity.Storage.Backup.IntegrityAudit
-  alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Backup.Restorer
   alias Singularity.Storage.MigrationRepo
 
@@ -21,6 +21,11 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   @wrapper_id "00000000-0000-4000-8000-000000000819"
   @conflicting_principal_id "00000000-0000-4000-8000-000000000820"
   @conflicting_capability_id "00000000-0000-4000-8000-000000000821"
+  @note_resource_id "00000000-0000-4000-8000-000000000830"
+  @note_initial_version_id "00000000-0000-4000-8000-000000000831"
+  @note_canonical_version_id "00000000-0000-4000-8000-000000000832"
+  @note_competing_version_id "00000000-0000-4000-8000-000000000833"
+  @note_conflict_id "00000000-0000-4000-8000-000000000834"
   @password "RESTORE_PASSWORD_CANARY_811"
   @verifier "fresh-verifier-811"
   @salt :binary.copy(<<0x81>>, 16)
@@ -91,7 +96,8 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   test "rewraps the owner, leaves revoked credentials inert, and creates one audit identity" do
     with_clean_destination(fn storage_root ->
       seed_restore_pending!()
-      imported = imported()
+      expected_note_graph = seed_note_sentinel!()
+      imported = imported(2)
       context = context(MigrationRepo, storage_root)
 
       assert {:ok,
@@ -136,6 +142,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
       refute_receive {:integrity_revoke, ^integrity_capability}
 
       assert_rewrapped_rows(integrity_principal_id)
+      assert note_graph_snapshot() == expected_note_graph
       assert audit_event_count("backup.restore_completed") == 0
 
       inspected = inspect(rewrapped)
@@ -146,6 +153,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
 
       assert :ok = Restorer.complete_restore(context, rewrapped)
       assert :ok = Restorer.complete_restore(context, rewrapped)
+      assert note_graph_snapshot() == expected_note_graph
       assert_completion_is_idempotent()
     end)
   end
@@ -170,6 +178,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   test "rolls back verifier and wrapper changes when the audit identity is over-privileged" do
     with_clean_destination(fn storage_root ->
       seed_restore_pending!()
+      expected_note_graph = seed_note_sentinel!()
       seed_over_privileged_integrity_principal!()
 
       assert {:error, %Error{code: :conflict}} =
@@ -184,6 +193,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
       assert_receive {:integrity_revoke, :opaque_integrity_capability}
       assert_receive {:recovered_revoke, :opaque_recovered_capability}
       assert_restore_still_pending()
+      assert note_graph_snapshot() == expected_note_graph
     end)
   end
 
@@ -202,12 +212,17 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
     }
   end
 
-  defp imported do
+  defp imported(logical_version \\ 1) do
     %Restorer.Imported{
       manifest: %{manifest_id: @manifest_id},
       manifest_hash: :binary.copy(<<0x84>>, 32),
       manifest_tag: :binary.copy(<<0x85>>, 16),
-      cut: %{manifest_id: @manifest_id, vault_id: @vault_id, object_inventory: []},
+      cut: %{
+        logical_version: logical_version,
+        manifest_id: @manifest_id,
+        vault_id: @vault_id,
+        object_inventory: []
+      },
       object_inventory: [],
       owner: %{
         account_id: @account_id,
@@ -297,6 +312,123 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
         [uuid(@wrapper_id), uuid(@vault_id), uuid(@vault_key_version_id), uuid(@account_id)]
       )
     end)
+  end
+
+  defp seed_note_sentinel! do
+    owner_transaction(fn ->
+      query!("SET CONSTRAINTS ALL DEFERRED")
+
+      query!(
+        """
+        INSERT INTO content.resources (
+          id, vault_id, classification, title, kind, current_version_id
+        ) VALUES ($1, $2, 'private', 'Canonical restore note', 'note', $3)
+        """,
+        [uuid(@note_resource_id), uuid(@vault_id), uuid(@note_canonical_version_id)]
+      )
+
+      for {version_id, revision} <- [
+            {@note_initial_version_id, 0},
+            {@note_canonical_version_id, 1},
+            {@note_competing_version_id, 2}
+          ] do
+        query!(
+          """
+          INSERT INTO content.resource_versions (
+            id, resource_id, vault_id, classification, revision
+          ) VALUES ($1, $2, $3, 'private', $4)
+          """,
+          [uuid(version_id), uuid(@note_resource_id), uuid(@vault_id), revision]
+        )
+      end
+
+      for {version_id, title, markdown, parent_id} <- [
+            {@note_initial_version_id, "Initial restore note", "# Initial\n", nil},
+            {@note_canonical_version_id, "Canonical restore note", "# Canonical\n",
+             @note_initial_version_id},
+            {@note_competing_version_id, "Competing restore note", "# Competing\n",
+             @note_initial_version_id}
+          ] do
+        query!(
+          """
+          INSERT INTO content.note_versions (
+            resource_version_id, resource_id, vault_id, classification,
+            title, markdown, created_by_principal_id, parent_version_id
+          ) VALUES ($1, $2, $3, 'private', $4, $5, $6, $7)
+          """,
+          [
+            uuid(version_id),
+            uuid(@note_resource_id),
+            uuid(@vault_id),
+            title,
+            markdown,
+            uuid(@owner_principal_id),
+            if(parent_id, do: uuid(parent_id), else: nil)
+          ]
+        )
+      end
+
+      query!(
+        """
+        INSERT INTO content.note_conflicts (
+          id, resource_id, vault_id, classification, base_version_id,
+          canonical_version_id, competing_version_id, state
+        ) VALUES ($1, $2, $3, 'private', $4, $5, $6, 'open')
+        """,
+        [
+          uuid(@note_conflict_id),
+          uuid(@note_resource_id),
+          uuid(@vault_id),
+          uuid(@note_initial_version_id),
+          uuid(@note_canonical_version_id),
+          uuid(@note_competing_version_id)
+        ]
+      )
+
+      note_graph_snapshot_in_transaction()
+    end)
+  end
+
+  defp note_graph_snapshot do
+    owner_transaction(&note_graph_snapshot_in_transaction/0)
+  end
+
+  defp note_graph_snapshot_in_transaction do
+    %{
+      resources:
+        query!(
+          """
+          SELECT id, vault_id, classification, title, deleted_at, kind, current_version_id
+          FROM content.resources
+          WHERE id = $1
+          """,
+          [uuid(@note_resource_id)]
+        ).rows,
+      versions:
+        query!(
+          """
+          SELECT resource_version_id, resource_id, vault_id, classification,
+                 title, markdown, created_by_principal_id,
+                 parent_version_id, merge_parent_version_id
+          FROM content.note_versions
+          WHERE resource_id = $1
+          ORDER BY resource_version_id
+          """,
+          [uuid(@note_resource_id)]
+        ).rows,
+      conflicts:
+        query!(
+          """
+          SELECT id, resource_id, vault_id, classification, base_version_id,
+                 canonical_version_id, competing_version_id, state,
+                 resolution_version_id, resolved_at
+          FROM content.note_conflicts
+          WHERE resource_id = $1
+          ORDER BY id
+          """,
+          [uuid(@note_resource_id)]
+        ).rows
+    }
   end
 
   defp assert_rewrapped_rows(integrity_principal_id) do
@@ -531,11 +663,12 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
 
   defp reset_destination! do
     tables =
-      (LogicalSchema.tables() ++
+      (LogicalSchemaV2.tables() ++
          ~w[
            identity.sessions identity.auth_attempts content.asset_stages
-           content.upload_grants content.asset_search_documents audit.backup_manifests
-           audit.backup_manifest_objects audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
+           content.upload_grants content.asset_search_documents content.note_search_documents
+           content.note_mutation_receipts audit.backup_manifests audit.backup_manifest_objects
+           audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
          ])
       |> Enum.uniq()
       |> Enum.sort()

@@ -9,6 +9,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
   alias Singularity.Storage.Backup.LocalDestination
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Backup.Manifest
   alias Singularity.Storage.Backup.Restorer
   alias Singularity.Storage.LocalFilesystemAdapter
@@ -279,6 +280,8 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       refute inspect(imported) =~ fixture.raw_payload
       refute inspect(imported) =~ object_root
       assert_all_logical_groups_imported(fixture.row_counts)
+      assert_v1_resources_use_note_safe_defaults(fixture.ids.resource_id)
+      assert_note_runtime_tables_empty()
       assert next_outbox_sequence() == 43
 
       lookup_digest = Base.encode16(fixture.object.lookup_digest, case: :lower)
@@ -297,6 +300,61 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       assert size == byte_size(fixture.raw_payload)
       refute object_path =~ fixture.object.storage_ref
     end)
+  end
+
+  @tag :integration
+  test "imports V2 note history, conflicts, tombstones, and deferred parent order exactly" do
+    with_clean_destination(fn storage_root ->
+      fixture = note_v2_verified_fixture()
+      object_root = Path.join(storage_root, "restore-objects")
+
+      assert {:ok,
+              %Restorer.Imported{
+                cut: %{logical_version: 2, vault_id: vault_id},
+                object_inventory: []
+              }} =
+               Restorer.import(
+                 %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}},
+                 MigrationRepo,
+                 %{verified: fixture.verified, cut: fixture.cut, binding: fixture.binding}
+               )
+
+      assert vault_id == fixture.ids.vault_id
+      assert_note_v2_rows(fixture.ids)
+      assert_note_runtime_tables_empty()
+      refute File.exists?(object_root)
+
+      owner_transaction(fn ->
+        assert %{num_rows: 1} =
+                 query(
+                   "UPDATE content.note_versions SET markdown = '# tampered' WHERE resource_version_id = $1",
+                   [Ecto.UUID.dump!(fixture.ids.merge_version_id)]
+                 )
+      end)
+
+      assert {:error, %Error{code: :conflict}} =
+               Restorer.import(
+                 %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}},
+                 MigrationRepo,
+                 %{verified: fixture.verified, cut: fixture.cut, binding: fixture.binding}
+               )
+    end)
+  end
+
+  test "rejects authenticated unknown and mixed logical versions before destination access" do
+    fixture = note_v2_verified_fixture()
+
+    for invalid <- [
+          rewrite_record_version(fixture, 0x0001, 99),
+          rewrite_record_version(fixture, 0x0002, 1)
+        ] do
+      assert {:error, %Error{code: :backup_invalid}} =
+               Restorer.import(
+                 %{object_storage: :must_not_be_called},
+                 :must_not_be_called,
+                 %{verified: invalid.verified, cut: fixture.cut, binding: invalid.binding}
+               )
+    end
   end
 
   @tag :integration
@@ -447,7 +505,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                )
 
       owner_transaction(fn ->
-        for table <- LogicalSchema.tables() do
+        for table <- LogicalSchemaV2.tables() do
           assert %{rows: [[0]]} = query("SELECT count(*) FROM #{quote_table(table)}")
         end
 
@@ -468,6 +526,47 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                )
 
       refute File.exists?(object_path)
+    end)
+  end
+
+  @tag :integration
+  test "bounded V2 replay restores exact notes and rejects same-count imported-state mutation" do
+    with_clean_destination(fn storage_root ->
+      fixture = note_v2_verified_fixture()
+      source_root = Path.join(storage_root, "bounded-source")
+      object_root = Path.join(storage_root, "bounded-objects")
+      source_path = Path.join(source_root, "restore.bundle")
+      File.mkdir_p!(source_root)
+      File.write!(source_path, encode_bounded_source(fixture))
+
+      verified = authenticate_bounded_fixture!(fixture, source_root, source_path)
+
+      assert {:ok, %Restorer.Imported{cut: %{logical_version: 2}}} =
+               Restorer.import(
+                 %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}},
+                 MigrationRepo,
+                 %{verified: verified, cut: fixture.cut, binding: fixture.binding}
+               )
+
+      assert_note_v2_rows(fixture.ids)
+      assert_note_runtime_tables_empty()
+
+      owner_transaction(fn ->
+        assert %{num_rows: 1} =
+                 query(
+                   "UPDATE content.note_versions SET markdown = '# tampered' WHERE resource_version_id = $1",
+                   [Ecto.UUID.dump!(fixture.ids.merge_version_id)]
+                 )
+      end)
+
+      retry_verified = authenticate_bounded_fixture!(fixture, source_root, source_path)
+
+      assert {:error, %Error{code: :conflict}} =
+               Restorer.import(
+                 %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}},
+                 MigrationRepo,
+                 %{verified: retry_verified, cut: fixture.cut, binding: fixture.binding}
+               )
     end)
   end
 
@@ -501,6 +600,24 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       encoded_header::binary, encrypted::binary>>
   end
 
+  defp authenticate_bounded_fixture!(fixture, source_root, source_path) do
+    {:ok, recorder} =
+      Agent.start_link(fn ->
+        %{authentication: nil, mutated?: true, path: source_path}
+      end)
+
+    assert {:ok, source} =
+             LocalDestination.reader_source(%{backup_root: source_root}, "restore.bundle")
+
+    assert {:ok, verified} =
+             BundleReader.authenticate_all(source,
+               crypto: {ReplayMutationCrypto, {:authenticate, recorder}},
+               verifier: {LogicalBundleVerifier, Map.drop(fixture.binding, [:recovery])}
+             )
+
+    verified
+  end
+
   defp bounded_chunks(binary, size), do: bounded_chunks(binary, size, [])
   defp bounded_chunks("", _size, chunks), do: Enum.reverse(chunks)
 
@@ -523,15 +640,18 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       end)
 
     {:ok, cut_record} =
-      LogicalRecordCodec.encode_cut(%{
-        database_snapshot: "1:2:",
-        manifest_id: manifest_id,
-        object_count: 0,
-        outbox_high_water_mark: 0,
-        snapshot_id: snapshot_id,
-        table_count_vector: counts,
-        vault_id: vault_id
-      })
+      LogicalRecordCodec.encode_cut(
+        %{
+          database_snapshot: "1:2:",
+          manifest_id: manifest_id,
+          object_count: 0,
+          outbox_high_water_mark: 0,
+          snapshot_id: snapshot_id,
+          table_count_vector: counts,
+          vault_id: vault_id
+        },
+        1
+      )
 
     {:ok, vault_record} =
       LogicalRecordCodec.encode_row(
@@ -546,7 +666,8 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
           {"timestamp", @timestamp},
           {"timestamp", @timestamp},
           {"null"}
-        ]
+        ],
+        1
       )
 
     records = [cut_record, vault_record]
@@ -1088,17 +1209,294 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
     })
   end
 
-  defp build_verified_fixture(ids, rows, objects, raw_payloads, outbox_high_water_mark \\ 0) do
+  defp note_v2_verified_fixture do
+    ids = %{
+      person_id: fixture_id(101),
+      account_id: fixture_id(102),
+      active_credential_id: fixture_id(103),
+      owner_principal_id: fixture_id(104),
+      password_change_capability_id: fixture_id(105),
+      vault_id: fixture_id(106),
+      vault_key_version_id: fixture_id(107),
+      wrapper_id: fixture_id(108),
+      resource_id: fixture_id(110),
+      merge_version_id: fixture_id(111),
+      canonical_version_id: fixture_id(112),
+      competing_version_id: fixture_id(113),
+      initial_version_id: fixture_id(114),
+      open_competing_version_id: fixture_id(115),
+      resolved_conflict_id: fixture_id(116),
+      open_conflict_id: fixture_id(117),
+      tombstoned_resource_id: fixture_id(120),
+      tombstoned_version_id: fixture_id(121),
+      manifest_id: fixture_id(190),
+      snapshot_id: fixture_id(191)
+    }
+
+    deleted_at = "2026-07-24T00:00:00.000000Z"
+
+    rows = %{
+      "identity.people" => [[ids.person_id, "Restored Owner", %{}, @timestamp, @timestamp]],
+      "identity.accounts" => [
+        [ids.account_id, ids.person_id, "active", %{}, @timestamp, @timestamp]
+      ],
+      "identity.credentials" => [
+        [ids.active_credential_id, ids.account_id, "owner@example.test", nil, @timestamp]
+      ],
+      "identity.principals" => [
+        [
+          ids.owner_principal_id,
+          ids.account_id,
+          "owner",
+          3,
+          nil,
+          %{},
+          @timestamp,
+          @timestamp
+        ]
+      ],
+      "core.capabilities" => [
+        [ids.password_change_capability_id, "vault.password_change", @timestamp]
+      ],
+      "core.vaults" => [
+        [ids.vault_id, "personal", 5, false, %{}, @timestamp, @timestamp, nil]
+      ],
+      "core.vault_members" => [
+        [ids.owner_principal_id, ids.vault_id, "restricted", nil, @timestamp, @timestamp]
+      ],
+      "core.principal_capabilities" => [
+        [
+          ids.owner_principal_id,
+          ids.vault_id,
+          ids.password_change_capability_id,
+          nil,
+          @timestamp
+        ]
+      ],
+      "core.vault_key_versions" => [
+        [
+          ids.vault_key_version_id,
+          ids.vault_id,
+          7,
+          "active",
+          "aes-256-gcm",
+          @timestamp,
+          nil,
+          @timestamp
+        ]
+      ],
+      "core.vault_key_wrappers" => [
+        [ids.wrapper_id, ids.vault_id, ids.vault_key_version_id, ids.account_id, 9, @timestamp]
+      ],
+      "content.resources" => [
+        [
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Merged note",
+          nil,
+          %{},
+          @timestamp,
+          @timestamp,
+          "note",
+          ids.merge_version_id
+        ],
+        [
+          ids.tombstoned_resource_id,
+          ids.vault_id,
+          "private",
+          "Deleted note",
+          deleted_at,
+          %{},
+          @timestamp,
+          deleted_at,
+          "note",
+          ids.tombstoned_version_id
+        ]
+      ],
+      "content.resource_versions" => [
+        [
+          ids.merge_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          3,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.canonical_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          1,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.competing_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          2,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.initial_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          0,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.open_competing_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          4,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.tombstoned_version_id,
+          ids.tombstoned_resource_id,
+          ids.vault_id,
+          "private",
+          0,
+          @timestamp,
+          @timestamp
+        ]
+      ],
+      "content.note_versions" => [
+        [
+          ids.merge_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Merged note",
+          "# Merged note\n",
+          ids.owner_principal_id,
+          ids.canonical_version_id,
+          ids.competing_version_id,
+          @timestamp
+        ],
+        [
+          ids.canonical_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Canonical note",
+          "# Canonical note\n",
+          ids.owner_principal_id,
+          ids.initial_version_id,
+          nil,
+          @timestamp
+        ],
+        [
+          ids.competing_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Competing note",
+          "# Competing note\n",
+          ids.owner_principal_id,
+          ids.initial_version_id,
+          nil,
+          @timestamp
+        ],
+        [
+          ids.initial_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Initial note",
+          "# Initial note\n",
+          ids.owner_principal_id,
+          nil,
+          nil,
+          @timestamp
+        ],
+        [
+          ids.open_competing_version_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          "Open competing note",
+          "# Open competing note\n",
+          ids.owner_principal_id,
+          ids.canonical_version_id,
+          nil,
+          @timestamp
+        ],
+        [
+          ids.tombstoned_version_id,
+          ids.tombstoned_resource_id,
+          ids.vault_id,
+          "private",
+          "Deleted note",
+          "# Deleted note\n",
+          ids.owner_principal_id,
+          nil,
+          nil,
+          @timestamp
+        ]
+      ],
+      "content.note_conflicts" => [
+        [
+          ids.resolved_conflict_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          ids.initial_version_id,
+          ids.canonical_version_id,
+          ids.competing_version_id,
+          "resolved",
+          ids.merge_version_id,
+          @timestamp,
+          @timestamp
+        ],
+        [
+          ids.open_conflict_id,
+          ids.resource_id,
+          ids.vault_id,
+          "private",
+          ids.canonical_version_id,
+          ids.merge_version_id,
+          ids.open_competing_version_id,
+          "open",
+          nil,
+          @timestamp,
+          nil
+        ]
+      ]
+    }
+
+    build_verified_fixture(ids, rows, [], [], 0, 2)
+  end
+
+  defp build_verified_fixture(
+         ids,
+         rows,
+         objects,
+         raw_payloads,
+         outbox_high_water_mark \\ 0,
+         logical_version \\ 1
+       ) do
+    schema_module = logical_schema(logical_version)
+
     row_records =
-      LogicalSchema.all()
+      schema_module.all()
       |> Enum.flat_map(fn schema ->
         rows
         |> Map.get(schema.table, [])
-        |> Enum.map(&encode_row!(schema, &1))
+        |> Enum.map(&encode_row!(schema, &1, logical_version))
       end)
 
     counts =
-      Enum.map(LogicalSchema.all(), fn schema ->
+      Enum.map(schema_module.all(), fn schema ->
         rows |> Map.get(schema.table, []) |> length()
       end)
 
@@ -1112,8 +1510,8 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       vault_id: ids.vault_id
     }
 
-    {:ok, cut_record} = LogicalRecordCodec.encode_cut(cut_attrs)
-    object_records = Enum.map(objects, &encode_object!/1)
+    {:ok, cut_record} = LogicalRecordCodec.encode_cut(cut_attrs, logical_version)
+    object_records = Enum.map(objects, &encode_object!(&1, logical_version))
 
     raw_records =
       Enum.map(raw_payloads, fn payload ->
@@ -1169,7 +1567,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
               values = rewrite.(schema, row.ordered_column_values)
 
               {:ok, rewritten} =
-                LogicalRecordCodec.encode_row(table, row.primary_key_values, values)
+                LogicalRecordCodec.encode_row(table, row.primary_key_values, values, 1)
 
               rewritten
 
@@ -1198,12 +1596,41 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
     %{fixture | verified: verified}
   end
 
+  defp rewrite_record_version(fixture, record_type, logical_version) do
+    {records, true} =
+      Enum.map_reduce(fixture.verified.records, false, fn
+        %{type: ^record_type, payload: payload} = record, false ->
+          term = payload |> :erlang.binary_to_term([:safe]) |> put_elem(1, logical_version)
+          rewritten = :erlang.term_to_binary(term, [:deterministic])
+          {%{record | payload: rewritten, payload_length: byte_size(rewritten)}, true}
+
+        record, rewritten? ->
+          {record, rewritten?}
+      end)
+
+    {:ok, manifest} =
+      fixture.verified.manifest
+      |> Map.put(:inventory, manifest_inventory(records))
+      |> Manifest.new()
+
+    {:ok, encoded_manifest} = Manifest.encode(manifest)
+
+    verified = %BundleReader.Verified{
+      fixture.verified
+      | manifest: manifest,
+        records: records,
+        manifest_hash: :crypto.hash(:sha256, encoded_manifest)
+    }
+
+    %{fixture | verified: verified}
+  end
+
   defp replace_wire_field(schema, values, name, replacement) do
     position = Enum.find_index(schema.columns, &(&1.name == name))
     List.replace_at(values, position, replacement)
   end
 
-  defp encode_row!(schema, raw_values) do
+  defp encode_row!(schema, raw_values, version) do
     tagged_values =
       schema.columns
       |> Enum.zip(raw_values)
@@ -1216,13 +1643,13 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       Enum.map(schema.primary_key, &Enum.at(tagged_values, &1.position))
 
     {:ok, record} =
-      LogicalRecordCodec.encode_row(schema.table, primary_key_values, tagged_values)
+      LogicalRecordCodec.encode_row(schema.table, primary_key_values, tagged_values, version)
 
     record
   end
 
-  defp encode_object!(object) do
-    {:ok, record} = LogicalRecordCodec.encode_object(object)
+  defp encode_object!(object, version) do
+    {:ok, record} = LogicalRecordCodec.encode_object(object, version)
     record
   end
 
@@ -1285,6 +1712,201 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
     end)
   end
 
+  defp assert_v1_resources_use_note_safe_defaults(resource_id) do
+    owner_transaction(fn ->
+      assert %{rows: [["asset", nil]]} =
+               query(
+                 "SELECT kind, current_version_id FROM content.resources WHERE id = $1",
+                 [Ecto.UUID.dump!(resource_id)]
+               )
+    end)
+  end
+
+  defp assert_note_v2_rows(ids) do
+    %{
+      canonical_version_id: canonical_version_id,
+      competing_version_id: competing_version_id,
+      initial_version_id: initial_version_id,
+      merge_version_id: merge_version_id,
+      open_competing_version_id: open_competing_version_id,
+      open_conflict_id: open_conflict_id,
+      owner_principal_id: owner_principal_id,
+      resolved_conflict_id: resolved_conflict_id,
+      resource_id: resource_id,
+      tombstoned_resource_id: tombstoned_resource_id,
+      tombstoned_version_id: tombstoned_version_id,
+      vault_id: vault_id
+    } = ids
+
+    owner_transaction(fn ->
+      assert %{rows: resource_rows} =
+               query(
+                 """
+                 SELECT id::text, title, deleted_at, kind, current_version_id::text
+                 FROM content.resources
+                 WHERE vault_id = $1 AND kind = 'note'
+                 ORDER BY id
+                 """,
+                 [Ecto.UUID.dump!(vault_id)]
+               )
+
+      assert [
+               [
+                 ^resource_id,
+                 "Merged note",
+                 nil,
+                 "note",
+                 ^merge_version_id
+               ],
+               [
+                 ^tombstoned_resource_id,
+                 "Deleted note",
+                 deleted_at,
+                 "note",
+                 ^tombstoned_version_id
+               ]
+             ] = resource_rows
+
+      assert %DateTime{} = deleted_at
+
+      assert %{rows: version_rows} =
+               query(
+                 """
+                 SELECT
+                   note.resource_version_id::text,
+                   version.revision,
+                   note.parent_version_id::text,
+                   note.merge_parent_version_id::text,
+                   note.title,
+                   note.markdown
+                 FROM content.note_versions AS note
+                 JOIN content.resource_versions AS version
+                   ON version.id = note.resource_version_id
+                  AND version.resource_id = note.resource_id
+                  AND version.vault_id = note.vault_id
+                  AND version.classification = note.classification
+                 WHERE note.vault_id = $1
+                 ORDER BY note.resource_version_id
+                 """,
+                 [Ecto.UUID.dump!(vault_id)]
+               )
+
+      assert [
+               [
+                 ^merge_version_id,
+                 3,
+                 ^canonical_version_id,
+                 ^competing_version_id,
+                 "Merged note",
+                 "# Merged note\n"
+               ],
+               [
+                 ^canonical_version_id,
+                 1,
+                 ^initial_version_id,
+                 nil,
+                 "Canonical note",
+                 "# Canonical note\n"
+               ],
+               [
+                 ^competing_version_id,
+                 2,
+                 ^initial_version_id,
+                 nil,
+                 "Competing note",
+                 "# Competing note\n"
+               ],
+               [^initial_version_id, 0, nil, nil, "Initial note", "# Initial note\n"],
+               [
+                 ^open_competing_version_id,
+                 4,
+                 ^canonical_version_id,
+                 nil,
+                 "Open competing note",
+                 "# Open competing note\n"
+               ],
+               [
+                 ^tombstoned_version_id,
+                 0,
+                 nil,
+                 nil,
+                 "Deleted note",
+                 "# Deleted note\n"
+               ]
+             ] = version_rows
+
+      assert %{rows: conflict_rows} =
+               query(
+                 """
+                 SELECT
+                   id::text,
+                   base_version_id::text,
+                   canonical_version_id::text,
+                   competing_version_id::text,
+                   state,
+                   resolution_version_id::text,
+                   resolved_at
+                 FROM content.note_conflicts
+                 WHERE vault_id = $1
+                 ORDER BY id
+                 """,
+                 [Ecto.UUID.dump!(vault_id)]
+               )
+
+      assert [
+               [
+                 ^resolved_conflict_id,
+                 ^initial_version_id,
+                 ^canonical_version_id,
+                 ^competing_version_id,
+                 "resolved",
+                 ^merge_version_id,
+                 resolved_at
+               ],
+               [
+                 ^open_conflict_id,
+                 ^canonical_version_id,
+                 ^merge_version_id,
+                 ^open_competing_version_id,
+                 "open",
+                 nil,
+                 nil
+               ]
+             ] = conflict_rows
+
+      assert %DateTime{} = resolved_at
+
+      assert %{rows: [["vault.password_change"]]} =
+               query(
+                 """
+                 SELECT capability.name
+                 FROM core.principal_capabilities AS assignment
+                 JOIN core.capabilities AS capability ON capability.id = assignment.capability_id
+                 WHERE assignment.principal_id = $1
+                   AND assignment.vault_id = $2
+                   AND assignment.revoked_at IS NULL
+                 ORDER BY capability.name
+                 """,
+                 [
+                   Ecto.UUID.dump!(owner_principal_id),
+                   Ecto.UUID.dump!(vault_id)
+                 ]
+               )
+    end)
+  end
+
+  defp assert_note_runtime_tables_empty do
+    owner_transaction(fn ->
+      assert %{rows: [[0, 0, 0]]} =
+               query("""
+               SELECT
+                 (SELECT count(*) FROM content.note_search_documents),
+                 (SELECT count(*) FROM content.note_mutation_receipts),
+                 (SELECT count(*) FROM identity.sessions)
+               """)
+    end)
+  end
+
   defp assert_fresh_destination do
     owner_transaction(fn ->
       assert %{rows: [["singularity_table_owner", "singularity_migration", true]]} =
@@ -1296,11 +1918,13 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                """)
 
       for table <-
-            LogicalSchema.tables() ++
+            LogicalSchemaV2.tables() ++
               ~w[
                 identity.sessions identity.auth_attempts content.asset_stages
-                content.upload_grants content.asset_search_documents audit.backup_manifests
-                audit.backup_manifest_objects audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
+                content.upload_grants content.asset_search_documents
+                content.note_search_documents content.note_mutation_receipts
+                audit.backup_manifests audit.backup_manifest_objects audit.restore_import_sagas
+                jobs.oban_jobs jobs.oban_peers
               ] do
         assert %{rows: [[0]]} = query("SELECT count(*) FROM #{quote_table(table)}")
       end
@@ -1333,6 +1957,8 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                    ('content.asset_stages', (SELECT count(*) FROM content.asset_stages)),
                    ('content.upload_grants', (SELECT count(*) FROM content.upload_grants)),
                    ('content.asset_search_documents', (SELECT count(*) FROM content.asset_search_documents)),
+                   ('content.note_search_documents', (SELECT count(*) FROM content.note_search_documents)),
+                   ('content.note_mutation_receipts', (SELECT count(*) FROM content.note_mutation_receipts)),
                    ('audit.backup_manifests', (SELECT count(*) FROM audit.backup_manifests)),
                    ('audit.backup_manifest_objects', (SELECT count(*) FROM audit.backup_manifest_objects)),
                    ('jobs.oban_jobs', (SELECT count(*) FROM jobs.oban_jobs)),
@@ -1390,11 +2016,12 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
 
   defp reset_destination! do
     tables =
-      (LogicalSchema.tables() ++
+      (LogicalSchemaV2.tables() ++
          ~w[
            identity.sessions identity.auth_attempts content.asset_stages
-           content.upload_grants content.asset_search_documents audit.backup_manifests
-           audit.backup_manifest_objects audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
+           content.upload_grants content.asset_search_documents content.note_search_documents
+           content.note_mutation_receipts audit.backup_manifests audit.backup_manifest_objects
+           audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
          ])
       |> Enum.uniq()
       |> Enum.sort()
@@ -1429,6 +2056,9 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
     suffix = number |> Integer.to_string() |> String.pad_leading(12, "0")
     "20000000-0000-0000-0000-#{suffix}"
   end
+
+  defp logical_schema(1), do: LogicalSchema
+  defp logical_schema(2), do: LogicalSchemaV2
 
   defp manifest_inventory(records) do
     records

@@ -12,6 +12,7 @@ defmodule Singularity.Storage.IntegrityAuditTest do
   alias Singularity.Storage.Local.PathGuard
   alias Singularity.Storage.LocalFilesystemAdapter
   alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.NoteFixtures
 
   @moduletag :tmp_dir
 
@@ -130,6 +131,61 @@ defmodule Singularity.Storage.IntegrityAuditTest do
 
     assert material.object_generation == 3
     assert material.domain_key_generation == 5
+  end
+
+  @tag :integration
+  test "rebuilds exact live note projections, removes tombstones, and returns stable typed evidence" do
+    raw_fixture = Fixtures.two_vaults!().one
+    live = NoteFixtures.note_with_conflict_in_context!(raw_fixture)
+    tombstoned = NoteFixtures.note_with_conflict_in_context!(raw_fixture)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        "UPDATE content.note_search_documents SET title = 'stale', markdown = 'stale' WHERE resource_id = $1",
+        [uuid(live.resource_id)]
+      )
+
+      query!(
+        "UPDATE content.resources SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [uuid(tombstoned.resource_id)]
+      )
+    end)
+
+    binding = %{manifest_id: Ecto.UUID.generate(), vault_id: live.vault_id}
+
+    assert {:ok, first} =
+             Fixtures.with_owner(fn -> IntegrityAudit.rebuild(MigrationRepo, binding) end)
+
+    assert first.projection == "postgres_metadata_v1"
+    assert first.document_count == 1
+    assert <<_::binary-size(32)>> = first.result_sha256
+
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[resource_id, head_id, title, markdown]]} =
+               query!(
+                 """
+                 SELECT
+                   document.resource_id,
+                   document.resource_version_id,
+                   document.title,
+                   document.markdown
+                 FROM content.note_search_documents AS document
+                 WHERE document.vault_id = $1
+                 ORDER BY document.resource_id
+                 """,
+                 [uuid(live.vault_id)]
+               )
+
+      assert Ecto.UUID.load!(resource_id) == live.resource_id
+      assert Ecto.UUID.load!(head_id) == live.canonical_version_id
+      assert title == "Accepted fixture note"
+      assert markdown == "# Accepted fixture note"
+    end)
+
+    assert {:ok, second} =
+             Fixtures.with_owner(fn -> IntegrityAudit.rebuild(MigrationRepo, binding) end)
+
+    assert second == first
   end
 
   @tag :integration
