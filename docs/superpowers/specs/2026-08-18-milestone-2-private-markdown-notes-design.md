@@ -309,6 +309,19 @@ Composite foreign keys target the typed `note_versions` uniqueness above for
 the base, observed canonical, competing, and resolution versions, always with
 the conflict's resource, vault, and classification.
 
+`singularity_worker` retains no direct `SELECT` privilege on
+`content.note_conflicts`. Logical V2 backup reads conflicts only through the
+hardened `content.export_note_conflicts_for_backup(requested_vault_id uuid)`
+function. It is a `STABLE SECURITY DEFINER` SQL function owned by
+`singularity_table_owner` with fixed `search_path = pg_catalog, content, core,
+identity`. It derives authority exclusively from
+`core.live_principal_authorization()` under the current principal/vault GUCs,
+requires the requested vault to equal that live snapshot's vault, requires an
+active account, principal, and membership with active `backup.create`, and
+returns only private conflicts from that vault in conflict-ID order. `PUBLIC` and
+`singularity_web` cannot execute it; only `singularity_worker` receives
+`EXECUTE`.
+
 ### 5.5 `content.note_search_documents`
 
 The current-version lexical projection contains one row per live note:
@@ -1002,6 +1015,12 @@ includes:
 - Note versions.
 - Note conflicts and resolution references.
 - Existing canonical identity, vault, asset, key, audit, and backup data.
+
+The exporter obtains conflict rows through
+`content.export_note_conflicts_for_backup(uuid)` rather than a direct table
+grant. This preserves the runtime rule that the worker cannot query arbitrary
+conflict rows while allowing an already-live-authorized `backup.create` job to
+export its GUC-bound vault.
 
 It excludes:
 

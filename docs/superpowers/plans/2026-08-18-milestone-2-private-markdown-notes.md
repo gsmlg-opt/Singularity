@@ -713,6 +713,14 @@ devenv down
   creates `note.read`, `note.write`, and `note.export` and grants them only to
   active principals already holding `vault.password_change`.
 
+  Also assert `singularity_worker` retains no direct `SELECT` on
+  `content.note_conflicts`. Cover the backup-only
+  `content.export_note_conflicts_for_backup(uuid)` seam: web and PUBLIC cannot
+  execute it; worker calls with missing/mismatched GUCs, missing or revoked
+  `backup.create`, revoked principal/membership, or inactive account return no
+  rows; an active authorized worker receives only its requested private vault's
+  exact 11 conflict columns in conflict-ID order.
+
 - [ ] **Step 3: Verify RED**
 
   ```bash
@@ -776,6 +784,17 @@ devenv down
   ```
 
   Do not grant snapshot UPDATE or DELETE.
+
+  Create `content.export_note_conflicts_for_backup(requested_vault_id uuid)` as
+  a `LANGUAGE sql STABLE SECURITY DEFINER` function owned by
+  `singularity_table_owner`, with fixed `search_path` `pg_catalog, content,
+  core, identity`. Derive authority only from
+  `core.live_principal_authorization()`: the live snapshot vault must equal the
+  requested vault, the account/principal/membership must be active, and
+  `backup.create` must be active. Return the exact 11 V2 conflict columns for
+  private rows in deterministic conflict-ID order. Revoke PUBLIC and web;
+  grant `EXECUTE` only to worker. Drop the function before table/privilege
+  teardown on down.
 
   ```sql
   ALTER TABLE content.note_versions ENABLE ROW LEVEL SECURITY;
@@ -1769,6 +1788,9 @@ devenv down
 - Modify: `apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex`
 - Modify: `apps/singularity_storage/lib/singularity/storage/backup/exporter.ex`
 - Modify: `apps/singularity_storage/lib/singularity/storage/backup/logical_bundle_verifier.ex`
+- Modify: `apps/singularity_storage/priv/repo/migrations/20260818000100_create_private_markdown_notes.exs`
+- Modify: `apps/singularity_storage/test/singularity/storage/roles_test.exs`
+- Modify: `apps/singularity_storage/test/singularity/storage/note_schema_test.exs`
 - Modify: `apps/singularity_storage/test/singularity/storage/backup/logical_record_codec_test.exs`
 - Modify: `apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs`
 - Modify: `apps/singularity_storage/test/singularity/storage/backup/logical_bundle_verifier_test.exs`
@@ -1827,6 +1849,12 @@ devenv down
   rejection, unchanged outer bundle version 1, and unchanged manifest version
   1.
 
+  Add integration coverage for the backup-conflict function's exact owner,
+  language, volatility, security-definer flag, fixed search path, ACL, live
+  authority matrix, deterministic 11-column result, and absence of worker
+  direct table access. Assert the V2 exporter uses that function through
+  `WorkerRepo` without `SET ROLE`, `MigrationRepo`, or a direct grant.
+
 - [ ] **Step 5: Verify RED for V2**
 
   ```bash
@@ -1837,6 +1865,8 @@ devenv down
     apps/singularity_storage/test/singularity/storage/backup/logical_bundle_verifier_test.exs
 
   devenv shell -- mix singularity.test.integration \
+    apps/singularity_storage/test/singularity/storage/roles_test.exs \
+    apps/singularity_storage/test/singularity/storage/note_schema_test.exs \
     apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs
   ```
 
@@ -1888,6 +1918,10 @@ devenv down
   before validating row ordinals/counts. Keep BundleWriter/Reader outer format
   and Manifest version unchanged.
 
+  Export `content.note_conflicts` only by calling
+  `content.export_note_conflicts_for_backup($1)` through `WorkerRepo`; retain no
+  worker table grant and do not use role switching or `MigrationRepo`.
+
   ```elixir
   with {:ok, schema} <- schema_for(cut.logical_version),
        true <- length(cut.table_count_vector) == schema.count(),
@@ -1908,9 +1942,12 @@ devenv down
 
   ```bash
   git add apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex \
+    apps/singularity_storage/priv/repo/migrations/20260818000100_create_private_markdown_notes.exs \
     apps/singularity_storage/lib/singularity/storage/backup \
     apps/singularity_storage/test/fixtures/backup \
-    apps/singularity_storage/test/singularity/storage/backup
+    apps/singularity_storage/test/singularity/storage/backup \
+    apps/singularity_storage/test/singularity/storage/roles_test.exs \
+    apps/singularity_storage/test/singularity/storage/note_schema_test.exs
   git commit -m "feat(backup): add logical notes format v2"
   ```
 
