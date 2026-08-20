@@ -235,6 +235,10 @@ function summary(value: unknown): value is NoteSummary {
   );
 }
 
+function liveSummary(value: unknown): value is NoteSummary {
+  return summary(value) && value.deleted === false;
+}
+
 function note(value: unknown): value is Note {
   return (
     record(value) &&
@@ -318,7 +322,8 @@ function page(value: unknown): value is NotePage {
     record(value) &&
     exact(value, ["items", "nextCursor"]) &&
     Array.isArray(value.items) &&
-    value.items.every(summary) &&
+    value.items.length <= 50 &&
+    value.items.every(liveSummary) &&
     cursor(value.nextCursor)
   );
 }
@@ -327,12 +332,13 @@ function trashPage(value: unknown): value is NoteTrashPage {
     record(value) &&
     exact(value, ["items", "nextCursor"]) &&
     Array.isArray(value.items) &&
+    value.items.length <= 50 &&
     value.items.every(
       (item) =>
         record(item) &&
         exact(item, ["summary", "deletedAt"]) &&
         summary(item.summary) &&
-        item.summary.deleted &&
+        item.summary.deleted === true &&
         utc(item.deletedAt),
     ) &&
     cursor(value.nextCursor)
@@ -343,6 +349,7 @@ function historyPage(value: unknown): value is NoteHistoryPage {
     record(value) &&
     exact(value, ["items", "nextCursor"]) &&
     Array.isArray(value.items) &&
+    value.items.length <= 50 &&
     value.items.every(versionSummary) &&
     cursor(value.nextCursor)
   );
@@ -399,7 +406,8 @@ export function decodeInitialProps(value: unknown): InitialProps | null {
     exact(value.filters, ["q"]) &&
     safeText(value.filters.q, 1024) &&
     Array.isArray(value.summaries) &&
-    value.summaries.every(summary)
+    value.summaries.length <= 50 &&
+    value.summaries.every(liveSummary)
     ? (value as InitialProps)
     : null;
 }

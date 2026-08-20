@@ -405,6 +405,72 @@ describe("Notes App-Clip contracts", () => {
     ).toEqual(invalidReply);
   });
 
+  it("bounds initial, search, Trash, and History pages at 50 exact-state items", () => {
+    const liveSummaries = Array.from({ length: 50 }, () => summary());
+    const trashItems = Array.from({ length: 50 }, () => ({
+      summary: summary({ deleted: true }),
+      deletedAt: now,
+    }));
+    const historyItems = Array.from({ length: 50 }, () => versionSummary());
+
+    expect(decodeInitialProps(initialProps({ summaries: liveSummaries }))).not.toBeNull();
+    expect(
+      decodeSearchReply({ ok: true, result: { items: liveSummaries, nextCursor: null } }),
+    ).not.toEqual(invalidReply);
+    expect(
+      decodeTrashReply({ ok: true, result: { items: trashItems, nextCursor: null } }),
+    ).not.toEqual(invalidReply);
+    expect(
+      decodeHistoryReply({ ok: true, result: { items: historyItems, nextCursor: null } }),
+    ).not.toEqual(invalidReply);
+
+    expect(
+      decodeInitialProps(initialProps({ summaries: [...liveSummaries, summary()] })),
+    ).toBeNull();
+    expect(
+      decodeSearchReply({
+        ok: true,
+        result: { items: [...liveSummaries, summary()], nextCursor: null },
+      }),
+    ).toEqual(invalidReply);
+    expect(
+      decodeTrashReply({
+        ok: true,
+        result: {
+          items: [...trashItems, { summary: summary({ deleted: true }), deletedAt: now }],
+          nextCursor: null,
+        },
+      }),
+    ).toEqual(invalidReply);
+    expect(
+      decodeHistoryReply({
+        ok: true,
+        result: { items: [...historyItems, versionSummary()], nextCursor: null },
+      }),
+    ).toEqual(invalidReply);
+  });
+
+  it("rejects tombstoned initial/search summaries and live Trash summaries", () => {
+    expect(
+      decodeInitialProps(initialProps({ summaries: [summary({ deleted: true })] })),
+    ).toBeNull();
+    expect(
+      decodeSearchReply({
+        ok: true,
+        result: { items: [summary({ deleted: true })], nextCursor: null },
+      }),
+    ).toEqual(invalidReply);
+    expect(
+      decodeTrashReply({
+        ok: true,
+        result: {
+          items: [{ summary: summary({ deleted: false }), deletedAt: now }],
+          nextCursor: null,
+        },
+      }),
+    ).toEqual(invalidReply);
+  });
+
   it("accepts only canonical lowercase UUIDs throughout props, requests, and DTOs", () => {
     expect(
       decodeInitialProps({ ...initialProps(), vault: { ref: vaultId.toUpperCase() } }),

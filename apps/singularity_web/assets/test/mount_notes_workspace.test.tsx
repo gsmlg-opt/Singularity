@@ -139,6 +139,32 @@ describe("MountNotesWorkspace", () => {
     await expect(rejected).resolves.toEqual({ ok: false, error: { code: "storage_unavailable" } });
   });
 
+  it("rejects malformed result pages without updating workspace state", async () => {
+    const test = harness();
+    const { bridge, store } = await mountedProps(test.root);
+    const before = store.getSnapshot();
+    const oversizedItems = Array.from({ length: 51 }, () => initial.summaries[0]);
+
+    const search = bridge.search({ version: 1, q: "", cursor: null, limit: 50 });
+    test.pushes.at(-1)?.resolve({
+      ok: true,
+      result: { items: oversizedItems, nextCursor: null },
+    });
+    await expect(search).resolves.toEqual({ ok: false, error: { code: "invalid" } });
+    expect(store.getSnapshot()).toBe(before);
+
+    const trash = bridge.trash({ version: 1, cursor: null, limit: 50 });
+    test.pushes.at(-1)?.resolve({
+      ok: true,
+      result: {
+        items: [{ summary: initial.summaries[0], deletedAt: initial.summaries[0].updatedAt }],
+        nextCursor: null,
+      },
+    });
+    await expect(trash).resolves.toEqual({ ok: false, error: { code: "invalid" } });
+    expect(store.getSnapshot()).toBe(before);
+  });
+
   it("renders one accessible generic alert for malformed props or loader failure", async () => {
     const invalid = harness('{"version":1,"markdown":"secret"}');
     expect(invalid.order).toEqual(["root"]);
