@@ -3,6 +3,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   alias Singularity.Core.Error
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
 
   @cut_type 0x0001
   @row_type 0x0002
@@ -10,7 +11,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   @cut_tag "singularity.backup.logical.cut"
   @row_tag "singularity.backup.logical.row"
   @object_tag "singularity.backup.logical.object"
-  @wire_version 1
+  @default_version 2
   @header_payload_limit 64 * 1024
   @record_payload_limit 16 * 1024 * 1024
   @database_snapshot_limit 4 * 1024
@@ -26,30 +27,47 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
     lookup_digest object_index storage_ref vault_id
   ]a
   @classifications ~w[private sensitive restricted]
-  @table_count LogicalSchema.count()
+  @spec default_version() :: 2
+  def default_version, do: @default_version
 
   @spec tables() :: [binary()]
-  def tables, do: LogicalSchema.tables()
+  def tables, do: tables(@default_version)
+
+  @spec tables(1 | 2) :: [binary()]
+  def tables(1), do: LogicalSchema.tables()
+  def tables(2), do: LogicalSchemaV2.tables()
+  def tables(_version), do: []
 
   @spec encode_cut(map()) :: {:ok, map()} | {:error, Error.t()}
-  def encode_cut(attrs) when is_map(attrs) do
-    with :ok <- validate_cut_attrs(attrs) do
+  def encode_cut(attrs), do: encode_cut(attrs, @default_version)
+
+  @spec encode_cut(map(), 1 | 2) :: {:ok, map()} | {:error, Error.t()}
+  def encode_cut(attrs, version) when is_map(attrs) do
+    with {:ok, schema} <- schema_for(version),
+         :ok <- validate_cut_attrs(attrs, schema) do
       attrs
-      |> cut_wire_term()
+      |> cut_wire_term(version)
       |> encode_record(@cut_type, @header_payload_limit)
     end
   end
 
-  def encode_cut(_attrs), do: invalid()
+  def encode_cut(_attrs, _version), do: invalid()
 
   @spec encode_row(binary(), list(), list()) :: {:ok, map()} | {:error, Error.t()}
-  def encode_row(table, primary_key_values, ordered_column_values) when is_binary(table) do
-    with {:ok, schema} <- LogicalSchema.fetch_table(table),
+  def encode_row(table, primary_key_values, ordered_column_values),
+    do: encode_row(table, primary_key_values, ordered_column_values, @default_version)
+
+  @spec encode_row(binary(), list(), list(), 1 | 2) ::
+          {:ok, map()} | {:error, Error.t()}
+  def encode_row(table, primary_key_values, ordered_column_values, version)
+      when is_binary(table) do
+    with {:ok, schema_module} <- schema_for(version),
+         {:ok, schema} <- schema_module.fetch_table(table),
          :ok <- validate_row(schema, primary_key_values, ordered_column_values) do
       encode_record(
         {
           @row_tag,
-          @wire_version,
+          version,
           schema.ordinal,
           primary_key_values,
           ordered_column_values
@@ -62,18 +80,22 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
     end
   end
 
-  def encode_row(_table, _primary_key_values, _ordered_column_values), do: invalid()
+  def encode_row(_table, _primary_key_values, _ordered_column_values, _version), do: invalid()
 
   @spec encode_object(map()) :: {:ok, map()} | {:error, Error.t()}
-  def encode_object(attrs) when is_map(attrs) do
-    with :ok <- validate_object_attrs(attrs) do
+  def encode_object(attrs), do: encode_object(attrs, @default_version)
+
+  @spec encode_object(map(), 1 | 2) :: {:ok, map()} | {:error, Error.t()}
+  def encode_object(attrs, version) when is_map(attrs) do
+    with {:ok, _schema} <- schema_for(version),
+         :ok <- validate_object_attrs(attrs) do
       attrs
-      |> object_wire_term()
+      |> object_wire_term(version)
       |> encode_record(@object_type, @record_payload_limit)
     end
   end
 
-  def encode_object(_attrs), do: invalid()
+  def encode_object(_attrs, _version), do: invalid()
 
   @spec decode(non_neg_integer(), binary()) :: {:ok, map()} | {:error, Error.t()}
   def decode(@cut_type, payload) when is_binary(payload) do
@@ -121,10 +143,10 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   def descriptor(_record), do: invalid()
 
-  defp cut_wire_term(attrs) do
+  defp cut_wire_term(attrs, version) do
     {
       @cut_tag,
-      @wire_version,
+      version,
       attrs.manifest_id,
       attrs.vault_id,
       attrs.snapshot_id,
@@ -137,7 +159,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp decode_cut_term({
          @cut_tag,
-         @wire_version,
+         version,
          manifest_id,
          vault_id,
          snapshot_id,
@@ -156,8 +178,9 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
       object_count: object_count
     }
 
-    with :ok <- validate_cut_attrs(attrs) do
-      {:ok, Map.put(attrs, :kind, :cut)}
+    with {:ok, schema} <- schema_for(version),
+         :ok <- validate_cut_attrs(attrs, schema) do
+      {:ok, attrs |> Map.put(:kind, :cut) |> Map.put(:logical_version, version)}
     end
   end
 
@@ -165,16 +188,18 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp decode_row_term({
          @row_tag,
-         @wire_version,
+         version,
          table_ordinal,
          primary_key_values,
          ordered_column_values
        }) do
-    with {:ok, schema} <- LogicalSchema.fetch_ordinal(table_ordinal),
+    with {:ok, schema_module} <- schema_for(version),
+         {:ok, schema} <- schema_module.fetch_ordinal(table_ordinal),
          :ok <- validate_row(schema, primary_key_values, ordered_column_values) do
       {:ok,
        %{
          kind: :row,
+         logical_version: version,
          table: schema.table,
          table_ordinal: table_ordinal,
          primary_key_values: primary_key_values,
@@ -187,10 +212,10 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp decode_row_term(_term), do: invalid()
 
-  defp object_wire_term(attrs) do
+  defp object_wire_term(attrs, version) do
     {
       @object_tag,
-      @wire_version,
+      version,
       attrs.object_index,
       attrs.asset_object_id,
       attrs.vault_id,
@@ -205,7 +230,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp decode_object_term({
          @object_tag,
-         @wire_version,
+         version,
          object_index,
          asset_object_id,
          vault_id,
@@ -228,21 +253,22 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
       ciphertext_hash: ciphertext_hash
     }
 
-    with :ok <- validate_object_attrs(attrs) do
-      {:ok, Map.put(attrs, :kind, :object)}
+    with {:ok, _schema} <- schema_for(version),
+         :ok <- validate_object_attrs(attrs) do
+      {:ok, attrs |> Map.put(:kind, :object) |> Map.put(:logical_version, version)}
     end
   end
 
   defp decode_object_term(_term), do: invalid()
 
-  defp validate_cut_attrs(attrs) do
+  defp validate_cut_attrs(attrs, schema) do
     with true <- exact_keys?(attrs, @cut_keys),
          true <- canonical_uuid?(attrs.manifest_id),
          true <- canonical_uuid?(attrs.vault_id),
          true <- canonical_uuid?(attrs.snapshot_id),
          true <- canonical_database_snapshot?(attrs.database_snapshot),
          true <- unsigned_bigint?(attrs.outbox_high_water_mark),
-         true <- table_count_vector?(attrs.table_count_vector),
+         true <- table_count_vector?(attrs.table_count_vector, schema.count()),
          true <- unsigned_bigint?(attrs.object_count),
          true <- valid_frame_count?(attrs.table_count_vector, attrs.object_count) do
       :ok
@@ -332,15 +358,16 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp canonical_database_snapshot?(_value), do: false
 
-  defp table_count_vector?(counts), do: table_count_vector?(counts, 0)
+  defp table_count_vector?(counts, table_count),
+    do: table_count_vector?(counts, 0, table_count)
 
-  defp table_count_vector?([], count), do: count == @table_count
+  defp table_count_vector?([], count, table_count), do: count == table_count
 
-  defp table_count_vector?([count | rest], position) when position < @table_count do
-    unsigned_bigint?(count) and table_count_vector?(rest, position + 1)
+  defp table_count_vector?([count | rest], position, table_count) when position < table_count do
+    unsigned_bigint?(count) and table_count_vector?(rest, position + 1, table_count)
   end
 
-  defp table_count_vector?(_counts, _position), do: false
+  defp table_count_vector?(_counts, _position, _table_count), do: false
 
   defp valid_frame_count?(table_count_vector, object_count) do
     1 + Enum.sum(table_count_vector) + 2 * object_count <= @non_manifest_frame_limit
@@ -437,6 +464,10 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp unsigned_bigint?(value),
     do: is_integer(value) and value >= 0 and value <= @max_signed_bigint
+
+  defp schema_for(1), do: {:ok, LogicalSchema}
+  defp schema_for(2), do: {:ok, LogicalSchemaV2}
+  defp schema_for(_version), do: invalid()
 
   defp invalid, do: {:error, Error.new(:backup_invalid)}
 end

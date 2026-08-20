@@ -5,6 +5,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
   alias Singularity.Storage.Backup.BundleReader
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Backup.Manifest
 
   @cut_record_type 0x0001
@@ -190,6 +191,8 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
          {:ok, binding} <- validate_binding(binding),
          :ok <- validate_manifest_binding(manifest, binding),
          {:ok, cut, remaining} <- decode_cut(records),
+         {:ok, schema} <- schema_for(cut.logical_version),
+         true <- length(cut.table_count_vector) == schema.count(),
          :ok <- validate_cut_binding(cut, manifest, binding),
          :ok <- validate_frame_count(records, cut),
          {:ok, remaining} <-
@@ -197,14 +200,21 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
              remaining,
              cut.table_count_vector,
              binding.vault_id,
-             cut.outbox_high_water_mark
+             cut.outbox_high_water_mark,
+             schema
            ),
          {:ok, inventory, remaining} <-
-           verify_object_evidence(remaining, cut.object_count, binding.vault_id),
+           verify_object_evidence(
+             remaining,
+             cut.object_count,
+             binding.vault_id,
+             cut.logical_version
+           ),
          :ok <- verify_raw_objects(remaining, inventory) do
       {:ok,
        %{
          database_snapshot: cut.database_snapshot,
+         logical_version: cut.logical_version,
          manifest_id: cut.manifest_id,
          object_inventory: inventory,
          outbox_high_water_mark: cut.outbox_high_water_mark,
@@ -255,12 +265,14 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     with {:ok, payload} <- buffered_payload(current),
          {:ok, %{kind: :cut} = cut} <-
            LogicalRecordCodec.decode(@cut_record_type, payload),
+         {:ok, schema} <- schema_for(cut.logical_version),
+         true <- length(cut.table_count_vector) == schema.count(),
          true <- cut.manifest_id == state.binding.manifest_id,
          true <- cut.vault_id == state.binding.vault_id,
-         :ok <- validate_table_count(Enum.at(LogicalSchema.all(), 0), hd(cut.table_count_vector)) do
+         :ok <- validate_table_count(Enum.at(schema.all(), 0), hd(cut.table_count_vector)) do
       phase =
         cut.table_count_vector
-        |> then(&Enum.zip(LogicalSchema.all(), &1))
+        |> then(&Enum.zip(schema.all(), &1))
         |> rows_phase(cut.object_count)
 
       {:ok, %{state | cut: cut, phase: phase}}
@@ -278,7 +290,8 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
          _payload_hash
        ) do
     with {:ok, payload} <- buffered_payload(current),
-         {:ok, row} <- decode_row(%{type: current.type, payload: payload}, schema),
+         {:ok, row} <-
+           decode_row(%{type: current.type, payload: payload}, schema, cut.logical_version),
          :ok <- validate_row_vault(row, schema, state.binding.vault_id),
          {:ok, key} <- row_sort_key(row, schema, cut.outbox_high_water_mark),
          true <- is_nil(previous_key) or previous_key < key do
@@ -298,7 +311,8 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
          _payload_hash
        ) do
     with {:ok, payload} <- buffered_payload(current),
-         {:ok, object} <- decode_object(%{type: current.type, payload: payload}),
+         {:ok, object} <-
+           decode_object(%{type: current.type, payload: payload}, cut.logical_version),
          true <- object.object_index == next_index,
          true <- object.vault_id == state.binding.vault_id,
          true <- is_nil(previous_id) or previous_id < object.asset_object_id,
@@ -427,6 +441,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
   defp cut_result(cut, inventory) do
     %{
       database_snapshot: cut.database_snapshot,
+      logical_version: cut.logical_version,
       manifest_id: cut.manifest_id,
       object_inventory: inventory,
       outbox_high_water_mark: cut.outbox_high_water_mark,
@@ -515,8 +530,8 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     if length(records) == expected_count, do: :ok, else: invalid()
   end
 
-  defp verify_rows(records, counts, vault_id, outbox_high_water_mark) do
-    LogicalSchema.all()
+  defp verify_rows(records, counts, vault_id, outbox_high_water_mark, schema_module) do
+    schema_module.all()
     |> Enum.zip(counts)
     |> Enum.reduce_while({:ok, records}, fn {schema, count}, {:ok, remaining} ->
       result =
@@ -527,7 +542,8 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
                  table_records,
                  schema,
                  vault_id,
-                 outbox_high_water_mark
+                 outbox_high_water_mark,
+                 schema_module.version()
                ) do
           {:ok, tail}
         end
@@ -546,10 +562,16 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
   defp validate_table_count(%{table: "core.vaults"}, _count), do: invalid()
   defp validate_table_count(_schema, _count), do: :ok
 
-  defp verify_table_rows(records, schema, vault_id, outbox_high_water_mark) do
+  defp verify_table_rows(
+         records,
+         schema,
+         vault_id,
+         outbox_high_water_mark,
+         logical_version
+       ) do
     records
     |> Enum.reduce_while({:ok, nil}, fn record, {:ok, previous_key} ->
-      with {:ok, row} <- decode_row(record, schema),
+      with {:ok, row} <- decode_row(record, schema, logical_version),
            :ok <- validate_row_vault(row, schema, vault_id),
            {:ok, key} <- row_sort_key(row, schema, outbox_high_water_mark),
            true <- is_nil(previous_key) or previous_key < key do
@@ -564,11 +586,12 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     end
   end
 
-  defp decode_row(%{type: @row_record_type, payload: payload}, schema)
+  defp decode_row(%{type: @row_record_type, payload: payload}, schema, logical_version)
        when is_binary(payload) do
     with {:ok,
           %{
             kind: :row,
+            logical_version: ^logical_version,
             table: table,
             table_ordinal: ordinal
           } = row} <- LogicalRecordCodec.decode(@row_record_type, payload),
@@ -579,7 +602,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     end
   end
 
-  defp decode_row(_record, _schema), do: invalid()
+  defp decode_row(_record, _schema, _logical_version), do: invalid()
 
   defp validate_row_vault(row, %{table: "core.vaults"}, vault_id) do
     case row.ordered_column_values do
@@ -614,13 +637,13 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
   defp row_sort_key(row, _schema, _outbox_high_water_mark),
     do: {:ok, row.primary_key_values}
 
-  defp verify_object_evidence(records, count, vault_id) do
+  defp verify_object_evidence(records, count, vault_id, logical_version) do
     with {:ok, object_records, remaining} <- take_exact(records, count) do
       object_records
       |> Enum.with_index()
       |> Enum.reduce_while({:ok, [], nil}, fn {record, expected_index},
                                               {:ok, inventory, previous_id} ->
-        with {:ok, object} <- decode_object(record),
+        with {:ok, object} <- decode_object(record, logical_version),
              true <- object.object_index == expected_index,
              true <- object.vault_id == vault_id,
              true <- is_nil(previous_id) or previous_id < object.asset_object_id,
@@ -649,15 +672,19 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     end
   end
 
-  defp decode_object(%{type: @object_evidence_record_type, payload: payload})
+  defp decode_object(
+         %{type: @object_evidence_record_type, payload: payload},
+         logical_version
+       )
        when is_binary(payload) do
     with {:ok, %{kind: :object} = object} <-
-           LogicalRecordCodec.decode(@object_evidence_record_type, payload) do
+           LogicalRecordCodec.decode(@object_evidence_record_type, payload),
+         true <- object.logical_version == logical_version do
       {:ok, object}
     end
   end
 
-  defp decode_object(_record), do: invalid()
+  defp decode_object(_record, _logical_version), do: invalid()
 
   defp verify_raw_objects(records, inventory) do
     Enum.zip_reduce(records, inventory, :ok, fn
@@ -703,6 +730,10 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
     do: Ecto.UUID.cast(value) == {:ok, value}
 
   defp canonical_uuid?(_value), do: false
+
+  defp schema_for(1), do: {:ok, LogicalSchema}
+  defp schema_for(2), do: {:ok, LogicalSchemaV2}
+  defp schema_for(_version), do: invalid()
 
   defp invalid, do: {:error, Error.new(:backup_invalid)}
 end

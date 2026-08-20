@@ -6,6 +6,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
   alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Backup.Manifest
 
   @manifest_id "11111111-1111-4111-8111-111111111111"
@@ -26,10 +27,12 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
   test "reconstructs the exact authenticated cut" do
     fixture = fixture()
 
+    assert fixture.verified.manifest.version == 1
     assert {:ok, cut} = LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
 
     assert cut == %{
              manifest_id: @manifest_id,
+             logical_version: 2,
              vault_id: @vault_id,
              snapshot_id: @snapshot_id,
              database_snapshot: "100:120:101,119",
@@ -61,6 +64,17 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
            }
   end
 
+  test "selects the schema from the authenticated cut and accepts coherent V1 and V2" do
+    for logical_version <- [1, 2] do
+      fixture = fixture(logical_version)
+
+      assert fixture.verified.manifest.version == 1
+
+      assert {:ok, %{logical_version: ^logical_version}} =
+               LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+    end
+  end
+
   test "reconstructs the same cut from bounded record events" do
     fixture = fixture()
 
@@ -90,6 +104,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
 
     assert {:ok, streamed_cut} = LogicalBundleVerifier.finish(state, fixture.verified.manifest)
     assert {:ok, listed_cut} = LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+    assert %{logical_version: 2} = streamed_cut
     assert streamed_cut == listed_cut
   end
 
@@ -384,7 +399,63 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
     )
   end
 
-  defp fixture do
+  test "rejects an authenticated row whose logical version differs from the cut" do
+    fixture = fixture(2)
+    records = fixture.verified.records
+
+    mixed_row_records =
+      List.replace_at(
+        records,
+        1,
+        row_record("core.vaults", %{"id" => {"uuid", @vault_id}}, 1)
+      )
+
+    assert_invalid(
+      mixed_row_records
+      |> verified_with_records(fixture.verified)
+      |> LogicalBundleVerifier.verify(fixture.binding)
+    )
+  end
+
+  test "rejects authenticated object evidence whose logical version differs from the cut" do
+    fixture = fixture(2)
+    records = fixture.verified.records
+
+    object_position = 1 + Enum.sum(fixture.counts)
+
+    mixed_object_records =
+      List.replace_at(
+        records,
+        object_position,
+        object_record(fixture, 0, @object_one_id, [], 1)
+      )
+
+    assert {:ok, %{kind: :object, logical_version: 1}} =
+             mixed_object_records
+             |> Enum.at(object_position)
+             |> then(&LogicalRecordCodec.decode(&1.type, &1.payload))
+
+    assert_invalid(
+      mixed_object_records
+      |> verified_with_records(fixture.verified)
+      |> LogicalBundleVerifier.verify(fixture.binding)
+    )
+  end
+
+  test "rejects an authenticated cut with an unknown logical version" do
+    fixture = fixture(2)
+
+    unknown_version_records =
+      List.update_at(fixture.verified.records, 0, &record_with_logical_version(&1, 3))
+
+    assert_invalid(
+      unknown_version_records
+      |> verified_with_records(fixture.verified)
+      |> LogicalBundleVerifier.verify(fixture.binding)
+    )
+  end
+
+  defp fixture(logical_version \\ 2) do
     recovery = %{
       "binding" => %{"manifest_id" => @manifest_id, "vault_id" => @vault_id},
       "label" => "backup_recovery",
@@ -392,67 +463,96 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
     }
 
     rows = [
-      row_record("core.vaults", %{"id" => {"uuid", @vault_id}}),
-      row_record("content.resources", %{
-        "id" => {"uuid", @resource_one_id},
-        "vault_id" => {"uuid", @vault_id}
-      }),
-      row_record("content.resources", %{
-        "id" => {"uuid", @resource_two_id},
-        "vault_id" => {"uuid", @vault_id}
-      }),
-      row_record("core.outbox_events", %{
-        "id" => {"uuid", @outbox_one_id},
-        "sequence" => {"integer", 4},
-        "vault_id" => {"uuid", @vault_id}
-      }),
-      row_record("core.outbox_events", %{
-        "id" => {"uuid", @outbox_two_id},
-        "sequence" => {"integer", 9},
-        "vault_id" => {"uuid", @vault_id}
-      })
+      row_record("core.vaults", %{"id" => {"uuid", @vault_id}}, logical_version),
+      row_record(
+        "content.resources",
+        %{
+          "id" => {"uuid", @resource_one_id},
+          "vault_id" => {"uuid", @vault_id},
+          "kind" => {"text", "asset"},
+          "current_version_id" => {"null"}
+        },
+        logical_version
+      ),
+      row_record(
+        "content.resources",
+        %{
+          "id" => {"uuid", @resource_two_id},
+          "vault_id" => {"uuid", @vault_id},
+          "kind" => {"text", "asset"},
+          "current_version_id" => {"null"}
+        },
+        logical_version
+      ),
+      row_record(
+        "core.outbox_events",
+        %{
+          "id" => {"uuid", @outbox_one_id},
+          "sequence" => {"integer", 4},
+          "vault_id" => {"uuid", @vault_id}
+        },
+        logical_version
+      ),
+      row_record(
+        "core.outbox_events",
+        %{
+          "id" => {"uuid", @outbox_two_id},
+          "sequence" => {"integer", 9},
+          "vault_id" => {"uuid", @vault_id}
+        },
+        logical_version
+      )
     ]
 
-    counts = row_counts(rows)
+    counts = row_counts(rows, logical_version)
     raw_one = "authenticated-ciphertext-one"
     raw_two = "authenticated-ciphertext-two"
 
     cut =
-      cut_record(%{
-        database_snapshot: "100:120:101,119",
-        manifest_id: @manifest_id,
-        object_count: 2,
-        outbox_high_water_mark: 42,
-        snapshot_id: @snapshot_id,
-        table_count_vector: counts,
-        vault_id: @vault_id
-      })
+      cut_record(
+        %{
+          database_snapshot: "100:120:101,119",
+          manifest_id: @manifest_id,
+          object_count: 2,
+          outbox_high_water_mark: 42,
+          snapshot_id: @snapshot_id,
+          table_count_vector: counts,
+          vault_id: @vault_id
+        },
+        logical_version
+      )
 
     object_one =
-      object_record_attrs(%{
-        asset_object_id: @object_one_id,
-        ciphertext_byte_size: byte_size(raw_one),
-        ciphertext_hash: :crypto.hash(:sha256, raw_one),
-        classification: "private",
-        key_domain_id: @key_domain_one_id,
-        lookup_digest: :binary.copy(<<0xA1>>, 32),
-        object_index: 0,
-        storage_ref: "objects/one",
-        vault_id: @vault_id
-      })
+      object_record_attrs(
+        %{
+          asset_object_id: @object_one_id,
+          ciphertext_byte_size: byte_size(raw_one),
+          ciphertext_hash: :crypto.hash(:sha256, raw_one),
+          classification: "private",
+          key_domain_id: @key_domain_one_id,
+          lookup_digest: :binary.copy(<<0xA1>>, 32),
+          object_index: 0,
+          storage_ref: "objects/one",
+          vault_id: @vault_id
+        },
+        logical_version
+      )
 
     object_two =
-      object_record_attrs(%{
-        asset_object_id: @object_two_id,
-        ciphertext_byte_size: byte_size(raw_two),
-        ciphertext_hash: :crypto.hash(:sha256, raw_two),
-        classification: "sensitive",
-        key_domain_id: @key_domain_two_id,
-        lookup_digest: :binary.copy(<<0xA2>>, 32),
-        object_index: 1,
-        storage_ref: "objects/two",
-        vault_id: @vault_id
-      })
+      object_record_attrs(
+        %{
+          asset_object_id: @object_two_id,
+          ciphertext_byte_size: byte_size(raw_two),
+          ciphertext_hash: :crypto.hash(:sha256, raw_two),
+          classification: "sensitive",
+          key_domain_id: @key_domain_two_id,
+          lookup_digest: :binary.copy(<<0xA2>>, 32),
+          object_index: 1,
+          storage_ref: "objects/two",
+          vault_id: @vault_id
+        },
+        logical_version
+      )
 
     records =
       [cut | rows] ++
@@ -494,17 +594,24 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
 
   defp replace_cut_record([record | rest], overrides) do
     {:ok, decoded} = LogicalRecordCodec.decode(record.type, record.payload)
+    logical_version = decoded.logical_version
 
     replacement =
       decoded
-      |> Map.delete(:kind)
+      |> Map.drop([:kind, :logical_version])
       |> Map.merge(Map.new(overrides))
-      |> cut_record()
+      |> cut_record(logical_version)
 
     [replacement | rest]
   end
 
-  defp object_record(fixture, object_index, asset_object_id, overrides \\ []) do
+  defp object_record(
+         fixture,
+         object_index,
+         asset_object_id,
+         overrides \\ [],
+         logical_version \\ 2
+       ) do
     {raw, defaults} =
       case object_index do
         0 ->
@@ -535,16 +642,17 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
       vault_id: @vault_id
     })
     |> Map.merge(Map.new(overrides))
-    |> object_record_attrs()
+    |> object_record_attrs(logical_version)
   end
 
-  defp cut_record(attrs) do
-    assert {:ok, record} = LogicalRecordCodec.encode_cut(attrs)
+  defp cut_record(attrs, logical_version) do
+    assert {:ok, record} = LogicalRecordCodec.encode_cut(attrs, logical_version)
     record
   end
 
-  defp row_record(table, overrides) do
-    {:ok, schema} = LogicalSchema.fetch_table(table)
+  defp row_record(table, overrides, logical_version \\ 2) do
+    schema_module = logical_schema(logical_version)
+    {:ok, schema} = schema_module.fetch_table(table)
 
     values =
       Enum.map(schema.columns, fn column ->
@@ -552,12 +660,15 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
       end)
 
     primary_key = Enum.map(schema.primary_key, &Enum.at(values, &1.position))
-    assert {:ok, record} = LogicalRecordCodec.encode_row(table, primary_key, values)
+
+    assert {:ok, record} =
+             LogicalRecordCodec.encode_row(table, primary_key, values, logical_version)
+
     record
   end
 
-  defp object_record_attrs(attrs) do
-    assert {:ok, record} = LogicalRecordCodec.encode_object(attrs)
+  defp object_record_attrs(attrs, logical_version) do
+    assert {:ok, record} = LogicalRecordCodec.encode_object(attrs, logical_version)
     record
   end
 
@@ -569,7 +680,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
   defp tagged_value(%{tag: "timestamp"}), do: {"timestamp", "2026-07-23T12:34:56.123456Z"}
   defp tagged_value(%{tag: "json", name: name}), do: {"json", %{"field" => name}}
 
-  defp row_counts(records) do
+  defp row_counts(records, logical_version) do
     counts =
       Enum.reduce(records, %{}, fn record, counts ->
         assert {:ok, %{table_ordinal: ordinal}} =
@@ -578,12 +689,23 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
         Map.update(counts, ordinal, 1, &(&1 + 1))
       end)
 
-    Enum.map(0..(LogicalSchema.count() - 1), &Map.get(counts, &1, 0))
+    schema_module = logical_schema(logical_version)
+    Enum.map(0..(schema_module.count() - 1), &Map.get(counts, &1, 0))
   end
 
-  defp table_ordinal(table) do
-    {:ok, %{ordinal: ordinal}} = LogicalSchema.fetch_table(table)
+  defp table_ordinal(table, logical_version \\ 2) do
+    schema_module = logical_schema(logical_version)
+    {:ok, %{ordinal: ordinal}} = schema_module.fetch_table(table)
     ordinal
+  end
+
+  defp logical_schema(1), do: LogicalSchema
+  defp logical_schema(2), do: LogicalSchemaV2
+
+  defp record_with_logical_version(record, logical_version) do
+    term = :erlang.binary_to_term(record.payload, [:safe])
+    payload = term |> put_elem(1, logical_version) |> :erlang.term_to_binary([:deterministic])
+    %{record | payload: payload, payload_length: byte_size(payload)}
   end
 
   defp verified_with_records(records, %BundleReader.Verified{manifest: manifest}) do

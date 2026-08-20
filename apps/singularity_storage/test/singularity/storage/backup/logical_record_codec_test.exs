@@ -3,6 +3,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Core.Error
 
   @manifest_id "00000000-0000-4000-8000-000000000a01"
@@ -11,38 +12,46 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   @object_id "00000000-0000-4000-8000-000000000a04"
   @key_domain_id "00000000-0000-4000-8000-000000000a05"
   @record_payload_limit 16 * 1024 * 1024
+  @logical_v1_contract_sha256 "e7d4d4a31c99edb4a7e23ea592bd563eb5644aead6ed29538b692a0c5157083a"
+  @logical_v1_tables [
+    "identity.people",
+    "identity.accounts",
+    "identity.credentials",
+    "identity.principals",
+    "core.capabilities",
+    "core.vaults",
+    "core.vault_members",
+    "core.principal_capabilities",
+    "identity.devices",
+    "core.key_domains",
+    "core.vault_key_versions",
+    "core.vault_key_wrappers",
+    "core.domain_key_versions",
+    "core.domain_dedup_key_wrappers",
+    "content.resources",
+    "content.resource_versions",
+    "content.asset_objects",
+    "content.assets",
+    "content.asset_key_envelopes",
+    "content.asset_metadata",
+    "content.resource_assets",
+    "content.source_references",
+    "content.tombstones",
+    "audit.events",
+    "core.outbox_events",
+    "jobs.job_submissions",
+    "jobs.job_progress",
+    "jobs.effect_receipts"
+  ]
 
-  test "publishes the fixed logical restore table order" do
-    assert LogicalRecordCodec.tables() == [
-             "identity.people",
-             "identity.accounts",
-             "identity.credentials",
-             "identity.principals",
-             "core.capabilities",
-             "core.vaults",
-             "core.vault_members",
-             "core.principal_capabilities",
-             "identity.devices",
-             "core.key_domains",
-             "core.vault_key_versions",
-             "core.vault_key_wrappers",
-             "core.domain_key_versions",
-             "core.domain_dedup_key_wrappers",
-             "content.resources",
-             "content.resource_versions",
-             "content.asset_objects",
-             "content.assets",
-             "content.asset_key_envelopes",
-             "content.asset_metadata",
-             "content.resource_assets",
-             "content.source_references",
-             "content.tombstones",
-             "audit.events",
-             "core.outbox_events",
-             "jobs.job_submissions",
-             "jobs.job_progress",
-             "jobs.effect_receipts"
-           ]
+  test "publishes versioned logical restore table order with version two as the default" do
+    assert LogicalRecordCodec.default_version() == 2
+    assert LogicalRecordCodec.tables(1) == @logical_v1_tables
+
+    assert LogicalRecordCodec.tables(2) ==
+             @logical_v1_tables ++ ["content.note_versions", "content.note_conflicts"]
+
+    assert LogicalRecordCodec.tables() == LogicalRecordCodec.tables(2)
   end
 
   test "publishes the exact version-one schema registry and sanitized key slots" do
@@ -50,11 +59,12 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert LogicalSchema.count() == 28
 
     assert Enum.map(LogicalSchema.all(), &{&1.ordinal, &1.table}) ==
-             LogicalRecordCodec.tables()
+             LogicalRecordCodec.tables(1)
              |> Enum.with_index()
              |> Enum.map(fn {table, ordinal} -> {ordinal, table} end)
 
     assert Enum.sum(Enum.map(LogicalSchema.all(), &length(&1.columns))) == 257
+    assert schema_contract_sha256(LogicalSchema) == @logical_v1_contract_sha256
 
     for schema <- LogicalSchema.all() do
       assert MapSet.size(MapSet.new(schema.columns, & &1.name)) == length(schema.columns)
@@ -125,8 +135,87 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert :error = LogicalSchema.fetch_ordinal(28)
   end
 
+  test "publishes the exact version-two schema while preserving every version-one ordinal" do
+    assert LogicalSchemaV2.version() == 2
+    assert LogicalSchemaV2.count() == 30
+    assert LogicalSchemaV2.column_count() == 280
+    assert Enum.sum(Enum.map(LogicalSchemaV2.all(), &length(&1.columns))) == 280
+
+    for v1_schema <- LogicalSchema.all() do
+      assert {:ok, v2_schema} = LogicalSchemaV2.fetch_table(v1_schema.table)
+      assert v2_schema.version == 2
+      assert v2_schema.ordinal == v1_schema.ordinal
+      assert v2_schema.table == v1_schema.table
+      assert Enum.take(v2_schema.columns, length(v1_schema.columns)) == v1_schema.columns
+      assert v2_schema.primary_key == v1_schema.primary_key
+    end
+
+    assert {:ok, v1_resources} = LogicalSchema.fetch_table("content.resources")
+
+    assert {:ok,
+            %{
+              version: 2,
+              ordinal: 14,
+              table: "content.resources",
+              columns: resource_columns,
+              primary_key: [%{position: 0, tag: "uuid"}]
+            }} = LogicalSchemaV2.fetch_ordinal(14)
+
+    assert resource_columns ==
+             v1_resources.columns ++
+               [
+                 %{name: "kind", tag: "text", nullable?: false},
+                 %{name: "current_version_id", tag: "uuid", nullable?: true}
+               ]
+
+    assert {:ok,
+            %{
+              version: 2,
+              ordinal: 28,
+              table: "content.note_versions",
+              columns: [
+                %{name: "resource_version_id", tag: "uuid", nullable?: false},
+                %{name: "resource_id", tag: "uuid", nullable?: false},
+                %{name: "vault_id", tag: "uuid", nullable?: false},
+                %{name: "classification", tag: "text", nullable?: false},
+                %{name: "title", tag: "text", nullable?: false},
+                %{name: "markdown", tag: "text", nullable?: false},
+                %{name: "created_by_principal_id", tag: "uuid", nullable?: false},
+                %{name: "parent_version_id", tag: "uuid", nullable?: true},
+                %{name: "merge_parent_version_id", tag: "uuid", nullable?: true},
+                %{name: "inserted_at", tag: "timestamp", nullable?: false}
+              ],
+              primary_key: [%{position: 0, tag: "uuid"}]
+            }} = LogicalSchemaV2.fetch_ordinal(28)
+
+    assert {:ok,
+            %{
+              version: 2,
+              ordinal: 29,
+              table: "content.note_conflicts",
+              columns: [
+                %{name: "id", tag: "uuid", nullable?: false},
+                %{name: "resource_id", tag: "uuid", nullable?: false},
+                %{name: "vault_id", tag: "uuid", nullable?: false},
+                %{name: "classification", tag: "text", nullable?: false},
+                %{name: "base_version_id", tag: "uuid", nullable?: false},
+                %{name: "canonical_version_id", tag: "uuid", nullable?: false},
+                %{name: "competing_version_id", tag: "uuid", nullable?: false},
+                %{name: "state", tag: "text", nullable?: false},
+                %{name: "resolution_version_id", tag: "uuid", nullable?: true},
+                %{name: "created_at", tag: "timestamp", nullable?: false},
+                %{name: "resolved_at", tag: "timestamp", nullable?: true}
+              ],
+              primary_key: [%{position: 0, tag: "uuid"}]
+            }} = LogicalSchemaV2.fetch_table("content.note_conflicts")
+
+    assert :error = LogicalSchemaV2.fetch_table("content.note_search_documents")
+    assert :error = LogicalSchemaV2.fetch_table("content.note_mutation_receipts")
+    assert :error = LogicalSchemaV2.fetch_ordinal(30)
+  end
+
   test "encodes and decodes a canonical cut header record" do
-    counts = Enum.to_list(0..27)
+    counts = Enum.to_list(0..29)
 
     attrs = %{
       manifest_id: @manifest_id,
@@ -153,7 +242,9 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert {:ok, %{kind: :cut, table_count_vector: ^counts} = decoded} =
              LogicalRecordCodec.decode(record.type, payload)
 
-    assert Map.drop(decoded, [:kind]) == attrs
+    assert decoded.logical_version == 2
+    assert Map.drop(decoded, [:kind, :logical_version]) == attrs
+    assert {:ok, ^record} = LogicalRecordCodec.encode_cut(attrs, 2)
   end
 
   test "enforces the snapshot and total non-manifest frame bounds at the cut" do
@@ -162,7 +253,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     assert byte_size(exact_snapshot) == 4_096
 
-    exact_counts = [999_998 | List.duplicate(0, 27)]
+    exact_counts = [999_998 | List.duplicate(0, 29)]
 
     assert {:ok, _record} =
              LogicalRecordCodec.encode_cut(
@@ -178,7 +269,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     assert_invalid(
       LogicalRecordCodec.encode_cut(
-        cut_attrs(table_count_vector: [999_999 | List.duplicate(0, 27)])
+        cut_attrs(table_count_vector: [999_999 | List.duplicate(0, 29)])
       )
     )
 
@@ -186,6 +277,109 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              LogicalRecordCodec.encode_cut(cut_attrs(object_count: 499_999))
 
     assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(object_count: 500_000)))
+  end
+
+  test "round trips explicitly requested version-one cut, row, and object records" do
+    cut_attrs = cut_attrs(table_count_vector: List.duplicate(0, 28))
+
+    assert {:ok, cut_record} = LogicalRecordCodec.encode_cut(cut_attrs, 1)
+
+    assert {:ok, %{kind: :cut, logical_version: 1} = decoded_cut} =
+             LogicalRecordCodec.decode(cut_record.type, cut_record.payload)
+
+    assert Map.drop(decoded_cut, [:kind, :logical_version]) == cut_attrs
+
+    {primary_key_values, ordered_column_values} = valid_row("content.resources", 1)
+
+    assert {:ok, row_record} =
+             LogicalRecordCodec.encode_row(
+               "content.resources",
+               primary_key_values,
+               ordered_column_values,
+               1
+             )
+
+    assert {:ok,
+            %{
+              kind: :row,
+              logical_version: 1,
+              table: "content.resources",
+              table_ordinal: 14,
+              primary_key_values: ^primary_key_values,
+              ordered_column_values: ^ordered_column_values
+            }} = LogicalRecordCodec.decode(row_record.type, row_record.payload)
+
+    object_attrs = object_attrs()
+    assert {:ok, object_record} = LogicalRecordCodec.encode_object(object_attrs, 1)
+
+    assert {:ok, %{kind: :object, logical_version: 1} = decoded_object} =
+             LogicalRecordCodec.decode(object_record.type, object_record.payload)
+
+    assert Map.drop(decoded_object, [:kind, :logical_version]) == object_attrs
+  end
+
+  test "rejects unknown logical versions and records shaped for another schema version" do
+    {v1_primary_key, v1_values} = valid_row("content.resources", 1)
+    {v2_primary_key, v2_values} = valid_row("content.resources", 2)
+    v1_cut_attrs = cut_attrs(table_count_vector: List.duplicate(0, 28))
+    v2_cut_attrs = cut_attrs()
+    object_attrs = object_attrs()
+
+    assert {:ok, cut_record} = LogicalRecordCodec.encode_cut(v2_cut_attrs)
+
+    assert {:ok, row_record} =
+             LogicalRecordCodec.encode_row("content.resources", v2_primary_key, v2_values)
+
+    assert {:ok, object_record} = LogicalRecordCodec.encode_object(object_attrs)
+
+    for invalid_version <- [0, 3, "2"] do
+      assert_invalid(LogicalRecordCodec.encode_cut(v2_cut_attrs, invalid_version))
+
+      assert_invalid(
+        LogicalRecordCodec.encode_row(
+          "content.resources",
+          v2_primary_key,
+          v2_values,
+          invalid_version
+        )
+      )
+
+      assert_invalid(LogicalRecordCodec.encode_object(object_attrs, invalid_version))
+
+      for record <- [cut_record, row_record, object_record] do
+        assert_invalid(
+          LogicalRecordCodec.decode(
+            record.type,
+            replace_wire_version(record.payload, invalid_version)
+          )
+        )
+      end
+    end
+
+    assert_invalid(LogicalRecordCodec.encode_cut(v1_cut_attrs, 2))
+    assert_invalid(LogicalRecordCodec.encode_cut(v2_cut_attrs, 1))
+
+    assert_invalid(
+      LogicalRecordCodec.encode_row("content.resources", v1_primary_key, v1_values, 2)
+    )
+
+    assert_invalid(
+      LogicalRecordCodec.encode_row("content.resources", v2_primary_key, v2_values, 1)
+    )
+
+    assert_invalid(
+      LogicalRecordCodec.decode(
+        0x0002,
+        wire({"singularity.backup.logical.row", 2, 14, v1_primary_key, v1_values})
+      )
+    )
+
+    assert_invalid(
+      LogicalRecordCodec.decode(
+        0x0002,
+        wire({"singularity.backup.logical.row", 1, 14, v2_primary_key, v2_values})
+      )
+    )
   end
 
   test "encodes row values with deterministic JSON map ordering" do
@@ -223,11 +417,20 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert {:ok,
             %{
               kind: :row,
+              logical_version: 2,
               table: "identity.people",
               table_ordinal: 0,
               primary_key_values: ^primary_key_values,
               ordered_column_values: ^values
             }} = LogicalRecordCodec.decode(record.type, record.payload)
+
+    assert {:ok, ^record} =
+             LogicalRecordCodec.encode_row(
+               "identity.people",
+               primary_key_values,
+               values,
+               2
+             )
 
     assert LogicalRecordCodec.descriptor(record) == %{
              record_type: 0x0002,
@@ -237,7 +440,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   end
 
   test "enforces arity, tags, nullability, and primary-key equality for every schema" do
-    for schema <- LogicalSchema.all() do
+    for schema <- LogicalSchemaV2.all() do
       {primary_key_values, ordered_column_values} = valid_row(schema)
 
       assert {:ok, record} =
@@ -249,6 +452,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
       assert {:ok,
               %{
+                logical_version: 2,
                 table: table,
                 table_ordinal: ordinal,
                 primary_key_values: ^primary_key_values,
@@ -382,10 +586,11 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert {:ok, %{type: 0x0003} = record} = LogicalRecordCodec.encode_object(attrs)
     assert record.payload_length == byte_size(record.payload)
 
-    assert {:ok, %{kind: :object} = decoded} =
+    assert {:ok, %{kind: :object, logical_version: 2} = decoded} =
              LogicalRecordCodec.decode(record.type, record.payload)
 
-    assert Map.drop(decoded, [:kind]) == attrs
+    assert Map.drop(decoded, [:kind, :logical_version]) == attrs
+    assert {:ok, ^record} = LogicalRecordCodec.encode_object(attrs, 2)
 
     assert LogicalRecordCodec.descriptor(record) == %{
              record_type: 0x0003,
@@ -442,8 +647,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
       compressed,
       non_canonical,
       wire({"wrong.tag", 1, 0, primary_key_values, ordered_column_values}),
-      wire({"singularity.backup.logical.row", 2, 0, primary_key_values, ordered_column_values}),
-      wire({"singularity.backup.logical.row", 1, 0, primary_key_values}),
+      wire({"singularity.backup.logical.row", 3, 0, primary_key_values, ordered_column_values}),
+      wire({"singularity.backup.logical.row", 2, 0, primary_key_values}),
       wire({
         "singularity.backup.logical.row",
         1,
@@ -601,7 +806,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
         snapshot_id: @snapshot_id,
         database_snapshot: "100:120:101,119",
         outbox_high_water_mark: 42,
-        table_count_vector: List.duplicate(0, 28),
+        table_count_vector: List.duplicate(0, 30),
         object_count: 0
       },
       Map.new(overrides)
@@ -626,8 +831,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   end
 
   defp valid_row(table) when is_binary(table) do
-    {:ok, schema} = LogicalSchema.fetch_table(table)
-    valid_row(schema)
+    valid_row(table, 2)
   end
 
   defp valid_row(schema) do
@@ -642,6 +846,11 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
       end)
 
     {primary_key_values, ordered_column_values}
+  end
+
+  defp valid_row(table, version) when is_binary(table) do
+    {:ok, schema} = schema_module(version).fetch_table(table)
+    valid_row(schema)
   end
 
   defp tagged_value("uuid", _position), do: {"uuid", @manifest_id}
@@ -660,10 +869,36 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
   defp wire(term), do: :erlang.term_to_binary(term, [:deterministic])
 
+  defp schema_module(1), do: LogicalSchema
+  defp schema_module(2), do: LogicalSchemaV2
+
+  defp schema_contract_sha256(schema_module) do
+    contract =
+      Enum.map(schema_module.all(), fn schema ->
+        {
+          schema.ordinal,
+          schema.table,
+          Enum.map(schema.columns, &{&1.name, &1.tag, &1.nullable?}),
+          Enum.map(schema.primary_key, &{&1.position, &1.tag})
+        }
+      end)
+
+    :crypto.hash(:sha256, :erlang.term_to_binary(contract, [:deterministic]))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp replace_wire_version(payload, version) do
+    payload
+    |> :erlang.binary_to_term([:safe])
+    |> put_elem(1, version)
+    |> wire()
+  end
+
   defp non_canonical_version_integer(
-         <<131, 104, 5, 109, tag_length::32, tag::binary-size(tag_length), 97, 1, rest::binary>>
+         <<131, 104, 5, 109, tag_length::32, tag::binary-size(tag_length), 97, version,
+           rest::binary>>
        ) do
-    <<131, 104, 5, 109, tag_length::32, tag::binary, 98, 0, 0, 0, 1, rest::binary>>
+    <<131, 104, 5, 109, tag_length::32, tag::binary, 98, 0, 0, 0, version, rest::binary>>
   end
 
   defp assert_invalid(result) do

@@ -21,6 +21,8 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   alias Singularity.Storage.Backup.IntegrityAudit, as: StorageIntegrityAudit
   alias Singularity.Storage.Backup.LocalDestination
   alias Singularity.Storage.Backup.LogicalBundleVerifier
+  alias Singularity.Storage.Backup.LogicalRecordCodec
+  alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Backup.Reconciler
   alias Singularity.Storage.Backup.Restorer
   alias Singularity.Storage.Crypto.Argon2KeyDeriver
@@ -49,6 +51,8 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     "parallelism" => 1
   }
   @backup_kdf_domain "singularity.backup.bundle.v1"
+  @capture_env "SINGULARITY_CAPTURE_LOGICAL_V1"
+  @capture_passphrase "singularity-v1-compatibility-passphrase"
   @vault_key_process_key {__MODULE__, :bootstrap_vault_key}
   @storage_env_keys [
     Singularity.Storage.MigrationRepo,
@@ -245,16 +249,18 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     assert_distinct!(source_names, destination_names)
     print_names(source_names, destination_names)
     assert_required_tasks!()
+    capture_path = capture_path!()
 
     previous_env = snapshot_environment()
     bundle_path = bundle_path(source_names, destination_names)
-    secrets = oracle_secrets(source_names, destination_names)
+    secrets = oracle_secrets(source_names, destination_names, capture_path)
 
     try do
       with_secret_descriptors(bundle_path, secrets, fn descriptors ->
         source = backup_source!(source_names, bundle_path, descriptors)
         destination = restore_destination!(destination_names, bundle_path, descriptors, source)
         assert_restored!(source, destination)
+        capture_bundle!(bundle_path, capture_path)
       end)
     after
       cleanup!(source_names, destination_names, bundle_path, previous_env)
@@ -568,12 +574,66 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     }
   end
 
-  defp oracle_secrets(source, destination) do
+  defp oracle_secrets(source, destination, capture_path) do
+    passphrase =
+      if is_binary(capture_path),
+        do: @capture_passphrase,
+        else: secret("backup-passphrase", source.suffix <> destination.suffix)
+
     %{
-      backup_passphrase: secret("backup-passphrase", source.suffix <> destination.suffix),
+      backup_passphrase: passphrase,
       new_password: secret("restored-owner-password", destination.suffix),
-      restore_passphrase: secret("backup-passphrase", source.suffix <> destination.suffix)
+      restore_passphrase: passphrase
     }
+  end
+
+  defp capture_path! do
+    case System.get_env(@capture_env) do
+      nil ->
+        nil
+
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+
+        if trimmed == "" do
+          Mix.raise("#{@capture_env} must name a non-empty destination path")
+        end
+
+        path = Path.expand(trimmed)
+
+        _loaded = Code.ensure_loaded(LogicalRecordCodec)
+
+        version =
+          if function_exported?(LogicalRecordCodec, :default_version, 0),
+            do: apply(LogicalRecordCodec, :default_version, []),
+            else: LogicalSchema.version()
+
+        if version != 1 do
+          Mix.raise("refusing logical V1 capture because codec default is #{version}")
+        end
+
+        if File.exists?(path) do
+          Mix.raise("refusing to overwrite logical V1 capture at #{path}")
+        end
+
+        path
+    end
+  end
+
+  defp capture_bundle!(_bundle_path, nil), do: :ok
+
+  defp capture_bundle!(bundle_path, capture_path) do
+    File.mkdir_p!(Path.dirname(capture_path))
+    File.cp!(bundle_path, capture_path)
+
+    sha256 =
+      capture_path
+      |> File.read!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    Mix.shell().info("logical_v1_capture=#{capture_path} sha256=#{sha256}")
+    :ok
   end
 
   defp secret(label, seed) do

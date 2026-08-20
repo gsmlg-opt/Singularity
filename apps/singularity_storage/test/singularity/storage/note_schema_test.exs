@@ -72,6 +72,11 @@ defmodule Singularity.Storage.NoteSchemaTest do
     resources_note_trash
   )
 
+  @conflict_export_columns ~w[
+    id resource_id vault_id classification base_version_id canonical_version_id
+    competing_version_id state resolution_version_id created_at resolved_at
+  ]
+
   test "creates the exact note columns, defaults, generated vector, and indexes" do
     assert column!("content", "resources", "kind") == {"text", false, "'asset'::text", ""}
     assert column!("content", "resources", "current_version_id") == {"uuid", true, nil, ""}
@@ -212,6 +217,65 @@ defmodule Singularity.Storage.NoteSchemaTest do
                )
 
       assert policies == [["#{table}_table_owner"], ["#{table}_vault_isolation"]]
+    end
+  end
+
+  test "backup worker exports only authorized own-vault conflicts through the hardened function" do
+    note = NoteFixtures.note_with_conflict!()
+    second_conflict = NoteFixtures.insert_conflict!(note, %{id: Ecto.UUID.generate()})
+    cross_vault = NoteFixtures.note_with_conflict!()
+
+    assert %{columns: @conflict_export_columns, rows: []} =
+             query!(
+               WorkerRepo,
+               "SELECT * FROM content.export_note_conflicts_for_backup($1)",
+               [Ecto.UUID.dump!(note.vault_id)]
+             )
+
+    capture_log(fn ->
+      assert_raise Postgrex.Error, fn ->
+        Singularity.Storage.ScopedRepo.transact(
+          WorkerRepo,
+          %{principal_id: note.principal_id, vault_id: note.vault_id},
+          fn repo -> query!(repo, "SELECT * FROM content.note_conflicts") end
+        )
+      end
+    end)
+
+    grant_backup_create!(note)
+
+    assert_raise Postgrex.Error, fn ->
+      NoteFixtures.scoped(note, RequestRepo, fn repo ->
+        query!(repo, "SELECT * FROM content.export_note_conflicts_for_backup($1)", [
+          Ecto.UUID.dump!(note.vault_id)
+        ])
+      end)
+    end
+
+    assert %{columns: @conflict_export_columns, rows: rows} =
+             export_conflicts(note, note.vault_id)
+
+    assert length(rows) == 2
+
+    assert Enum.map(rows, fn [id | _columns] -> Ecto.UUID.load!(id) end) ==
+             Enum.sort([note.conflict_id, second_conflict.id])
+
+    assert Enum.all?(rows, fn row ->
+             length(row) == 11 and Enum.at(row, 2) == Ecto.UUID.dump!(note.vault_id) and
+               Enum.at(row, 3) == "private"
+           end)
+
+    assert %{rows: []} = export_conflicts(note, cross_vault.vault_id)
+    refute Enum.any?(rows, fn [id | _rest] -> id == Ecto.UUID.dump!(cross_vault.conflict_id) end)
+
+    revoke_backup_create!(note)
+    assert %{rows: []} = export_conflicts(note, note.vault_id)
+    grant_backup_create!(note)
+
+    for state <- [:revoked_principal, :revoked_membership, :inactive_account] do
+      set_backup_export_authority_state!(note, state)
+      assert %{rows: []} = export_conflicts(note, note.vault_id)
+      reset_backup_export_authority_state!(note, state)
     end
   end
 
@@ -881,5 +945,89 @@ defmodule Singularity.Storage.NoteSchemaTest do
         )
       end
     )
+  end
+
+  defp export_conflicts(note, requested_vault_id) do
+    Singularity.Storage.ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: note.principal_id, vault_id: note.vault_id},
+      fn repo ->
+        query!(repo, "SELECT * FROM content.export_note_conflicts_for_backup($1)", [
+          Ecto.UUID.dump!(requested_vault_id)
+        ])
+      end
+    )
+  end
+
+  defp grant_backup_create!(note) do
+    owner_query!(
+      "INSERT INTO core.capabilities (id, name) VALUES ($1, 'backup.create') ON CONFLICT (name) DO NOTHING",
+      [Ecto.UUID.dump!(Ecto.UUID.generate())]
+    )
+
+    owner_query!(
+      """
+      INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id)
+      SELECT $1, $2, capability.id
+      FROM core.capabilities AS capability
+      WHERE capability.name = 'backup.create'
+      ON CONFLICT (principal_id, vault_id, capability_id)
+      DO UPDATE SET revoked_at = NULL
+      """,
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp revoke_backup_create!(note) do
+    owner_query!(
+      """
+      UPDATE core.principal_capabilities AS assignment
+      SET revoked_at = CURRENT_TIMESTAMP
+      FROM core.capabilities AS capability
+      WHERE assignment.capability_id = capability.id
+        AND assignment.principal_id = $1
+        AND assignment.vault_id = $2
+        AND capability.name = 'backup.create'
+      """,
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp set_backup_export_authority_state!(note, :revoked_principal) do
+    owner_query!("UPDATE identity.principals SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1", [
+      Ecto.UUID.dump!(note.principal_id)
+    ])
+  end
+
+  defp set_backup_export_authority_state!(note, :revoked_membership) do
+    owner_query!(
+      "UPDATE core.vault_members SET revoked_at = CURRENT_TIMESTAMP WHERE principal_id = $1 AND vault_id = $2",
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp set_backup_export_authority_state!(note, :inactive_account) do
+    owner_query!("UPDATE identity.accounts SET status = 'disabled' WHERE id = $1", [
+      Ecto.UUID.dump!(note.account_id)
+    ])
+  end
+
+  defp reset_backup_export_authority_state!(note, :revoked_principal) do
+    owner_query!("UPDATE identity.principals SET revoked_at = NULL WHERE id = $1", [
+      Ecto.UUID.dump!(note.principal_id)
+    ])
+  end
+
+  defp reset_backup_export_authority_state!(note, :revoked_membership) do
+    owner_query!(
+      "UPDATE core.vault_members SET revoked_at = NULL WHERE principal_id = $1 AND vault_id = $2",
+      [Ecto.UUID.dump!(note.principal_id), Ecto.UUID.dump!(note.vault_id)]
+    )
+  end
+
+  defp reset_backup_export_authority_state!(note, :inactive_account) do
+    owner_query!("UPDATE identity.accounts SET status = 'active' WHERE id = $1", [
+      Ecto.UUID.dump!(note.account_id)
+    ])
   end
 end

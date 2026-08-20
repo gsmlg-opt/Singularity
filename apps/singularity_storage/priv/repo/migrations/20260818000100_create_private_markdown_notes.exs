@@ -14,6 +14,7 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     create_note_mutation_receipt_guard()
     create_indexes()
     create_rls_and_grants()
+    create_note_conflict_backup_export()
     create_capability_reconciler()
 
     execute("SELECT core.reconcile_note_capabilities()")
@@ -52,6 +53,16 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
     END
     $guard$
     """)
+
+    execute("DROP FUNCTION content.export_note_conflicts_for_backup(uuid)")
+
+    execute("SET LOCAL ROLE singularity_authorization_definer")
+
+    execute(
+      "REVOKE EXECUTE ON FUNCTION core.live_principal_authorization() FROM singularity_table_owner"
+    )
+
+    execute("SET LOCAL ROLE singularity_table_owner")
 
     remove_note_capabilities()
 
@@ -659,6 +670,75 @@ defmodule Singularity.Storage.Migrations.CreatePrivateMarkdownNotes do
   end
 
   defp runtime_policy(_table), do: vault_policy()
+
+  defp create_note_conflict_backup_export do
+    execute("SET LOCAL ROLE singularity_authorization_definer")
+
+    execute(
+      "GRANT EXECUTE ON FUNCTION core.live_principal_authorization() TO singularity_table_owner"
+    )
+
+    execute("SET LOCAL ROLE singularity_table_owner")
+
+    execute("""
+    CREATE FUNCTION content.export_note_conflicts_for_backup(requested_vault_id uuid)
+    RETURNS TABLE (
+      id uuid,
+      resource_id uuid,
+      vault_id uuid,
+      classification text,
+      base_version_id uuid,
+      canonical_version_id uuid,
+      competing_version_id uuid,
+      state text,
+      resolution_version_id uuid,
+      created_at timestamp with time zone,
+      resolved_at timestamp with time zone
+    )
+    LANGUAGE sql
+    STABLE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, content, core, identity
+    AS $function$
+      SELECT
+        conflict.id,
+        conflict.resource_id,
+        conflict.vault_id,
+        conflict.classification,
+        conflict.base_version_id,
+        conflict.canonical_version_id,
+        conflict.competing_version_id,
+        conflict.state,
+        conflict.resolution_version_id,
+        conflict.created_at,
+        conflict.resolved_at
+      FROM core.live_principal_authorization() AS auth
+      JOIN content.note_conflicts AS conflict
+        ON conflict.vault_id = requested_vault_id
+       AND conflict.classification = 'private'
+      WHERE auth.vault_id = requested_vault_id
+        AND auth.principal_revoked_at IS NULL
+        AND auth.membership_revoked_at IS NULL
+        AND 'backup.create' = ANY(auth.capabilities)
+      ORDER BY conflict.id
+    $function$
+    """)
+
+    execute("""
+    ALTER FUNCTION content.export_note_conflicts_for_backup(uuid)
+      OWNER TO singularity_table_owner
+    """)
+
+    execute("REVOKE ALL ON FUNCTION content.export_note_conflicts_for_backup(uuid) FROM PUBLIC")
+
+    execute(
+      "REVOKE ALL ON FUNCTION content.export_note_conflicts_for_backup(uuid) FROM singularity_web"
+    )
+
+    execute(
+      "GRANT EXECUTE ON FUNCTION content.export_note_conflicts_for_backup(uuid) TO singularity_worker"
+    )
+  end
 
   defp create_capability_reconciler do
     execute("GRANT USAGE ON SCHEMA core TO singularity_migration")

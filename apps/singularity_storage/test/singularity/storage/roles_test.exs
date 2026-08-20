@@ -55,6 +55,8 @@ defmodule Singularity.Storage.RolesTest do
     "content.enforce_note_resource_kind_update()" => {"singularity_table_owner", []},
     "content.enforce_note_resource_version_update()" => {"singularity_table_owner", []},
     "content.enforce_note_mutation_receipt_resource()" => {"singularity_table_owner", []},
+    "content.export_note_conflicts_for_backup(uuid)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>
@@ -340,6 +342,50 @@ defmodule Singularity.Storage.RolesTest do
       )
   end
 
+  test "note conflict backup export function has the exact hardened catalog contract" do
+    assert %{rows: [["singularity_table_owner", "sql", "s", true, settings]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT owner.rolname,
+                      language.lanname,
+                      procedure.provolatile::text,
+                      procedure.prosecdef,
+                      procedure.proconfig
+               FROM pg_catalog.pg_proc AS procedure
+               JOIN pg_catalog.pg_roles AS owner ON owner.oid = procedure.proowner
+               JOIN pg_catalog.pg_language AS language ON language.oid = procedure.prolang
+               WHERE procedure.oid =
+                 'content.export_note_conflicts_for_backup(uuid)'::regprocedure
+               """
+             )
+
+    assert settings == ["search_path=pg_catalog, content, core, identity"]
+
+    assert %{rows: [[true, false, false]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT
+                 has_function_privilege(
+                   'singularity_worker',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_web',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'public',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 )
+               """
+             )
+  end
+
   test "dispatcher can claim and acknowledge only through the audited definer interface" do
     %{one: one} = Fixtures.two_vaults!()
     event = Fixtures.outbox_event!(one)
@@ -477,6 +523,31 @@ defmodule Singularity.Storage.RolesTest do
                       has_function_privilege('singularity_web', 'core.reconcile_note_capabilities()', 'EXECUTE'),
                       has_function_privilege('singularity_worker', 'core.reconcile_note_capabilities()', 'EXECUTE'),
                       has_function_privilege('public', 'core.reconcile_note_capabilities()', 'EXECUTE')
+               """
+             )
+
+    assert %{rows: [[false, true, false, false, false]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT
+                 has_table_privilege('singularity_worker', 'content.note_conflicts', 'SELECT'),
+                 has_function_privilege(
+                   'singularity_worker',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_web',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'public',
+                   'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_table_privilege('public', 'content.note_conflicts', 'SELECT')
                """
              )
   end

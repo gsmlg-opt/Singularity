@@ -8,7 +8,7 @@ defmodule Singularity.Storage.Backup.Exporter do
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Backup.LogicalRecordCodec
-  alias Singularity.Storage.Backup.LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2, as: LogicalSchema
 
   @cut_record_type 0x0001
   @row_record_type 0x0002
@@ -486,6 +486,16 @@ defmodule Singularity.Storage.Backup.Exporter do
           [vault_id, Ecto.UUID.dump!(account_id)]
         }
 
+      "content.note_conflicts" ->
+        {
+          """
+          SELECT #{projection}
+          FROM content.export_note_conflicts_for_backup($1) AS source
+          ORDER BY #{order}
+          """,
+          [vault_id]
+        }
+
       "core.outbox_events" ->
         {
           standard_table_query(
@@ -647,6 +657,7 @@ defmodule Singularity.Storage.Backup.Exporter do
     "identity.devices" => [1],
     "content.source_references" => [3],
     "content.tombstones" => [3],
+    "content.note_versions" => [6],
     "audit.events" => [3],
     "core.outbox_events" => [5]
   }
