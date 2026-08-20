@@ -698,25 +698,30 @@ defmodule Singularity.Storage.Backup.Reconciler do
            ]
          ]
        }} ->
-        attrs = %{
-          version: version,
-          job_id: load_uuid(event_id),
-          job_type: "note_projection",
-          idempotency_key: idempotency_key,
-          vault_id: load_uuid(vault_id),
-          principal_id: load_uuid(principal_id),
-          required_capability: capability,
-          principal_authorization_epoch: principal_epoch,
-          vault_authorization_epoch: vault_epoch,
-          classification: restored_note_classification(classification),
-          correlation_id: load_uuid(correlation_id),
-          causation_id: load_uuid(causation_id),
-          expected_entity_revision: expected_revision,
-          attempt: 0,
-          payload: %{"resource_id" => load_uuid(resource_id)}
-        }
-
-        with {:ok, %JobEnvelope{} = envelope} <- JobEnvelope.new(attrs),
+        with {:ok, job_id} <- restored_uuid(event_id),
+             {:ok, vault_id} <- restored_uuid(vault_id),
+             {:ok, principal_id} <- restored_uuid(principal_id),
+             {:ok, correlation_id} <- restored_uuid(correlation_id),
+             {:ok, causation_id} <- optional_restored_uuid(causation_id),
+             {:ok, resource_id} <- restored_uuid(resource_id),
+             attrs = %{
+               version: version,
+               job_id: job_id,
+               job_type: "note_projection",
+               idempotency_key: idempotency_key,
+               vault_id: vault_id,
+               principal_id: principal_id,
+               required_capability: capability,
+               principal_authorization_epoch: principal_epoch,
+               vault_authorization_epoch: vault_epoch,
+               classification: restored_note_classification(classification),
+               correlation_id: correlation_id,
+               causation_id: causation_id,
+               expected_entity_revision: expected_revision,
+               attempt: 0,
+               payload: %{"resource_id" => resource_id}
+             },
+             {:ok, %JobEnvelope{} = envelope} <- JobEnvelope.new(attrs),
              {:ok, encoded} <- EnvelopeCodec.encode(envelope),
              {:ok, ^envelope} <- EnvelopeCodec.decode(encoded) do
           :ok
@@ -1121,7 +1126,11 @@ defmodule Singularity.Storage.Backup.Reconciler do
     end
   end
 
-  defp load_uuid(<<_::128>> = value), do: Ecto.UUID.load!(value)
+  defp restored_uuid(<<_::128>> = value), do: {:ok, Ecto.UUID.load!(value)}
+  defp restored_uuid(_value), do: :error
+
+  defp optional_restored_uuid(nil), do: {:ok, nil}
+  defp optional_restored_uuid(value), do: restored_uuid(value)
 
   defp restored_note_classification("private"), do: :private
   defp restored_note_classification(_classification), do: nil

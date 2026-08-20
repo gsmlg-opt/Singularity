@@ -61,7 +61,8 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
       {:idempotency_key, "asset-retry:#{baseline.resource_id}:0:1"},
       {:required_capability, "asset.write"},
       {:envelope_version, 2},
-      {:payload, Map.put(baseline.payload, "unexpected", Ecto.UUID.generate())}
+      {:payload, Map.put(baseline.payload, "unexpected", Ecto.UUID.generate())},
+      {:causation_id, nil}
     ]
 
     Enum.each(variants, fn {field, value} ->
@@ -917,11 +918,11 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
 
   defp note_event_contract!(event_id) do
     Fixtures.with_owner(fn ->
-      %{rows: [[idempotency_key, capability, version, payload]]} =
+      %{rows: [[idempotency_key, capability, version, payload, causation_id]]} =
         query!(
           MigrationRepo,
           """
-          SELECT idempotency_key, required_capability, envelope_version, payload
+          SELECT idempotency_key, required_capability, envelope_version, payload, causation_id
           FROM core.outbox_events
           WHERE id = $1
           """,
@@ -933,7 +934,8 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
         required_capability: capability,
         envelope_version: version,
         payload: payload,
-        resource_id: payload["resource_id"]
+        resource_id: payload["resource_id"],
+        causation_id: causation_id
       }
     end)
   end
@@ -942,13 +944,14 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
     Fixtures.with_owner(fn ->
       query!(
         MigrationRepo,
-        "UPDATE core.outbox_events SET idempotency_key=$2, required_capability=$3, envelope_version=$4, payload=$5 WHERE id=$1",
+        "UPDATE core.outbox_events SET idempotency_key=$2, required_capability=$3, envelope_version=$4, payload=$5, causation_id=$6 WHERE id=$1",
         [
           event_id,
           baseline.idempotency_key,
           baseline.required_capability,
           baseline.envelope_version,
-          baseline.payload
+          baseline.payload,
+          baseline.causation_id
         ]
       )
     end)
