@@ -3,6 +3,8 @@ defmodule Singularity.Storage.Backup.Reconciler do
 
   alias Singularity.Storage.SafeSQL, as: SQL
   alias Singularity.Core.Error
+  alias Singularity.Core.JobEnvelope
+  alias Singularity.Storage.Jobs.EnvelopeCodec
   alias Singularity.Storage.Postgres.NoteCapabilityReconciler
 
   @note_lifecycle_events ~w[
@@ -159,6 +161,16 @@ defmodule Singularity.Storage.Backup.Reconciler do
        when event_type in @note_lifecycle_events do
     with true <- is_integer(expected_revision) and expected_revision >= 0,
          {:ok, resource_id, conflict_id} <- note_event_ids(event_type, payload),
+         :ok <-
+           validate_note_projection_envelope(
+             repo,
+             event_id,
+             idempotency_key,
+             classification,
+             expected_revision,
+             resource_id,
+             vault_id
+           ),
          :ok <-
            validate_submission(
              repo,
@@ -645,6 +657,81 @@ defmodule Singularity.Storage.Backup.Reconciler do
     end
   end
 
+  defp validate_note_projection_envelope(
+         repo,
+         event_id,
+         idempotency_key,
+         classification,
+         expected_revision,
+         resource_id,
+         vault_id
+       ) do
+    case SQL.query(
+           repo,
+           """
+           SELECT
+             envelope_version,
+             principal_id,
+             required_capability,
+             principal_authorization_epoch,
+             vault_authorization_epoch,
+             correlation_id,
+             causation_id
+           FROM core.outbox_events
+           WHERE id = $1
+           FOR UPDATE
+           """,
+           [event_id],
+           log: false
+         ) do
+      {:ok,
+       %{
+         rows: [
+           [
+             version,
+             principal_id,
+             capability,
+             principal_epoch,
+             vault_epoch,
+             correlation_id,
+             causation_id
+           ]
+         ]
+       }} ->
+        attrs = %{
+          version: version,
+          job_id: load_uuid(event_id),
+          job_type: "note_projection",
+          idempotency_key: idempotency_key,
+          vault_id: load_uuid(vault_id),
+          principal_id: load_uuid(principal_id),
+          required_capability: capability,
+          principal_authorization_epoch: principal_epoch,
+          vault_authorization_epoch: vault_epoch,
+          classification: restored_note_classification(classification),
+          correlation_id: load_uuid(correlation_id),
+          causation_id: load_uuid(causation_id),
+          expected_entity_revision: expected_revision,
+          attempt: 0,
+          payload: %{"resource_id" => load_uuid(resource_id)}
+        }
+
+        with {:ok, %JobEnvelope{} = envelope} <- JobEnvelope.new(attrs),
+             {:ok, encoded} <- EnvelopeCodec.encode(envelope),
+             {:ok, ^envelope} <- EnvelopeCodec.decode(encoded) do
+          :ok
+        else
+          _invalid -> integrity_failure()
+        end
+
+      {:ok, _missing_or_conflicting} ->
+        integrity_failure()
+
+      {:error, _reason} ->
+        storage_unavailable()
+    end
+  end
+
   defp validate_note_conflict_scope(_repo, nil, _resource_id, _vault_id, _classification),
     do: :ok
 
@@ -1033,6 +1120,11 @@ defmodule Singularity.Storage.Backup.Reconciler do
       _invalid -> integrity_failure()
     end
   end
+
+  defp load_uuid(<<_::128>> = value), do: Ecto.UUID.load!(value)
+
+  defp restored_note_classification("private"), do: :private
+  defp restored_note_classification(_classification), do: nil
 
   defp canonical_uuid(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do

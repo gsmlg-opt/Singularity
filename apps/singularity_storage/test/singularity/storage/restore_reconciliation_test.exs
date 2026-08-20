@@ -3,10 +3,14 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
 
   @moduletag :integration
 
+  alias Singularity.Core.NoteSaveResult
+  alias Singularity.Core.NoteSnapshot
   alias Singularity.Storage.Backup.Reconciler
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.NoteFixtures
+  alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.ScopedRepo
 
   @note_lifecycle_events ~w[
     note.current_changed
@@ -22,37 +26,7 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
   end
 
   test "restores note capabilities and resets every lifecycle event to current-state projection" do
-    raw_fixture = Fixtures.two_vaults!().one
-    note = NoteFixtures.note_with_conflict_in_context!(raw_fixture)
-    NoteFixtures.grant_password_change!(note)
-
-    events =
-      Enum.map(@note_lifecycle_events, fn _event_type -> Fixtures.outbox_event!(raw_fixture) end)
-
-    cut =
-      Fixtures.with_owner(fn ->
-        query!(
-          MigrationRepo,
-          """
-          DELETE FROM core.principal_capabilities AS assignment
-          USING core.capabilities AS capability
-          WHERE assignment.capability_id = capability.id
-            AND assignment.principal_id = $1
-            AND assignment.vault_id = $2
-            AND capability.name LIKE 'note.%'
-          """,
-          [raw_fixture.principal_id, raw_fixture.vault_id]
-        )
-
-        Enum.zip(events, @note_lifecycle_events)
-        |> Enum.each(fn {event, event_type} ->
-          set_note_event!(event.id, event_type, note.resource_id, note.conflict_id)
-          mark_restored_runner!(event.id)
-          insert_submission!(event.id, "note_projection")
-        end)
-
-        restored_cut!(raw_fixture.vault_id, List.last(events).id)
-      end)
+    %{raw_fixture: raw_fixture, events: events, cut: cut} = restored_note_scenario!()
 
     assert :ok = reconcile(cut)
     assert :ok = reconcile(cut)
@@ -75,6 +49,28 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
                )
 
       Enum.each(events, &assert_note_event_reset/1)
+    end)
+  end
+
+  test "invalid restored note envelopes roll back every event and submission reset" do
+    %{events: events, cut: cut} = restored_note_scenario!()
+    target = List.last(events)
+    baseline = note_event_contract!(target.id)
+
+    variants = [
+      {:idempotency_key, "asset-retry:#{baseline.resource_id}:0:1"},
+      {:required_capability, "asset.write"},
+      {:envelope_version, 2},
+      {:payload, Map.put(baseline.payload, "unexpected", Ecto.UUID.generate())}
+    ]
+
+    Enum.each(variants, fn {field, value} ->
+      restore_note_event_contract!(target.id, baseline)
+      corrupt_note_event_contract!(target.id, field, value)
+
+      assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(cut)
+
+      Enum.each(events, &assert_restored_runner_unchanged(&1.id))
     end)
   end
 
@@ -725,36 +721,248 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
     )
   end
 
-  defp set_note_event!(event_id, event_type, resource_id, conflict_id)
-       when event_type in ["note.conflict_created", "note.conflict_resolved"] do
-    query!(
-      MigrationRepo,
-      """
-      UPDATE core.outbox_events
-      SET event_type = $2,
-          required_capability = 'note.write',
-          payload = jsonb_build_object(
-            'resource_id', $3::uuid::text,
-            'conflict_id', $4::uuid::text
-          )
-      WHERE id = $1
-      """,
-      [event_id, event_type, Ecto.UUID.dump!(resource_id), Ecto.UUID.dump!(conflict_id)]
+  defp restored_note_scenario! do
+    raw_fixture = Fixtures.two_vaults!().one
+    fixture = load_fixture_ids(raw_fixture)
+    NoteFixtures.grant_password_change!(fixture)
+
+    {:ok, %NoteSaveResult{} = created} =
+      scoped_note(fixture, &NoteRepository.create(&1, create_intent(fixture)))
+
+    {:ok, %NoteSaveResult{} = saved} =
+      scoped_note(
+        fixture,
+        &NoteRepository.save(
+          &1,
+          save_intent(fixture, created.resource_id, created.canonical_version_id, "canonical")
+        )
+      )
+
+    {:ok, %NoteSaveResult{outcome: :conflict} = conflict} =
+      scoped_note(
+        fixture,
+        &NoteRepository.save(
+          &1,
+          save_intent(fixture, created.resource_id, created.canonical_version_id, "competing")
+        )
+      )
+
+    {:ok, %NoteSaveResult{} = merged} =
+      scoped_note(
+        fixture,
+        &NoteRepository.merge(
+          &1,
+          merge_intent(fixture, created.resource_id, saved, conflict)
+        )
+      )
+
+    {:ok, %{state: :tombstoned}} =
+      scoped_note(
+        fixture,
+        &NoteRepository.tombstone(
+          &1,
+          tombstone_intent(fixture, created.resource_id, merged.canonical_version_id)
+        )
+      )
+
+    {:ok, %{state: :restored}} =
+      scoped_note(
+        fixture,
+        &NoteRepository.restore(&1, restore_intent(fixture, created.resource_id))
+      )
+
+    events = note_events!(raw_fixture.vault_id, created.resource_id)
+    assert MapSet.new(events, & &1.event_type) == MapSet.new(@note_lifecycle_events)
+
+    cut =
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          """
+          DELETE FROM core.principal_capabilities AS assignment
+          USING core.capabilities AS capability
+          WHERE assignment.capability_id = capability.id
+            AND assignment.principal_id = $1
+            AND assignment.vault_id = $2
+            AND capability.name LIKE 'note.%'
+          """,
+          [raw_fixture.principal_id, raw_fixture.vault_id]
+        )
+
+        Enum.each(events, fn event ->
+          mark_restored_runner!(event.id)
+          insert_submission!(event.id, "note_projection")
+        end)
+
+        restored_cut!(raw_fixture.vault_id, List.last(events).id)
+      end)
+
+    %{raw_fixture: raw_fixture, events: events, cut: cut}
+  end
+
+  defp create_intent(fixture) do
+    {:ok, snapshot} =
+      NoteSnapshot.initial(%{classification: :private, title: "created", markdown: "# created"})
+
+    base_intent(fixture)
+    |> Map.merge(%{
+      mutation_id: Ecto.UUID.generate(),
+      snapshot: snapshot,
+      request_fingerprint: :crypto.hash(:sha256, "create")
+    })
+  end
+
+  defp save_intent(fixture, resource_id, base_version_id, label) do
+    {:ok, snapshot} =
+      NoteSnapshot.normal(%{
+        classification: :private,
+        title: label,
+        markdown: "# #{label}",
+        parent_version_id: base_version_id
+      })
+
+    base_intent(fixture)
+    |> Map.merge(%{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      base_version_id: base_version_id,
+      snapshot: snapshot,
+      request_fingerprint: :crypto.hash(:sha256, label)
+    })
+  end
+
+  defp merge_intent(fixture, resource_id, saved, conflict) do
+    {:ok, snapshot} =
+      NoteSnapshot.merge(%{
+        classification: :private,
+        title: "merged",
+        markdown: "# merged",
+        parent_version_id: saved.canonical_version_id,
+        merge_parent_version_id: conflict.submitted_version_id
+      })
+
+    base_intent(fixture)
+    |> Map.merge(%{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      conflict_id: conflict.conflict_id,
+      expected_current_version_id: saved.canonical_version_id,
+      competing_version_id: conflict.submitted_version_id,
+      snapshot: snapshot,
+      request_fingerprint: :crypto.hash(:sha256, "merge")
+    })
+  end
+
+  defp tombstone_intent(fixture, resource_id, version_id) do
+    base_intent(fixture)
+    |> Map.merge(%{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      expected_current_version_id: version_id,
+      request_fingerprint: :crypto.hash(:sha256, "tombstone")
+    })
+  end
+
+  defp restore_intent(fixture, resource_id) do
+    base_intent(fixture)
+    |> Map.merge(%{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: resource_id,
+      request_fingerprint: :crypto.hash(:sha256, "restore")
+    })
+  end
+
+  defp base_intent(fixture),
+    do: %{
+      principal_id: fixture.principal_id,
+      vault_id: fixture.vault_id,
+      classification: :private,
+      correlation_id: Ecto.UUID.generate()
+    }
+
+  defp scoped_note(fixture, callback) do
+    ScopedRepo.transact(
+      Singularity.Storage.RequestRepo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      callback
     )
   end
 
-  defp set_note_event!(event_id, event_type, resource_id, _conflict_id) do
-    query!(
-      MigrationRepo,
-      """
-      UPDATE core.outbox_events
-      SET event_type = $2,
-          required_capability = 'note.write',
-          payload = jsonb_build_object('resource_id', $3::uuid::text)
-      WHERE id = $1
-      """,
-      [event_id, event_type, Ecto.UUID.dump!(resource_id)]
-    )
+  defp note_events!(vault_id, resource_id) do
+    Fixtures.with_owner(fn ->
+      %{rows: rows} =
+        query!(
+          MigrationRepo,
+          """
+          SELECT id, event_type
+          FROM core.outbox_events
+          WHERE vault_id = $1
+            AND event_type = ANY($2)
+            AND payload ->> 'resource_id' = $3
+          ORDER BY sequence, id
+          """,
+          [vault_id, @note_lifecycle_events, resource_id]
+        )
+
+      Enum.map(rows, fn [id, event_type] -> %{id: id, event_type: event_type} end)
+    end)
+  end
+
+  defp load_fixture_ids(fixture) do
+    Map.new(fixture, fn
+      {key, <<_::128>> = value} -> {key, Ecto.UUID.load!(value)}
+      entry -> entry
+    end)
+  end
+
+  defp note_event_contract!(event_id) do
+    Fixtures.with_owner(fn ->
+      %{rows: [[idempotency_key, capability, version, payload]]} =
+        query!(
+          MigrationRepo,
+          """
+          SELECT idempotency_key, required_capability, envelope_version, payload
+          FROM core.outbox_events
+          WHERE id = $1
+          """,
+          [event_id]
+        )
+
+      %{
+        idempotency_key: idempotency_key,
+        required_capability: capability,
+        envelope_version: version,
+        payload: payload,
+        resource_id: payload["resource_id"]
+      }
+    end)
+  end
+
+  defp restore_note_event_contract!(event_id, baseline) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE core.outbox_events SET idempotency_key=$2, required_capability=$3, envelope_version=$4, payload=$5 WHERE id=$1",
+        [
+          event_id,
+          baseline.idempotency_key,
+          baseline.required_capability,
+          baseline.envelope_version,
+          baseline.payload
+        ]
+      )
+    end)
+  end
+
+  defp corrupt_note_event_contract!(event_id, field, value) do
+    column = Atom.to_string(field)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.outbox_events SET #{column} = $2 WHERE id = $1", [
+        event_id,
+        value
+      ])
+    end)
   end
 
   defp insert_object!(fixture, lifecycle, lifecycle_revision) do
