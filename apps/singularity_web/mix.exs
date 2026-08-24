@@ -32,8 +32,8 @@ defmodule Singularity.Web.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_view, "~> 1.2"},
       {:bandit, "~> 1.12"},
-      {:duskmoon_bundler_runtime, "~> 9.9.7"},
-      {:duskmoon_bundler, "~> 9.9.7", runtime: Mix.env() in [:dev, :test]},
+      {:duskmoon_bundler_runtime, "~> 9.12.2"},
+      {:duskmoon_bundler, "~> 9.12.2", runtime: Mix.env() in [:dev, :test]},
       {:floki, ">= 0.36.0", only: :test},
       {:lazy_html, ">= 0.1.0"}
     ]
