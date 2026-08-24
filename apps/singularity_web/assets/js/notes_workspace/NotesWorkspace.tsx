@@ -31,6 +31,8 @@ type PendingAction =
   | { kind: "open"; summary: NoteSummary; trigger: HTMLElement }
   | { kind: "new"; trigger: HTMLElement };
 
+const maximumRailItems = 50;
+
 const navigationTargets = new Set<NavigationTarget>([
   "/assets",
   "/notes",
@@ -128,6 +130,17 @@ function summaryFromNote(note: Note): NoteSummary {
     deleted: note.deleted,
     openConflictCount: note.openConflictCount,
   };
+}
+
+function createResultMatches(note: Note, submitted: Draft): boolean {
+  return (
+    note.revision === 0 &&
+    note.displayVersion === 1 &&
+    !note.deleted &&
+    note.openConflictCount === 0 &&
+    note.title === submitted.title &&
+    note.markdown === submitted.markdown
+  );
 }
 
 export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
@@ -404,6 +417,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         cursor: null,
         limit: 20,
       });
+      if (!laneIsCurrent("search", token)) return;
       if (reply.ok && store.acceptSearch(token, reply.result)) {
         setRailMode("current");
         setNotice({ tone: "info", text: "Current notes updated." });
@@ -411,7 +425,9 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         setNotice({ tone: "error", text: "Search failed. Existing results remain available." });
       }
     } catch {
-      setNotice({ tone: "error", text: "Search failed. Existing results remain available." });
+      if (laneIsCurrent("search", token)) {
+        setNotice({ tone: "error", text: "Search failed. Existing results remain available." });
+      }
     } finally {
       listBusyRef.current = false;
       setListBusy(false);
@@ -628,15 +644,18 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     setNotice(null);
     const contextGeneration = contextGenerationRef.current;
     const submittedDraft = { ...createDraft };
+    const submitted = {
+      title: submittedDraft.title.trim(),
+      markdown: submittedDraft.markdown,
+    };
     try {
       const reply = await bridge.create({
         version: 1,
         mutationId: canonicalMutationId(),
-        title: submittedDraft.title.trim(),
-        markdown: submittedDraft.markdown,
+        ...submitted,
       });
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
-      if (!reply.ok) {
+      if (!reply.ok || !createResultMatches(reply.result, submitted)) {
         setNotice(stableFailure("Create"));
         return;
       }
@@ -648,7 +667,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         items: [
           summaryFromNote(reply.result),
           ...current.summaries.filter((item) => item.resourceId !== reply.result.resourceId),
-        ],
+        ].slice(0, maximumRailItems),
         nextCursor: current.searchNextCursor,
       });
       completeMutationContext();
@@ -812,16 +831,23 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+    const commandSave = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s";
+    if (pendingAction) {
+      if (commandSave) {
+        event.preventDefault();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        stay();
+      }
+      return;
+    }
+    if (commandSave) {
       event.preventDefault();
       void saveDraft();
       return;
     }
     if (event.key !== "Escape") return;
-    if (pendingAction) {
-      event.preventDefault();
-      stay();
-    } else if (drawer !== "closed") {
+    if (drawer !== "closed") {
       event.preventDefault();
       closeDrawer();
     }

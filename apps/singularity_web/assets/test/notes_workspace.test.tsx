@@ -68,6 +68,16 @@ function createdNote(overrides: Partial<Note> = {}): Note {
   };
 }
 
+function railSummaries(count: number): NoteSummary[] {
+  return Array.from({ length: count }, (_, index) =>
+    summary({
+      resourceId: id(String(100 + index)),
+      resourceVersionId: id(String(200 + index)),
+      title: `Rail note ${index + 1}`,
+    }),
+  );
+}
+
 function version(overrides: Partial<NoteVersion> = {}): NoteVersion {
   return {
     resourceVersionId: id("3"),
@@ -327,6 +337,80 @@ describe("NotesWorkspace", () => {
     expect(container.textContent).toContain("Deleted field notes");
   });
 
+  it("still reports a failure from the current search lane", async () => {
+    testBridge.search = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+
+    await act(async () => {
+      (container.querySelector('form[role="search"]') as HTMLFormElement).dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Search failed");
+  });
+
+  it.each(["failure reply", "thrown rejection"])(
+    "silently ignores a stale search %s after successful Create",
+    async (completion) => {
+      const pending = deferred<Awaited<ReturnType<NotesBridge["search"]>>>();
+      testBridge.search = vi.fn(() => pending.promise);
+      testBridge.create = vi.fn(async (request) => ({
+        ok: true,
+        result: createdNote({ title: request.title, markdown: request.markdown }),
+      }));
+      await change(input(container, "Search notes"), "stale search");
+      await act(async () => {
+        (container.querySelector('form[role="search"]') as HTMLFormElement).dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+        await Promise.resolve();
+      });
+
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "Search-safe create");
+      await change(input(container, "Markdown source"), "Authoritative Markdown.");
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const authoritative = store.getSnapshot();
+      expect(authoritative.selection?.title).toBe("Search-safe create");
+      expect(authoritative.draft?.markdown).toBe("Authoritative Markdown.");
+      expect(authoritative.summaries[0]?.title).toBe("Search-safe create");
+      expect(container.querySelector('[aria-label="Notes workspace status"]')?.textContent).toBe(
+        "Note created.",
+      );
+
+      await act(async () => {
+        if (completion === "failure reply") {
+          pending.resolve({
+            ok: false,
+            error: { code: "storage_unavailable" },
+          });
+        } else {
+          pending.reject(new Error("stale-search"));
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(store.getSnapshot()).toBe(authoritative);
+      expect(container.querySelector('[aria-label="Open Search-safe create"]')).not.toBeNull();
+      expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+        "Authoritative Markdown.",
+      );
+      expect(container.querySelector('[aria-label="Notes workspace status"]')?.textContent).toBe(
+        "Note created.",
+      );
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    },
+  );
+
   it("rejects a late Trash reply after terminal purge and clears local panel state", async () => {
     const pending = deferred<Awaited<ReturnType<NotesBridge["trash"]>>>();
     testBridge.trash = vi.fn(() => pending.promise);
@@ -444,6 +528,124 @@ describe("NotesWorkspace", () => {
     expect(document.activeElement).toBe(input(container, "Note title"));
   });
 
+  it.each([
+    ["nonzero initial revision", { revision: 1, displayVersion: 2 }],
+    ["open conflict count", { openConflictCount: 1 }],
+    ["different canonical title", { title: "Different title" }],
+    ["different canonical Markdown", { markdown: "Different Markdown." }],
+  ] satisfies [string, Partial<Note>][])(
+    "fails closed on a Create result with %s and permits retry",
+    async (_case, mismatch) => {
+      const canonical = {
+        title: "Correlated title",
+        markdown: "Exact submitted Markdown.",
+      };
+      testBridge.create = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          result: createdNote({ ...canonical, ...mismatch }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          result: createdNote(canonical),
+        });
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "  Correlated title  ");
+      await change(input(container, "Markdown source"), canonical.markdown);
+
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(store.getSnapshot().selection).toBeNull();
+      expect(store.getSnapshot().summaries.map((item) => item.title)).toEqual(["Field notes"]);
+      expect((input(container, "Note title") as HTMLInputElement).value).toBe(
+        "  Correlated title  ",
+      );
+      expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+        canonical.markdown,
+      );
+      expect(container.textContent).toContain("New · Unsaved");
+      expect(button(container, "Save").disabled).toBe(false);
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
+
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(testBridge.create).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(testBridge.create).mock.calls[1]?.[0]).toEqual({
+        version: 1,
+        mutationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        title: canonical.title,
+        markdown: canonical.markdown,
+      });
+      expect(store.getSnapshot().selection).toEqual(createdNote(canonical));
+    },
+  );
+
+  it("keeps the current rail unique and bounded while prepending successful Creates", async () => {
+    const original = railSummaries(50);
+    store = new WorkspaceStore({ ...initial(), summaries: original });
+    await act(async () => root.render(<NotesWorkspace bridge={testBridge} store={store} />));
+    testBridge.create = vi
+      .fn()
+      .mockImplementationOnce(async (request) => ({
+        ok: true,
+        result: createdNote({ title: request.title, markdown: request.markdown }),
+      }))
+      .mockImplementationOnce(async (request) => ({
+        ok: true,
+        result: createdNote({
+          resourceId: original[10]!.resourceId,
+          resourceVersionId: id("999"),
+          title: request.title,
+          markdown: request.markdown,
+        }),
+      }));
+
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Fifty-first note");
+    await change(input(container, "Markdown source"), "First bounded create.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const afterFirst = store.getSnapshot().summaries;
+    expect(afterFirst).toHaveLength(50);
+    expect(afterFirst.map((item) => item.resourceId)).toEqual([
+      id("21"),
+      ...original.slice(0, 49).map((item) => item.resourceId),
+    ]);
+    expect(afterFirst.some((item) => item.resourceId === original[49]!.resourceId)).toBe(false);
+
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Deduplicated note");
+    await change(input(container, "Markdown source"), "Second bounded create.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const afterSecond = store.getSnapshot().summaries;
+    const resourceIds = afterSecond.map((item) => item.resourceId);
+    expect(afterSecond).toHaveLength(50);
+    expect(new Set(resourceIds)).toHaveProperty("size", 50);
+    expect(resourceIds).toEqual([
+      original[10]!.resourceId,
+      id("21"),
+      ...original.slice(0, 10).map((item) => item.resourceId),
+      ...original.slice(11, 49).map((item) => item.resourceId),
+    ]);
+  });
+
   it("retains an exact retryable create draft and uses a different UUID on retry", async () => {
     testBridge.create = vi
       .fn()
@@ -532,6 +734,78 @@ describe("NotesWorkspace", () => {
     expect((input(container, "Note title") as HTMLInputElement).value).toBe("");
     expect(container.textContent).not.toContain("Late create");
     expect(store.getSnapshot().selection).toBeNull();
+  });
+
+  it.each([
+    ["Ctrl+S", { ctrlKey: true }],
+    ["Meta+S", { metaKey: true }],
+  ])("suppresses %s while a dirty existing-note dialog is open", async (_command, modifier) => {
+    await openCurrent();
+    await change(input(container, "Markdown source"), "Dialog-protected existing draft.");
+    await act(async () => {
+      button(container, "New note").click();
+      await Promise.resolve();
+    });
+    const dialog = container.querySelector('[role="dialog"]');
+    const focused = document.activeElement;
+    const before = store.getSnapshot();
+    const keydown = new KeyboardEvent("keydown", {
+      key: "s",
+      bubbles: true,
+      cancelable: true,
+      ...modifier,
+    });
+
+    await act(async () => focused?.dispatchEvent(keydown));
+
+    expect(keydown.defaultPrevented).toBe(true);
+    expect(testBridge.save).not.toHaveBeenCalled();
+    expect(testBridge.create).not.toHaveBeenCalled();
+    expect(testBridge.merge).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).toBe(before);
+    expect(container.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(document.activeElement).toBe(focused);
+    expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+      "Dialog-protected existing draft.",
+    );
+  });
+
+  it.each([
+    ["Ctrl+S", { ctrlKey: true }],
+    ["Meta+S", { metaKey: true }],
+  ])("suppresses %s while a dirty create dialog is open", async (_command, modifier) => {
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Dialog-protected create");
+    await change(input(container, "Markdown source"), "Dialog-protected create Markdown.");
+    await act(async () => {
+      button(container, "New note").click();
+      await Promise.resolve();
+    });
+    const dialog = container.querySelector('[role="dialog"]');
+    const focused = document.activeElement;
+    const before = store.getSnapshot();
+    const keydown = new KeyboardEvent("keydown", {
+      key: "s",
+      bubbles: true,
+      cancelable: true,
+      ...modifier,
+    });
+
+    await act(async () => focused?.dispatchEvent(keydown));
+
+    expect(keydown.defaultPrevented).toBe(true);
+    expect(testBridge.create).not.toHaveBeenCalled();
+    expect(testBridge.save).not.toHaveBeenCalled();
+    expect(testBridge.merge).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).toBe(before);
+    expect(container.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(document.activeElement).toBe(focused);
+    expect((input(container, "Note title") as HTMLInputElement).value).toBe(
+      "Dialog-protected create",
+    );
+    expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+      "Dialog-protected create Markdown.",
+    );
   });
 
   it("ignores a create completion after a newer local create edit", async () => {
