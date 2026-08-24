@@ -855,7 +855,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
 
   if (terminal) {
     return (
-      <main
+      <section
         className="notes-workspace notes-workspace-terminal"
         aria-label="Private notes workspace"
       >
@@ -864,12 +864,12 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
           <h1>Vault access ended</h1>
           <p>Unlock the vault to open this workspace again.</p>
         </section>
-      </main>
+      </section>
     );
   }
 
   return (
-    <main
+    <section
       className={`notes-workspace${drawer === "closed" ? "" : " has-drawer"}`}
       data-active-panel={activePanel}
       aria-label="Private notes workspace"
@@ -1244,6 +1244,6 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
           </section>
         </div>
       )}
-    </main>
+    </section>
   );
 }

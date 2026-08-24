@@ -304,6 +304,26 @@ describe("NotesWorkspace", () => {
     await act(async () => button(container, "Merge these versions").click());
   }
 
+  it("composes as a named region within the shell's sole main landmark", async () => {
+    await act(async () => {
+      root.render(
+        <main className="vault-shell-main">
+          <NotesWorkspace bridge={testBridge} store={store} />
+        </main>,
+      );
+    });
+
+    expect.soft(container.querySelectorAll("main")).toHaveLength(1);
+    expect
+      .soft(
+        container.querySelectorAll(
+          'section[aria-label="Private notes workspace"], [role="region"][aria-label="Private notes workspace"]',
+        ),
+      )
+      .toHaveLength(1);
+    expect(container.textContent).toContain("Field notes");
+  });
+
   it("searches the current rail, switches to Trash, and opens pinned results", async () => {
     await change(input(container, "Search notes"), "  current query  ");
     await act(async () => {
