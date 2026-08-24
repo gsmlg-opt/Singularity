@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { applyTheme, type Theme } from "../js/asset_workspace/theme";
 import { NotesWorkspace } from "../js/notes_workspace/NotesWorkspace";
 import type {
   InitialProps,
@@ -259,6 +260,8 @@ describe("NotesWorkspace", () => {
     await act(async () => root.unmount());
     container.remove();
     document.body.replaceChildren();
+    delete document.documentElement.dataset.theme;
+    window.localStorage.clear();
     vi.restoreAllMocks();
   });
 
@@ -314,6 +317,17 @@ describe("NotesWorkspace", () => {
     });
     await act(async () => button(container, "Merge these versions").click());
   }
+
+  it.each<Theme>(["dark", "light"])("restores the stored %s theme on mount", async (theme) => {
+    await act(async () => root.unmount());
+    applyTheme(theme);
+    delete document.documentElement.dataset.theme;
+    root = createRoot(container);
+
+    await act(async () => root.render(<NotesWorkspace bridge={testBridge} store={store} />));
+
+    expect(document.documentElement.dataset.theme).toBe(theme);
+  });
 
   it("composes as a named region within the shell's sole main landmark", async () => {
     await act(async () => {

@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { applyTheme, readTheme } from "../asset_workspace/theme";
 import type {
   NavigationTarget,
   Note,
@@ -184,6 +185,10 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     validDraft(draft.title, draft.markdown) &&
     !mutationBusy,
   );
+
+  useEffect(() => {
+    applyTheme(readTheme());
+  }, []);
 
   useEffect(() => {
     if (!dirty) return;
