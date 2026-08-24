@@ -74,9 +74,13 @@ function defaultLoader(): Promise<NotesWorkspaceModule> {
   return load ? load() : Promise.reject(new Error(unavailableMessage));
 }
 
+function scrubProps(element: HTMLElement): void {
+  element.removeAttribute("data-props");
+}
+
 function parseProps(element: HTMLElement) {
   const props = element.dataset.props ?? "";
-  element.removeAttribute("data-props");
+  scrubProps(element);
 
   try {
     return decodeInitialProps(JSON.parse(props));
@@ -138,6 +142,14 @@ export function createMountNotesWorkspace(
         .catch(() => {
           if (!state.destroyed) root.render(alert());
         });
+    },
+
+    updated(this: HookContext) {
+      scrubProps(this.el);
+    },
+
+    reconnected(this: HookContext) {
+      scrubProps(this.el);
     },
 
     destroyed(this: HookContext) {

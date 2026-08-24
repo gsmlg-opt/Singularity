@@ -191,6 +191,56 @@ describe("MountNotesWorkspace", () => {
     expect(props.store.getSnapshot().summaries).toEqual(secondInitial.summaries);
   });
 
+  it.each([
+    {
+      lifecycle: "updated",
+      restored:
+        `{"title":"updated-private-canary","resourceId":"${id("7")}",` +
+        `"resourceVersionId":"${id("8")}"`,
+      canaries: ["updated-private-canary", id("7"), id("8")],
+    },
+    {
+      lifecycle: "reconnected",
+      restored: JSON.stringify({
+        ...initial,
+        summaries: [
+          {
+            ...initial.summaries[0],
+            resourceId: id("9"),
+            resourceVersionId: id("10"),
+            title: "reconnected-private-canary",
+          },
+        ],
+      }),
+      canaries: ["reconnected-private-canary", id("9"), id("10")],
+    },
+  ] as const)(
+    "scrubs restored private props in $lifecycle without recreating mounted state",
+    async ({ lifecycle, restored, canaries }) => {
+      const test = harness();
+      const mounted = await mountedProps(test.root);
+      const rendered = test.root.render.mock.calls[0][0];
+      const parse = vi.spyOn(JSON, "parse");
+      test.el.dataset.props = restored;
+      const callback = (
+        test.hook as typeof test.hook & Record<typeof lifecycle, (this: HookContext) => void>
+      )[lifecycle];
+
+      expect(callback).toBeTypeOf("function");
+      callback.call(test.context);
+
+      expect(test.el.hasAttribute("data-props")).toBe(false);
+      expect(test.el.dataset.props).toBeUndefined();
+      for (const canary of canaries) expect(test.el.outerHTML).not.toContain(canary);
+      expect(parse).not.toHaveBeenCalled();
+      expect(test.order).toEqual(["root", "load"]);
+      expect(test.root.render).toHaveBeenCalledTimes(1);
+      expect(test.root.render.mock.calls[0][0]).toBe(rendered);
+      expect((rendered as ReactElement<NotesWorkspaceProps>).props.store).toBe(mounted.store);
+      expect(test.root.unmount).not.toHaveBeenCalled();
+    },
+  );
+
   it("exposes typed methods that push exact Task13 event names and decode replies", async () => {
     const test = harness();
     const { bridge } = await mountedProps(test.root);
