@@ -195,6 +195,17 @@ function button(container: ParentNode, name: string): HTMLButtonElement {
   return match;
 }
 
+function expectAriaControlsTargets(container: ParentNode): void {
+  for (const control of container.querySelectorAll<HTMLElement>("[aria-controls]")) {
+    const targetIds = (control.getAttribute("aria-controls") ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    expect(targetIds).not.toHaveLength(0);
+    for (const targetId of targetIds) expect(document.getElementById(targetId)).not.toBeNull();
+  }
+}
+
 function input(container: ParentNode, label: string): HTMLInputElement | HTMLTextAreaElement {
   const match = container.querySelector(`[aria-label="${label}"]`);
   if (!(match instanceof HTMLInputElement) && !(match instanceof HTMLTextAreaElement)) {
@@ -1474,6 +1485,19 @@ describe("NotesWorkspace", () => {
     await act(async () => close.click());
     expect(container.querySelector(".notes-drawer")).toBeNull();
     expect(document.activeElement).toBe(button(container, "History"));
+  });
+
+  it("keeps narrow-panel aria-controls targets present while details are closed and open", async () => {
+    const showDetails = button(container, "Show details");
+    expect(showDetails.getAttribute("aria-controls")).toBeNull();
+    expectAriaControlsTargets(container);
+
+    await openCurrent();
+    await act(async () => button(container, "Preview").click());
+
+    expect(document.getElementById("notes-drawer")).not.toBeNull();
+    expect(showDetails.getAttribute("aria-controls")).toBe("notes-drawer");
+    expectAriaControlsTargets(container);
   });
 
   it("shows a stale pinned snapshot read-only and opens current only on request", async () => {

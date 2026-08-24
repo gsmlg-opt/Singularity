@@ -894,7 +894,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
           <button
             type="button"
             onClick={() => setActivePanel("drawer")}
-            aria-controls="notes-drawer"
+            aria-controls={drawer === "closed" ? undefined : "notes-drawer"}
             disabled={drawer === "closed"}
           >
             Show details
