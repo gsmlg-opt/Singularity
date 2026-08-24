@@ -75,8 +75,11 @@ function defaultLoader(): Promise<NotesWorkspaceModule> {
 }
 
 function parseProps(element: HTMLElement) {
+  const props = element.dataset.props ?? "";
+  element.removeAttribute("data-props");
+
   try {
-    return decodeInitialProps(JSON.parse(element.dataset.props ?? ""));
+    return decodeInitialProps(JSON.parse(props));
   } catch {
     return null;
   }

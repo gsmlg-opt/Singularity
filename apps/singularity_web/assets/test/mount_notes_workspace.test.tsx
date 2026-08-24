@@ -75,7 +75,7 @@ function harness(
     ),
   };
   hook.mounted.call(context);
-  return { context, handlers, hook, order, pushes, root };
+  return { context, el, handlers, hook, order, pushes, root };
 }
 
 async function mountedProps(
@@ -120,6 +120,75 @@ describe("MountNotesWorkspace", () => {
       "search",
       "trash",
     ]);
+  });
+
+  it("consumes private initial props before the deferred workspace import settles", async () => {
+    const privateInitial = {
+      ...initial,
+      summaries: [
+        {
+          ...initial.summaries[0],
+          title: "private-title-canary",
+        },
+      ],
+    };
+    const test = harness(JSON.stringify(privateInitial));
+
+    expect(test.root.render).not.toHaveBeenCalled();
+    expect(test.el.hasAttribute("data-props")).toBe(false);
+    expect(test.el.dataset.props).toBeUndefined();
+    expect(test.el.outerHTML).not.toContain("private-title-canary");
+    expect(test.el.outerHTML).not.toContain(privateInitial.summaries[0].resourceId);
+    expect(test.el.outerHTML).not.toContain(privateInitial.summaries[0].resourceVersionId);
+
+    const props = await mountedProps(test.root);
+    expect(props.store.getSnapshot().summaries).toEqual(privateInitial.summaries);
+  });
+
+  it.each([
+    ["invalid JSON", '{"title":"invalid-json-private-canary"'],
+    [
+      "invalid exact shape",
+      JSON.stringify({
+        version: 1,
+        title: "invalid-shape-private-canary",
+        resourceId: id("9"),
+      }),
+    ],
+  ])("consumes %s props before rendering the unavailable alert", (_label, props) => {
+    const test = harness(props);
+
+    expect(test.el.hasAttribute("data-props")).toBe(false);
+    expect(test.el.dataset.props).toBeUndefined();
+    expect(test.el.outerHTML).not.toContain("private-canary");
+    expect(test.el.outerHTML).not.toContain(id("9"));
+    const rendered = test.root.render.mock.calls.at(-1)?.[0] as ReactElement;
+    expect(rendered.props).toEqual({ role: "alert", children: "Notes workspace is unavailable." });
+  });
+
+  it("never restores consumed props after destroy and consumes props on a new host", async () => {
+    const first = harness(
+      JSON.stringify({
+        ...initial,
+        summaries: [{ ...initial.summaries[0], title: "first-private-canary" }],
+      }),
+    );
+    await mountedProps(first.root);
+
+    first.hook.destroyed.call(first.context);
+    expect(first.el.hasAttribute("data-props")).toBe(false);
+    expect(first.el.outerHTML).not.toContain("first-private-canary");
+
+    const secondInitial = {
+      ...initial,
+      summaries: [{ ...initial.summaries[0], title: "second-private-canary" }],
+    };
+    const second = harness(JSON.stringify(secondInitial));
+    expect(second.el).not.toBe(first.el);
+    expect(second.el.hasAttribute("data-props")).toBe(false);
+    expect(second.el.outerHTML).not.toContain("second-private-canary");
+    const props = await mountedProps(second.root);
+    expect(props.store.getSnapshot().summaries).toEqual(secondInitial.summaries);
   });
 
   it("exposes typed methods that push exact Task13 event names and decode replies", async () => {
