@@ -65,7 +65,6 @@ type Mounted = {
 const unavailableMessage = "Notes workspace is unavailable.";
 const maxTimerDelay = 2_147_483_647;
 const alert = (): ReactNode => createElement("div", { role: "alert" }, unavailableMessage);
-// TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#144
 const workspaceModules = import.meta.glob<NotesWorkspaceModule>(
   "../notes_workspace/NotesWorkspace.tsx",
 );
