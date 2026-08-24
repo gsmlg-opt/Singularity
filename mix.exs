@@ -12,7 +12,8 @@ defmodule Singularity.Umbrella.MixProject do
       preferred_cli_env: [
         "singularity.test.integration": :test,
         "singularity.test.restore": :test,
-        "singularity.test.browser": :test
+        "singularity.test.browser": :test,
+        "singularity.test.browser_restore": :test
       ],
       aliases: aliases(),
       deps: deps()

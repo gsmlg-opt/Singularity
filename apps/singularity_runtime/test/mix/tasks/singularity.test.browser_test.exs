@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
   import ExUnit.CaptureIO
 
   alias Mix.Tasks.Singularity.Test.Browser
+  alias Mix.Tasks.Singularity.Test.BrowserRestore
   alias Mix.Tasks.Singularity.Test.Browser.SignalHandler
   alias Singularity.Storage.TestEnvironment
 
@@ -16,11 +17,18 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     Singularity.Storage.WorkerRepo
   ]
 
-  test "derives the browser owner password from a stable domain-separated vector" do
-    assert Browser.derive_owner_password(@run_id) ==
-             "singularity-test-SbzAvdwHUTRt8F8Z2hEBuYS5RPQfDg9vhPB2A2gDVHk"
+  test "derives distinct browser owner passwords from stable role-separated vectors" do
+    assert Browser.derive_owner_password(@run_id, :primary) ==
+             "singularity-test-o6rHNPLKQwhPQnNLXwzWIhvwp6jPlSyS4hK0wYSpt30"
 
-    assert Browser.derive_owner_password(@run_id) == Browser.derive_owner_password(@run_id)
+    assert Browser.derive_owner_password(@run_id, :secondary) ==
+             "singularity-test-Un2wbw6zaOb4a_pToU3a8b6iCOBwU_Aj6VFgW7bOvhY"
+
+    assert Browser.derive_owner_password(@run_id) ==
+             Browser.derive_owner_password(@run_id, :primary)
+
+    refute Browser.derive_owner_password(@run_id, :primary) ==
+             Browser.derive_owner_password(@run_id, :secondary)
   end
 
   test "password derivation rejects non-canonical IDs and emits or stores no password" do
@@ -30,8 +38,11 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
                    Browser.derive_owner_password("not-canonical")
                  end
 
-    password = Browser.derive_owner_password(@run_id)
-    assert capture_io(fn -> assert Browser.derive_owner_password(@run_id) == password end) == ""
+    password = Browser.derive_owner_password(@run_id, :primary)
+
+    assert capture_io(fn ->
+             assert Browser.derive_owner_password(@run_id, :primary) == password
+           end) == ""
 
     refute Enum.any?([:singularity_runtime, :singularity_storage, :singularity_web], fn app ->
              inspect(Application.get_all_env(app)) =~ password
@@ -42,27 +53,48 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     refute inspect(:init.get_plain_arguments()) =~ password
   end
 
-  test "builds the fixed browser owner credential without transporting the password" do
+  test "builds two fixed note-capable browser owners without transporting passwords" do
     output =
-      capture_io(fn -> send(self(), {:owner_attrs, Browser.__owner_attributes__(@run_id)}) end)
+      capture_io(fn ->
+        send(self(), {
+          :owner_attrs,
+          Browser.__owner_attributes__(@run_id, :primary),
+          Browser.__owner_attributes__(@run_id, :secondary)
+        })
+      end)
 
     assert output == ""
 
-    assert_receive {:owner_attrs,
-                    %{
-                      capabilities: capabilities,
-                      display_name: "Browser Test Owner",
-                      login: "owner@singularity.local",
-                      password: password
-                    }}
+    assert_receive {
+      :owner_attrs,
+      %{
+        capabilities: primary_capabilities,
+        display_name: "Browser Test Owner",
+        login: "owner@singularity.local",
+        password: primary_password
+      },
+      %{
+        capabilities: secondary_capabilities,
+        display_name: "Secondary Browser Test Owner",
+        login: "secondary-owner@singularity.local",
+        password: secondary_password
+      }
+    }
 
-    assert capabilities ==
-             ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change]
+    expected_capabilities =
+      ~w[asset.read asset.write backup.create note.export note.read note.write vault.lock vault.unlock vault.password_change]
 
-    refute "integrity.audit" in capabilities
-    assert password == Browser.derive_owner_password(@run_id)
-    refute inspect(Application.get_all_env(:singularity_runtime)) =~ password
-    refute Enum.any?(System.get_env(), fn {_key, value} -> value == password end)
+    assert primary_capabilities == expected_capabilities
+    assert secondary_capabilities == expected_capabilities
+    refute "integrity.audit" in primary_capabilities
+    assert primary_password == Browser.derive_owner_password(@run_id, :primary)
+    assert secondary_password == Browser.derive_owner_password(@run_id, :secondary)
+    refute primary_password == secondary_password
+
+    for password <- [primary_password, secondary_password] do
+      refute inspect(Application.get_all_env(:singularity_runtime)) =~ password
+      refute Enum.any?(System.get_env(), fn {_key, value} -> value == password end)
+    end
   end
 
   test "browser capability override leaves production bootstrap defaults untouched" do
@@ -71,8 +103,72 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     refute Map.has_key?(production, :initial_capabilities)
     refute inspect(production) =~ "integrity.audit"
 
-    assert Browser.__owner_attributes__(@run_id).capabilities ==
-             ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change]
+    assert Browser.__owner_attributes__(@run_id, :primary).capabilities ==
+             ~w[asset.read asset.write backup.create note.export note.read note.write vault.lock vault.unlock vault.password_change]
+  end
+
+  @tag :tmp_dir
+  test "writes only public browser coordinates to an owned mode-0600 state file", %{
+    tmp_dir: tmp_dir
+  } do
+    state_file_path = Path.join(tmp_dir, "browser-state.json")
+    backup_root = Path.join(tmp_dir, "backups")
+
+    primary = %{
+      account_id: "10000000-0000-4000-8000-000000000001",
+      principal_id: "10000000-0000-4000-8000-000000000002",
+      vault_id: "10000000-0000-4000-8000-000000000003"
+    }
+
+    secondary = %{
+      account_id: "20000000-0000-4000-8000-000000000001",
+      principal_id: "20000000-0000-4000-8000-000000000002",
+      vault_id: "20000000-0000-4000-8000-000000000003"
+    }
+
+    context = %{
+      run_id: @run_id,
+      state_file_path: state_file_path,
+      backup_root: backup_root,
+      owners: %{primary: primary, secondary: secondary}
+    }
+
+    assert ^context = Browser.__write_state_file__(context)
+    assert {:ok, stat} = File.stat(state_file_path)
+    assert Bitwise.band(stat.mode, 0o777) == 0o600
+
+    assert {:ok,
+            %{
+              "version" => 1,
+              "run_id" => @run_id,
+              "backup_root" => ^backup_root,
+              "owners" => %{
+                "primary" => %{
+                  "login" => "owner@singularity.local",
+                  "account_id" => "10000000-0000-4000-8000-000000000001",
+                  "principal_id" => "10000000-0000-4000-8000-000000000002",
+                  "vault_id" => "10000000-0000-4000-8000-000000000003"
+                },
+                "secondary" => %{
+                  "login" => "secondary-owner@singularity.local",
+                  "account_id" => "20000000-0000-4000-8000-000000000001",
+                  "principal_id" => "20000000-0000-4000-8000-000000000002",
+                  "vault_id" => "20000000-0000-4000-8000-000000000003"
+                }
+              }
+            }} = JSON.decode(File.read!(state_file_path))
+
+    state = File.read!(state_file_path)
+
+    for forbidden <- [
+          Browser.derive_owner_password(@run_id, :primary),
+          Browser.derive_owner_password(@run_id, :secondary),
+          "passphrase",
+          "markdown",
+          "CANARY_PRIVATE_MARKDOWN"
+        ] do
+      refute String.downcase(state) =~ String.downcase(forbidden)
+    end
   end
 
   test "accepts only serve and refuses every non-test Mix environment" do
@@ -479,6 +575,156 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     assert File.read!(caller_canary) == "caller data"
   end
 
+  test "generated cleanup removes the external browser state file on every path" do
+    environment = TestEnvironment.from_playwright_run_id!(@run_id)
+    state_file_path = Path.join(System.tmp_dir!(), "singularity-browser-state-#{@run_id}.json")
+
+    File.rm_rf!(environment.storage_root)
+    File.write!(state_file_path, ~s({"version":1}))
+
+    on_exit(fn ->
+      File.rm_rf!(environment.storage_root)
+      File.rm(state_file_path)
+    end)
+
+    assert :ok =
+             Browser.__cleanup_generated_environment__(
+               %{
+                 run_id: @run_id,
+                 environment: environment,
+                 state_file_path: state_file_path
+               },
+               fn _environment -> :ok end,
+               100
+             )
+
+    refute File.exists?(state_file_path)
+  end
+
+  @tag :tmp_dir
+  test "browser restore parses only canonical state-owned paths and inherited passphrase", %{
+    tmp_dir: tmp_dir
+  } do
+    %{arguments: arguments, state: state, source: source, expected: expected} =
+      browser_restore_fixture!(tmp_dir)
+
+    assert {:ok,
+            %{
+              source: ^source,
+              expected_snapshot: ^expected,
+              passphrase_fd: 0,
+              run_id: @run_id,
+              primary_vault_id: "10000000-0000-4000-8000-000000000003"
+            }} = BrowserRestore.parse(arguments, state)
+
+    for invalid <- [
+          [],
+          arguments ++ ["extra"],
+          List.replace_at(arguments, 1, Path.relative_to(source, File.cwd!())),
+          List.replace_at(arguments, 3, Path.join(tmp_dir, "missing.json")),
+          List.replace_at(arguments, 5, "-1"),
+          ["--source", source, "--expected", expected, "--passphrase", "secret"],
+          ["--source", source, "--expected", expected, "--passphrase-fd", "0", "--extra"]
+        ] do
+      assert {:error, :invalid} = BrowserRestore.parse(invalid, state)
+    end
+
+    outside = Path.join(tmp_dir, "outside.bundle")
+    File.write!(outside, "bundle")
+    outside_arguments = List.replace_at(arguments, 1, outside)
+    assert {:error, :invalid} = BrowserRestore.parse(outside_arguments, state)
+  end
+
+  @tag :tmp_dir
+  test "browser restore rejects malformed and extra expected data before destination writes", %{
+    tmp_dir: tmp_dir
+  } do
+    %{expected: expected} = browser_restore_fixture!(tmp_dir)
+
+    assert {:ok, snapshot} = BrowserRestore.load_expected(expected)
+    assert snapshot.version == 1
+
+    for malformed <- [
+          %{},
+          Map.put(JSON.decode!(File.read!(expected)), "extra", true),
+          put_in(JSON.decode!(File.read!(expected)), ["notes", Access.at(0), "markdown"], 17)
+        ] do
+      File.write!(expected, JSON.encode!(malformed))
+      File.chmod!(expected, 0o600)
+      assert {:error, :invalid} = BrowserRestore.load_expected(expected)
+    end
+  end
+
+  test "browser restore destination lifecycle is isolated, listener-free, and always dropped" do
+    request = %{source: "/canonical/source.bundle", passphrase_fd: 0}
+    expected = %{version: 1}
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :browser_restore_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    adapters = %{
+      allocate: fn ->
+        record.(:allocate)
+        %{database: "isolated", storage_root: "/isolated", suffix: "isolated"}
+      end,
+      create: fn destination ->
+        record.({:create, destination})
+        :ok
+      end,
+      drop: fn destination ->
+        record.({:drop, destination})
+        :ok
+      end,
+      read_descriptor_once: fn 0 ->
+        record.(:read_descriptor_once)
+        {:ok, "CANARY_RESTORE_PASSPHRASE"}
+      end,
+      restore: fn destination, ^request, "CANARY_RESTORE_PASSPHRASE" ->
+        record.({:restore, destination})
+        {:ok, %{manifest_id: "10000000-0000-4000-8000-000000000004"}}
+      end,
+      compare: fn destination, _restored, ^expected ->
+        record.({:compare, destination})
+        :ok
+      end
+    }
+
+    assert :ok = BrowserRestore.__execute__(request, expected, adapters)
+
+    events = Agent.get(recorder, &Enum.reverse/1)
+    assert [:read_descriptor_once, :allocate, {:create, destination} | tail] = events
+    assert [{:restore, ^destination}, {:compare, ^destination}, {:drop, ^destination}] = tail
+    refute Enum.any?(events, fn event -> inspect(event) =~ "listener" end)
+
+    failing =
+      put_in(adapters.restore, fn destination, ^request, "CANARY_RESTORE_PASSPHRASE" ->
+        record.({:restore_failure, destination})
+        raise "CANARY_PRIVATE_MARKDOWN"
+      end)
+
+    assert_raise RuntimeError, "CANARY_PRIVATE_MARKDOWN", fn ->
+      BrowserRestore.__execute__(request, expected, failing)
+    end
+
+    assert {:drop, ^destination} = Agent.get(recorder, &hd/1)
+  end
+
+  test "browser restore is test-only, preferred by Mix, and reports generic secret-safe errors" do
+    root_mix = File.read!(Path.expand("../../../../../mix.exs", __DIR__))
+    assert root_mix =~ ~s("singularity.test.browser_restore": :test)
+
+    previous_env = Mix.env()
+
+    try do
+      Mix.env(:dev)
+
+      assert_raise Mix.Error, "notes browser restore failed", fn ->
+        BrowserRestore.run(["--passphrase", "CANARY_RESTORE_SECRET"])
+      end
+    after
+      Mix.env(previous_env)
+    end
+  end
+
   @tag :tmp_dir
   test "configures generated backup storage, page size, real infrastructure, and the endpoint",
        %{tmp_dir: tmp_dir} do
@@ -491,7 +737,9 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     refute File.exists?(backup_root)
 
     context = %{environment: %{storage_root: storage_root}}
-    assert ^context = Browser.__configure_environment__(context)
+
+    assert %{environment: %{storage_root: ^storage_root}, backup_root: ^backup_root} =
+             Browser.__configure_environment__(context)
 
     assert Application.fetch_env!(:singularity_storage, :backup_root) == backup_root
     assert File.dir?(backup_root)
@@ -704,6 +952,82 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     |> Config.Reader.read!(env: :test)
     |> Keyword.fetch!(:singularity_web)
     |> Keyword.fetch!(:"Elixir.Singularity.Web.Endpoint")
+  end
+
+  defp browser_restore_fixture!(tmp_dir) do
+    backup_root = Path.join(tmp_dir, "backups")
+    File.mkdir_p!(backup_root)
+    source = Path.join(backup_root, "single.bundle")
+    expected = Path.join(tmp_dir, "expected.json")
+    File.write!(source, "bundle")
+
+    snapshot = %{
+      "version" => 1,
+      "vault_id" => "10000000-0000-4000-8000-000000000003",
+      "notes" => [
+        %{
+          "resource_id" => "10000000-0000-4000-8000-000000000010",
+          "current_version_id" => "10000000-0000-4000-8000-000000000011",
+          "title" => "Acceptance note",
+          "markdown" => "# CANARY_PRIVATE_MARKDOWN\n",
+          "deleted" => false,
+          "versions" => [
+            %{
+              "resource_version_id" => "10000000-0000-4000-8000-000000000011",
+              "revision" => 0,
+              "parent_version_id" => nil,
+              "merge_parent_version_id" => nil,
+              "title" => "Acceptance note",
+              "markdown" => "initial"
+            }
+          ],
+          "conflicts" => [],
+          "export" => %{
+            "bytes" => "# CANARY_PRIVATE_MARKDOWN\n",
+            "content_type" => "text/markdown; charset=utf-8",
+            "content_disposition" => "attachment; filename=\"acceptance-note.md\"",
+            "x_content_type_options" => "nosniff"
+          }
+        }
+      ]
+    }
+
+    File.write!(expected, JSON.encode!(snapshot))
+    File.chmod!(expected, 0o600)
+
+    state = %{
+      "version" => 1,
+      "run_id" => @run_id,
+      "backup_root" => backup_root,
+      "owners" => %{
+        "primary" => %{
+          "login" => "owner@singularity.local",
+          "account_id" => "10000000-0000-4000-8000-000000000001",
+          "principal_id" => "10000000-0000-4000-8000-000000000002",
+          "vault_id" => "10000000-0000-4000-8000-000000000003"
+        },
+        "secondary" => %{
+          "login" => "secondary-owner@singularity.local",
+          "account_id" => "20000000-0000-4000-8000-000000000001",
+          "principal_id" => "20000000-0000-4000-8000-000000000002",
+          "vault_id" => "20000000-0000-4000-8000-000000000003"
+        }
+      }
+    }
+
+    %{
+      arguments: [
+        "--source",
+        source,
+        "--expected",
+        expected,
+        "--passphrase-fd",
+        "0"
+      ],
+      state: state,
+      source: source,
+      expected: expected
+    }
   end
 
   defp spawn_cleanup_call(test_process, label, cleanup) do

@@ -54,27 +54,45 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         :error -> Mix.raise("SINGULARITY_TEST_RUN_ID is required")
       end
 
+    state_file_path = browser_state_file_path!()
+
     compile_browser_endpoint!()
-    __run_lifecycle__(run_id, default_lifecycle())
+    __run_lifecycle__(run_id, state_file_path, default_lifecycle())
   end
 
   def run(_args), do: Mix.raise("usage: mix singularity.test.browser serve")
 
   @doc false
   def __run_lifecycle__(run_id, lifecycle) do
+    __run_lifecycle__(run_id, nil, lifecycle)
+  end
+
+  @doc false
+  def __run_lifecycle__(run_id, state_file_path, lifecycle) do
     environment = lifecycle.environment.(run_id)
     snapshot = lifecycle.snapshot.()
 
     {:ok, cleanup_state} =
       Agent.start(fn ->
-        {:pending, %{environment: environment, run_id: run_id, snapshot: snapshot}}
+        {:pending,
+         %{
+           environment: environment,
+           run_id: run_id,
+           snapshot: snapshot,
+           state_file_path: state_file_path
+         }}
       end)
 
     cleanup = fn -> cleanup_once(cleanup_state, lifecycle.cleanup) end
     registration = lifecycle.register_cleanup.(self(), cleanup)
 
     try do
-      %{environment: environment, run_id: run_id, snapshot: snapshot}
+      %{
+        environment: environment,
+        run_id: run_id,
+        snapshot: snapshot,
+        state_file_path: state_file_path
+      }
       |> lifecycle_step(cleanup_state, lifecycle.provision)
       |> lifecycle_step(cleanup_state, lifecycle.configure)
       |> lifecycle_step(cleanup_state, lifecycle.bootstrap)
@@ -106,7 +124,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
       unregister_cleanup: &unregister_cleanup/1,
       provision: &provision/1,
       configure: &__configure_environment__/1,
-      bootstrap: &bootstrap_owner/1,
+      bootstrap: &bootstrap_owners/1,
       stop_provisioning_repos: &stop_provisioning_repositories/1,
       start: &start_browser_applications/1,
       wait: &wait_foreground/2,
@@ -212,7 +230,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
       |> Keyword.put(:server, true)
 
     Application.put_env(:singularity_web, @endpoint, endpoint)
-    context
+    Map.put(context, :backup_root, backup_root)
   end
 
   @doc false
@@ -240,13 +258,22 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   end
 
   @doc false
-  def __owner_attributes__(run_id) do
+  def __owner_attributes__(run_id), do: __owner_attributes__(run_id, :primary)
+
+  @doc false
+  def __owner_attributes__(run_id, role) when role in [:primary, :secondary] do
+    {display_name, login} =
+      case role do
+        :primary -> {"Browser Test Owner", "owner@singularity.local"}
+        :secondary -> {"Secondary Browser Test Owner", "secondary-owner@singularity.local"}
+      end
+
     %{
       capabilities:
-        ~w[asset.read asset.write backup.create vault.lock vault.unlock vault.password_change],
-      display_name: "Browser Test Owner",
-      login: "owner@singularity.local",
-      password: derive_owner_password(run_id)
+        ~w[asset.read asset.write backup.create note.export note.read note.write vault.lock vault.unlock vault.password_change],
+      display_name: display_name,
+      login: login,
+      password: derive_owner_password(run_id, role)
     }
   end
 
@@ -282,11 +309,8 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     context
   end
 
-  defp bootstrap_owner(context) do
+  defp bootstrap_owners(context) do
     adapters = Application.fetch_env!(:singularity_runtime, :bootstrap_owner)
-    attrs = __owner_attributes__(context.run_id)
-    {capabilities, attrs} = Map.pop!(attrs, :capabilities)
-    adapters = Map.put(adapters, :initial_capabilities, capabilities)
 
     {:ok, repo} = MigrationRepo.start_link(pool_size: 2)
 
@@ -300,19 +324,99 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
             log: false
           )
 
-          case BootstrapOwner.run(adapters, attrs) do
-            {:ok, owner} -> owner
-            {:error, error} -> MigrationRepo.rollback(error)
-          end
+          primary = bootstrap_owner!(adapters, context.run_id, :primary)
+          :ok = release_global_bootstrap_marker(primary.principal_id)
+          secondary = bootstrap_owner!(adapters, context.run_id, :secondary)
+          %{primary: primary, secondary: secondary}
         end)
       after
         if Process.alive?(repo), do: Supervisor.stop(repo)
       end
 
     case result do
-      {:ok, _owner} -> context
-      {:error, _error} -> Mix.raise("browser owner bootstrap failed")
+      {:ok, owners} ->
+        context
+        |> Map.put(:owners, owners)
+        |> __write_state_file__()
+
+      {:error, _error} ->
+        Mix.raise("browser owner bootstrap failed")
     end
+  end
+
+  defp bootstrap_owner!(adapters, run_id, role) do
+    attrs = __owner_attributes__(run_id, role)
+    {capabilities, attrs} = Map.pop!(attrs, :capabilities)
+    adapters = Map.put(adapters, :initial_capabilities, capabilities)
+
+    case BootstrapOwner.run(adapters, attrs) do
+      {:ok, owner} -> owner
+      {:error, error} -> MigrationRepo.rollback(error)
+    end
+  end
+
+  defp release_global_bootstrap_marker(principal_id) do
+    SafeSQL.query!(
+      MigrationRepo,
+      """
+      UPDATE identity.principals
+      SET metadata = metadata - 'bootstrap_idempotency_key_digests'
+      WHERE id = $1
+        AND kind = 'owner'
+      """,
+      [Ecto.UUID.dump!(principal_id)],
+      log: false
+    )
+
+    :ok
+  end
+
+  @doc false
+  def __write_state_file__(
+        %{
+          backup_root: backup_root,
+          owners: %{primary: primary, secondary: secondary},
+          run_id: run_id,
+          state_file_path: state_file_path
+        } = context
+      )
+      when is_binary(state_file_path) do
+    state = %{
+      version: 1,
+      run_id: run_id,
+      backup_root: backup_root,
+      owners: %{
+        primary: public_owner(primary, "owner@singularity.local"),
+        secondary: public_owner(secondary, "secondary-owner@singularity.local")
+      }
+    }
+
+    File.mkdir_p!(Path.dirname(state_file_path))
+
+    case File.open(state_file_path, [:write, :exclusive, :binary]) do
+      {:ok, file} ->
+        try do
+          File.chmod!(state_file_path, 0o600)
+          IO.binwrite(file, JSON.encode!(state))
+          :ok = :file.sync(file)
+        after
+          File.close(file)
+        end
+
+      {:error, _reason} ->
+        Mix.raise("browser state file could not be created")
+    end
+
+    context
+  end
+
+  defp public_owner(owner, login) do
+    %{
+      login: login,
+      account_id: Map.fetch!(owner, :account_id),
+      principal_id: Map.fetch!(owner, :principal_id),
+      vault_id: Map.fetch!(owner, :vault_id)
+    }
   end
 
   defp stop_provisioning_repositories(context) do
@@ -370,7 +474,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
 
   @doc false
   def __cleanup_generated_environment__(
-        %{run_id: run_id, environment: environment},
+        %{run_id: run_id, environment: environment} = context,
         force_drop,
         timeout_ms
       )
@@ -388,9 +492,23 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         "browser destructive cleanup exceeded its bounded timeout"
       )
     after
-      File.rm_rf!(generated_environment.storage_root)
+      try do
+        File.rm_rf!(generated_environment.storage_root)
+      after
+        remove_state_file(Map.get(context, :state_file_path))
+      end
     end
   end
+
+  defp remove_state_file(path) when is_binary(path) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, _reason} -> Mix.raise("browser state file cleanup failed")
+    end
+  end
+
+  defp remove_state_file(_path), do: :ok
 
   defp stop_known_repositories do
     workers =
@@ -688,17 +806,37 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   independently implement this derivation; the password is never transported.
   """
   @spec derive_owner_password(String.t()) :: String.t()
-  def derive_owner_password(run_id) when is_binary(run_id) do
+  def derive_owner_password(run_id), do: derive_owner_password(run_id, :primary)
+
+  @spec derive_owner_password(String.t(), :primary | :secondary) :: String.t()
+  def derive_owner_password(run_id, role)
+      when is_binary(run_id) and role in [:primary, :secondary] do
     unless Regex.match?(@playwright_run_id_pattern, run_id) do
       raise ArgumentError, "Playwright run ID must be a canonical crypto.randomUUID value"
     end
 
-    digest = :crypto.hash(:sha256, @password_domain <> run_id)
+    digest = :crypto.hash(:sha256, @password_domain <> Atom.to_string(role) <> ":" <> run_id)
     @password_prefix <> Base.url_encode64(digest, padding: false)
   end
 
-  def derive_owner_password(_run_id) do
+  def derive_owner_password(_run_id, _role) do
     raise ArgumentError, "Playwright run ID must be a canonical crypto.randomUUID value"
+  end
+
+  defp browser_state_file_path! do
+    case System.fetch_env("SINGULARITY_BROWSER_STATE_FILE") do
+      {:ok, path} when is_binary(path) and path != "" ->
+        expanded = Path.expand(path)
+
+        if Path.type(path) == :absolute and path == expanded do
+          path
+        else
+          Mix.raise("SINGULARITY_BROWSER_STATE_FILE must be a canonical absolute path")
+        end
+
+      _missing ->
+        Mix.raise("SINGULARITY_BROWSER_STATE_FILE is required")
+    end
   end
 end
 

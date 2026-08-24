@@ -1,11 +1,16 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { defineConfig } from "@playwright/test";
 
-declare const process: {
-  env: Record<string, string | undefined>;
-};
-
 const runId = process.env.SINGULARITY_TEST_RUN_ID ?? crypto.randomUUID();
+const stateDirectory = join(tmpdir(), "singularity", "playwright");
+const stateFile = join(stateDirectory, `${runId}.json`);
+
+mkdirSync(stateDirectory, { mode: 0o700, recursive: true });
 process.env.SINGULARITY_TEST_RUN_ID = runId;
+process.env.SINGULARITY_BROWSER_STATE_FILE = stateFile;
 
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
@@ -34,6 +39,7 @@ export default defineConfig({
     url: "http://127.0.0.1:4002/login",
     env: {
       ...process.env,
+      SINGULARITY_BROWSER_STATE_FILE: stateFile,
       SINGULARITY_TEST_RUN_ID: runId,
       SINGULARITY_START_INFRASTRUCTURE: "true",
     },
