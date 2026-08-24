@@ -25,9 +25,11 @@ type Drawer = "closed" | "preview" | "history" | "conflict";
 type RailMode = "current" | "trash";
 type Panel = "editor" | "rail" | "drawer";
 type Notice = { tone: "error" | "info"; text: string };
+type Draft = { title: string; markdown: string };
 type PendingAction =
   | { kind: "navigate"; target: NavigationTarget; trigger: HTMLElement }
-  | { kind: "open"; summary: NoteSummary; trigger: HTMLElement };
+  | { kind: "open"; summary: NoteSummary; trigger: HTMLElement }
+  | { kind: "new"; trigger: HTMLElement };
 
 const navigationTargets = new Set<NavigationTarget>([
   "/assets",
@@ -115,6 +117,19 @@ function versionLabel(version: NoteVersionSummary): string {
   return `Version ${version.displayVersion}`;
 }
 
+function summaryFromNote(note: Note): NoteSummary {
+  return {
+    resourceId: note.resourceId,
+    resourceVersionId: note.resourceVersionId,
+    title: note.title,
+    revision: note.revision,
+    displayVersion: note.displayVersion,
+    updatedAt: note.updatedAt,
+    deleted: note.deleted,
+    openConflictCount: note.openConflictCount,
+  };
+}
+
 export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [query, setQuery] = useState(snapshot.filters.q);
@@ -128,6 +143,8 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [editorFocusRequest, setEditorFocusRequest] = useState(0);
   const [mergeMode, setMergeMode] = useState(false);
+  const [createDraft, setCreateDraft] = useState<Draft | null>(null);
+  const [createDirty, setCreateDirty] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   const [mutationBusy, setMutationBusy] = useState(false);
   const listBusyRef = useRef(false);
@@ -143,17 +160,20 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
 
   const selection = snapshot.selection;
   const editable = isEditable(selection) ? selection : null;
-  const draft = snapshot.draft;
+  const creating = createDraft !== null;
+  const draft = creating ? createDraft : snapshot.draft;
+  const dirty = creating ? createDirty : snapshot.dirty;
   const terminal = snapshot.terminalEpoch > 0;
-  const canSave =
-    editable &&
+  const canSave = Boolean(
+    (creating || editable) &&
     draft !== null &&
-    snapshot.dirty &&
+    dirty &&
     validDraft(draft.title, draft.markdown) &&
-    !mutationBusy;
+    !mutationBusy,
+  );
 
   useEffect(() => {
-    if (!snapshot.dirty) return;
+    if (!dirty) return;
 
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -161,10 +181,10 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
-  }, [snapshot.dirty]);
+  }, [dirty]);
 
   useEffect(() => {
-    if (!snapshot.dirty) return;
+    if (!dirty) return;
 
     const captureShellNavigation = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
@@ -179,7 +199,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     };
     document.addEventListener("click", captureShellNavigation, true);
     return () => document.removeEventListener("click", captureShellNavigation, true);
-  }, [snapshot.dirty]);
+  }, [dirty]);
 
   useEffect(() => {
     if (!pendingAction) return;
@@ -227,14 +247,14 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   useEffect(() => {
     if (
       pendingAction ||
-      !editable ||
+      (!creating && !editable) ||
       editorFocusRequest === consumedEditorFocusRequestRef.current
     ) {
       return;
     }
     consumedEditorFocusRequestRef.current = editorFocusRequest;
     queueMicrotask(() => editorTitleRef.current?.focus());
-  }, [pendingAction, editable, editorFocusRequest]);
+  }, [pendingAction, creating, editable, editorFocusRequest]);
 
   useEffect(() => {
     if (drawer !== "closed") queueMicrotask(() => drawerCloseRef.current?.focus());
@@ -257,6 +277,8 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     setDialogBusy(false);
     setDialogError(null);
     setMergeMode(false);
+    setCreateDraft(null);
+    setCreateDirty(false);
     setListBusy(false);
     setMutationBusy(false);
   }, [terminal, editorFocusRequest]);
@@ -333,6 +355,37 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
 
   function updateLocalDraft(nextDraft: { title: string; markdown: string }): void {
     if (!store.updateDraft(nextDraft)) return;
+    contextGenerationRef.current += 1;
+    invalidateMutation();
+  }
+
+  function leaveCreateMode(): void {
+    setCreateDraft(null);
+    setCreateDirty(false);
+  }
+
+  function beginFreshCreate(): void {
+    contextGenerationRef.current += 1;
+    store.beginLane("open");
+    invalidateDependentReads();
+    invalidateMutation();
+    setCreateDraft({ title: "", markdown: "" });
+    setCreateDirty(false);
+    setRailMode("current");
+    setMergeMode(false);
+    setDrawer("closed");
+    setActivePanel("editor");
+    setNotice({ tone: "info", text: "New note. Add a title, then choose Save." });
+    setEditorFocusRequest((request) => request + 1);
+  }
+
+  function updateDraft(nextDraft: Draft): void {
+    if (!creating) {
+      updateLocalDraft(nextDraft);
+      return;
+    }
+    setCreateDraft({ ...nextDraft });
+    setCreateDirty(true);
     contextGenerationRef.current += 1;
     invalidateMutation();
   }
@@ -441,13 +494,28 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     }
   }
 
+  async function openFromRail(summary: NoteSummary): Promise<void> {
+    if (await openVersion(summary.resourceId, summary.resourceVersionId, true)) {
+      leaveCreateMode();
+    }
+  }
+
   function requestOpen(summary: NoteSummary, trigger: HTMLButtonElement): void {
-    if (snapshot.dirty) {
+    if (dirty) {
       setDialogError(null);
       setPendingAction({ kind: "open", summary, trigger });
       return;
     }
-    void openVersion(summary.resourceId, summary.resourceVersionId, true);
+    void openFromRail(summary);
+  }
+
+  function requestNew(trigger: HTMLButtonElement): void {
+    if (dirty) {
+      setDialogError(null);
+      setPendingAction({ kind: "new", trigger });
+      return;
+    }
+    beginFreshCreate();
   }
 
   function stay(): void {
@@ -464,6 +532,12 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     setDialogBusy(true);
     setDialogError(null);
     try {
+      if (action.kind === "new") {
+        beginFreshCreate();
+        setPendingAction(null);
+        return;
+      }
+
       if (action.kind === "navigate") {
         const reply = await bridge.navigate(action.target);
         if (reply.ok) {
@@ -475,6 +549,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       }
 
       if (await openVersion(action.summary.resourceId, action.summary.resourceVersionId, true)) {
+        leaveCreateMode();
         setPendingAction(null);
         return;
       }
@@ -546,7 +621,58 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     }
   }
 
+  async function createNote(): Promise<void> {
+    if (!creating || !canSave || !createDraft || mutationBusyRef.current) return;
+    const token = beginMutation();
+    if (!token) return;
+    setNotice(null);
+    const contextGeneration = contextGenerationRef.current;
+    const submittedDraft = { ...createDraft };
+    try {
+      const reply = await bridge.create({
+        version: 1,
+        mutationId: canonicalMutationId(),
+        title: submittedDraft.title.trim(),
+        markdown: submittedDraft.markdown,
+      });
+      if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
+      if (!reply.ok) {
+        setNotice(stableFailure("Create"));
+        return;
+      }
+      if (!store.acceptMutation(token, reply.result)) return;
+
+      const current = store.getSnapshot();
+      const searchToken = store.beginLane("search");
+      store.acceptSearch(searchToken, {
+        items: [
+          summaryFromNote(reply.result),
+          ...current.summaries.filter((item) => item.resourceId !== reply.result.resourceId),
+        ],
+        nextCursor: current.searchNextCursor,
+      });
+      completeMutationContext();
+      leaveCreateMode();
+      setRailMode("current");
+      setMergeMode(false);
+      setDrawer("closed");
+      setActivePanel("editor");
+      setNotice({ tone: "info", text: "Note created." });
+      setEditorFocusRequest((request) => request + 1);
+    } catch {
+      if (laneIsCurrent("mutation", token) && contextIsCurrent(contextGeneration)) {
+        setNotice(stableFailure("Create"));
+      }
+    } finally {
+      finishMutation(token);
+    }
+  }
+
   async function saveDraft(): Promise<void> {
+    if (creating) {
+      await createNote();
+      return;
+    }
     if (!canSave || !editable || !draft || mutationBusyRef.current) return;
     const token = beginMutation();
     if (!token) return;
@@ -760,6 +886,14 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
             </span>
           </header>
 
+          <button
+            type="button"
+            className="notes-save notes-new"
+            onClick={(event) => requestNew(event.currentTarget)}
+          >
+            New note
+          </button>
+
           <form role="search" className="notes-search" onSubmit={search}>
             <label htmlFor="notes-query">Search current notes</label>
             <div>
@@ -805,7 +939,9 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
                       type="button"
                       className="notes-list-item"
                       aria-label={`Open ${item.title}`}
-                      aria-current={selection?.resourceId === item.resourceId ? "true" : undefined}
+                      aria-current={
+                        !creating && selection?.resourceId === item.resourceId ? "true" : undefined
+                      }
                       onClick={(event) => requestOpen(item, event.currentTarget)}
                     >
                       <span>{item.title}</span>
@@ -834,14 +970,19 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
           aria-label="Markdown editor"
           data-panel="editor"
         >
-          {editable && draft ? (
+          {(creating || editable) && draft ? (
             <>
               <header className="notes-editor-heading">
                 <div>
-                  <p className="notes-kicker">{mergeMode ? "Merge mode" : "Current note"}</p>
+                  <p className="notes-kicker">
+                    {mergeMode ? "Merge mode" : creating ? "New note" : "Current note"}
+                  </p>
                   <p className="notes-version">
-                    Version {editable.displayVersion} ·{" "}
-                    {snapshot.dirty ? "Unsaved changes" : "Saved"}
+                    {creating
+                      ? "New · Unsaved"
+                      : `Version ${editable?.displayVersion} · ${
+                          snapshot.dirty ? "Unsaved changes" : "Saved"
+                        }`}
                   </p>
                 </div>
                 <div className="notes-editor-actions" aria-label="Note actions">
@@ -851,16 +992,23 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
                   >
                     Preview
                   </button>
-                  <button type="button" onClick={(event) => void loadHistory(event.currentTarget)}>
-                    History
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => void loadConflict(event.currentTarget)}
-                    disabled={!snapshot.conflict}
-                  >
-                    Conflict
-                  </button>
+                  {!creating && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(event) => void loadHistory(event.currentTarget)}
+                      >
+                        History
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => void loadConflict(event.currentTarget)}
+                        disabled={!snapshot.conflict}
+                      >
+                        Conflict
+                      </button>
+                    </>
+                  )}
                 </div>
               </header>
 
@@ -872,7 +1020,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
                   value={draft.title}
                   maxLength={255}
                   onChange={(event) =>
-                    updateLocalDraft({ title: event.currentTarget.value, markdown: draft.markdown })
+                    updateDraft({ title: event.currentTarget.value, markdown: draft.markdown })
                   }
                 />
               </label>
@@ -882,7 +1030,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
                   aria-label="Markdown source"
                   value={draft.markdown}
                   onChange={(event) =>
-                    updateLocalDraft({ title: draft.title, markdown: event.currentTarget.value })
+                    updateDraft({ title: draft.title, markdown: event.currentTarget.value })
                   }
                   spellCheck="true"
                 />
@@ -890,19 +1038,23 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
 
               <footer className="notes-editor-footer">
                 <div className="notes-secondary-actions">
-                  <a
-                    href={`/api/v1/notes/${encodeURIComponent(editable.resourceId)}/export`}
-                    aria-label={`Export ${editable.title}`}
-                  >
-                    Export Markdown
-                  </a>
-                  <button
-                    type="button"
-                    className="notes-delete"
-                    onClick={() => void deleteCurrent()}
-                  >
-                    Delete
-                  </button>
+                  {!creating && editable && (
+                    <>
+                      <a
+                        href={`/api/v1/notes/${encodeURIComponent(editable.resourceId)}/export`}
+                        aria-label={`Export ${editable.title}`}
+                      >
+                        Export Markdown
+                      </a>
+                      <button
+                        type="button"
+                        className="notes-delete"
+                        onClick={() => void deleteCurrent()}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
                 <button
                   type="button"

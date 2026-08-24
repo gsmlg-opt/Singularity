@@ -952,6 +952,11 @@
   border-color: var(--dm-border);
 }
 
+.notes-workspace .notes-new {
+  width: 100%;
+  margin-top: 1rem;
+}
+
 .notes-workspace .notes-delete {
   color: var(--dm-danger);
   border-color: var(--dm-danger);
