@@ -79,6 +79,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
            environment: environment,
            run_id: run_id,
            snapshot: snapshot,
+           state_file_owned?: false,
            state_file_path: state_file_path
          }}
       end)
@@ -91,6 +92,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         environment: environment,
         run_id: run_id,
         snapshot: snapshot,
+        state_file_owned?: false,
         state_file_path: state_file_path
       }
       |> lifecycle_step(cleanup_state, lifecycle.provision)
@@ -407,7 +409,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         Mix.raise("browser state file could not be created")
     end
 
-    context
+    Map.put(context, :state_file_owned?, true)
   end
 
   defp public_owner(owner, login) do
@@ -495,12 +497,13 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
       try do
         File.rm_rf!(generated_environment.storage_root)
       after
-        remove_state_file(Map.get(context, :state_file_path))
+        remove_state_file(context)
       end
     end
   end
 
-  defp remove_state_file(path) when is_binary(path) do
+  defp remove_state_file(%{state_file_owned?: true, state_file_path: path})
+       when is_binary(path) do
     case File.rm(path) do
       :ok -> :ok
       {:error, :enoent} -> :ok
@@ -508,7 +511,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     end
   end
 
-  defp remove_state_file(_path), do: :ok
+  defp remove_state_file(_context), do: :ok
 
   defp stop_known_repositories do
     workers =

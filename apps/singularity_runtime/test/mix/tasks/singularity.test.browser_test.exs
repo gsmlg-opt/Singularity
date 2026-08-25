@@ -133,7 +133,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
       owners: %{primary: primary, secondary: secondary}
     }
 
-    assert ^context = Browser.__write_state_file__(context)
+    assert %{state_file_owned?: true} = Browser.__write_state_file__(context)
     assert {:ok, stat} = File.stat(state_file_path)
     assert Bitwise.band(stat.mode, 0o777) == 0o600
 
@@ -592,13 +592,67 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
                %{
                  run_id: @run_id,
                  environment: environment,
-                 state_file_path: state_file_path
+                 state_file_path: state_file_path,
+                 state_file_owned?: true
                },
                fn _environment -> :ok end,
                100
              )
 
     refute File.exists?(state_file_path)
+  end
+
+  @tag :tmp_dir
+  test "state-file collision never modifies or removes the caller-owned file", %{tmp_dir: tmp_dir} do
+    environment = TestEnvironment.from_playwright_run_id!(@run_id)
+    state_file_path = Path.join(tmp_dir, "caller-state.json")
+    canary = "CALLER_OWNED_STATE_CANARY"
+    previous_state_file = System.fetch_env("SINGULARITY_BROWSER_STATE_FILE")
+    System.put_env("SINGULARITY_BROWSER_STATE_FILE", state_file_path)
+
+    on_exit(fn ->
+      case previous_state_file do
+        {:ok, path} -> System.put_env("SINGULARITY_BROWSER_STATE_FILE", path)
+        :error -> System.delete_env("SINGULARITY_BROWSER_STATE_FILE")
+      end
+    end)
+
+    File.write!(state_file_path, canary)
+    File.chmod!(state_file_path, 0o600)
+
+    context = %{
+      backup_root: Path.join(environment.storage_root, "backups"),
+      environment: environment,
+      owners: %{
+        primary: %{
+          account_id: "10000000-0000-4000-8000-000000000001",
+          principal_id: "10000000-0000-4000-8000-000000000002",
+          vault_id: "10000000-0000-4000-8000-000000000003"
+        },
+        secondary: %{
+          account_id: "20000000-0000-4000-8000-000000000001",
+          principal_id: "20000000-0000-4000-8000-000000000002",
+          vault_id: "20000000-0000-4000-8000-000000000003"
+        }
+      },
+      run_id: @run_id,
+      state_file_owned?: false,
+      state_file_path: System.fetch_env!("SINGULARITY_BROWSER_STATE_FILE")
+    }
+
+    assert_raise Mix.Error, "browser state file could not be created", fn ->
+      Browser.__write_state_file__(context)
+    end
+
+    assert :ok =
+             Browser.__cleanup_generated_environment__(
+               context,
+               fn _environment -> :ok end,
+               100
+             )
+
+    assert File.read!(state_file_path) == canary
+    assert Bitwise.band(File.stat!(state_file_path).mode, 0o777) == 0o600
   end
 
   @tag :tmp_dir
@@ -616,6 +670,11 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
               run_id: @run_id,
               primary_vault_id: "10000000-0000-4000-8000-000000000003"
             }} = BrowserRestore.parse(arguments, state)
+
+    nonzero_descriptor_arguments = List.replace_at(arguments, 5, "7")
+
+    assert {:ok, %{passphrase_fd: 7}} =
+             BrowserRestore.parse(nonzero_descriptor_arguments, state)
 
     for invalid <- [
           [],
@@ -656,8 +715,15 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
   end
 
   test "browser restore destination lifecycle is isolated, listener-free, and always dropped" do
-    request = %{source: "/canonical/source.bundle", passphrase_fd: 0}
-    expected = %{version: 1}
+    primary_vault_id = "10000000-0000-4000-8000-000000000003"
+
+    request = %{
+      source: "/canonical/source.bundle",
+      passphrase_fd: 0,
+      primary_vault_id: primary_vault_id
+    }
+
+    expected = %{version: 1, vault_id: primary_vault_id}
     recorder = start_supervised!({Agent, fn -> [] end}, id: :browser_restore_recorder)
     record = fn event -> Agent.update(recorder, &[event | &1]) end
 
@@ -672,6 +738,10 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
       end,
       drop: fn destination ->
         record.({:drop, destination})
+        :ok
+      end,
+      assert_no_listener: fn ->
+        record.(:assert_no_listener)
         :ok
       end,
       read_descriptor_once: fn 0 ->
@@ -691,9 +761,19 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     assert :ok = BrowserRestore.__execute__(request, expected, adapters)
 
     events = Agent.get(recorder, &Enum.reverse/1)
-    assert [:read_descriptor_once, :allocate, {:create, destination} | tail] = events
-    assert [{:restore, ^destination}, {:compare, ^destination}, {:drop, ^destination}] = tail
-    refute Enum.any?(events, fn event -> inspect(event) =~ "listener" end)
+
+    assert [
+             :read_descriptor_once,
+             :allocate,
+             :assert_no_listener,
+             {:create, destination},
+             :assert_no_listener,
+             {:restore, destination},
+             :assert_no_listener,
+             {:compare, destination},
+             :assert_no_listener,
+             {:drop, destination}
+           ] = events
 
     failing =
       put_in(adapters.restore, fn destination, ^request, "CANARY_RESTORE_PASSPHRASE" ->
@@ -706,6 +786,79 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     end
 
     assert {:drop, ^destination} = Agent.get(recorder, &hd/1)
+  end
+
+  test "browser restore rejects a started local listener and still drops its destination" do
+    primary_vault_id = "10000000-0000-4000-8000-000000000003"
+    request = %{passphrase_fd: 0, primary_vault_id: primary_vault_id}
+    expected = %{vault_id: primary_vault_id}
+    listener = start_supervised!({Agent, fn -> false end}, id: :browser_restore_listener)
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :listener_restore_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    adapters = %{
+      allocate: fn ->
+        record.(:allocate)
+        :destination
+      end,
+      create: fn :destination ->
+        record.(:create)
+        Agent.update(listener, fn _stopped -> true end)
+      end,
+      drop: fn :destination ->
+        record.(:drop)
+        Agent.update(listener, fn _started -> false end)
+      end,
+      assert_no_listener: fn ->
+        record.(:assert_no_listener)
+        if Agent.get(listener, & &1), do: raise("local listener started"), else: :ok
+      end,
+      read_descriptor_once: fn 0 -> {:ok, "descriptor-only-secret"} end,
+      restore: fn _destination, _request, _secret ->
+        record.(:restore)
+        {:ok, %{}}
+      end,
+      compare: fn _destination, _restored, _expected -> record.(:compare) end
+    }
+
+    assert_raise RuntimeError, "local listener started", fn ->
+      BrowserRestore.__execute__(request, expected, adapters)
+    end
+
+    assert [:allocate, :assert_no_listener, :create, :assert_no_listener, :drop] =
+             Agent.get(recorder, &Enum.reverse/1)
+
+    refute Agent.get(listener, & &1)
+  end
+
+  test "browser restore binds expected vault before writes and drops allocated destination" do
+    request = %{
+      passphrase_fd: 0,
+      primary_vault_id: "10000000-0000-4000-8000-000000000003"
+    }
+
+    expected = %{vault_id: "20000000-0000-4000-8000-000000000003"}
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :vault_binding_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    adapters = %{
+      allocate: fn ->
+        record.(:allocate)
+        :destination
+      end,
+      create: fn _destination -> record.(:create) end,
+      drop: fn :destination -> record.(:drop) end,
+      assert_no_listener: fn -> record.(:assert_no_listener) end,
+      read_descriptor_once: fn 0 -> {:ok, "descriptor-only-secret"} end,
+      restore: fn _destination, _request, _secret -> record.(:restore) end,
+      compare: fn _destination, _restored, _expected -> record.(:compare) end
+    }
+
+    assert_raise Mix.Error, "notes browser restore failed", fn ->
+      BrowserRestore.__execute__(request, expected, adapters)
+    end
+
+    assert [:allocate, :drop] = Agent.get(recorder, &Enum.reverse/1)
   end
 
   test "browser restore is test-only, preferred by Mix, and reports generic secret-safe errors" do
@@ -723,6 +876,67 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     after
       Mix.env(previous_env)
     end
+  end
+
+  @tag :tmp_dir
+  test "test-environment restore comparison failure is generic, marker-free, and dropped", %{
+    tmp_dir: tmp_dir
+  } do
+    %{arguments: arguments, state: state} = browser_restore_fixture!(tmp_dir)
+    canary = "CANARY_PRIVATE_RESTORE_COMPARISON"
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :restore_failure_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    adapters = %{
+      allocate: fn ->
+        record.(:allocate)
+        :destination
+      end,
+      create: fn :destination -> record.(:create) end,
+      drop: fn :destination -> record.(:drop) end,
+      assert_no_listener: fn -> record.(:assert_no_listener) end,
+      read_descriptor_once: fn 0 -> {:ok, "descriptor-only-secret"} end,
+      restore: fn :destination, _request, _secret ->
+        record.(:restore)
+        {:ok, %{manifest_id: "10000000-0000-4000-8000-000000000004"}}
+      end,
+      compare: fn :destination, _restored, expected ->
+        assert expected.notes |> hd() |> Map.fetch!(:markdown) =~ "CANARY_PRIVATE_MARKDOWN"
+        record.(:compare)
+        raise canary
+      end
+    }
+
+    dependencies = %{
+      execute: fn request, expected ->
+        BrowserRestore.__execute__(request, expected, adapters)
+      end,
+      load_application_config: fn -> :ok end,
+      load_expected: &BrowserRestore.load_expected/1,
+      load_state: fn -> {:ok, state} end
+    }
+
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, "notes browser restore failed", fn ->
+          BrowserRestore.__run__(arguments, dependencies)
+        end
+      end)
+
+    assert output == ""
+    refute output =~ canary
+    refute output =~ "notes_browser_restore_ok=true"
+
+    assert [
+             :allocate,
+             :assert_no_listener,
+             :create,
+             :assert_no_listener,
+             :restore,
+             :assert_no_listener,
+             :compare,
+             :drop
+           ] = Agent.get(recorder, &Enum.reverse/1)
   end
 
   @tag :tmp_dir

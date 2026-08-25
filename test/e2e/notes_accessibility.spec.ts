@@ -39,35 +39,116 @@ async function axeClean(page: Page, state: string): Promise<void> {
 }
 
 async function expectNoOverflow(page: Page, state: string): Promise<void> {
-  const geometry = await page.evaluate(() => {
+  const geometry = await workspaceGeometry(page);
+
+  expect(geometry.scrollWidth, `${state} horizontal document geometry`).toBeLessThanOrEqual(
+    geometry.clientWidth,
+  );
+}
+
+async function workspaceGeometry(page: Page) {
+  return page.evaluate(() => {
     const workspace = document.querySelector<HTMLElement>('[aria-label="Private notes workspace"]');
     if (!workspace) throw new Error("Missing private notes workspace");
     const activePanel = workspace.dataset.activePanel;
     const namedPanels = [...workspace.querySelectorAll<HTMLElement>("[data-panel]")].map(
       (panel) => ({
         name: panel.dataset.panel,
-        visible: getComputedStyle(panel).display !== "none",
-        width: panel.getBoundingClientRect().width,
+        rect: {
+          width: panel.getBoundingClientRect().width,
+          x: panel.getBoundingClientRect().x,
+        },
+        visible:
+          getComputedStyle(panel).display !== "none" && panel.getBoundingClientRect().width > 0,
       }),
     );
     return {
       activePanel,
       clientWidth: document.documentElement.clientWidth,
       namedPanels,
+      panelSwitcherVisible:
+        getComputedStyle(workspace.querySelector<HTMLElement>(".notes-panel-switcher")!).display !==
+        "none",
       scrollWidth: document.documentElement.scrollWidth,
     };
   });
+}
 
+async function expectPanelLayout(
+  page: Page,
+  state: string,
+  expected: "narrow-rail" | "narrow-editor" | "desktop-editor",
+): Promise<void> {
+  const geometry = await workspaceGeometry(page);
+  const panels = Object.fromEntries(geometry.namedPanels.map((panel) => [panel.name, panel]));
+
+  expect(
+    geometry.namedPanels.map(({ name }) => name),
+    `${state} panel DOM order`,
+  ).toEqual(["rail", "editor", "drawer-controls"]);
   expect(geometry.scrollWidth, `${state} horizontal document geometry`).toBeLessThanOrEqual(
     geometry.clientWidth,
   );
-  expect(["rail", "editor", "drawer"]).toContain(geometry.activePanel);
-  expect(
-    geometry.namedPanels.some(
-      (panel) => panel.name === geometry.activePanel && panel.visible && panel.width > 0,
-    ),
-    `${state} active named panel geometry`,
-  ).toBe(true);
+
+  if (expected === "narrow-rail") {
+    expect(geometry.activePanel).toBe("rail");
+    expect(geometry.panelSwitcherVisible).toBe(true);
+    expect(panels.rail.visible).toBe(true);
+    expect(panels.editor.visible).toBe(false);
+    expect(panels["drawer-controls"].visible).toBe(false);
+    expect(panels.rail.rect.width).toBeLessThanOrEqual(geometry.clientWidth);
+    return;
+  }
+
+  expect(geometry.activePanel).toBe("editor");
+  expect(panels.editor.visible).toBe(true);
+  expect(panels["drawer-controls"].visible).toBe(false);
+
+  if (expected === "narrow-editor") {
+    expect(geometry.panelSwitcherVisible).toBe(true);
+    expect(panels.rail.visible).toBe(false);
+    expect(panels.editor.rect.width).toBeLessThanOrEqual(geometry.clientWidth);
+  } else {
+    expect(geometry.panelSwitcherVisible).toBe(false);
+    expect(panels.rail.visible).toBe(true);
+    expect(panels.rail.rect.x).toBeLessThan(panels.editor.rect.x);
+    expect(panels.editor.rect.width).toBeGreaterThan(panels.rail.rect.width);
+  }
+}
+
+async function reducedMotionSamples(page: Page) {
+  return page.evaluate(() => {
+    const seconds = (value: string) =>
+      value.split(",").map((part) => {
+        const time = part.trim();
+        return time.endsWith("ms") ? Number.parseFloat(time) / 1000 : Number.parseFloat(time) || 0;
+      });
+    const window = (durations: number[], delays: number[]) =>
+      Math.max(
+        0,
+        ...durations.map(
+          (duration, index) => duration + Math.max(delays[index % delays.length] ?? 0, 0),
+        ),
+      );
+
+    return [
+      ["rail", ".notes-rail"],
+      ["editor", ".notes-editor"],
+      ["drawer-slot", ".notes-drawer-slot"],
+      ["panel-control", ".notes-panel-switcher button"],
+      ["new-control", ".notes-new"],
+      ["search-control", ".notes-search input"],
+    ].map(([label, selector]) => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error("Missing reduced-motion sample");
+      const style = getComputedStyle(element);
+      return {
+        label,
+        animationWindow: window(seconds(style.animationDuration), seconds(style.animationDelay)),
+        transitionWindow: window(seconds(style.transitionDuration), seconds(style.transitionDelay)),
+      };
+    });
+  });
 }
 
 async function openNotesByKeyboard(page: Page): Promise<void> {
@@ -138,7 +219,9 @@ test("Notes is keyboard complete, responsive, themed, reduced-motion, and axe cl
     await expect(drawer).toHaveCount(0);
     await expect(preview).toBeFocused();
 
-    await page.getByLabel("Markdown source", { exact: true }).focus();
+    const dirtyMarkdown = page.getByLabel("Markdown source", { exact: true });
+    await tabTo(page, dirtyMarkdown);
+    await expect(dirtyMarkdown).toBeFocused();
     await page.keyboard.press("End");
     await page.keyboard.insertText(" dirty");
     await expect(page.getByText("Version 1 · Unsaved changes", { exact: true })).toBeVisible();
@@ -177,14 +260,16 @@ test("Notes is keyboard complete, responsive, themed, reduced-motion, and axe cl
   try {
     await test.step("keyboard canonical edit, competing conflict, merge, Trash, and restore", async () => {
       const markdown = page.getByLabel("Markdown source", { exact: true });
-      await markdown.focus();
+      await tabTo(page, markdown);
+      await expect(markdown).toBeFocused();
       await page.keyboard.press("Control+a");
       await page.keyboard.insertText(canonicalMarkdown);
       await page.keyboard.press("Control+s");
       await expect(page.getByText("Version 2 · Saved", { exact: true })).toBeVisible();
 
       const competing = second.page.getByLabel("Markdown source", { exact: true });
-      await competing.focus();
+      await tabTo(second.page, competing);
+      await expect(competing).toBeFocused();
       await second.page.keyboard.press("Control+a");
       await second.page.keyboard.insertText(competingMarkdown);
       await second.page.keyboard.press("Control+s");
@@ -205,7 +290,8 @@ test("Notes is keyboard complete, responsive, themed, reduced-motion, and axe cl
         second.page.getByRole("button", { name: "Merge these versions", exact: true }),
       );
       const mergeEditor = second.page.getByLabel("Markdown source", { exact: true });
-      await mergeEditor.focus();
+      await tabTo(second.page, mergeEditor);
+      await expect(mergeEditor).toBeFocused();
       await second.page.keyboard.press("Control+a");
       await second.page.keyboard.insertText(mergedMarkdown);
       await second.page.keyboard.press("Control+s");
@@ -230,13 +316,26 @@ test("Notes is keyboard complete, responsive, themed, reduced-motion, and axe cl
       for (const width of [390, 900, 1280]) {
         await second.page.setViewportSize({ width, height: 900 });
         if (width < 1008) {
-          await second.page.getByRole("button", { name: "Show notes", exact: true }).click();
+          await activate(
+            second.page,
+            second.page.getByRole("button", { name: "Show notes", exact: true }),
+          );
           await expect(
             second.page.locator('[aria-label="Private notes workspace"]'),
           ).toHaveAttribute("data-active-panel", "rail");
+          await expectPanelLayout(second.page, `${width}px rail`, "narrow-rail");
+          await axeClean(second.page, `${width}px rail`);
+
+          await activate(
+            second.page,
+            second.page.getByRole("button", { name: "Show editor", exact: true }),
+          );
+          await expectPanelLayout(second.page, `${width}px editor`, "narrow-editor");
+          await axeClean(second.page, `${width}px editor`);
+        } else {
+          await expectPanelLayout(second.page, `${width}px editor`, "desktop-editor");
+          await axeClean(second.page, `${width}px editor`);
         }
-        await expectNoOverflow(second.page, `${width}px Notes workspace`);
-        await axeClean(second.page, `${width}px Notes workspace`);
       }
     });
 
@@ -261,17 +360,25 @@ test("Notes is keyboard complete, responsive, themed, reduced-motion, and axe cl
       await axeClean(second.page, "dark Notes workspace");
 
       await second.page.emulateMedia({ reducedMotion: "reduce" });
-      const motion = await second.page
-        .locator('[aria-label="Private notes workspace"]')
-        .evaluate((workspace) => {
-          const style = getComputedStyle(workspace);
-          return {
-            animation: Number.parseFloat(style.animationDuration) || 0,
-            transition: Number.parseFloat(style.transitionDuration) || 0,
-          };
-        });
-      expect(motion.animation).toBeLessThanOrEqual(0.00001);
-      expect(motion.transition).toBeLessThanOrEqual(0.00001);
+      const motion = await reducedMotionSamples(second.page);
+      expect(motion.map(({ label }) => label)).toEqual([
+        "rail",
+        "editor",
+        "drawer-slot",
+        "panel-control",
+        "new-control",
+        "search-control",
+      ]);
+      for (const sample of motion) {
+        expect(
+          sample.animationWindow,
+          `${sample.label} effective animation window`,
+        ).toBeLessThanOrEqual(0.00001);
+        expect(
+          sample.transitionWindow,
+          `${sample.label} effective transition window`,
+        ).toBeLessThanOrEqual(0.00001);
+      }
       await expectNoOverflow(second.page, "reduced-motion Notes workspace");
       await axeClean(second.page, "reduced-motion Notes workspace");
     });

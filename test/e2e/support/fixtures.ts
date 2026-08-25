@@ -48,6 +48,12 @@ type RestoreInput = {
 
 type RestoreResult = { marker: "notes_browser_restore_ok=true" };
 
+export type BrowserRestoreInvocation = {
+  args: string[];
+  environment: NodeJS.ProcessEnv;
+  input: string;
+};
+
 type BrowserActions = {
   browserState: BrowserState;
   loginAsOwner: () => Promise<void>;
@@ -220,6 +226,29 @@ function writeExpectedSnapshot(snapshot: unknown): string {
   return expectedPath;
 }
 
+export function browserRestoreInvocation(
+  source: string,
+  expected: string,
+  passphrase: string,
+): BrowserRestoreInvocation {
+  const args = [
+    "singularity.test.browser_restore",
+    "--source",
+    source,
+    "--expected",
+    expected,
+    "--passphrase-fd",
+    "0",
+  ];
+  const environment = { ...process.env, MIX_ENV: "test" };
+
+  if (args.includes(passphrase) || Object.values(environment).includes(passphrase)) {
+    throw new Error("Restore secret transport is invalid");
+  }
+
+  return { args, environment, input: passphrase };
+}
+
 function runBrowserRestore(input: RestoreInput): RestoreResult {
   const state = loadBrowserState();
   const source = realpathSync(input.source);
@@ -230,26 +259,15 @@ function runBrowserRestore(input: RestoreInput): RestoreResult {
   const expected = writeExpectedSnapshot(input.expectedSnapshot);
 
   try {
-    const child = spawnSync(
-      "mix",
-      [
-        "singularity.test.browser_restore",
-        "--source",
-        source,
-        "--expected",
-        expected,
-        "--passphrase-fd",
-        "0",
-      ],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        env: { ...process.env, MIX_ENV: "test" },
-        input: input.passphrase,
-        killSignal: "SIGKILL",
-        timeout: 120_000,
-      },
-    );
+    const invocation = browserRestoreInvocation(source, expected, input.passphrase);
+    const child = spawnSync("mix", invocation.args, {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: invocation.environment,
+      input: invocation.input,
+      killSignal: "SIGKILL",
+      timeout: 120_000,
+    });
 
     if (child.error || child.signal || child.status !== 0) {
       throw new Error("Notes browser restore failed");

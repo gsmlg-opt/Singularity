@@ -26,6 +26,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   alias Singularity.Storage.TestEnvironment
 
   @failure_message "notes browser restore failed"
+  @web_endpoint :"Elixir.Singularity.Web.Endpoint"
   @uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @playwright_run_id ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   @storage_keys [
@@ -104,16 +105,18 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   end
 
   @impl Mix.Task
-  def run(arguments) do
+  def run(arguments), do: __run__(arguments, default_run_dependencies())
+
+  @doc false
+  def __run__(arguments, dependencies) when is_list(arguments) and is_map(dependencies) do
     result =
       try do
         with :ok <- require_test_environment(),
-             :ok <- load_application_config(),
-             {:ok, state} <- load_state(),
+             :ok <- dependencies.load_application_config.(),
+             {:ok, state} <- dependencies.load_state.(),
              {:ok, request} <- parse(arguments, state),
-             {:ok, expected} <- load_expected(request.expected_snapshot),
-             previous_environment = snapshot_environment(),
-             :ok <- execute_with_environment(request, expected, previous_environment) do
+             {:ok, expected} <- dependencies.load_expected.(request.expected_snapshot),
+             :ok <- dependencies.execute.(request, expected) do
           :ok
         else
           _failure -> :error
@@ -132,6 +135,8 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
         Mix.raise(@failure_message)
     end
   end
+
+  def __run__(_arguments, _dependencies), do: Mix.raise(@failure_message)
 
   @doc false
   def parse(arguments, state) when is_list(arguments) and is_map(state) do
@@ -196,9 +201,14 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
       destination = adapters.allocate.()
 
       try do
+        :ok = validate_expected_vault(request, expected)
+        :ok = adapters.assert_no_listener.()
         :ok = adapters.create.(destination)
+        :ok = adapters.assert_no_listener.()
         {:ok, restored} = adapters.restore.(destination, request, passphrase)
+        :ok = adapters.assert_no_listener.()
         :ok = adapters.compare.(destination, restored, expected)
+        :ok = adapters.assert_no_listener.()
         :ok
       after
         adapters.drop.(destination)
@@ -209,6 +219,18 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   end
 
   def __execute__(_request, _expected, _adapters), do: raise(@failure_message)
+
+  defp default_run_dependencies do
+    %{
+      execute: fn request, expected ->
+        previous_environment = snapshot_environment()
+        execute_with_environment(request, expected, previous_environment)
+      end,
+      load_application_config: &load_application_config/0,
+      load_expected: &load_expected/1,
+      load_state: &load_state/0
+    }
+  end
 
   defp execute_with_environment(request, expected, previous_environment) do
     try do
@@ -222,6 +244,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   defp default_adapters do
     %{
       allocate: &TestEnvironment.allocate!/0,
+      assert_no_listener: &assert_no_listener/0,
       create: &create_destination/1,
       drop: &drop_destination/1,
       read_descriptor_once: &read_descriptor_once/1,
@@ -239,6 +262,30 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     {:ok, _repo} = MigrationRepo.start_link(pool_size: 2)
     :ok
   end
+
+  defp assert_no_listener do
+    endpoint = Process.whereis(@web_endpoint)
+
+    web_started? =
+      Enum.any?(Application.started_applications(), fn {application, _description, _version} ->
+        application == :singularity_web
+      end)
+
+    if is_nil(endpoint) and not web_started?, do: :ok, else: Mix.raise(@failure_message)
+  end
+
+  defp validate_expected_vault(
+         %{primary_vault_id: vault_id},
+         %{vault_id: vault_id}
+       )
+       when is_binary(vault_id) do
+    case Ecto.UUID.cast(vault_id) do
+      {:ok, ^vault_id} -> :ok
+      _invalid -> Mix.raise(@failure_message)
+    end
+  end
+
+  defp validate_expected_vault(_request, _expected), do: Mix.raise(@failure_message)
 
   defp drop_destination(destination) do
     stop_runtime_and_repositories()

@@ -1,9 +1,15 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Browser, Page, WebSocket } from "@playwright/test";
+import type { Browser, Page, Response, WebSocket } from "@playwright/test";
 
-import { expect, loginAndUnlock, test, type BrowserState } from "./support/fixtures";
+import {
+  browserRestoreInvocation,
+  expect,
+  loginAndUnlock,
+  test,
+  type BrowserState,
+} from "./support/fixtures";
 
 test.use({ screenshot: "off", trace: "off", video: "off" });
 
@@ -163,6 +169,25 @@ function privateSurfaceAbsent(surface: string, privateValues: readonly string[])
   return privateValues.every((value) => !surface.includes(value));
 }
 
+async function domSurface(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    JSON.stringify({
+      controls: [
+        ...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input,textarea"),
+      ].map((control) => control.value),
+      html: document.body.innerHTML,
+      text: document.body.innerText,
+    }),
+  );
+}
+
+function requiredPrivateCoordinate(value: unknown): string {
+  if (typeof value !== "string" || value === "") {
+    throw new Error("Private workflow coordinate is unavailable");
+  }
+  return value;
+}
+
 async function openNotes(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Notes", exact: true }).click();
   await expect(page).toHaveURL("/notes");
@@ -191,6 +216,28 @@ function singleBundle(state: BrowserState): string {
   return realpathSync(bundles[0]);
 }
 
+test("restore wrapper transports its secret only through stdin fd 0", async () => {
+  const passphrase = `transport-${crypto.randomUUID()}`;
+  const invocation = browserRestoreInvocation(
+    "/public/source.bundle",
+    "/private/expected.json",
+    passphrase,
+  );
+
+  expect(invocation.args).toEqual([
+    "singularity.test.browser_restore",
+    "--source",
+    "/public/source.bundle",
+    "--expected",
+    "/private/expected.json",
+    "--passphrase-fd",
+    "0",
+  ]);
+  expect(invocation.args.includes(passphrase)).toBe(false);
+  expect(Object.values(invocation.environment).includes(passphrase)).toBe(false);
+  expect(invocation.input === passphrase).toBe(true);
+});
+
 test("private Notes survives conflict, backup restore, isolation, and terminal purge", async ({
   browser,
   browserState,
@@ -216,6 +263,10 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
     canonicalMarkdown,
     competingMarkdown,
     mergedMarkdown,
+    "CANARY_PRIVATE_INITIAL",
+    "CANARY_PRIVATE_CANONICAL",
+    "CANARY_PRIVATE_COMPETING",
+    "CANARY_PRIVATE_MERGED",
   ];
   const capture = bridgeCapture(page);
   let secondPrimaryContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
@@ -228,6 +279,7 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
   let merged: Record<string, unknown>;
   let exportHeaders: Record<string, string>;
   let exportBytes: string;
+  let targetPrivateReferences: string[] = privateValues;
 
   await loginAsPrimary();
   await unlockPrimary();
@@ -277,7 +329,24 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
         page.getByRole("button", { name: `Open ${canonicalTitle}`, exact: true }),
       ).toBeVisible();
       const search = successfulResult(await capture.reply("note:search"), "search");
-      expect(Array.isArray(search.items) && search.items.length === 1).toBe(true);
+      const canonicalNote = canonical.canonical;
+      const items = search.items;
+
+      if (
+        !record(canonicalNote) ||
+        !Array.isArray(items) ||
+        items.length !== 1 ||
+        !record(items[0])
+      ) {
+        throw new Error("Canonical search result is incomplete");
+      }
+
+      expect(canonicalNote.revision).toBe(1);
+      expect(canonicalNote.displayVersion).toBe(2);
+      expect(items[0].resourceId === canonicalNote.resourceId).toBe(true);
+      expect(items[0].resourceVersionId === canonicalNote.resourceVersionId).toBe(true);
+      expect(items[0].revision === canonicalNote.revision).toBe(true);
+      expect(items[0].displayVersion === canonicalNote.displayVersion).toBe(true);
     });
 
     await test.step("preserve a competing old-base save and merge its exact two parents", async () => {
@@ -321,6 +390,30 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
       const mergeCanonical = merged.canonical as Record<string, unknown>;
       expect(mergeCanonical.revision).toBe(3);
       await expect(secondPrimaryPage.getByText("Version 4 · Saved", { exact: true })).toBeVisible();
+
+      const canonicalNote = canonical.canonical as Record<string, unknown>;
+      const current = conflictDetail.current as Record<string, unknown>;
+      const competing = conflictDetail.competing as Record<string, unknown>;
+
+      targetPrivateReferences = [
+        ...privateValues,
+        requiredPrivateCoordinate(created.resourceId),
+        requiredPrivateCoordinate(created.resourceVersionId),
+        requiredPrivateCoordinate(canonicalNote.resourceVersionId),
+        requiredPrivateCoordinate(competingSave.submittedVersionId),
+        requiredPrivateCoordinate(mergeCanonical.resourceVersionId),
+        requiredPrivateCoordinate(conflictDetail.conflictId),
+        requiredPrivateCoordinate(conflictDetail.baseVersionId),
+        requiredPrivateCoordinate(conflictDetail.observedCanonicalVersionId),
+        requiredPrivateCoordinate(current.resourceVersionId),
+        requiredPrivateCoordinate(current.parentVersionId),
+        requiredPrivateCoordinate(competing.resourceVersionId),
+        requiredPrivateCoordinate(competing.parentVersionId),
+        "Version 1 · Saved",
+        "Version 2 · Saved",
+        "Version 3 · Saved",
+        "Version 4 · Saved",
+      ].filter((value, index, values) => values.indexOf(value) === index);
     });
 
     await test.step("export exact bytes and headers, tombstone, prove absence, and restore", async () => {
@@ -377,16 +470,36 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
         const secondaryFrames = bridgeCapture(secondaryPage);
         await loginAndUnlock(secondaryPage, "secondary");
         await openNotes(secondaryPage);
-        await secondaryPage.getByLabel("Search notes", { exact: true }).fill(mergedTitle);
+        const secondaryQuery = secondaryPage.getByLabel("Search notes", { exact: true });
+        await secondaryQuery.fill(mergedTitle);
         await secondaryPage.getByRole("button", { name: "Search", exact: true }).click();
-        const workspaceText = await secondaryPage.locator("body").innerText();
-        expect(privateSurfaceAbsent(workspaceText, privateValues)).toBe(true);
-        expect(workspaceText.includes(String(created.resourceId))).toBe(false);
         const search = successfulResult(
           await secondaryFrames.reply("note:search"),
           "secondary search",
         );
         expect(Array.isArray(search.items) && search.items.length === 0).toBe(true);
+        await secondaryQuery.fill("");
+
+        expect((await secondaryPage.locator(".notes-count").textContent()) === "0").toBe(true);
+        expect(privateSurfaceAbsent(await domSurface(secondaryPage), targetPrivateReferences)).toBe(
+          true,
+        );
+        expect(
+          privateSurfaceAbsent(
+            JSON.stringify(secondaryFrames.receivedFrames),
+            targetPrivateReferences,
+          ),
+        ).toBe(true);
+
+        const directNotes = await secondaryPage.request.get("/notes");
+        const directNotesSurface = JSON.stringify({
+          body: await directNotes.text(),
+          headers: directNotes.headers(),
+          status: directNotes.status(),
+        });
+        expect(directNotes.status()).toBe(200);
+        expect(privateSurfaceAbsent(directNotesSurface, targetPrivateReferences)).toBe(true);
+
         const forbiddenExport = await secondaryPage.request.get(
           `/api/v1/notes/${created.resourceId}/export`,
         );
@@ -396,7 +509,7 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
           headers: forbiddenExport.headers(),
           frames: secondaryFrames.receivedFrames,
         });
-        expect(privateSurfaceAbsent(forbiddenSurface, privateValues)).toBe(true);
+        expect(privateSurfaceAbsent(forbiddenSurface, targetPrivateReferences)).toBe(true);
       } finally {
         await secondaryContext.close();
       }
@@ -509,21 +622,26 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
 
       secondCapture.clear();
       const responseSurfaces: string[] = [];
-      secondPrimaryPage.on("response", async (response) => {
-        try {
-          responseSurfaces.push(
-            JSON.stringify({
-              headers: response.headers(),
-              status: response.status(),
-              body: await response.text(),
-            }),
-          );
-        } catch {
-          responseSurfaces.push(
-            JSON.stringify({ headers: response.headers(), status: response.status() }),
-          );
-        }
-      });
+      const responseCaptures: Promise<void>[] = [];
+      const captureResponse = (response: Response) => {
+        const capture = (async () => {
+          try {
+            responseSurfaces.push(
+              JSON.stringify({
+                headers: response.headers(),
+                status: response.status(),
+                body: await response.text(),
+              }),
+            );
+          } catch {
+            responseSurfaces.push(
+              JSON.stringify({ headers: response.headers(), status: response.status() }),
+            );
+          }
+        })();
+        responseCaptures.push(capture);
+      };
+      secondPrimaryPage.on("response", captureResponse);
 
       await secondPrimaryPage.evaluate(async () => {
         const csrf = document
@@ -541,8 +659,10 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
       await expect(
         secondPrimaryPage.getByRole("heading", { name: "Vault access ended", level: 1 }),
       ).toBeVisible();
-      const terminalText = await secondPrimaryPage.locator("body").innerText();
-      expect(privateSurfaceAbsent(terminalText, privateValues)).toBe(true);
+      expect(
+        privateSurfaceAbsent(await domSurface(secondPrimaryPage), targetPrivateReferences),
+      ).toBe(true);
+      expect(await secondPrimaryPage.locator(".notes-count").count()).toBe(0);
 
       const exportAfterLogout = await secondPrimaryPage.request.get(
         `/api/v1/notes/${created.resourceId}/export`,
@@ -553,27 +673,29 @@ test("private Notes survives conflict, backup restore, isolation, and terminal p
         status: exportAfterLogout.status(),
       });
       expect(exportAfterLogout.status()).toBe(401);
-      expect(privateSurfaceAbsent(exportAfterLogoutSurface, privateValues)).toBe(true);
+      expect(privateSurfaceAbsent(exportAfterLogoutSurface, targetPrivateReferences)).toBe(true);
 
       const notesResponse = await secondPrimaryPage.goto("/notes");
       expect(notesResponse).not.toBeNull();
       await expect(secondPrimaryPage).toHaveURL(/\/(login|vault\/unlock)$/);
+      await secondPrimaryPage.waitForLoadState("networkidle");
+      secondPrimaryPage.off("response", captureResponse);
+      await Promise.all(responseCaptures);
+
+      const directNotesSurface = JSON.stringify({
+        body: notesResponse === null ? "" : await notesResponse.text(),
+        headers: notesResponse?.headers() ?? {},
+        status: notesResponse?.status() ?? 0,
+      });
       const finalSurface = JSON.stringify({
-        dom: await secondPrimaryPage.locator("body").innerText(),
-        frames: secondCapture.rawFrames,
+        directNotes: directNotesSurface,
+        dom: await domSurface(secondPrimaryPage),
+        frames: secondCapture.receivedFrames,
         responses: responseSurfaces,
       });
-      expect(privateSurfaceAbsent(finalSurface, privateValues)).toBe(true);
-      expect(finalSurface.includes(String(created.resourceId))).toBe(false);
-      expect(finalSurface.includes(String(mergeCanonicalId(merged)))).toBe(false);
+      expect(privateSurfaceAbsent(finalSurface, targetPrivateReferences)).toBe(true);
     });
   } finally {
     await secondPrimaryContext?.close();
   }
 });
-
-function mergeCanonicalId(merged: Record<string, unknown>): string {
-  return record(merged.canonical) && typeof merged.canonical.resourceVersionId === "string"
-    ? merged.canonical.resourceVersionId
-    : "invalid-merge-version";
-}
