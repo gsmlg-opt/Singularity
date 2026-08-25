@@ -24,6 +24,10 @@ import { WorkspaceStore } from "../js/notes_workspace/state";
 const id = (suffix: string) => `019f9f65-acde-7a31-bf09-${suffix.padStart(12, "0")}`;
 const updatedAt = "2026-08-20T12:00:00.000000Z";
 const mutationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const signatureCollisionDrafts = [
+  { title: "alpha|beta", markdown: 'gamma\n{"json":"left|right"}' },
+  { title: "alpha", markdown: 'beta|gamma\n{"json":"left|right"}' },
+] as const;
 
 function summary(overrides: Partial<NoteSummary> = {}): NoteSummary {
   return {
@@ -782,6 +786,126 @@ describe("NotesWorkspace", () => {
     expect(store.getSnapshot().selection?.title).toBe("Ambiguous create");
   });
 
+  it("accepts the authoritative current Note returned by a retained Create replay", async () => {
+    const current = createdNote({
+      resourceVersionId: id("24"),
+      revision: 1,
+      displayVersion: 2,
+      title: "Concurrent current title",
+      markdown: "Concurrent current Markdown.",
+    });
+    let committedMutationId: string | null = null;
+    testBridge.create = vi.fn(async (request) => {
+      if (committedMutationId === null) {
+        committedMutationId = request.mutationId;
+        return {
+          ok: false as const,
+          error: { code: "storage_unavailable" as const },
+        };
+      }
+      return request.mutationId === committedMutationId
+        ? { ok: true as const, result: current }
+        : {
+            ok: false as const,
+            error: { code: "storage_unavailable" as const },
+          };
+    });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Originally submitted title");
+    await change(input(container, "Markdown source"), "Originally submitted Markdown.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(store.getSnapshot().selection).toEqual(current);
+    expect(store.getSnapshot().draft).toEqual({
+      title: "Concurrent current title",
+      markdown: "Concurrent current Markdown.",
+    });
+    expect(container.querySelector('[aria-label="Open Concurrent current title"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Notes workspace status"]')?.textContent).toBe(
+      "Note created.",
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("rejects a newer current Note returned on the first Create issuance", async () => {
+    const unexpectedCurrent = createdNote({
+      resourceVersionId: id("24"),
+      revision: 1,
+      displayVersion: 2,
+      title: "Unexpected current title",
+      markdown: "Unexpected current Markdown.",
+    });
+    testBridge.create = vi.fn(async () => ({ ok: true, result: unexpectedCurrent }));
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "First issuance title");
+    await change(input(container, "Markdown source"), "First issuance Markdown.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(store.getSnapshot().selection).toBeNull();
+    expect((input(container, "Note title") as HTMLInputElement).value).toBe("First issuance title");
+    expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+      "First issuance Markdown.",
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
+  });
+
+  it.each([
+    ["tombstoned", { deleted: true }],
+    ["revision-inconsistent", { revision: 1, displayVersion: 3 }],
+  ] satisfies [string, Partial<Note>][])(
+    "rejects a %s Note returned by a retained Create replay",
+    async (_case, invalidCurrent) => {
+      testBridge.create = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false as const,
+          error: { code: "storage_unavailable" as const },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          result: createdNote({
+            resourceVersionId: id("24"),
+            revision: 1,
+            displayVersion: 2,
+            ...invalidCurrent,
+          }),
+        });
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "Replay invariant title");
+      await change(input(container, "Markdown source"), "Replay invariant Markdown.");
+
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(store.getSnapshot().selection).toBeNull();
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
+    },
+  );
+
   it("uses a new Create UUID for an intentional command after an earlier success", async () => {
     let creation = 0;
     testBridge.create = vi.fn(async (request) => {
@@ -843,6 +967,32 @@ describe("NotesWorkspace", () => {
     expect(requests).toHaveLength(2);
     expect(requests[0]?.mutationId).toMatch(mutationIdPattern);
     expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("does not collide Create signatures containing delimiter-like content", async () => {
+    const [first, second] = signatureCollisionDrafts;
+    expect([first.title, first.markdown].join("|")).toBe([second.title, second.markdown].join("|"));
+    testBridge.create = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), first.title);
+    await change(input(container, "Markdown source"), first.markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Note title"), second.title);
+    await change(input(container, "Markdown source"), second.markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests.map(({ title, markdown }) => ({ title, markdown }))).toEqual([first, second]);
     expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
   });
 
@@ -1267,6 +1417,34 @@ describe("NotesWorkspace", () => {
     expect(requests).toHaveLength(2);
     expect(requests[0]?.mutationId).toMatch(mutationIdPattern);
     expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("does not collide Save signatures containing delimiter-like content", async () => {
+    const [first, second] = signatureCollisionDrafts;
+    expect([id("1"), id("2"), first.title, first.markdown].join("|")).toBe(
+      [id("1"), id("2"), second.title, second.markdown].join("|"),
+    );
+    testBridge.save = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await change(input(container, "Note title"), first.title);
+    await change(input(container, "Markdown source"), first.markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Note title"), second.title);
+    await change(input(container, "Markdown source"), second.markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(requests.map(({ title, markdown }) => ({ title, markdown }))).toEqual([first, second]);
     expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
   });
 
@@ -2205,6 +2383,34 @@ describe("NotesWorkspace", () => {
     expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
     expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
     expect(requests[1]?.markdown).toBe("Changed merged Markdown.");
+  });
+
+  it("does not collide Merge signatures containing delimiter-like content", async () => {
+    const [first, second] = signatureCollisionDrafts;
+    expect([id("1"), id("5"), id("4"), id("6"), first.title, first.markdown].join("|")).toBe(
+      [id("1"), id("5"), id("4"), id("6"), second.title, second.markdown].join("|"),
+    );
+    await enterMergeMode();
+    testBridge.merge = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await change(input(container, "Note title"), first.title);
+    await change(input(container, "Markdown source"), first.markdown);
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Note title"), second.title);
+    await change(input(container, "Markdown source"), second.markdown);
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.merge).mock.calls.map(([request]) => request);
+    expect(requests.map(({ title, markdown }) => ({ title, markdown }))).toEqual([first, second]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
   });
 
   it("uses a new Merge UUID when conflict command identifiers change", async () => {

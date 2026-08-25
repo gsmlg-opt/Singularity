@@ -29,6 +29,7 @@ type Notice = { tone: "error" | "info"; text: string };
 type Draft = { title: string; markdown: string };
 type MutationKind = "create" | "save" | "merge" | "delete" | "restore";
 type RetainedMutation = { signature: string; mutationId: string };
+type MutationIssue = { mutationId: string; replayCandidate: boolean };
 type PendingAction =
   | { kind: "navigate"; target: NavigationTarget; trigger: HTMLElement }
   | { kind: "open"; summary: NoteSummary; trigger: HTMLElement }
@@ -144,6 +145,10 @@ function createResultMatches(note: Note, submitted: Draft): boolean {
     note.title === submitted.title &&
     note.markdown === submitted.markdown
   );
+}
+
+function createReplayResultIsCurrent(note: Note): boolean {
+  return !note.deleted && note.displayVersion === note.revision + 1;
 }
 
 export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
@@ -334,14 +339,16 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     setMutationBusy(false);
   }
 
-  function mutationIdFor(kind: MutationKind, fields: readonly string[]): string {
+  function issueMutation(kind: MutationKind, fields: readonly string[]): MutationIssue {
     const signature = JSON.stringify(fields);
     const retained = retainedMutationsRef.current[kind];
-    if (retained?.signature === signature) return retained.mutationId;
+    if (retained?.signature === signature) {
+      return { mutationId: retained.mutationId, replayCandidate: true };
+    }
 
     const mutationId = canonicalMutationId();
     retainedMutationsRef.current[kind] = { signature, mutationId };
-    return mutationId;
+    return { mutationId, replayCandidate: false };
   }
 
   function clearRetainedMutation(kind: MutationKind, mutationId: string): void {
@@ -680,7 +687,10 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       title: submittedDraft.title.trim(),
       markdown: submittedDraft.markdown,
     };
-    const mutationId = mutationIdFor("create", [submitted.title, submitted.markdown]);
+    const { mutationId, replayCandidate } = issueMutation("create", [
+      submitted.title,
+      submitted.markdown,
+    ]);
     try {
       const reply = await bridge.create({
         version: 1,
@@ -688,7 +698,12 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         ...submitted,
       });
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
-      if (!reply.ok || !createResultMatches(reply.result, submitted)) {
+      if (
+        !reply.ok ||
+        (replayCandidate
+          ? !createReplayResultIsCurrent(reply.result)
+          : !createResultMatches(reply.result, submitted))
+      ) {
         setNotice(stableFailure("Create"));
         return;
       }
@@ -734,8 +749,8 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     const resourceId = editable.resourceId;
     const conflictDetail = mergeMode ? snapshot.conflict?.detail : null;
     const mutationKind: MutationKind = conflictDetail ? "merge" : "save";
-    const mutationId = conflictDetail
-      ? mutationIdFor("merge", [
+    const { mutationId } = conflictDetail
+      ? issueMutation("merge", [
           editable.resourceId,
           conflictDetail.conflictId,
           conflictDetail.current.resourceVersionId,
@@ -743,7 +758,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
           draft.title.trim(),
           draft.markdown,
         ])
-      : mutationIdFor("save", [
+      : issueMutation("save", [
           editable.resourceId,
           editable.resourceVersionId,
           draft.title.trim(),
@@ -810,7 +825,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     if (!token) return;
     const contextGeneration = contextGenerationRef.current;
     const resourceId = editable.resourceId;
-    const mutationId = mutationIdFor("delete", [resourceId, editable.resourceVersionId]);
+    const { mutationId } = issueMutation("delete", [resourceId, editable.resourceVersionId]);
     try {
       const reply = await bridge.delete({
         version: 1,
@@ -846,7 +861,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     if (!token) return;
     const contextGeneration = contextGenerationRef.current;
     const resourceId = item.summary.resourceId;
-    const mutationId = mutationIdFor("restore", [resourceId]);
+    const { mutationId } = issueMutation("restore", [resourceId]);
     try {
       const reply = await bridge.restore({
         version: 1,
