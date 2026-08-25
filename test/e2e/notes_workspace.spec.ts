@@ -344,6 +344,49 @@ test("restore cleanup failure remains generic and removes expected snapshot afte
   expect(existsSync(expectedPath)).toBe(false);
 });
 
+test("restore double failure reports cleanup risk after invoking deterministic cleanup", async () => {
+  const destinationRunId = "623e4567-e89b-42d3-a456-426614174000";
+  const passphrase = `double-failure-${crypto.randomUUID()}`;
+  const expectedPath = join(tmpdir(), `restore-double-failure-${crypto.randomUUID()}.json`);
+  const requests: Parameters<BrowserRestoreProcessDependencies["spawn"]>[0][] = [];
+
+  const dependencies: BrowserRestoreProcessDependencies = {
+    destinationRunId: () => destinationRunId,
+    removeExpected: (path) => rmSync(path, { force: true }),
+    spawn: (request) => {
+      requests.push(request);
+      return requests.length === 1
+        ? { error: null, signal: "SIGKILL", status: null, stderr: "", stdout: "" }
+        : { error: null, signal: "SIGKILL", status: null, stderr: "", stdout: "" };
+    },
+    writeExpected: (snapshot) => {
+      writeFileSync(expectedPath, JSON.stringify(snapshot), { flag: "wx", mode: 0o600 });
+      return expectedPath;
+    },
+  };
+
+  let failure = "";
+  try {
+    runBrowserRestoreWithDependencies(
+      { expectedSnapshot: { private: true }, passphrase, source: "/public/source.bundle" },
+      dependencies,
+    );
+  } catch (error) {
+    failure = error instanceof Error ? error.message : "unknown";
+  }
+
+  expect(failure).toBe("Notes browser restore cleanup failed");
+  expect(requests).toHaveLength(2);
+  expect(requests[1].args).toEqual([
+    "singularity.test.browser_restore",
+    "--cleanup-destination-run-id",
+    destinationRunId,
+  ]);
+  expect(requests[1].args.includes(passphrase)).toBe(false);
+  expect(Object.values(requests[1].environment).includes(passphrase)).toBe(false);
+  expect(existsSync(expectedPath)).toBe(false);
+});
+
 test("private Notes survives conflict, backup restore, isolation, and terminal purge", async ({
   browser,
   browserState,

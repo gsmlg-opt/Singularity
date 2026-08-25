@@ -380,8 +380,8 @@ export function runBrowserRestoreWithDependencies(
     dependencies.removeExpected(expected);
   }
 
-  if (normalFailure) throw normalFailure;
   if (cleanupFailure) throw cleanupFailure;
+  if (normalFailure) throw normalFailure;
   if (!result) throw new Error("Notes browser restore failed");
   return result;
 }
