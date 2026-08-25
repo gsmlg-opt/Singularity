@@ -62,7 +62,11 @@ defmodule Singularity.Storage.MigrationsTest do
     prepare_private_notes_migration!(context[:with_private_notes] == true)
     on_exit(&restore_all_migrations!/0)
 
+    # Migration DDL and the audit baseline are database-global, so this module
+    # remains async: false and removes only residue that Task 15 cannot map back.
     Fixtures.with_owner(fn ->
+      delete_unmappable_system_audit_events!()
+
       query!(
         MigrationRepo,
         """
@@ -1233,6 +1237,7 @@ defmodule Singularity.Storage.MigrationsTest do
 
   test "Task 15 audit downgrade rejects named system attribution without an initiating principal" do
     %{one: fixture} = Fixtures.two_vaults!()
+    baseline_event_ids = assert_precise_audit_baseline_cleanup!(fixture)
     event_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
     correlation_id = Ecto.UUID.generate() |> Ecto.UUID.dump!()
     fixture_vault_id = fixture.vault_id
@@ -1324,9 +1329,7 @@ defmodule Singularity.Storage.MigrationsTest do
 
         MigrationRepo.transaction(fn ->
           query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
-          query!(MigrationRepo, "ALTER TABLE audit.events DISABLE TRIGGER events_immutable")
-          query!(MigrationRepo, "DELETE FROM audit.events WHERE id = $1", [event_id])
-          query!(MigrationRepo, "ALTER TABLE audit.events ENABLE TRIGGER events_immutable")
+          delete_audit_events!([event_id | baseline_event_ids])
         end)
       after
         Supervisor.stop(migration_repo)
@@ -3340,6 +3343,139 @@ defmodule Singularity.Storage.MigrationsTest do
       :username,
       :password
     ])
+  end
+
+  defp assert_precise_audit_baseline_cleanup!(fixture) do
+    event_ids = for _index <- 1..4, do: Ecto.UUID.generate() |> Ecto.UUID.dump!()
+    correlation_ids = for _index <- 1..4, do: Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+    [unmappable_id, mappable_id, principal_id, anonymous_id] = event_ids
+
+    [unmappable_correlation, mappable_correlation, principal_correlation, anonymous_correlation] =
+      correlation_ids
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO audit.events (
+          id,
+          vault_id,
+          actor_kind,
+          principal_id,
+          anonymous_fingerprint,
+          system_principal_name,
+          operation,
+          result,
+          classification,
+          correlation_id,
+          target_type,
+          target_id,
+          metadata,
+          occurred_at
+        ) VALUES
+          (
+            $1, $5, 'system', NULL, NULL, 'migration_test.decoy',
+            'migration_test.unmappable', 'completed', 'private', $6,
+            'audit_event', $1, '{}'::jsonb, CURRENT_TIMESTAMP
+          ),
+          (
+            $2, $5, 'system', NULL, NULL, 'migration_test.mappable',
+            'migration_test.mappable', 'completed', 'private', $7,
+            'audit_event', $2,
+            jsonb_build_object('initiating_principal_id', $9::uuid),
+            CURRENT_TIMESTAMP
+          ),
+          (
+            $3, $5, 'principal', $9, NULL, NULL,
+            'migration_test.principal', 'completed', 'private', $8,
+            'audit_event', $3, '{}'::jsonb, CURRENT_TIMESTAMP
+          ),
+          (
+            $4, NULL, 'anonymous', NULL, $10, NULL,
+            'migration_test.anonymous', 'completed', 'private', $11,
+            'audit_event', $4, '{}'::jsonb, CURRENT_TIMESTAMP
+          )
+        """,
+        [
+          unmappable_id,
+          mappable_id,
+          principal_id,
+          anonymous_id,
+          fixture.vault_id,
+          unmappable_correlation,
+          mappable_correlation,
+          principal_correlation,
+          fixture.principal_id,
+          :crypto.hash(:sha256, "migration-test-anonymous"),
+          anonymous_correlation
+        ]
+      )
+
+      assert delete_unmappable_system_audit_events!() == 1
+
+      assert %{rows: rows} =
+               query!(
+                 MigrationRepo,
+                 """
+                 SELECT operation, actor_kind
+                 FROM audit.events
+                 WHERE id = ANY($1::uuid[])
+                 ORDER BY operation
+                 """,
+                 [event_ids]
+               )
+
+      assert rows == [
+               ["migration_test.anonymous", "anonymous"],
+               ["migration_test.mappable", "system"],
+               ["migration_test.principal", "principal"]
+             ]
+
+      event_ids
+    end)
+  end
+
+  defp delete_unmappable_system_audit_events! do
+    with_mutable_audit_events!(fn ->
+      %{num_rows: deleted_count} =
+        query!(
+          MigrationRepo,
+          """
+          DELETE FROM audit.events AS event
+          WHERE event.actor_kind = 'system'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM core.vault_members AS member
+              WHERE member.vault_id = event.vault_id
+                AND member.principal_id::text =
+                  event.metadata ->> 'initiating_principal_id'
+            )
+          """
+        )
+
+      deleted_count
+    end)
+  end
+
+  defp delete_audit_events!(event_ids) do
+    with_mutable_audit_events!(fn ->
+      query!(
+        MigrationRepo,
+        "DELETE FROM audit.events WHERE id = ANY($1::uuid[])",
+        [event_ids]
+      )
+    end)
+  end
+
+  defp with_mutable_audit_events!(operation) do
+    query!(MigrationRepo, "ALTER TABLE audit.events DISABLE TRIGGER events_immutable")
+
+    try do
+      operation.()
+    after
+      query!(MigrationRepo, "ALTER TABLE audit.events ENABLE TRIGGER events_immutable")
+    end
   end
 
   defp owner_query!(statement, parameters) do
