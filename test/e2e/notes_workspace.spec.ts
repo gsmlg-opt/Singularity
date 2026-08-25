@@ -1,4 +1,13 @@
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Browser, Page, Response, WebSocket } from "@playwright/test";
@@ -7,7 +16,9 @@ import {
   browserRestoreInvocation,
   expect,
   loginAndUnlock,
+  runBrowserRestoreWithDependencies,
   test,
+  type BrowserRestoreProcessDependencies,
   type BrowserState,
 } from "./support/fixtures";
 
@@ -218,10 +229,12 @@ function singleBundle(state: BrowserState): string {
 
 test("restore wrapper transports its secret only through stdin fd 0", async () => {
   const passphrase = `transport-${crypto.randomUUID()}`;
+  const destinationRunId = crypto.randomUUID();
   const invocation = browserRestoreInvocation(
     "/public/source.bundle",
     "/private/expected.json",
     passphrase,
+    destinationRunId,
   );
 
   expect(invocation.args).toEqual([
@@ -232,10 +245,103 @@ test("restore wrapper transports its secret only through stdin fd 0", async () =
     "/private/expected.json",
     "--passphrase-fd",
     "0",
+    "--destination-run-id",
+    destinationRunId,
   ]);
   expect(invocation.args.includes(passphrase)).toBe(false);
   expect(Object.values(invocation.environment).includes(passphrase)).toBe(false);
   expect(invocation.input === passphrase).toBe(true);
+});
+
+test("restore SIGKILL invokes secret-free deterministic cleanup and removes expected snapshot", async () => {
+  const destinationRunId = "323e4567-e89b-42d3-a456-426614174000";
+  const passphrase = `timeout-${crypto.randomUUID()}`;
+  const expectedPath = join(tmpdir(), `restore-timeout-${crypto.randomUUID()}.json`);
+  const requests: Parameters<BrowserRestoreProcessDependencies["spawn"]>[0][] = [];
+
+  const dependencies: BrowserRestoreProcessDependencies = {
+    destinationRunId: () => destinationRunId,
+    removeExpected: (path) => rmSync(path, { force: true }),
+    spawn: (request) => {
+      requests.push(request);
+      return requests.length === 1
+        ? { error: null, signal: "SIGKILL", status: null, stderr: "", stdout: "" }
+        : { error: null, signal: null, status: 0, stderr: "", stdout: "" };
+    },
+    writeExpected: (snapshot) => {
+      writeFileSync(expectedPath, JSON.stringify(snapshot), { flag: "wx", mode: 0o600 });
+      return expectedPath;
+    },
+  };
+
+  let failure = "";
+  try {
+    runBrowserRestoreWithDependencies(
+      { expectedSnapshot: { private: true }, passphrase, source: "/public/source.bundle" },
+      dependencies,
+    );
+  } catch (error) {
+    failure = error instanceof Error ? error.message : "unknown";
+  }
+
+  expect(failure).toBe("Notes browser restore failed");
+  expect(requests).toHaveLength(2);
+  expect(requests[1].args).toEqual([
+    "singularity.test.browser_restore",
+    "--cleanup-destination-run-id",
+    destinationRunId,
+  ]);
+  expect(requests[1].input).toBeUndefined();
+  expect(requests[1].args.includes(passphrase)).toBe(false);
+  expect(requests[1].args.includes(expectedPath)).toBe(false);
+  expect(Object.values(requests[1].environment).includes(passphrase)).toBe(false);
+  expect(Object.values(requests[1].environment).includes(expectedPath)).toBe(false);
+  expect(existsSync(expectedPath)).toBe(false);
+});
+
+test("restore cleanup failure remains generic and removes expected snapshot after normal success", async () => {
+  const destinationRunId = "423e4567-e89b-42d3-a456-426614174000";
+  const expectedPath = join(tmpdir(), `restore-cleanup-${crypto.randomUUID()}.json`);
+  const requests: Parameters<BrowserRestoreProcessDependencies["spawn"]>[0][] = [];
+
+  const dependencies: BrowserRestoreProcessDependencies = {
+    destinationRunId: () => destinationRunId,
+    removeExpected: (path) => rmSync(path, { force: true }),
+    spawn: (request) => {
+      requests.push(request);
+      return requests.length === 1
+        ? {
+            error: null,
+            signal: null,
+            status: 0,
+            stderr: "",
+            stdout: "notes_browser_restore_ok=true\n",
+          }
+        : { error: null, signal: null, status: 1, stderr: "", stdout: "" };
+    },
+    writeExpected: (snapshot) => {
+      writeFileSync(expectedPath, JSON.stringify(snapshot), { flag: "wx", mode: 0o600 });
+      return expectedPath;
+    },
+  };
+
+  let failure = "";
+  try {
+    runBrowserRestoreWithDependencies(
+      {
+        expectedSnapshot: { private: true },
+        passphrase: `cleanup-${crypto.randomUUID()}`,
+        source: "/public/source.bundle",
+      },
+      dependencies,
+    );
+  } catch (error) {
+    failure = error instanceof Error ? error.message : "unknown";
+  }
+
+  expect(failure).toBe("Notes browser restore cleanup failed");
+  expect(requests).toHaveLength(2);
+  expect(existsSync(expectedPath)).toBe(false);
 });
 
 test("private Notes survives conflict, backup restore, isolation, and terminal purge", async ({

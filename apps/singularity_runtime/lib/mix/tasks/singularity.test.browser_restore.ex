@@ -27,6 +27,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
 
   @failure_message "notes browser restore failed"
   @web_endpoint :"Elixir.Singularity.Web.Endpoint"
+  @repository_stop_timeout_ms 1_750
   @uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @playwright_run_id ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   @storage_keys [
@@ -112,12 +113,8 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     result =
       try do
         with :ok <- require_test_environment(),
-             :ok <- dependencies.load_application_config.(),
-             {:ok, state} <- dependencies.load_state.(),
-             {:ok, request} <- parse(arguments, state),
-             {:ok, expected} <- dependencies.load_expected.(request.expected_snapshot),
-             :ok <- dependencies.execute.(request, expected) do
-          :ok
+             :ok <- dependencies.load_application_config.() do
+          run_request(arguments, dependencies)
         else
           _failure -> :error
         end
@@ -128,8 +125,11 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
       end
 
     case result do
-      :ok ->
+      {:ok, :restore} ->
         Mix.shell().info("notes_browser_restore_ok=true")
+
+      {:ok, :cleanup} ->
+        :ok
 
       :error ->
         Mix.raise(@failure_message)
@@ -140,43 +140,72 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
 
   @doc false
   def parse(arguments, state) when is_list(arguments) and is_map(state) do
-    if forbidden_secret_argument?(arguments) do
-      invalid()
-    else
-      {options, positional, invalid_options} =
-        OptionParser.parse(arguments,
-          strict: [source: :string, expected: :string, passphrase_fd: :integer]
-        )
-
-      with [] <- positional,
-           [] <- invalid_options,
-           [:source, :expected, :passphrase_fd] <- Keyword.keys(options),
-           [source] <- Keyword.get_values(options, :source),
-           [expected] <- Keyword.get_values(options, :expected),
-           [passphrase_fd] when is_integer(passphrase_fd) and passphrase_fd >= 0 <-
-             Keyword.get_values(options, :passphrase_fd),
-           {:ok, public} <- public_state(state),
-           :ok <- canonical_regular(source, 0o777),
-           :ok <- canonical_regular(expected, 0o600),
-           true <- contained?(public.backup_root, source) do
-        {:ok,
-         %{
-           source: source,
-           expected_snapshot: expected,
-           passphrase_fd: passphrase_fd,
-           backup_root: public.backup_root,
-           run_id: public.run_id,
-           primary_vault_id: public.primary_vault_id
-         }}
-      else
-        _invalid -> invalid()
-      end
+    cond do
+      cleanup_argument?(arguments) -> parse_cleanup(arguments)
+      forbidden_secret_argument?(arguments) -> invalid()
+      true -> parse_restore(arguments, state)
     end
   rescue
     _exception -> invalid()
   end
 
   def parse(_arguments, _state), do: invalid()
+
+  defp parse_restore(arguments, state) do
+    {options, positional, invalid_options} =
+      OptionParser.parse(arguments,
+        strict: [
+          source: :string,
+          expected: :string,
+          passphrase_fd: :integer,
+          destination_run_id: :string
+        ]
+      )
+
+    with [] <- positional,
+         [] <- invalid_options,
+         true <-
+           exact_option_keys?(options, ~w[source expected passphrase_fd destination_run_id]a),
+         [source] <- Keyword.get_values(options, :source),
+         [expected] <- Keyword.get_values(options, :expected),
+         [passphrase_fd] when is_integer(passphrase_fd) and passphrase_fd >= 0 <-
+           Keyword.get_values(options, :passphrase_fd),
+         [destination_run_id] <- Keyword.get_values(options, :destination_run_id),
+         true <- canonical_playwright_run_id?(destination_run_id),
+         {:ok, public} <- public_state(state),
+         :ok <- canonical_regular(source, 0o777),
+         :ok <- canonical_regular(expected, 0o600),
+         true <- contained?(public.backup_root, source) do
+      {:ok,
+       %{
+         mode: :restore,
+         source: source,
+         expected_snapshot: expected,
+         passphrase_fd: passphrase_fd,
+         destination_run_id: destination_run_id,
+         backup_root: public.backup_root,
+         run_id: public.run_id,
+         primary_vault_id: public.primary_vault_id
+       }}
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp parse_cleanup(arguments) do
+    {options, positional, invalid_options} =
+      OptionParser.parse(arguments, strict: [cleanup_destination_run_id: :string])
+
+    with [] <- positional,
+         [] <- invalid_options,
+         true <- exact_option_keys?(options, [:cleanup_destination_run_id]),
+         [destination_run_id] <- Keyword.get_values(options, :cleanup_destination_run_id),
+         true <- canonical_playwright_run_id?(destination_run_id) do
+      {:ok, %{mode: :cleanup, destination_run_id: destination_run_id}}
+    else
+      _invalid -> invalid()
+    end
+  end
 
   @doc false
   def load_expected(path) when is_binary(path) do
@@ -198,7 +227,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
       when is_map(request) and is_map(expected) and is_map(adapters) do
     with {:ok, passphrase} <- adapters.read_descriptor_once.(request.passphrase_fd),
          {:ok, passphrase} <- required_secret(passphrase) do
-      destination = adapters.allocate.()
+      destination = adapters.destination.(request.destination_run_id)
 
       try do
         :ok = validate_expected_vault(request, expected)
@@ -222,6 +251,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
 
   defp default_run_dependencies do
     %{
+      cleanup_destination: &cleanup_destination/1,
       execute: fn request, expected ->
         previous_environment = snapshot_environment()
         execute_with_environment(request, expected, previous_environment)
@@ -232,18 +262,51 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     }
   end
 
+  defp run_request(arguments, dependencies) do
+    if cleanup_argument?(arguments) do
+      with {:ok, %{mode: :cleanup, destination_run_id: destination_run_id}} <-
+             parse(arguments, %{}),
+           :ok <- dependencies.cleanup_destination.(destination_run_id) do
+        {:ok, :cleanup}
+      else
+        _failure -> :error
+      end
+    else
+      with {:ok, state} <- dependencies.load_state.(),
+           {:ok, %{mode: :restore} = request} <- parse(arguments, state),
+           {:ok, expected} <- dependencies.load_expected.(request.expected_snapshot),
+           :ok <- dependencies.execute.(request, expected) do
+        {:ok, :restore}
+      else
+        _failure -> :error
+      end
+    end
+  end
+
   defp execute_with_environment(request, expected, previous_environment) do
+    __execute_with_environment__(request, expected, previous_environment, %{
+      execute: &__execute__(&1, &2, default_adapters()),
+      restore_environment: &restore_environment/1,
+      stop_runtime_and_repositories: &stop_runtime_and_repositories/0
+    })
+  end
+
+  @doc false
+  def __execute_with_environment__(request, expected, previous_environment, dependencies) do
     try do
-      __execute__(request, expected, default_adapters())
+      dependencies.execute.(request, expected)
     after
-      stop_runtime_and_repositories()
-      restore_environment(previous_environment)
+      try do
+        dependencies.stop_runtime_and_repositories.()
+      after
+        dependencies.restore_environment.(previous_environment)
+      end
     end
   end
 
   defp default_adapters do
     %{
-      allocate: &TestEnvironment.allocate!/0,
+      destination: &TestEnvironment.from_playwright_run_id!/1,
       assert_no_listener: &assert_no_listener/0,
       create: &create_destination/1,
       drop: &drop_destination/1,
@@ -261,6 +324,11 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     stop_repositories()
     {:ok, _repo} = MigrationRepo.start_link(pool_size: 2)
     :ok
+  end
+
+  defp cleanup_destination(destination_run_id) do
+    destination = TestEnvironment.from_playwright_run_id!(destination_run_id)
+    drop_destination(destination)
   end
 
   @doc false
@@ -291,8 +359,19 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   defp validate_expected_vault(_request, _expected), do: Mix.raise(@failure_message)
 
   defp drop_destination(destination) do
-    stop_runtime_and_repositories()
-    TestEnvironment.force_drop!(destination)
+    __drop_destination__(destination, %{
+      force_drop: &TestEnvironment.force_drop!/1,
+      stop_runtime_and_repositories: &stop_runtime_and_repositories/0
+    })
+  end
+
+  @doc false
+  def __drop_destination__(destination, dependencies) do
+    try do
+      dependencies.stop_runtime_and_repositories.()
+    after
+      dependencies.force_drop.(destination)
+    end
   end
 
   defp restore_destination(destination, request, passphrase) do
@@ -736,6 +815,24 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     end)
   end
 
+  defp cleanup_argument?(arguments) do
+    Enum.any?(arguments, fn
+      "--cleanup-destination-run-id" -> true
+      "--cleanup-destination-run-id=" <> _run_id -> true
+      _argument -> false
+    end)
+  end
+
+  defp exact_option_keys?(options, expected) do
+    keys = Keyword.keys(options)
+    keys == Enum.uniq(keys) and Enum.sort(keys) == Enum.sort(expected)
+  end
+
+  defp canonical_playwright_run_id?(run_id) when is_binary(run_id),
+    do: Regex.match?(@playwright_run_id, run_id)
+
+  defp canonical_playwright_run_id?(_run_id), do: false
+
   defp valid_parents?(0, %{
          "parent_version_id" => nil,
          "merge_parent_version_id" => nil
@@ -794,22 +891,70 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   end
 
   defp stop_runtime_and_repositories do
-    if Enum.any?(Application.started_applications(), fn {app, _description, _version} ->
-         app == :singularity_runtime
-       end) do
-      Application.stop(:singularity_runtime)
+    try do
+      if Enum.any?(Application.started_applications(), fn {app, _description, _version} ->
+           app == :singularity_runtime
+         end) do
+        Application.stop(:singularity_runtime)
+      end
+    after
+      stop_repositories()
     end
 
-    stop_repositories()
+    :ok
   end
 
   defp stop_repositories do
-    Enum.each(@repositories, fn repository ->
-      case Process.whereis(repository) do
-        nil -> :ok
-        pid -> Supervisor.stop(pid)
+    workers =
+      Enum.flat_map(@repositories, fn repository ->
+        case Process.whereis(repository) do
+          nil -> []
+          repository_pid -> [start_repository_stop(repository_pid)]
+        end
+      end)
+
+    await_repository_stops(workers, @repository_stop_timeout_ms)
+  end
+
+  defp start_repository_stop(repository_pid) do
+    {worker, monitor} = spawn_monitor(fn -> stop_repository(repository_pid) end)
+    {worker, monitor, repository_pid}
+  end
+
+  defp await_repository_stops(workers, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+    Enum.each(workers, fn {worker, monitor, repository_pid} ->
+      remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:DOWN, ^monitor, :process, ^worker, _reason} -> :ok
+      after
+        remaining ->
+          Process.exit(worker, :kill)
+          if Process.alive?(repository_pid), do: Process.exit(repository_pid, :kill)
+          Process.demonitor(monitor, [:flush])
       end
     end)
+  end
+
+  defp stop_repository(pid) do
+    monitor = Process.monitor(pid)
+
+    try do
+      Supervisor.stop(pid, :normal, 1_000)
+    catch
+      :exit, _reason ->
+        if Process.alive?(pid), do: Process.exit(pid, :kill)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+        after
+          500 -> :ok
+        end
+    after
+      Process.demonitor(monitor, [:flush])
+    end
   end
 
   defp snapshot_environment do

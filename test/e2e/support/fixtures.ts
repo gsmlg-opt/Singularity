@@ -54,6 +54,28 @@ export type BrowserRestoreInvocation = {
   input: string;
 };
 
+type BrowserRestoreChildResult = {
+  error: Error | null;
+  signal: string | null;
+  status: number | null;
+  stderr: string;
+  stdout: string;
+};
+
+type BrowserRestoreSpawnRequest = {
+  args: string[];
+  environment: NodeJS.ProcessEnv;
+  input?: string;
+  timeoutMs: number;
+};
+
+export type BrowserRestoreProcessDependencies = {
+  destinationRunId: () => string;
+  removeExpected: (path: string) => void;
+  spawn: (request: BrowserRestoreSpawnRequest) => BrowserRestoreChildResult;
+  writeExpected: (snapshot: unknown) => string;
+};
+
 type BrowserActions = {
   browserState: BrowserState;
   loginAsOwner: () => Promise<void>;
@@ -230,7 +252,10 @@ export function browserRestoreInvocation(
   source: string,
   expected: string,
   passphrase: string,
+  destinationRunId: string,
 ): BrowserRestoreInvocation {
+  if (!uuid.test(destinationRunId)) throw new Error("Restore destination run ID is invalid");
+
   const args = [
     "singularity.test.browser_restore",
     "--source",
@@ -239,6 +264,8 @@ export function browserRestoreInvocation(
     expected,
     "--passphrase-fd",
     "0",
+    "--destination-run-id",
+    destinationRunId,
   ];
   const environment = { ...process.env, MIX_ENV: "test" };
 
@@ -249,6 +276,116 @@ export function browserRestoreInvocation(
   return { args, environment, input: passphrase };
 }
 
+function cleanupInvocation(
+  destinationRunId: string,
+  passphrase: string,
+  expected: string,
+): BrowserRestoreSpawnRequest {
+  const args = [
+    "singularity.test.browser_restore",
+    "--cleanup-destination-run-id",
+    destinationRunId,
+  ];
+  const environment = { ...process.env, MIX_ENV: "test" };
+
+  if (
+    args.includes(passphrase) ||
+    args.includes(expected) ||
+    Object.values(environment).includes(passphrase) ||
+    Object.values(environment).includes(expected)
+  ) {
+    throw new Error("Restore cleanup transport is invalid");
+  }
+
+  return { args, environment, timeoutMs: 30_000 };
+}
+
+const defaultRestoreProcessDependencies: BrowserRestoreProcessDependencies = {
+  destinationRunId: () => crypto.randomUUID(),
+  removeExpected: (path) => rmSync(path, { force: true }),
+  spawn: (request) => {
+    const child = spawnSync("mix", request.args, {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: request.environment,
+      input: request.input,
+      killSignal: "SIGKILL",
+      timeout: request.timeoutMs,
+    });
+
+    return {
+      error: child.error ?? null,
+      signal: child.signal,
+      status: child.status,
+      stderr: child.stderr,
+      stdout: child.stdout,
+    };
+  },
+  writeExpected: writeExpectedSnapshot,
+};
+
+export function runBrowserRestoreWithDependencies(
+  input: RestoreInput,
+  dependencies: BrowserRestoreProcessDependencies,
+): RestoreResult {
+  const destinationRunId = dependencies.destinationRunId();
+  if (!uuid.test(destinationRunId)) throw new Error("Notes browser restore failed");
+
+  const expected = dependencies.writeExpected(input.expectedSnapshot);
+  let normalFailure: Error | null = null;
+  let cleanupFailure: Error | null = null;
+  let result: RestoreResult | null = null;
+
+  try {
+    const invocation = browserRestoreInvocation(
+      input.source,
+      expected,
+      input.passphrase,
+      destinationRunId,
+    );
+    const child = dependencies.spawn({
+      args: invocation.args,
+      environment: invocation.environment,
+      input: invocation.input,
+      timeoutMs: 120_000,
+    });
+
+    if (child.error || child.signal || child.status !== 0) {
+      normalFailure = new Error("Notes browser restore failed");
+    } else if (child.stderr !== "" || child.stdout.trim() !== "notes_browser_restore_ok=true") {
+      normalFailure = new Error("Notes browser restore emitted unexpected output");
+    } else {
+      result = { marker: "notes_browser_restore_ok=true" };
+    }
+  } catch {
+    normalFailure = new Error("Notes browser restore failed");
+  }
+
+  try {
+    const cleanup = dependencies.spawn(
+      cleanupInvocation(destinationRunId, input.passphrase, expected),
+    );
+    if (
+      cleanup.error ||
+      cleanup.signal ||
+      cleanup.status !== 0 ||
+      cleanup.stderr !== "" ||
+      cleanup.stdout !== ""
+    ) {
+      cleanupFailure = new Error("Notes browser restore cleanup failed");
+    }
+  } catch {
+    cleanupFailure = new Error("Notes browser restore cleanup failed");
+  } finally {
+    dependencies.removeExpected(expected);
+  }
+
+  if (normalFailure) throw normalFailure;
+  if (cleanupFailure) throw cleanupFailure;
+  if (!result) throw new Error("Notes browser restore failed");
+  return result;
+}
+
 function runBrowserRestore(input: RestoreInput): RestoreResult {
   const state = loadBrowserState();
   const source = realpathSync(input.source);
@@ -256,30 +393,7 @@ function runBrowserRestore(input: RestoreInput): RestoreResult {
   if (!source.startsWith(`${backupRoot}/`))
     throw new Error("Restore source is outside backup root");
 
-  const expected = writeExpectedSnapshot(input.expectedSnapshot);
-
-  try {
-    const invocation = browserRestoreInvocation(source, expected, input.passphrase);
-    const child = spawnSync("mix", invocation.args, {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      env: invocation.environment,
-      input: invocation.input,
-      killSignal: "SIGKILL",
-      timeout: 120_000,
-    });
-
-    if (child.error || child.signal || child.status !== 0) {
-      throw new Error("Notes browser restore failed");
-    }
-    if (child.stderr !== "" || child.stdout.trim() !== "notes_browser_restore_ok=true") {
-      throw new Error("Notes browser restore emitted unexpected output");
-    }
-
-    return { marker: "notes_browser_restore_ok=true" };
-  } finally {
-    rmSync(expected, { force: true });
-  }
+  return runBrowserRestoreWithDependencies({ ...input, source }, defaultRestoreProcessDependencies);
 }
 
 export const test = base.extend<BrowserActions>({

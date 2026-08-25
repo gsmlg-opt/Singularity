@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
   alias Singularity.Storage.TestEnvironment
 
   @run_id "123e4567-e89b-42d3-a456-426614174000"
+  @destination_run_id "223e4567-e89b-42d3-a456-426614174000"
   @repositories [
     Singularity.Storage.MigrationRepo,
     Singularity.Storage.RequestRepo,
@@ -692,6 +693,8 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
               source: ^source,
               expected_snapshot: ^expected,
               passphrase_fd: 0,
+              destination_run_id: @destination_run_id,
+              mode: :restore,
               run_id: @run_id,
               primary_vault_id: "10000000-0000-4000-8000-000000000003"
             }} = BrowserRestore.parse(arguments, state)
@@ -700,6 +703,19 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
     assert {:ok, %{passphrase_fd: 7}} =
              BrowserRestore.parse(nonzero_descriptor_arguments, state)
+
+    assert {:error, :invalid} =
+             arguments
+             |> Enum.drop(-2)
+             |> BrowserRestore.parse(state)
+
+    cleanup_arguments = ["--cleanup-destination-run-id", @destination_run_id]
+
+    assert {:ok, %{mode: :cleanup, destination_run_id: @destination_run_id}} =
+             BrowserRestore.parse(cleanup_arguments, %{})
+
+    assert {:error, :invalid} =
+             BrowserRestore.parse(arguments ++ cleanup_arguments, state)
 
     for invalid <- [
           [],
@@ -745,6 +761,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     request = %{
       source: "/canonical/source.bundle",
       passphrase_fd: 0,
+      destination_run_id: @destination_run_id,
       primary_vault_id: primary_vault_id
     }
 
@@ -753,7 +770,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     record = fn event -> Agent.update(recorder, &[event | &1]) end
 
     adapters = %{
-      allocate: fn ->
+      destination: fn @destination_run_id ->
         record.(:allocate)
         %{database: "isolated", storage_root: "/isolated", suffix: "isolated"}
       end,
@@ -815,14 +832,20 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
   test "browser restore rejects a started local listener and still drops its destination" do
     primary_vault_id = "10000000-0000-4000-8000-000000000003"
-    request = %{passphrase_fd: 0, primary_vault_id: primary_vault_id}
+
+    request = %{
+      destination_run_id: @destination_run_id,
+      passphrase_fd: 0,
+      primary_vault_id: primary_vault_id
+    }
+
     expected = %{vault_id: primary_vault_id}
     listener = start_supervised!({Agent, fn -> false end}, id: :browser_restore_listener)
     recorder = start_supervised!({Agent, fn -> [] end}, id: :listener_restore_recorder)
     record = fn event -> Agent.update(recorder, &[event | &1]) end
 
     adapters = %{
-      allocate: fn ->
+      destination: fn @destination_run_id ->
         record.(:allocate)
         :destination
       end,
@@ -895,6 +918,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
 
   test "browser restore binds expected vault before writes and drops allocated destination" do
     request = %{
+      destination_run_id: @destination_run_id,
       passphrase_fd: 0,
       primary_vault_id: "10000000-0000-4000-8000-000000000003"
     }
@@ -904,7 +928,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     record = fn event -> Agent.update(recorder, &[event | &1]) end
 
     adapters = %{
-      allocate: fn ->
+      destination: fn @destination_run_id ->
         record.(:allocate)
         :destination
       end,
@@ -940,6 +964,79 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     end
   end
 
+  test "cleanup mode is secret-free, marker-free, and skips restore inputs" do
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :cleanup_mode_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    dependencies = %{
+      cleanup_destination: fn @destination_run_id -> record.(:cleanup_destination) end,
+      execute: fn _request, _expected -> flunk("cleanup mode executed restore") end,
+      load_application_config: fn -> record.(:load_application_config) end,
+      load_expected: fn _path -> flunk("cleanup mode loaded expected snapshot") end,
+      load_state: fn -> flunk("cleanup mode loaded browser state") end
+    }
+
+    output =
+      capture_io(fn ->
+        assert :ok =
+                 BrowserRestore.__run__(
+                   ["--cleanup-destination-run-id", @destination_run_id],
+                   dependencies
+                 )
+      end)
+
+    assert output == ""
+
+    assert [:load_application_config, :cleanup_destination] =
+             Agent.get(recorder, &Enum.reverse/1)
+  end
+
+  test "drop attempts force-drop even when runtime teardown raises" do
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :drop_order_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    dependencies = %{
+      force_drop: fn :destination -> record.(:force_drop) end,
+      stop_runtime_and_repositories: fn ->
+        record.(:stop_runtime_and_repositories)
+        raise "teardown failed"
+      end
+    }
+
+    assert_raise RuntimeError, "teardown failed", fn ->
+      BrowserRestore.__drop_destination__(:destination, dependencies)
+    end
+
+    assert [:stop_runtime_and_repositories, :force_drop] =
+             Agent.get(recorder, &Enum.reverse/1)
+  end
+
+  test "execute teardown always restores environment after teardown failure" do
+    recorder = start_supervised!({Agent, fn -> [] end}, id: :environment_order_recorder)
+    record = fn event -> Agent.update(recorder, &[event | &1]) end
+
+    dependencies = %{
+      execute: fn :request, :expected -> record.(:execute) end,
+      restore_environment: fn :snapshot -> record.(:restore_environment) end,
+      stop_runtime_and_repositories: fn ->
+        record.(:stop_runtime_and_repositories)
+        raise "teardown failed"
+      end
+    }
+
+    assert_raise RuntimeError, "teardown failed", fn ->
+      BrowserRestore.__execute_with_environment__(
+        :request,
+        :expected,
+        :snapshot,
+        dependencies
+      )
+    end
+
+    assert [:execute, :stop_runtime_and_repositories, :restore_environment] =
+             Agent.get(recorder, &Enum.reverse/1)
+  end
+
   @tag :tmp_dir
   test "test-environment restore comparison failure is generic, marker-free, and dropped", %{
     tmp_dir: tmp_dir
@@ -950,7 +1047,7 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     record = fn event -> Agent.update(recorder, &[event | &1]) end
 
     adapters = %{
-      allocate: fn ->
+      destination: fn @destination_run_id ->
         record.(:allocate)
         :destination
       end,
@@ -1358,7 +1455,9 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
         "--expected",
         expected,
         "--passphrase-fd",
-        "0"
+        "0",
+        "--destination-run-id",
+        @destination_run_id
       ],
       state: state,
       source: source,
