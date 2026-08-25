@@ -71,6 +71,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   def __run_lifecycle__(run_id, state_file_path, lifecycle) do
     environment = lifecycle.environment.(run_id)
     snapshot = lifecycle.snapshot.()
+    {:ok, state_file_ownership} = Agent.start(fn -> false end)
 
     {:ok, cleanup_state} =
       Agent.start(fn ->
@@ -79,6 +80,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
            environment: environment,
            run_id: run_id,
            snapshot: snapshot,
+           state_file_ownership: state_file_ownership,
            state_file_owned?: false,
            state_file_path: state_file_path
          }}
@@ -92,6 +94,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         environment: environment,
         run_id: run_id,
         snapshot: snapshot,
+        state_file_ownership: state_file_ownership,
         state_file_owned?: false,
         state_file_path: state_file_path
       }
@@ -112,6 +115,7 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
         after
           unless keep_cleanup_state?(registration) do
             if Process.alive?(cleanup_state), do: Agent.stop(cleanup_state)
+            if Process.alive?(state_file_ownership), do: Agent.stop(state_file_ownership)
           end
         end
       end
@@ -374,15 +378,20 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
   end
 
   @doc false
+  def __write_state_file__(context),
+    do: __write_state_file__(context, default_state_file_operations())
+
+  @doc false
   def __write_state_file__(
         %{
           backup_root: backup_root,
           owners: %{primary: primary, secondary: secondary},
           run_id: run_id,
           state_file_path: state_file_path
-        } = context
+        } = context,
+        file_operations
       )
-      when is_binary(state_file_path) do
+      when is_binary(state_file_path) and is_map(file_operations) do
     state = %{
       version: 1,
       run_id: run_id,
@@ -393,16 +402,17 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
       }
     }
 
-    File.mkdir_p!(Path.dirname(state_file_path))
+    file_operations.mkdir_p.(Path.dirname(state_file_path))
 
-    case File.open(state_file_path, [:write, :exclusive, :binary]) do
+    case file_operations.open.(state_file_path) do
       {:ok, file} ->
         try do
-          File.chmod!(state_file_path, 0o600)
-          IO.binwrite(file, JSON.encode!(state))
-          :ok = :file.sync(file)
+          :ok = mark_state_file_owned(context)
+          file_operations.chmod.(state_file_path, 0o600)
+          file_operations.write.(file, JSON.encode!(state))
+          :ok = file_operations.sync.(file)
         after
-          File.close(file)
+          file_operations.close.(file)
         end
 
       {:error, _reason} ->
@@ -411,6 +421,22 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
 
     Map.put(context, :state_file_owned?, true)
   end
+
+  defp default_state_file_operations do
+    %{
+      chmod: &File.chmod!/2,
+      close: &File.close/1,
+      mkdir_p: &File.mkdir_p!/1,
+      open: &File.open(&1, [:write, :exclusive, :binary]),
+      sync: &:file.sync/1,
+      write: &IO.binwrite/2
+    }
+  end
+
+  defp mark_state_file_owned(%{state_file_ownership: ownership}) when is_pid(ownership),
+    do: Agent.update(ownership, fn _not_owned -> true end)
+
+  defp mark_state_file_owned(_context), do: :ok
 
   defp public_owner(owner, login) do
     %{
@@ -502,8 +528,13 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     end
   end
 
-  defp remove_state_file(%{state_file_owned?: true, state_file_path: path})
-       when is_binary(path) do
+  defp remove_state_file(%{state_file_path: path} = context) when is_binary(path) do
+    if state_file_owned?(context), do: remove_owned_state_file(path), else: :ok
+  end
+
+  defp remove_state_file(_context), do: :ok
+
+  defp remove_owned_state_file(path) do
     case File.rm(path) do
       :ok -> :ok
       {:error, :enoent} -> :ok
@@ -511,7 +542,10 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
     end
   end
 
-  defp remove_state_file(_context), do: :ok
+  defp state_file_owned?(%{state_file_ownership: ownership}) when is_pid(ownership),
+    do: Agent.get(ownership, & &1)
+
+  defp state_file_owned?(context), do: Map.get(context, :state_file_owned?, false)
 
   defp stop_known_repositories do
     workers =

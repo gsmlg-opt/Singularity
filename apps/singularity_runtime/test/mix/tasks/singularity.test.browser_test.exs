@@ -655,6 +655,31 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     assert Bitwise.band(File.stat!(state_file_path).mode, 0o777) == 0o600
   end
 
+  for stage <- [:chmod, :write, :sync] do
+    @tag :tmp_dir
+    test "lifecycle cleanup removes a run-created state file after #{stage} failure", %{
+      tmp_dir: tmp_dir
+    } do
+      stage = unquote(stage)
+      state_file_path = Path.join(tmp_dir, "partial-#{stage}.json")
+      environment = TestEnvironment.from_playwright_run_id!(@run_id)
+      test_process = self()
+      File.rm_rf!(environment.storage_root)
+      on_exit(fn -> File.rm_rf!(environment.storage_root) end)
+
+      file_operations = failing_state_file_operations(stage, test_process)
+
+      lifecycle = state_file_failure_lifecycle(environment, file_operations)
+
+      assert_raise RuntimeError, "injected #{stage} failure", fn ->
+        Browser.__run_lifecycle__(@run_id, state_file_path, lifecycle)
+      end
+
+      refute File.exists?(state_file_path)
+      assert_receive {:state_file_closed, ^stage}
+    end
+  end
+
   @tag :tmp_dir
   test "browser restore parses only canonical state-owned paths and inherited passphrase", %{
     tmp_dir: tmp_dir
@@ -829,6 +854,43 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
              Agent.get(recorder, &Enum.reverse/1)
 
     refute Agent.get(listener, & &1)
+  end
+
+  test "actual browser restore listener guard rejects the registered web endpoint" do
+    endpoint = :"Elixir.Singularity.Web.Endpoint"
+
+    web_started? =
+      Enum.any?(Application.started_applications(), fn {application, _description, _version} ->
+        application == :singularity_web
+      end)
+
+    if web_started?, do: assert(:ok = Application.stop(:singularity_web))
+
+    on_exit(fn ->
+      if web_started?,
+        do: assert({:ok, _started} = Application.ensure_all_started(:singularity_web))
+    end)
+
+    assert Process.whereis(endpoint) == nil
+    assert :ok = BrowserRestore.__assert_no_listener__()
+
+    endpoint_process = spawn(fn -> receive do: (:stop -> :ok) end)
+    true = Process.register(endpoint_process, endpoint)
+    monitor = Process.monitor(endpoint_process)
+
+    on_exit(fn ->
+      if Process.whereis(endpoint) == endpoint_process, do: Process.unregister(endpoint)
+      if Process.alive?(endpoint_process), do: send(endpoint_process, :stop)
+    end)
+
+    assert_raise Mix.Error, "notes browser restore failed", fn ->
+      BrowserRestore.__assert_no_listener__()
+    end
+
+    Process.unregister(endpoint)
+    send(endpoint_process, :stop)
+    assert_receive {:DOWN, ^monitor, :process, ^endpoint_process, :normal}
+    assert :ok = BrowserRestore.__assert_no_listener__()
   end
 
   test "browser restore binds expected vault before writes and drops allocated destination" do
@@ -1141,6 +1203,66 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
       cleanup: fn context -> Browser.__restore_environment__(context.snapshot) end
     }
   end
+
+  defp state_file_failure_lifecycle(environment, file_operations) do
+    %{
+      environment: fn @run_id -> environment end,
+      snapshot: fn -> [] end,
+      register_cleanup: fn _owner, _cleanup -> :handler end,
+      unregister_cleanup: fn :handler -> :ok end,
+      provision: & &1,
+      configure: fn context ->
+        Map.merge(context, %{
+          backup_root: Path.join(environment.storage_root, "backups"),
+          owners: %{
+            primary: %{
+              account_id: "10000000-0000-4000-8000-000000000001",
+              principal_id: "10000000-0000-4000-8000-000000000002",
+              vault_id: "10000000-0000-4000-8000-000000000003"
+            },
+            secondary: %{
+              account_id: "20000000-0000-4000-8000-000000000001",
+              principal_id: "20000000-0000-4000-8000-000000000002",
+              vault_id: "20000000-0000-4000-8000-000000000003"
+            }
+          }
+        })
+      end,
+      bootstrap: fn context -> Browser.__write_state_file__(context, file_operations) end,
+      stop_provisioning_repos: & &1,
+      start: & &1,
+      wait: fn _context, _cleanup -> :ok end,
+      cleanup: fn context ->
+        Browser.__cleanup_generated_environment__(context, fn _environment -> :ok end, 100)
+      end
+    }
+  end
+
+  defp failing_state_file_operations(stage, test_process) do
+    operations = %{
+      chmod: &File.chmod!/2,
+      close: fn file ->
+        result = File.close(file)
+        send(test_process, {:state_file_closed, stage})
+        result
+      end,
+      mkdir_p: &File.mkdir_p!/1,
+      open: &File.open(&1, [:write, :exclusive, :binary]),
+      sync: &:file.sync/1,
+      write: &IO.binwrite/2
+    }
+
+    failing_state_file_operation(operations, stage)
+  end
+
+  defp failing_state_file_operation(operations, :chmod),
+    do: Map.put(operations, :chmod, fn _path, _mode -> raise "injected chmod failure" end)
+
+  defp failing_state_file_operation(operations, :write),
+    do: Map.put(operations, :write, fn _file, _content -> raise "injected write failure" end)
+
+  defp failing_state_file_operation(operations, :sync),
+    do: Map.put(operations, :sync, fn _file -> raise "injected sync failure" end)
 
   defp set_prior_browser_settings(:present) do
     Application.put_env(:singularity_storage, :backup_root, "/prior/backups")

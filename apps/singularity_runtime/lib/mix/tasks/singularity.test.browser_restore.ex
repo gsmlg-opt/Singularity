@@ -263,6 +263,9 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
     :ok
   end
 
+  @doc false
+  def __assert_no_listener__, do: assert_no_listener()
+
   defp assert_no_listener do
     endpoint = Process.whereis(@web_endpoint)
 
