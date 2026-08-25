@@ -27,6 +27,8 @@ type RailMode = "current" | "trash";
 type Panel = "editor" | "rail" | "drawer";
 type Notice = { tone: "error" | "info"; text: string };
 type Draft = { title: string; markdown: string };
+type MutationKind = "create" | "save" | "merge" | "delete" | "restore";
+type RetainedMutation = { signature: string; mutationId: string };
 type PendingAction =
   | { kind: "navigate"; target: NavigationTarget; trigger: HTMLElement }
   | { kind: "open"; summary: NoteSummary; trigger: HTMLElement }
@@ -163,6 +165,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   const [mutationBusy, setMutationBusy] = useState(false);
   const listBusyRef = useRef(false);
   const mutationBusyRef = useRef<LaneToken | null>(null);
+  const retainedMutationsRef = useRef<Partial<Record<MutationKind, RetainedMutation>>>({});
   const contextGenerationRef = useRef(0);
   const queryInputRef = useRef<HTMLInputElement>(null);
   const drawerTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -284,6 +287,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     consumedEditorFocusRequestRef.current = editorFocusRequest;
     listBusyRef.current = false;
     mutationBusyRef.current = null;
+    retainedMutationsRef.current = {};
     drawerTriggerRef.current = null;
     setQuery("");
     setRailMode("current");
@@ -328,6 +332,26 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   function clearMutationBusy(): void {
     mutationBusyRef.current = null;
     setMutationBusy(false);
+  }
+
+  function mutationIdFor(kind: MutationKind, fields: readonly string[]): string {
+    const signature = JSON.stringify(fields);
+    const retained = retainedMutationsRef.current[kind];
+    if (retained?.signature === signature) return retained.mutationId;
+
+    const mutationId = canonicalMutationId();
+    retainedMutationsRef.current[kind] = { signature, mutationId };
+    return mutationId;
+  }
+
+  function clearRetainedMutation(kind: MutationKind, mutationId: string): void {
+    if (retainedMutationsRef.current[kind]?.mutationId === mutationId) {
+      delete retainedMutationsRef.current[kind];
+    }
+  }
+
+  function clearRetainedMutations(): void {
+    retainedMutationsRef.current = {};
   }
 
   function invalidateMutation(): void {
@@ -383,6 +407,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   }
 
   function beginFreshCreate(): void {
+    clearRetainedMutations();
     contextGenerationRef.current += 1;
     store.beginLane("open");
     invalidateDependentReads();
@@ -493,6 +518,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       }
       const focusEditor = focusEditorOnSuccess && isEditable(reply.result);
       if (!store.acceptOpen(token, reply.result)) return false;
+      clearRetainedMutations();
       if (focusEditor) setEditorFocusRequest((request) => request + 1);
 
       setRailMode("current");
@@ -550,6 +576,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
   async function discard(): Promise<void> {
     const action = pendingAction;
     if (!action || dialogBusy) return;
+    clearRetainedMutations();
     setDialogBusy(true);
     setDialogError(null);
     try {
@@ -653,10 +680,11 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       title: submittedDraft.title.trim(),
       markdown: submittedDraft.markdown,
     };
+    const mutationId = mutationIdFor("create", [submitted.title, submitted.markdown]);
     try {
       const reply = await bridge.create({
         version: 1,
-        mutationId: canonicalMutationId(),
+        mutationId,
         ...submitted,
       });
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
@@ -665,6 +693,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         return;
       }
       if (!store.acceptMutation(token, reply.result)) return;
+      clearRetainedMutation("create", mutationId);
 
       const current = store.getSnapshot();
       const searchToken = store.beginLane("search");
@@ -703,27 +732,43 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     setNotice(null);
     const contextGeneration = contextGenerationRef.current;
     const resourceId = editable.resourceId;
+    const conflictDetail = mergeMode ? snapshot.conflict?.detail : null;
+    const mutationKind: MutationKind = conflictDetail ? "merge" : "save";
+    const mutationId = conflictDetail
+      ? mutationIdFor("merge", [
+          editable.resourceId,
+          conflictDetail.conflictId,
+          conflictDetail.current.resourceVersionId,
+          conflictDetail.competing.resourceVersionId,
+          draft.title.trim(),
+          draft.markdown,
+        ])
+      : mutationIdFor("save", [
+          editable.resourceId,
+          editable.resourceVersionId,
+          draft.title.trim(),
+          draft.markdown,
+        ]);
     try {
-      const reply =
-        mergeMode && snapshot.conflict?.detail
-          ? await bridge.merge({
-              version: 1,
-              mutationId: canonicalMutationId(),
-              resourceId: editable.resourceId,
-              conflictId: snapshot.conflict.detail.conflictId,
-              expectedCurrentVersionId: snapshot.conflict.detail.current.resourceVersionId,
-              competingVersionId: snapshot.conflict.detail.competing.resourceVersionId,
-              title: draft.title.trim(),
-              markdown: draft.markdown,
-            })
-          : await bridge.save({
-              version: 1,
-              mutationId: canonicalMutationId(),
-              resourceId: editable.resourceId,
-              baseVersionId: editable.resourceVersionId,
-              title: draft.title.trim(),
-              markdown: draft.markdown,
-            });
+      const reply = conflictDetail
+        ? await bridge.merge({
+            version: 1,
+            mutationId,
+            resourceId: editable.resourceId,
+            conflictId: conflictDetail.conflictId,
+            expectedCurrentVersionId: conflictDetail.current.resourceVersionId,
+            competingVersionId: conflictDetail.competing.resourceVersionId,
+            title: draft.title.trim(),
+            markdown: draft.markdown,
+          })
+        : await bridge.save({
+            version: 1,
+            mutationId,
+            resourceId: editable.resourceId,
+            baseVersionId: editable.resourceVersionId,
+            title: draft.title.trim(),
+            markdown: draft.markdown,
+          });
 
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration, resourceId)) {
         return;
@@ -733,6 +778,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         return;
       }
       if (!store.acceptMutation(token, reply.result)) return;
+      clearRetainedMutation(mutationKind, mutationId);
       completeMutationContext();
 
       if (reply.result.outcome === "conflict") {
@@ -764,10 +810,11 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     if (!token) return;
     const contextGeneration = contextGenerationRef.current;
     const resourceId = editable.resourceId;
+    const mutationId = mutationIdFor("delete", [resourceId, editable.resourceVersionId]);
     try {
       const reply = await bridge.delete({
         version: 1,
-        mutationId: canonicalMutationId(),
+        mutationId,
         resourceId,
         expectedCurrentVersionId: editable.resourceVersionId,
       });
@@ -775,6 +822,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         return;
       }
       if (reply.ok && reply.accepted && store.acceptMutation(token, true)) {
+        clearRetainedMutation("delete", mutationId);
         completeMutationContext();
         setRailMode("trash");
         setDrawer("closed");
@@ -798,10 +846,11 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     if (!token) return;
     const contextGeneration = contextGenerationRef.current;
     const resourceId = item.summary.resourceId;
+    const mutationId = mutationIdFor("restore", [resourceId]);
     try {
       const reply = await bridge.restore({
         version: 1,
-        mutationId: canonicalMutationId(),
+        mutationId,
         resourceId,
       });
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
@@ -810,6 +859,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         reply.result.resourceId === resourceId &&
         store.acceptMutation(token, reply.result)
       ) {
+        clearRetainedMutation("restore", mutationId);
         completeMutationContext();
         setTrashItems((items) => items.filter(({ summary }) => summary.resourceId !== resourceId));
         setRailMode("current");

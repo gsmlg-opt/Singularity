@@ -23,6 +23,7 @@ import { WorkspaceStore } from "../js/notes_workspace/state";
 
 const id = (suffix: string) => `019f9f65-acde-7a31-bf09-${suffix.padStart(12, "0")}`;
 const updatedAt = "2026-08-20T12:00:00.000000Z";
+const mutationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function summary(overrides: Partial<NoteSummary> = {}): NoteSummary {
   return {
@@ -623,12 +624,14 @@ describe("NotesWorkspace", () => {
         await Promise.resolve();
       });
       expect(testBridge.create).toHaveBeenCalledTimes(2);
+      const firstRequest = vi.mocked(testBridge.create).mock.calls[0]?.[0];
       expect(vi.mocked(testBridge.create).mock.calls[1]?.[0]).toEqual({
         version: 1,
-        mutationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        mutationId: firstRequest?.mutationId,
         title: canonical.title,
         markdown: canonical.markdown,
       });
+      expect(firstRequest?.mutationId).toMatch(mutationIdPattern);
       expect(store.getSnapshot().selection).toEqual(createdNote(canonical));
     },
   );
@@ -691,14 +694,17 @@ describe("NotesWorkspace", () => {
     ]);
   });
 
-  it("retains an exact retryable create draft and uses a different UUID on retry", async () => {
+  it("retains one UUID for the same canonical Create across a retryable failure", async () => {
     testBridge.create = vi
       .fn()
       .mockResolvedValueOnce({
         ok: false as const,
         error: { code: "storage_unavailable" as const },
       })
-      .mockResolvedValueOnce({ ok: true, result: createdNote({ title: "Retry note" }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        result: createdNote({ title: "Retry note", markdown: "Exact retry Markdown." }),
+      });
     await act(async () => button(container, "New note").click());
     await change(input(container, "Note title"), "  Retry note  ");
     await change(input(container, "Markdown source"), "Exact retry Markdown.");
@@ -713,16 +719,163 @@ describe("NotesWorkspace", () => {
     );
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
 
+    await change(input(container, "Note title"), "Retry note");
+
     await act(async () => {
       button(container, "Save").click();
       await Promise.resolve();
       await Promise.resolve();
     });
-    const firstMutationId = vi.mocked(testBridge.create).mock.calls[0]?.[0].mutationId;
-    const secondMutationId = vi.mocked(testBridge.create).mock.calls[1]?.[0].mutationId;
-    expect(firstMutationId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(secondMutationId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(secondMutationId).not.toBe(firstMutationId);
+    const firstRequest = vi.mocked(testBridge.create).mock.calls[0]?.[0];
+    const secondRequest = vi.mocked(testBridge.create).mock.calls[1]?.[0];
+    expect(firstRequest).toEqual({
+      version: 1,
+      mutationId: expect.stringMatching(mutationIdPattern),
+      title: "Retry note",
+      markdown: "Exact retry Markdown.",
+    });
+    expect(secondRequest).toEqual(firstRequest);
+    expect(store.getSnapshot().selection).toEqual(
+      createdNote({ title: "Retry note", markdown: "Exact retry Markdown." }),
+    );
+  });
+
+  it("replays an ambiguously committed Create instead of applying a duplicate", async () => {
+    const receipts = new Map<string, Note>();
+    let applyCount = 0;
+    testBridge.create = vi.fn(async (request) => {
+      const receipt = receipts.get(request.mutationId);
+      if (receipt) return { ok: true as const, result: receipt };
+
+      applyCount += 1;
+      const result = createdNote({
+        resourceId: id(String(20 + applyCount)),
+        resourceVersionId: id(String(30 + applyCount)),
+        title: request.title,
+        markdown: request.markdown,
+      });
+      receipts.set(request.mutationId, result);
+      return {
+        ok: false as const,
+        error: { code: "storage_unavailable" as const },
+      };
+    });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Ambiguous create");
+    await change(input(container, "Markdown source"), "Applied before the reply was lost.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(applyCount).toBe(1);
+    expect(vi.mocked(testBridge.create).mock.calls[1]?.[0]).toEqual(
+      vi.mocked(testBridge.create).mock.calls[0]?.[0],
+    );
+    expect(store.getSnapshot().selection?.title).toBe("Ambiguous create");
+  });
+
+  it("uses a new Create UUID for an intentional command after an earlier success", async () => {
+    let creation = 0;
+    testBridge.create = vi.fn(async (request) => {
+      creation += 1;
+      return {
+        ok: true as const,
+        result: createdNote({
+          resourceId: id(String(40 + creation)),
+          resourceVersionId: id(String(50 + creation)),
+          title: request.title,
+          markdown: request.markdown,
+        }),
+      };
+    });
+    const issueCreate = async () => {
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "Repeated intentional create");
+      await change(input(container, "Markdown source"), "Identical canonical Markdown.");
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    };
+
+    await issueCreate();
+    await issueCreate();
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect({ ...requests[1], mutationId: requests[0]?.mutationId }).toEqual(requests[0]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it.each([
+    ["title", "Changed create", "Original Markdown."],
+    ["Markdown", "Original create", "Changed Markdown."],
+  ])("uses a new Create UUID when the canonical %s changes", async (_field, title, markdown) => {
+    testBridge.create = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Original create");
+    await change(input(container, "Markdown source"), "Original Markdown.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    await change(input(container, "Note title"), title);
+    await change(input(container, "Markdown source"), markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("clears a failed Create UUID when Discard starts a fresh New command", async () => {
+    testBridge.create = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    const enterSameCreate = async () => {
+      await change(input(container, "Note title"), "Discarded retry");
+      await change(input(container, "Markdown source"), "Same canonical Markdown.");
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+      });
+    };
+    await act(async () => button(container, "New note").click());
+    await enterSameCreate();
+
+    await act(async () => button(container, "New note").click());
+    await act(async () => {
+      button(container, "Discard").click();
+      await Promise.resolve();
+    });
+    await enterSameCreate();
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual({
+      ...requests[0],
+      mutationId: expect.stringMatching(mutationIdPattern),
+    });
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
   });
 
   it("guards New from a dirty existing draft with Stay focus return and Discard", async () => {
@@ -933,6 +1086,84 @@ describe("NotesWorkspace", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("terminal purge clears a retained Create UUID before the component receives a new store", async () => {
+    testBridge.create = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    const issueSameCreate = async () => {
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "Terminal retry");
+      await change(input(container, "Markdown source"), "Same command after terminal purge.");
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+      });
+    };
+    await issueSameCreate();
+    const firstMutationId = vi.mocked(testBridge.create).mock.calls[0]?.[0].mutationId;
+
+    await act(async () => store.purgePrivateState("vault_locked"));
+    store = new WorkspaceStore(initial());
+    await act(async () => root.render(<NotesWorkspace bridge={testBridge} store={store} />));
+    await issueSameCreate();
+
+    const secondMutationId = vi.mocked(testBridge.create).mock.calls[1]?.[0].mutationId;
+    expect(firstMutationId).toMatch(mutationIdPattern);
+    expect(secondMutationId).toMatch(mutationIdPattern);
+    expect(secondMutationId).not.toBe(firstMutationId);
+  });
+
+  it("does not let a stale older Create success clear the newer retry UUID", async () => {
+    const older = deferred<Awaited<ReturnType<NotesBridge["create"]>>>();
+    let invocation = 0;
+    testBridge.create = vi.fn(async (request) => {
+      invocation += 1;
+      if (invocation === 1) return older.promise;
+      if (invocation === 2) {
+        return {
+          ok: false as const,
+          error: { code: "storage_unavailable" as const },
+        };
+      }
+      return {
+        ok: true as const,
+        result: createdNote({ title: request.title, markdown: request.markdown }),
+      };
+    });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Overlapping create");
+    await change(input(container, "Markdown source"), "Older command.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    await change(input(container, "Markdown source"), "Newer retryable command.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    const newerMutationId = vi.mocked(testBridge.create).mock.calls[1]?.[0].mutationId;
+
+    await act(async () => {
+      older.resolve({
+        ok: true,
+        result: createdNote({ title: "Overlapping create", markdown: "Older command." }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(vi.mocked(testBridge.create).mock.calls[2]?.[0].mutationId).toBe(newerMutationId);
+    expect(store.getSnapshot().selection?.markdown).toBe("Newer retryable command.");
+  });
+
   it("saves only an explicit valid dirty draft and uses a fresh canonical UUID", async () => {
     await openCurrent();
     expect(button(container, "Save").disabled).toBe(true);
@@ -959,6 +1190,176 @@ describe("NotesWorkspace", () => {
       }),
     );
     expect(button(container, "Save").disabled).toBe(true);
+  });
+
+  it("retains the exact Save DTO and UUID after a lost reply", async () => {
+    testBridge.save = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("reply-lost"))
+      .mockImplementationOnce(async (request) => ({
+        ok: true as const,
+        result: {
+          outcome: "saved" as const,
+          canonical: note({
+            resourceVersionId: id("4"),
+            revision: 1,
+            displayVersion: 2,
+            title: request.title,
+            markdown: request.markdown,
+          }),
+          submittedVersionId: id("4"),
+          conflictId: null,
+        },
+      }));
+    await openCurrent();
+    await change(input(container, "Note title"), "  Retried save  ");
+    await change(input(container, "Markdown source"), "Exact saved Markdown.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Note title"), "Retried save");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(requests).toEqual([
+      {
+        version: 1,
+        mutationId: expect.stringMatching(mutationIdPattern),
+        resourceId: id("1"),
+        baseVersionId: id("2"),
+        title: "Retried save",
+        markdown: "Exact saved Markdown.",
+      },
+      requests[0],
+    ]);
+    expect(store.getSnapshot().selection?.resourceVersionId).toBe(id("4"));
+  });
+
+  it.each([
+    ["title", "Changed save", "Original saved Markdown."],
+    ["Markdown", "Field notes", "Changed saved Markdown."],
+  ])("uses a new Save UUID when the canonical %s changes", async (_field, title, markdown) => {
+    testBridge.save = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await change(input(container, "Markdown source"), "Original saved Markdown.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    await change(input(container, "Note title"), title);
+    await change(input(container, "Markdown source"), markdown);
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("clears a failed Save UUID when Discard explicitly opens the note again", async () => {
+    testBridge.save = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await change(input(container, "Markdown source"), "Same command after Open.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Open Field notes"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      button(container, "Discard").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await change(input(container, "Markdown source"), "Same command after Open.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect({ ...requests[1], mutationId: requests[0]?.mutationId }).toEqual(requests[0]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("uses a new Save UUID when Discard opens a different selection and base", async () => {
+    testBridge.save = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await listSecondNote();
+    await change(input(container, "Markdown source"), "Selection-scoped save.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    testBridge.open = vi.fn(async () => ({ ok: true, result: secondNote() }));
+    await act(async () => {
+      (container.querySelector('[aria-label="Open Second note"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      button(container, "Discard").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await change(input(container, "Markdown source"), "Selection-scoped save.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(
+      requests.map(({ resourceId, baseVersionId }) => ({ resourceId, baseVersionId })),
+    ).toEqual([
+      { resourceId: id("1"), baseVersionId: id("2") },
+      { resourceId: id("11"), baseVersionId: id("12") },
+    ]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("uses a new Save UUID and updated base after a successful earlier command", async () => {
+    await openCurrent();
+    await change(input(container, "Markdown source"), "First successful save.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await change(input(container, "Markdown source"), "Intentional later save.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.save).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.baseVersionId).toBe(id("2"));
+    expect(requests[1]?.baseVersionId).toBe(id("4"));
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
   });
 
   it("does not let a late Save overwrite a newer local draft", async () => {
@@ -1730,6 +2131,124 @@ describe("NotesWorkspace", () => {
     );
   });
 
+  it("retains the exact Merge DTO and UUID across a same-command retry", async () => {
+    await enterMergeMode();
+    testBridge.merge = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false as const,
+        error: { code: "storage_unavailable" as const },
+      })
+      .mockImplementationOnce(async (request) => ({
+        ok: true as const,
+        result: {
+          outcome: "saved" as const,
+          canonical: note({
+            resourceVersionId: id("7"),
+            revision: 2,
+            displayVersion: 3,
+            title: request.title,
+            markdown: request.markdown,
+          }),
+          submittedVersionId: id("7"),
+          conflictId: null,
+        },
+      }));
+    await change(input(container, "Note title"), "  Exact merge  ");
+    await change(input(container, "Markdown source"), "Exact merged Markdown.");
+
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Note title"), "Exact merge");
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.merge).mock.calls.map(([request]) => request);
+    expect(requests).toEqual([
+      {
+        version: 1,
+        mutationId: expect.stringMatching(mutationIdPattern),
+        resourceId: id("1"),
+        conflictId: id("5"),
+        expectedCurrentVersionId: id("4"),
+        competingVersionId: id("6"),
+        title: "Exact merge",
+        markdown: "Exact merged Markdown.",
+      },
+      requests[0],
+    ]);
+  });
+
+  it("uses a new Merge UUID when an edited command field changes", async () => {
+    await enterMergeMode();
+    testBridge.merge = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+    await change(input(container, "Markdown source"), "Changed merged Markdown.");
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.merge).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.mutationId).toMatch(mutationIdPattern);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+    expect(requests[1]?.markdown).toBe("Changed merged Markdown.");
+  });
+
+  it("uses a new Merge UUID when conflict command identifiers change", async () => {
+    await enterMergeMode();
+    testBridge.merge = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+    const firstRequest = vi.mocked(testBridge.merge).mock.calls[0]?.[0];
+    const changedDetail = conflictDetailForA();
+    changedDetail.conflictId = id("15");
+    changedDetail.current.resourceVersionId = id("14");
+    changedDetail.competing.resourceVersionId = id("16");
+    await act(async () => {
+      const mutationToken = store.beginLane("mutation");
+      store.acceptMutation(mutationToken, {
+        outcome: "conflict",
+        canonical: note({ resourceVersionId: id("14"), revision: 1, displayVersion: 2 }),
+        submittedVersionId: id("16"),
+        conflictId: id("15"),
+      });
+      const conflictToken = store.beginLane("conflict");
+      store.acceptConflict(conflictToken, changedDetail);
+    });
+    await act(async () => {
+      button(container, "Save merge").click();
+      await Promise.resolve();
+    });
+
+    const secondRequest = vi.mocked(testBridge.merge).mock.calls[1]?.[0];
+    expect(secondRequest).toEqual({
+      ...firstRequest,
+      mutationId: expect.stringMatching(mutationIdPattern),
+      conflictId: id("15"),
+      expectedCurrentVersionId: id("14"),
+      competingVersionId: id("16"),
+    });
+    expect(secondRequest?.mutationId).not.toBe(firstRequest?.mutationId);
+  });
+
   it("deletes, restores from Trash, and exposes an ordinary same-origin export link", async () => {
     await openCurrent();
     const exportLink = container.querySelector('[aria-label="Export Field notes"]');
@@ -1765,6 +2284,170 @@ describe("NotesWorkspace", () => {
         mutationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
     );
+  });
+
+  it("retains the exact Delete DTO and UUID across a same-command retry", async () => {
+    testBridge.delete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false as const,
+        error: { code: "storage_unavailable" as const },
+      })
+      .mockResolvedValueOnce({ ok: true, accepted: true });
+    await openCurrent();
+
+    await act(async () => {
+      button(container, "Delete").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Delete").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.delete).mock.calls.map(([request]) => request);
+    expect(requests).toEqual([
+      {
+        version: 1,
+        mutationId: expect.stringMatching(mutationIdPattern),
+        resourceId: id("1"),
+        expectedCurrentVersionId: id("2"),
+      },
+      requests[0],
+    ]);
+    expect(store.getSnapshot().selection).toBeNull();
+  });
+
+  it("clears a retained command UUID after an explicit successful Open", async () => {
+    testBridge.delete = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await act(async () => {
+      button(container, "Delete").click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      (container.querySelector('[aria-label="Open Field notes"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Delete").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.delete).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect({ ...requests[1], mutationId: requests[0]?.mutationId }).toEqual(requests[0]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("retains the exact Restore DTO and UUID across a same-command retry", async () => {
+    testBridge.restore = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false as const,
+        error: { code: "storage_unavailable" as const },
+      })
+      .mockResolvedValueOnce({ ok: true, result: note() });
+    await act(async () => {
+      button(container, "Trash").click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      button(container, "Restore Deleted field notes").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Restore Deleted field notes").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.restore).mock.calls.map(([request]) => request);
+    expect(requests).toEqual([
+      {
+        version: 1,
+        mutationId: expect.stringMatching(mutationIdPattern),
+        resourceId: id("1"),
+      },
+      requests[0],
+    ]);
+    expect(store.getSnapshot().selection?.resourceId).toBe(id("1"));
+  });
+
+  it("uses a new Restore UUID when the selected trash resource changes", async () => {
+    testBridge.trash = vi.fn(async () => ({
+      ok: true as const,
+      result: {
+        items: [
+          {
+            summary: summary({ deleted: true, title: "Deleted field notes" }),
+            deletedAt: updatedAt,
+          },
+          {
+            summary: secondSummary({ deleted: true, title: "Deleted second note" }),
+            deletedAt: updatedAt,
+          },
+        ],
+        nextCursor: null,
+      },
+    }));
+    testBridge.restore = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await act(async () => {
+      button(container, "Trash").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Restore Deleted field notes").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Restore Deleted second note").click();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.restore).mock.calls.map(([request]) => request);
+    expect(requests.map(({ resourceId }) => resourceId)).toEqual([id("1"), id("11")]);
+    expect(requests[1]?.mutationId).not.toBe(requests[0]?.mutationId);
+  });
+
+  it("never shares a canonical UUID between Delete and Restore for the same resource", async () => {
+    testBridge.delete = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    testBridge.restore = vi.fn(async () => ({
+      ok: false as const,
+      error: { code: "storage_unavailable" as const },
+    }));
+    await openCurrent();
+    await act(async () => {
+      button(container, "Delete").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Trash").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Restore Deleted field notes").click();
+      await Promise.resolve();
+    });
+
+    const deleteMutationId = vi.mocked(testBridge.delete).mock.calls[0]?.[0].mutationId;
+    const restoreMutationId = vi.mocked(testBridge.restore).mock.calls[0]?.[0].mutationId;
+    expect(deleteMutationId).toMatch(mutationIdPattern);
+    expect(restoreMutationId).toMatch(mutationIdPattern);
+    expect(restoreMutationId).not.toBe(deleteMutationId);
   });
 
   it("supports keyboard Save and Escape, live regions, and named narrow panels", async () => {
