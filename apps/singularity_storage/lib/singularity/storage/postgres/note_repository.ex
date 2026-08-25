@@ -197,6 +197,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
 
   def get_conflict(repo, vault_id, resource_id, conflict_id) do
     with :ok <- UUID.validate([vault_id, resource_id, conflict_id]),
+         {:ok, _current_version_id} <- lock_live_read_resource(repo, vault_id, resource_id),
          {:ok, conflict} <- load_conflict(repo, vault_id, conflict_id),
          :ok <- classify_resource(conflict.resource_id, resource_id),
          {:ok, current} <- get(repo, vault_id, resource_id),
@@ -209,12 +210,15 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
          competing: competing
        }}
     end
+  rescue
+    error in [Ecto.Query.CastError, Ecto.CastError] -> {:error, database_error(error)}
+    error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, database_error(error)}
   end
 
   def history(repo, vault_id, resource_id, params) do
     with :ok <- UUID.validate([vault_id, resource_id]),
          {:ok, page} <- validate_page_params(params),
-         {:ok, current_version_id} <- lock_live_history_resource(repo, vault_id, resource_id),
+         {:ok, current_version_id} <- lock_live_read_resource(repo, vault_id, resource_id),
          {:ok, cursor_secret} <- cursor_secret(),
          {:ok, cursor} <-
            decode_page_cursor(
@@ -500,7 +504,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
 
   defp validate_page_params(_params), do: invalid()
 
-  defp lock_live_history_resource(repo, vault_id, resource_id) do
+  defp lock_live_read_resource(repo, vault_id, resource_id) do
     query =
       from resource in Resource,
         where:

@@ -301,6 +301,223 @@ defmodule Singularity.Storage.NoteMutationConcurrencyTest do
     end)
   end
 
+  test "conflict detail holds the live resource stable until its transaction commits", %{
+    fixture: fixture
+  } do
+    scenario = conflict_scenario(fixture, "conflict-reader-first")
+    gate = make_ref()
+    reader = start_conflict_read_task(fixture, scenario, gate, true)
+
+    assert_receive {:conflict_reader_ready, ^gate, reader_pid, reader_backend}, @barrier_timeout
+    send(reader_pid, {gate, :start})
+
+    assert_receive {:conflict_read, ^gate, ^reader_pid, {:ok, detail}}, @barrier_timeout
+
+    assert %{
+             conflict: %{
+               conflict_id: conflict_id,
+               observed_canonical_version_id: observed_id,
+               competing_version_id: competing_id,
+               state: :open,
+               resolution_version_id: nil
+             },
+             current: %{
+               resource_version_id: current_id,
+               open_conflict_count: 1
+             },
+             competing: %{
+               resource_version_id: competing_id,
+               canonical?: false,
+               conflict_state: :open
+             }
+           } = detail
+
+    assert conflict_id == scenario.conflict.conflict_id
+    assert observed_id == scenario.accepted.canonical_version_id
+    assert current_id == scenario.accepted.canonical_version_id
+    assert competing_id == scenario.conflict.submitted_version_id
+
+    merge =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        scenario.conflict.submitted_version_id
+      )
+
+    merge_task = start_unbarriered_merge_task(fixture, merge, gate)
+
+    assert_receive {:merge_ready, ^gate, merge_pid, merge_backend}, @barrier_timeout
+
+    try do
+      send(merge_pid, {gate, :start})
+      assert Task.yield(merge_task, 200) == nil
+      await_blocked_by!(merge_backend, reader_backend)
+      send(reader_pid, {gate, :release})
+
+      assert {:ok, ^detail} = Task.await(reader, @barrier_timeout)
+
+      assert {:ok, %NoteSaveResult{outcome: :saved, resource_id: resource_id}} =
+               Task.await(merge_task, @barrier_timeout)
+
+      assert resource_id == scenario.created.resource_id
+    after
+      send(reader_pid, {gate, :release})
+      shutdown_task(reader)
+      shutdown_task(merge_task)
+    end
+  end
+
+  test "conflict detail waits for an in-flight merge and reads its committed state", %{
+    fixture: fixture
+  } do
+    scenario = conflict_scenario(fixture, "conflict-merge-first")
+    gate = make_ref()
+
+    merge =
+      merge_intent(
+        fixture,
+        scenario.created.resource_id,
+        scenario.conflict.conflict_id,
+        scenario.accepted.canonical_version_id,
+        scenario.conflict.submitted_version_id
+      )
+
+    merge_task = start_mutation_task(fixture, {:merge, merge}, :merge, gate)
+
+    assert_receive {:mutation_ready, ^gate, :merge, merge_pid, merge_backend}, @barrier_timeout
+    send(merge_pid, {gate, :start})
+
+    assert_receive {:mutation_locked, ^gate, :merge, merge_lock_holder}, @barrier_timeout
+
+    reader = start_conflict_read_task(fixture, scenario, gate, false)
+
+    assert_receive {:conflict_reader_ready, ^gate, reader_pid, reader_backend}, @barrier_timeout
+
+    try do
+      send(reader_pid, {gate, :start})
+      assert Task.yield(reader, 200) == nil
+      await_blocked_by!(reader_backend, merge_backend)
+      send(merge_lock_holder, {gate, :continue})
+
+      assert {:ok,
+              %NoteSaveResult{
+                outcome: :saved,
+                resource_id: resource_id,
+                canonical_version_id: merged_id,
+                submitted_version_id: merged_id
+              }} = Task.await(merge_task, @barrier_timeout)
+
+      assert_receive {:conflict_read, ^gate, ^reader_pid, {:ok, detail}}, @barrier_timeout
+      assert {:ok, ^detail} = Task.await(reader, @barrier_timeout)
+
+      assert %{
+               conflict: %{
+                 conflict_id: conflict_id,
+                 observed_canonical_version_id: observed_id,
+                 competing_version_id: competing_id,
+                 state: :resolved,
+                 resolution_version_id: resolved_id
+               },
+               current: %{
+                 resource_id: ^resource_id,
+                 resource_version_id: current_id,
+                 open_conflict_count: 0,
+                 title: "Concurrent merge"
+               },
+               competing: %{
+                 resource_version_id: competing_id,
+                 canonical?: false,
+                 conflict_state: :resolved
+               }
+             } = detail
+
+      assert resource_id == scenario.created.resource_id
+      assert conflict_id == scenario.conflict.conflict_id
+      assert observed_id == scenario.accepted.canonical_version_id
+      assert competing_id == scenario.conflict.submitted_version_id
+      assert resolved_id == merged_id
+      assert current_id == merged_id
+    after
+      send(merge_lock_holder, {gate, :continue})
+      send(reader_pid, {gate, :release})
+      shutdown_task(merge_task)
+      shutdown_task(reader)
+    end
+  end
+
+  defp start_conflict_read_task(fixture, scenario, gate, hold_after_read?) do
+    parent = self()
+
+    Task.async(fn ->
+      RequestRepo.checkout(fn ->
+        ScopedRepo.transact(
+          RequestRepo,
+          %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+          fn repo ->
+            %{rows: [[backend_pid]]} = query!(repo, "SELECT pg_backend_pid()")
+            send(parent, {:conflict_reader_ready, gate, self(), backend_pid})
+
+            receive do
+              {^gate, :start} -> :ok
+            after
+              @barrier_timeout -> raise "conflict read start barrier timed out"
+            end
+
+            result =
+              NoteRepository.get_conflict(
+                repo,
+                fixture.vault_id,
+                scenario.created.resource_id,
+                scenario.conflict.conflict_id
+              )
+
+            send(parent, {:conflict_read, gate, self(), result})
+
+            if hold_after_read? do
+              receive do
+                {^gate, :release} -> :ok
+              after
+                @barrier_timeout -> raise "conflict read release barrier timed out"
+              end
+            end
+
+            result
+          end
+        )
+      end)
+    end)
+  end
+
+  defp start_unbarriered_merge_task(fixture, intent, gate) do
+    parent = self()
+
+    Task.async(fn ->
+      RequestRepo.checkout(fn ->
+        ScopedRepo.transact(
+          RequestRepo,
+          %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+          fn repo ->
+            %{rows: [[backend_pid]]} = query!(repo, "SELECT pg_backend_pid()")
+            send(parent, {:merge_ready, gate, self(), backend_pid})
+
+            receive do
+              {^gate, :start} -> NoteRepository.merge(repo, intent)
+            after
+              @barrier_timeout -> raise "merge start barrier timed out"
+            end
+          end
+        )
+      end)
+    end)
+  end
+
+  defp shutdown_task(%Task{pid: pid} = task) do
+    if Process.alive?(pid), do: Task.shutdown(task, :brutal_kill)
+    :ok
+  end
+
   defp start_save_tasks(fixture, intents, gate) do
     parent = self()
 
