@@ -28,8 +28,8 @@ type Panel = "editor" | "rail" | "drawer";
 type Notice = { tone: "error" | "info"; text: string };
 type Draft = { title: string; markdown: string };
 type MutationKind = "create" | "save" | "merge" | "delete" | "restore";
-type RetainedMutation = { signature: string; mutationId: string };
-type MutationIssue = { mutationId: string; replayCandidate: boolean };
+type RetainedMutation = { signature: string; mutationId: string; replayEligible: boolean };
+type MutationIssue = { mutationId: string; replayEligible: boolean };
 type PendingAction =
   | { kind: "navigate"; target: NavigationTarget; trigger: HTMLElement }
   | { kind: "open"; summary: NoteSummary; trigger: HTMLElement }
@@ -147,8 +147,11 @@ function createResultMatches(note: Note, submitted: Draft): boolean {
   );
 }
 
-function createReplayResultIsCurrent(note: Note): boolean {
-  return !note.deleted && note.displayVersion === note.revision + 1;
+function createReplayResultMatches(note: Note, submitted: Draft): boolean {
+  return (
+    createResultMatches(note, submitted) ||
+    (note.revision > 0 && !note.deleted && note.displayVersion === note.revision + 1)
+  );
 }
 
 export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
@@ -343,12 +346,21 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
     const signature = JSON.stringify(fields);
     const retained = retainedMutationsRef.current[kind];
     if (retained?.signature === signature) {
-      return { mutationId: retained.mutationId, replayCandidate: true };
+      return { mutationId: retained.mutationId, replayEligible: retained.replayEligible };
     }
 
     const mutationId = canonicalMutationId();
-    retainedMutationsRef.current[kind] = { signature, mutationId };
-    return { mutationId, replayCandidate: false };
+    retainedMutationsRef.current[kind] = { signature, mutationId, replayEligible: false };
+    return { mutationId, replayEligible: false };
+  }
+
+  function setRetainedMutationReplayEligibility(
+    kind: MutationKind,
+    mutationId: string,
+    replayEligible: boolean,
+  ): void {
+    const retained = retainedMutationsRef.current[kind];
+    if (retained?.mutationId === mutationId) retained.replayEligible = replayEligible;
   }
 
   function clearRetainedMutation(kind: MutationKind, mutationId: string): void {
@@ -687,7 +699,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       title: submittedDraft.title.trim(),
       markdown: submittedDraft.markdown,
     };
-    const { mutationId, replayCandidate } = issueMutation("create", [
+    const { mutationId, replayEligible } = issueMutation("create", [
       submitted.title,
       submitted.markdown,
     ]);
@@ -698,12 +710,20 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
         ...submitted,
       });
       if (!laneIsCurrent("mutation", token) || !contextIsCurrent(contextGeneration)) return;
-      if (
-        !reply.ok ||
-        (replayCandidate
-          ? !createReplayResultIsCurrent(reply.result)
-          : !createResultMatches(reply.result, submitted))
-      ) {
+      if (!reply.ok) {
+        setRetainedMutationReplayEligibility(
+          "create",
+          mutationId,
+          reply.error.code === "storage_unavailable",
+        );
+        setNotice(stableFailure("Create"));
+        return;
+      }
+      const resultMatches = replayEligible
+        ? createReplayResultMatches(reply.result, submitted)
+        : createResultMatches(reply.result, submitted);
+      if (!resultMatches) {
+        setRetainedMutationReplayEligibility("create", mutationId, false);
         setNotice(stableFailure("Create"));
         return;
       }
@@ -729,6 +749,7 @@ export function NotesWorkspace({ bridge, store }: NotesWorkspaceProps) {
       setEditorFocusRequest((request) => request + 1);
     } catch {
       if (laneIsCurrent("mutation", token) && contextIsCurrent(contextGeneration)) {
+        setRetainedMutationReplayEligibility("create", mutationId, true);
         setNotice(stableFailure("Create"));
       }
     } finally {

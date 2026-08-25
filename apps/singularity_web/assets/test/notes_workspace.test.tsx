@@ -839,6 +839,38 @@ describe("NotesWorkspace", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("accepts the authoritative current Note after a lost Create reply rejects", async () => {
+    const current = createdNote({
+      resourceVersionId: id("24"),
+      revision: 1,
+      displayVersion: 2,
+      title: "Current after rejected reply",
+      markdown: "Current Markdown after rejected reply.",
+    });
+    testBridge.create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("create-reply-lost"))
+      .mockResolvedValueOnce({ ok: true, result: current });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Submitted before rejected reply");
+    await change(input(container, "Markdown source"), "Submitted Markdown before rejection.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(store.getSnapshot().selection).toEqual(current);
+  });
+
   it("rejects a newer current Note returned on the first Create issuance", async () => {
     const unexpectedCurrent = createdNote({
       resourceVersionId: id("24"),
@@ -865,6 +897,101 @@ describe("NotesWorkspace", () => {
     );
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
   });
+
+  it("keeps strict Create correlation across repeated definitive current responses", async () => {
+    testBridge.create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        result: createdNote({
+          resourceId: id("31"),
+          resourceVersionId: id("32"),
+          revision: 1,
+          displayVersion: 2,
+          title: "First unrelated current title",
+          markdown: "First unrelated current Markdown.",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: createdNote({
+          resourceId: id("41"),
+          resourceVersionId: id("42"),
+          revision: 2,
+          displayVersion: 3,
+          title: "Second unrelated current title",
+          markdown: "Second unrelated current Markdown.",
+        }),
+      });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Strictly correlated title");
+    await change(input(container, "Markdown source"), "Strictly correlated Markdown.");
+
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(store.getSnapshot().selection).toBeNull();
+    expect(store.getSnapshot().summaries.map(({ title }) => title)).toEqual(["Field notes"]);
+    expect((input(container, "Note title") as HTMLInputElement).value).toBe(
+      "Strictly correlated title",
+    );
+    expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+      "Strictly correlated Markdown.",
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
+  });
+
+  it.each(["invalid", "forbidden", "not_found", "conflict"] as const)(
+    "keeps strict Create correlation after a definitive %s failure",
+    async (code) => {
+      testBridge.create = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, error: { code } })
+        .mockResolvedValueOnce({
+          ok: true,
+          result: createdNote({
+            resourceVersionId: id("24"),
+            revision: 1,
+            displayVersion: 2,
+            title: "Unrelated current after definitive failure",
+            markdown: "Unrelated current Markdown.",
+          }),
+        });
+      await act(async () => button(container, "New note").click());
+      await change(input(container, "Note title"), "Definitive failure title");
+      await change(input(container, "Markdown source"), "Definitive failure Markdown.");
+
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        button(container, "Save").click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const requests = vi.mocked(testBridge.create).mock.calls.map(([request]) => request);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toEqual(requests[0]);
+      expect(store.getSnapshot().selection).toBeNull();
+      expect((input(container, "Note title") as HTMLInputElement).value).toBe(
+        "Definitive failure title",
+      );
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
+    },
+  );
 
   it.each([
     ["tombstoned", { deleted: true }],
@@ -1312,6 +1439,68 @@ describe("NotesWorkspace", () => {
 
     expect(vi.mocked(testBridge.create).mock.calls[2]?.[0].mutationId).toBe(newerMutationId);
     expect(store.getSnapshot().selection?.markdown).toBe("Newer retryable command.");
+  });
+
+  it("does not let a stale ambiguous Create completion enable replay for a newer command", async () => {
+    const older = deferred<Awaited<ReturnType<NotesBridge["create"]>>>();
+    let invocation = 0;
+    testBridge.create = vi.fn(async () => {
+      invocation += 1;
+      if (invocation === 1) return older.promise;
+      if (invocation === 2) {
+        return {
+          ok: false as const,
+          error: { code: "forbidden" as const },
+        };
+      }
+      return {
+        ok: true as const,
+        result: createdNote({
+          resourceVersionId: id("24"),
+          revision: 1,
+          displayVersion: 2,
+          title: "Unrelated current after stale ambiguity",
+          markdown: "Unrelated current Markdown after stale ambiguity.",
+        }),
+      };
+    });
+    await act(async () => button(container, "New note").click());
+    await change(input(container, "Note title"), "Overlapping eligibility");
+    await change(input(container, "Markdown source"), "Older ambiguous command.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+
+    await change(input(container, "Markdown source"), "Newer definitive command.");
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+    });
+    const olderMutationId = vi.mocked(testBridge.create).mock.calls[0]?.[0].mutationId;
+    const newerMutationId = vi.mocked(testBridge.create).mock.calls[1]?.[0].mutationId;
+
+    await act(async () => {
+      older.resolve({
+        ok: false,
+        error: { code: "storage_unavailable" },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, "Save").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(olderMutationId).not.toBe(newerMutationId);
+    expect(vi.mocked(testBridge.create).mock.calls[2]?.[0].mutationId).toBe(newerMutationId);
+    expect(store.getSnapshot().selection).toBeNull();
+    expect((input(container, "Markdown source") as HTMLTextAreaElement).value).toBe(
+      "Newer definitive command.",
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Try saving again");
   });
 
   it("saves only an explicit valid dirty draft and uses a fresh canonical UUID", async () => {
