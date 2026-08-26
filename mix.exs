@@ -15,8 +15,17 @@ defmodule Singularity.Umbrella.MixProject do
         "singularity.test.browser": :test,
         "singularity.test.browser_restore": :test
       ],
+      releases: releases(),
       aliases: aliases(),
       deps: deps()
+    ]
+  end
+
+  defp releases do
+    [
+      singularity: [
+        applications: [singularity_web: :permanent]
+      ]
     ]
   end
 

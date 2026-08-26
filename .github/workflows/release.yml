@@ -1,0 +1,388 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 1.2.3)
+        required: true
+        type: string
+      git_ref:
+        description: Git branch to release from
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/gsmlg-dev/singularity
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.git_ref }}
+          fetch-depth: 0
+
+      - name: Set up Elixir and Erlang
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: 1.18.4
+          otp-version: 28.4.3
+
+      - name: Restore release caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build
+            node_modules
+            ~/.hex
+            ~/.mix
+            ~/.cache/rustler_precompiled
+          key: release-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}
+
+      - name: Prepare release source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ inputs.git_ref }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must use X.Y.Z" >&2
+            exit 1
+          fi
+          git check-ref-format "refs/heads/$RELEASE_REF"
+          remote_branch_sha="$(git ls-remote --exit-code --heads origin "refs/heads/$RELEASE_REF" | cut -f1)"
+          test "$(git rev-parse HEAD)" = "$remote_branch_sha"
+          git fetch --force --no-tags origin "refs/heads/$RELEASE_REF:refs/remotes/origin/$RELEASE_REF"
+          test "$(git rev-parse "refs/remotes/origin/$RELEASE_REF")" = "$remote_branch_sha"
+          RELEASE_TAG="v$RELEASE_VERSION"
+          highest_version="$(
+            git ls-remote --tags --refs origin 'refs/tags/v*' |
+              sed -nE 's#^.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' |
+              sort -V |
+              tail -n 1
+          )"
+          archive_name="singularity-v$RELEASE_VERSION-linux-amd64-arm64.oci.tar"
+          checksum_name="$archive_name.sha256"
+          read_root_version() {
+            python3 <<'PY'
+          import pathlib
+          import re
+
+          path = pathlib.Path("mix.exs")
+          source = path.read_text()
+          match = re.search(r'(?m)^\s*version:\s*"([^"]+)",$', source)
+          if match is None:
+              raise SystemExit("canonical Mix version was not found")
+          print(match.group(1))
+          PY
+          }
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            if [[ "$RELEASE_VERSION" != "$highest_version" ]]; then
+              echo "only the highest release tag may be resumed" >&2
+              exit 1
+            fi
+            git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            tag_source_revision="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if ! git merge-base --is-ancestor "$tag_source_revision" "refs/remotes/origin/$RELEASE_REF"; then
+              echo "release tag is not in the release branch history" >&2
+              exit 1
+            fi
+            git checkout --detach "$tag_source_revision"
+            current_version="$(read_root_version)"
+            if [[ "$current_version" != "$RELEASE_VERSION" ]]; then
+              echo "release tag version does not match the canonical Mix version" >&2
+              exit 1
+            fi
+            release_response_file="$(mktemp)"
+            if gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+                > "$release_response_file" 2>&1; then
+              release_api_exit=0
+            else
+              release_api_exit=$?
+            fi
+            release_http_status="$(
+              sed -nE \
+                -e 's#^HTTP/[0-9.]+ ([0-9]{3}).*$#\1#p' \
+                -e 's#^.*\(HTTP ([0-9]{3})\).*$#\1#p' \
+                "$release_response_file" | head -n 1
+            )"
+            case "$release_http_status" in
+              "200")
+                if (( release_api_exit != 0 )); then
+                  echo "release API returned HTTP 200 with a failing exit status" >&2
+                  rm -f "$release_response_file"
+                  exit 1
+                fi
+                release_asset_names="$(
+                  sed -n '/^{/,$p' "$release_response_file" | jq -r '.assets[]?.name'
+                )"
+                if grep -Fxq "$archive_name" <<< "$release_asset_names" &&
+                    grep -Fxq "$checksum_name" <<< "$release_asset_names"; then
+                  echo "release already complete" >&2
+                  rm -f "$release_response_file"
+                  exit 1
+                fi
+                ;;
+              "404")
+                ;;
+              *)
+                echo "release API request failed (HTTP ${release_http_status:-none}, exit $release_api_exit)" >&2
+                rm -f "$release_response_file"
+                exit 1
+                ;;
+            esac
+            rm -f "$release_response_file"
+            RELEASE_MODE=resume
+            SOURCE_REVISION="$tag_source_revision"
+          else
+            if [[ -n "$highest_version" ]]; then
+              newest_candidate="$(printf '%s\n%s\n' "$highest_version" "$RELEASE_VERSION" | sort -V | tail -n 1)"
+              if [[ "$newest_candidate" != "$RELEASE_VERSION" || "$RELEASE_VERSION" == "$highest_version" ]]; then
+                echo "new release version must be higher than every existing release tag" >&2
+                exit 1
+              fi
+            fi
+            current_version="$(read_root_version)"
+            canonical_candidate="$(printf '%s\n%s\n' "$current_version" "$RELEASE_VERSION" | sort -V | tail -n 1)"
+            if [[ "$canonical_candidate" != "$RELEASE_VERSION" || "$RELEASE_VERSION" == "$current_version" ]]; then
+              echo "new release version must be higher than the canonical Mix version" >&2
+              exit 1
+            fi
+            python3 - "$RELEASE_VERSION" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path = pathlib.Path("mix.exs")
+          source = path.read_text()
+          updated, count = re.subn(
+              r'(?m)^(\s*version:\s*")[^"]+(",)$',
+              rf'\g<1>{sys.argv[1]}\g<2>',
+              source,
+              count=1,
+          )
+          if count != 1 or updated == source:
+              raise SystemExit("canonical Mix version was not updated")
+          path.write_text(updated)
+          PY
+            git diff --check -- mix.exs
+            git diff --quiet -- mix.exs && {
+              echo "canonical Mix version was not updated" >&2
+              exit 1
+            }
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add mix.exs
+            git commit -m "chore(release): v${RELEASE_VERSION}"
+            git tag -a "$RELEASE_TAG" -m "Singularity $RELEASE_TAG"
+            RELEASE_MODE=new
+            SOURCE_REVISION="$(git rev-parse HEAD)"
+          fi
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          {
+            echo "VERSION=$RELEASE_VERSION"
+            echo "MINOR_VERSION=${RELEASE_VERSION%.*}"
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "OCI_ARCHIVE=/tmp/singularity-v$RELEASE_VERSION-linux-amd64-arm64.oci.tar"
+            echo "RELEASE_MODE=$RELEASE_MODE"
+            echo "RELEASE_PARENT_SHA=$remote_branch_sha"
+            echo "RELEASE_REF=$RELEASE_REF"
+            echo "SOURCE_REVISION=$SOURCE_REVISION"
+          } >> "$GITHUB_ENV"
+
+      - name: Install pinned Hex and Rebar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mix local.hex 2.5.1 --force
+          mix local.rebar rebar3 \
+            https://github.com/erlang/rebar3/releases/download/3.27.0/rebar3 \
+            --sha512 0d00494d849fdc521a55142278d1f6ba552954fbd65b80d40df8022f594f05d6c99ed1d731bc263691a04176e11d4c6e126c56ba20dca19c5e42d4ffab2e7e36 \
+            --force
+
+      - name: Build the OTP release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          git diff --quiet
+          MIX_ENV=prod mix deps.get --only prod
+          NPM_EX_LINK_STRATEGY=copy MIX_ENV=prod mix npm.install --frozen
+          MIX_ENV=prod mix npm.verify
+          MIX_ENV=prod mix compile --warnings-as-errors
+          MIX_ENV=prod mix assets.deploy
+          MIX_ENV=prod mix release singularity --overwrite
+          test -x _build/prod/rel/singularity/bin/singularity
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          version: v0.36.1
+          driver-opts: image=moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ env.SOURCE_REVISION }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build immutable release content
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: |
+            type=oci,dest=${{ env.OCI_ARCHIVE }}
+            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            REVISION=${{ env.SOURCE_REVISION }}
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify immutable image digest
+        shell: bash
+        env:
+          ACTION_DIGEST: ${{ steps.build.outputs.digest }}
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
+        run: |
+          set -euo pipefail
+          metadata_digest="$(jq -r '."containerimage.digest" // empty' <<< "$BUILD_METADATA")"
+          if [[ ! "$metadata_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "build metadata did not contain a valid image digest" >&2
+            exit 1
+          fi
+          test "$ACTION_DIGEST" = "$metadata_digest"
+          raw_manifest="$(docker buildx imagetools inspect "$IMAGE_NAME@$ACTION_DIGEST" --raw)"
+          resolved_digest="sha256:$(printf '%s' "$raw_manifest" | sha256sum | cut -d ' ' -f1)"
+          test "$ACTION_DIGEST" = "$resolved_digest"
+          oci_index="$(tar -xOf "$OCI_ARCHIVE" index.json)"
+          oci_root_digest="$(
+            jq -er '.manifests | if length == 1 then .[0].digest else error("expected one OCI root descriptor") end' <<< "$oci_index"
+          )"
+          if [[ ! "$oci_root_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "OCI archive root descriptor has an invalid digest" >&2
+            exit 1
+          fi
+          oci_root_hex="${oci_root_digest#sha256:}"
+          oci_blob_digest="sha256:$(
+            tar -xOf "$OCI_ARCHIVE" "blobs/sha256/$oci_root_hex" | sha256sum | cut -d ' ' -f1
+          )"
+          test "$oci_root_digest" = "$oci_blob_digest"
+          test "$oci_root_digest" = "$resolved_digest"
+          echo "IMAGE_DIGEST=$resolved_digest" >> "$GITHUB_ENV"
+
+      - name: Publish source branch and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_MODE" == "new" ]]; then
+            remote_branch_sha="$(git ls-remote --exit-code --heads origin "refs/heads/$RELEASE_REF" | cut -f1)"
+            test "$remote_branch_sha" = "$RELEASE_PARENT_SHA"
+            prepush_highest_version="$(
+              git ls-remote --tags --refs origin 'refs/tags/v*' |
+                sed -nE 's#^.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' |
+                sort -V |
+                tail -n 1
+            )"
+            if [[ -n "$prepush_highest_version" ]]; then
+              prepush_candidate="$(printf '%s\n%s\n' "$prepush_highest_version" "$VERSION" | sort -V | tail -n 1)"
+              if [[ "$prepush_candidate" != "$VERSION" || "$VERSION" == "$prepush_highest_version" ]]; then
+                echo "competing release tag appeared before source publication" >&2
+                exit 1
+              fi
+            fi
+            git push --atomic origin "HEAD:refs/heads/$RELEASE_REF" "refs/tags/$RELEASE_TAG"
+          elif [[ "$RELEASE_MODE" != "resume" ]]; then
+            echo "unknown release mode" >&2
+            exit 1
+          fi
+          remote_tag_revision="$(git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}" | tail -n 1 | cut -f1)"
+          test "$remote_tag_revision" = "$SOURCE_REVISION"
+          latest_remote_version="$(
+            git ls-remote --tags --refs origin 'refs/tags/v*' |
+              sed -nE 's#^.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' |
+              sort -V |
+              tail -n 1
+          )"
+          if [[ "$latest_remote_version" != "$VERSION" ]]; then
+            echo "release tag is no longer the highest semver tag" >&2
+            exit 1
+          fi
+
+      - name: Promote immutable image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid immutable image digest" >&2
+            exit 1
+          fi
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:$VERSION" \
+            --tag "$IMAGE_NAME:$MINOR_VERSION" \
+            --tag "$IMAGE_NAME:latest" \
+            "$IMAGE_NAME@$IMAGE_DIGEST"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive_dir=$(dirname "$OCI_ARCHIVE")
+          archive_name=$(basename "$OCI_ARCHIVE")
+          (cd "$archive_dir" && sha256sum "$archive_name" > "$archive_name.sha256")
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$OCI_ARCHIVE" \
+              "$OCI_ARCHIVE.sha256" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$OCI_ARCHIVE" \
+              "$OCI_ARCHIVE.sha256" \
+              --title "Singularity $RELEASE_TAG" \
+              --generate-notes \
+              --verify-tag
+          fi

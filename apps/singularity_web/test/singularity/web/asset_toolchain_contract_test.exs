@@ -75,10 +75,10 @@ defmodule Singularity.Web.AssetToolchainContractTest do
 
     formatter = read!(".formatter.exs")
 
-    assert web_mix =~ ~s|{:duskmoon_bundler_runtime, "~> 9.9.7"}|
+    assert web_mix =~ ~s|{:duskmoon_bundler_runtime, "~> 9.12.2"}|
 
     assert web_mix =~
-             ~s|{:duskmoon_bundler, "~> 9.9.7", runtime: Mix.env() in [:dev, :test]}|
+             ~s|{:duskmoon_bundler, "~> 9.12.2", runtime: Mix.env() in [:dev, :test]}|
 
     assert web_mix =~ ~s|{:floki, ">= 0.36.0", only: :test}|
     assert web_mix =~ ~s|{:lazy_html, ">= 0.1.0"}|
@@ -157,11 +157,13 @@ defmodule Singularity.Web.AssetToolchainContractTest do
              },
              "dependencies" => %{
                "react" => "^19.2.0",
-               "react-dom" => "^19.2.0"
+               "react-dom" => "^19.2.0",
+               "react-markdown" => "10.1.0"
              },
              "devDependencies" => %{
                "@axe-core/playwright" => "^4.12.0",
                "@playwright/test" => "^1.61.0",
+               "@types/node" => "26.2.0",
                "@types/react" => "^19.2.0",
                "@types/react-dom" => "^19.2.0",
                "jsdom" => "^29.1.0",

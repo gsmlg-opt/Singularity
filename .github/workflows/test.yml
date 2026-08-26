@@ -1,8 +1,10 @@
-name: CI
+name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +32,7 @@ jobs:
       - name: Install devenv
         run: nix profile add nixpkgs#devenv
 
-      - name: Restore build caches
+      - name: Restore test caches
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -40,19 +42,30 @@ jobs:
             ~/.hex
             ~/.mix
             ~/.cache/rustler_precompiled
-          key: ci-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}
+          key: test-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}
+
+      - name: Start services
+        run: devenv up -d
+
+      - name: Wait for PostgreSQL
+        run: devenv processes wait --timeout 120
+
+      - name: Provision PostgreSQL roles
+        run: >-
+          devenv shell -- bash
+          apps/singularity_storage/priv/repo/bootstrap_roles.sh
 
       - name: Fetch dependencies
         run: devenv shell -- mix deps.get
 
-      - name: Check unused lock entries
-        run: devenv shell -- mix deps.unlock --check-unused
+      - name: Run tests
+        run: devenv shell -- mix test
 
-      - name: Check formatting
-        run: devenv shell -- mix format --check-formatted
+      - name: Run isolated PostgreSQL integration tests
+        run: devenv shell -- mix singularity.test.integration
 
-      - name: Compile without warnings
-        run: devenv shell -- mix compile --warnings-as-errors
+      - name: Run isolated restore acceptance
+        run: devenv shell -- mix singularity.test.restore
 
       - name: Install JavaScript dependencies
         # TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
@@ -62,11 +75,15 @@ jobs:
       - name: Verify JavaScript dependencies
         run: devenv shell -- mix npm.verify
 
-      - name: Check JavaScript sources
-        run: devenv shell -- mix duskmoon_bundler.js.check
+      - name: Run JavaScript tests
+        run: devenv shell -- mix npm.run test:js
 
       - name: Build browser assets
         run: devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
 
-      - name: Check source cycles
-        run: devenv shell -- mix xref graph --format cycles --fail-above 0
+      - name: Run Chromium acceptance tests
+        run: devenv shell -- mix npm.run test:e2e
+
+      - name: Stop services
+        if: always()
+        run: devenv processes down

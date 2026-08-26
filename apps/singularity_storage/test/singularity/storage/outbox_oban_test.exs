@@ -383,8 +383,8 @@ defmodule Singularity.Storage.OutboxObanTest do
 
     assert %{state: :failure} =
              conf
-             |> Oban.Queue.Executor.new(job, ack: false)
-             |> Oban.Queue.Executor.call()
+             |> Oban.Queues.Executor.new(job, ack: false)
+             |> Oban.Queues.Executor.call()
 
     assert_receive {:raw_oban, [:oban, :job, :start], _measurements, start_metadata}
 
