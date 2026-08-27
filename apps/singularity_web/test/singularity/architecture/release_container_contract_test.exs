@@ -415,7 +415,15 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert preparation_run =~ ~S<grep -Fxq "$checksum_name">
 
     assert preparation_run =~
-             ~S<new release version must be higher than the canonical Mix version>
+             ~S<if [[ "$canonical_candidate" != "$RELEASE_VERSION" ]]; then>
+
+    assert preparation_run =~
+             ~S<new release version must not be lower than the canonical Mix version>
+
+    assert preparation_run =~
+             ~S<if [[ "$RELEASE_VERSION" != "$current_version" ]]; then>
+
+    refute preparation_run =~ ~S<"$RELEASE_VERSION" == "$current_version">
 
     metadata_labels = step!(steps, "Generate image metadata") |> get_in(["with", "labels"])
     assert metadata_labels =~ "org.opencontainers.image.revision=${{ env.SOURCE_REVISION }}"
@@ -733,11 +741,12 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
       fi
       current_version="$(read_root_version)"
       canonical_candidate="$(printf '%s\n%s\n' "$current_version" "$RELEASE_VERSION" | sort -V | tail -n 1)"
-      if [[ "$canonical_candidate" != "$RELEASE_VERSION" || "$RELEASE_VERSION" == "$current_version" ]]; then
-        echo "new release version must be higher than the canonical Mix version" >&2
+      if [[ "$canonical_candidate" != "$RELEASE_VERSION" ]]; then
+        echo "new release version must not be lower than the canonical Mix version" >&2
         exit 1
       fi
-      python3 - "$RELEASE_VERSION" <<'PY'
+      if [[ "$RELEASE_VERSION" != "$current_version" ]]; then
+        python3 - "$RELEASE_VERSION" <<'PY'
     import pathlib
     import re
     import sys
@@ -754,15 +763,16 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
         raise SystemExit("canonical Mix version was not updated")
     path.write_text(updated)
     PY
-      git diff --check -- mix.exs
-      git diff --quiet -- mix.exs && {
-        echo "canonical Mix version was not updated" >&2
-        exit 1
-      }
-      git config user.name github-actions[bot]
-      git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-      git add mix.exs
-      git commit -m "chore(release): v${RELEASE_VERSION}"
+        git diff --check -- mix.exs
+        git diff --quiet -- mix.exs && {
+          echo "canonical Mix version was not updated" >&2
+          exit 1
+        }
+        git config user.name github-actions[bot]
+        git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+        git add mix.exs
+        git commit -m "chore(release): v${RELEASE_VERSION}"
+      fi
       git tag -a "$RELEASE_TAG" -m "Singularity $RELEASE_TAG"
       RELEASE_MODE=new
       SOURCE_REVISION="$(git rev-parse HEAD)"
