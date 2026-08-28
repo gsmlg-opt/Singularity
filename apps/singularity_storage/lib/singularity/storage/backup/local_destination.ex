@@ -324,8 +324,7 @@ defmodule Singularity.Storage.Backup.LocalDestination do
              :write,
              :binary,
              :raw,
-             :exclusive,
-             {:mode, 0o600}
+             :exclusive
            ]) do
       verify_opened_partial(root, path, device, options)
     else
@@ -338,7 +337,7 @@ defmodule Singularity.Storage.Backup.LocalDestination do
 
   defp verify_opened_partial(root, path, device, options) do
     case descriptor_identity(device) do
-      {:ok, ownership} ->
+      {:ok, ownership, 0o600} ->
         case regular_identity(path) do
           {:ok, ^ownership} ->
             {:ok, device, ownership}
@@ -357,8 +356,30 @@ defmodule Singularity.Storage.Backup.LocalDestination do
             open_verification_failure(root, path, device, ownership, error, options)
         end
 
+      {:ok, _ownership, _unsafe_mode} ->
+        close_unsafe_partial(device, Error.new(:invalid))
+
       {:error, %Error{} = error} ->
         open_verification_failure(root, path, device, nil, error, options)
+    end
+  end
+
+  defp close_unsafe_partial(device, primary) do
+    case close_opened_device(device) do
+      :ok ->
+        {:error, primary}
+
+      close_result ->
+        {:error,
+         Error.new(:storage_unavailable,
+           details: %{
+             close_error: result_code(close_result),
+             operation: :open_cleanup,
+             partial_state: :preserved,
+             primary_error: primary.code
+           },
+           retryable?: true
+         )}
     end
   end
 
@@ -459,7 +480,7 @@ defmodule Singularity.Storage.Backup.LocalDestination do
            true <- same_file?(before_stat, descriptor_stat),
            true <- same_file?(after_stat, descriptor_stat),
            :ok <- descriptor_within_limit(descriptor_stat, max_bytes),
-           {:ok, identity} <- descriptor_identity(device),
+           {:ok, identity, _mode} <- descriptor_identity(device),
            {:ok, size} <- descriptor_size(descriptor_stat),
            {:ok, content_sha256} <- snapshot_content_sha256(device, size),
            :ok <- verify_descriptor(device, identity, size) do
@@ -522,7 +543,7 @@ defmodule Singularity.Storage.Backup.LocalDestination do
 
   defp verify_descriptor(device, identity, size) do
     with {:ok, descriptor_stat} <- :file.read_file_info(device),
-         {:ok, ^identity} <- descriptor_identity_from_stat(descriptor_stat),
+         {:ok, ^identity, _mode} <- descriptor_identity_from_stat(descriptor_stat),
          {:ok, ^size} <- descriptor_size(descriptor_stat) do
       :ok
     else
@@ -855,9 +876,10 @@ defmodule Singularity.Storage.Backup.LocalDestination do
   end
 
   defp descriptor_identity_from_stat(
-         {:file_info, _, :regular, _, _, _, _, _, _, major, _, inode, _, _}
-       ),
-       do: {:ok, {:local_file, major, inode}}
+         {:file_info, _, :regular, _, _, _, _, mode, _, major, _, inode, _, _}
+       ) do
+    {:ok, {:local_file, major, inode}, Bitwise.band(mode, 0o777)}
+  end
 
   defp descriptor_identity_from_stat(_descriptor_stat), do: invalid()
 

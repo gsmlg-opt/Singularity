@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make local backup partials atomically private on supported launch surfaces and fail closed before writing if their actual descriptor mode is not `0600`.
+**Goal:** Make local backup partials atomically private on supported launch surfaces and fail closed before writing if their actual descriptor mode is not `0600`, while conservatively preserving an unsafe still-empty partial instead of unlinking a possible pathname replacement.
 
-**Architecture:** Set process umask `077` before BEAM starts in devenv and OTP release wrappers, because OTP 28 creates files with `0666 & umask` and ignores the current `{:mode, 0o600}` tuple. Capture descriptor identity and permission mode in one `fstat`, accept only `0600`, and use the captured identity to remove an unsafe still-empty partial.
+**Architecture:** Set process umask `077` before BEAM starts in devenv and OTP release wrappers, because OTP 28 creates files with `0666 & umask` and ignores the current `{:mode, 0o600}` tuple. Read descriptor identity and permission mode in one `fstat` and accept only `0600`. An unsafe descriptor is rejected before any write and closed promptly by a dedicated helper; its empty partial is preserved because pathname cleanup ends with an `lstat` followed by `File.rm/1` and could delete a concurrent replacement. No native primitive is added.
 
 **Tech Stack:** Elixir 1.18.4, Erlang/OTP 28, ExUnit, devenv/Nix, POSIX shell, GitHub Actions.
 
@@ -14,9 +14,11 @@
 
 - Modify `devenv.nix`: establish `umask 077` for local, CI, test, and operational Mix processes.
 - Modify `rel/env.sh.eex`: establish `umask 077` before release cookie generation and VM startup.
-- Modify `apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex`: remove the ignored open option and verify descriptor identity plus permission mode.
-- Modify `apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs`: preserve the at-open test and add a real child-process permissive-umask fail-closed regression.
-- Modify `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`: pin both launch surfaces and reject the obsolete OTP mode tuple.
+- Modify `apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex`: remove the ignored open option, verify descriptor identity plus permission mode, and close an unsafe descriptor without pathname removal.
+- Modify `apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs`: preserve the at-open test and add a real child-process permissive-umask fail-closed and preserved-partial regression.
+- Modify `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`: pin both launch surfaces, reject the obsolete OTP mode tuple, and require the dedicated unsafe-close call.
+- Modify `docs/superpowers/specs/2026-08-28-private-backup-file-creation-design.md`: record the approved conservative TOCTOU correction.
+- Modify `docs/superpowers/plans/2026-08-28-private-backup-file-creation.md`: keep implementation, mutation, review, and release-continuation steps aligned with the corrected contract.
 
 ### Task 1: Add failing private-creation contracts
 
@@ -58,7 +60,7 @@ Add this test immediately after the existing `0600 at open time` test:
 
 ```elixir
 @tag :insecure_umask_probe
-test "rejects and removes an empty partial under a permissive process umask", %{
+test "rejects and preserves an empty partial under a permissive process umask", %{
   tmp_dir: tmp_dir
 } do
   if System.get_env("SINGULARITY_INSECURE_UMASK_PROBE") == "1" do
@@ -72,7 +74,8 @@ test "rejects and removes an empty partial under a permissive process umask", %{
     assert {:error, %Error{code: :invalid}} =
              destination.file_system.open.(partial, [:write, :binary, :exclusive])
 
-    refute File.exists?(partial)
+    assert File.read!(partial) == ""
+    assert Bitwise.band(File.stat!(partial).mode, 0o777) == 0o644
   else
     {output, status} =
       System.cmd(
@@ -91,7 +94,7 @@ test "rejects and removes an empty partial under a permissive process umask", %{
 end
 ```
 
-The outer test uses the supported devenv environment. The inner test explicitly starts a new BEAM process with umask `0022`, proves the destination returns an error before the first write, and proves identity-bound cleanup removes the empty partial.
+The outer test uses the supported devenv environment. The inner test explicitly starts a new BEAM process with umask `0022`, proves the destination returns an error before the first write, and proves the intentionally preserved partial is empty and has the actual `0644` mode produced by that child umask.
 
 - [ ] **Step 4: Add launch-surface and source contracts**
 
@@ -101,6 +104,7 @@ Add this test to `release_container_contract_test.exs`:
 test "supported launch surfaces enforce private file creation" do
   devenv = read!("devenv.nix")
   release_env = read!("rel/env.sh.eex")
+
   destination =
     read!("apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex")
 
@@ -111,6 +115,7 @@ test "supported launch surfaces enforce private file creation" do
   refute destination =~ "{:mode, 0o600}"
   assert destination =~ "{:ok, ownership, 0o600}"
   assert destination =~ "Bitwise.band(mode, 0o777)"
+  assert destination =~ "close_unsafe_partial(device, Error.new(:invalid))"
 end
 ```
 
@@ -124,9 +129,9 @@ devenv shell -- mix test \
   apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
 ```
 
-Expected: the child-process test fails because insecure mode is accepted, and the release/container contract fails because neither launch surface sets umask and the obsolete tuple remains.
+Expected: the child-process test fails because insecure mode is accepted, and the release/container contract fails because neither launch surface sets umask, the obsolete tuple remains, and the dedicated unsafe-close call is absent.
 
-### Task 2: Enforce private creation and descriptor verification
+### Task 2: Enforce private creation and conservative unsafe-mode handling
 
 **Files:**
 
@@ -135,6 +140,8 @@ Expected: the child-process test fails because insecure mode is accepted, and th
 - Modify: `apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex`
 - Test: `apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs`
 - Test: `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`
+- Modify: `docs/superpowers/specs/2026-08-28-private-backup-file-creation-design.md`
+- Modify: `docs/superpowers/plans/2026-08-28-private-backup-file-creation.md`
 
 - [ ] **Step 1: Set the devenv process umask**
 
@@ -190,7 +197,7 @@ defp descriptor_identity_from_stat(_descriptor_stat), do: invalid()
 
 - [ ] **Step 5: Fail closed on an unsafe descriptor before path verification**
 
-Change the beginning of `verify_opened_partial/4` to distinguish a safe descriptor from an unsafe one while retaining the existing path identity branch:
+Change the beginning of `verify_opened_partial/4` to distinguish a safe descriptor from an unsafe one while retaining the existing path identity branch for safe descriptors and other inspection failures:
 
 ```elixir
 defp verify_opened_partial(root, path, device, options) do
@@ -214,15 +221,8 @@ defp verify_opened_partial(root, path, device, options) do
           open_verification_failure(root, path, device, ownership, error, options)
       end
 
-    {:ok, ownership, _unsafe_mode} ->
-      open_verification_failure(
-        root,
-        path,
-        device,
-        ownership,
-        Error.new(:invalid),
-        options
-      )
+    {:ok, _ownership, _unsafe_mode} ->
+      close_unsafe_partial(device, Error.new(:invalid))
 
     {:error, %Error{} = error} ->
       open_verification_failure(root, path, device, nil, error, options)
@@ -230,7 +230,37 @@ defp verify_opened_partial(root, path, device, options) do
 end
 ```
 
-This captures ownership and mode in one descriptor read. Unsafe-mode cleanup uses the captured identity, so a concurrently substituted pathname is never deleted.
+Add the dedicated close helper:
+
+```elixir
+defp close_unsafe_partial(device, primary) do
+  case close_opened_device(device) do
+    :ok ->
+      {:error, primary}
+
+    close_result ->
+      {:error,
+       Error.new(:storage_unavailable,
+         details: %{
+           close_error: result_code(close_result),
+           operation: :open_cleanup,
+           partial_state: :preserved,
+           primary_error: primary.code
+         },
+         retryable?: true
+       )}
+  end
+end
+```
+
+The descriptor read still captures ownership and mode in one `fstat`, but the
+unsafe-mode branch does not use pathname cleanup. It rejects before any write,
+closes promptly, and preserves the still-empty partial. In particular, it must
+not call `remove_owned_path/4`: that helper's final `lstat` followed by
+`File.rm/1` leaves a TOCTOU in which a replacement can be deleted. A close
+failure is therefore a typed, retryable `:storage_unavailable` error with
+`operation: :open_cleanup`, `primary_error`, `close_error`, and
+`partial_state: :preserved` details.
 
 - [ ] **Step 6: Verify GREEN behavior**
 
@@ -243,7 +273,7 @@ devenv shell -- mix test \
   apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
 ```
 
-Expected: all local-destination tests pass, including the nested umask-`0022` rejection, and all release/container contracts pass.
+Expected: all local-destination tests pass, including the nested umask-`0022` rejection that reads an empty preserved `0644` partial, and all release/container contracts pass.
 
 - [ ] **Step 7: Prove each guard detects regression**
 
@@ -251,7 +281,7 @@ Perform and restore these mutations one at a time:
 
 1. Remove `umask 077` from `devenv.nix`; the existing at-open test must fail with `0644`.
 2. Remove `umask 077` from `rel/env.sh.eex`; the release/container contract must fail.
-3. Change the safe descriptor match from `0o600` to `_mode`; the nested permissive-umask test must fail because open succeeds.
+3. Reintroduce unsafe-mode removal by routing the unsafe descriptor branch through `open_verification_failure/6` with its captured ownership; the nested permissive-umask test must fail because the expected preserved partial is removed.
 
 After restoring all three, rerun both commands from Step 6 and require zero failures.
 
@@ -277,37 +307,47 @@ nix run nixpkgs#actionlint -- \
   .github/workflows/ci.yml \
   .github/workflows/test.yml \
   .github/workflows/release.yml
-git diff --check
+git diff main --check
+git diff --name-only main
 git status --short
 ```
 
-Expected: every command exits zero and exactly the five scoped files are modified.
+Expected: every command exits zero. The final branch diff from `main` contains exactly the seven scoped files in the file map; the current correction remains limited to the three source/test paths plus these two documents.
 
-- [ ] **Step 9: Commit the security fix**
+- [ ] **Step 9: Amend the security fix as one seven-file commit**
+
+The original five-file private-creation implementation is already recorded in
+`cd8b392`. Stage the three corrective source/test changes and both amended
+documents, then amend that commit without changing its message. Including all
+seven scoped paths in `git add` makes the approved boundary explicit:
 
 ```bash
 git add devenv.nix rel/env.sh.eex \
   apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex \
   apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs \
-  apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+  apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs \
+  docs/superpowers/specs/2026-08-28-private-backup-file-creation-design.md \
+  docs/superpowers/plans/2026-08-28-private-backup-file-creation.md
 git diff --cached --check
-git commit -m "fix(backup): enforce private partial creation"
+git commit --amend --no-edit
 git show --check --stat --oneline HEAD
+git diff main...HEAD --check
+git diff --name-only main...HEAD
 git status --short --branch
 ```
 
-Expected: one commit contains exactly the five scoped paths and the worktree is clean.
+Expected: the amended commit retains the exact message `fix(backup): enforce private partial creation`, contains exactly the seven scoped paths, and leaves the worktree clean.
 
 ### Task 3: Review, merge, push, and clear the required Tests gate
 
 **Files:**
 
-- Review and integrate the Task 2 commit.
+- Review and integrate the amended Task 2 commit as one seven-file change.
 - No additional source changes unless a reviewer finds a Critical or Important defect.
 
 - [ ] **Step 1: Complete two-stage review**
 
-Use `requesting-code-review` after spec compliance passes. Reviewers must verify the five-file boundary, atomic process umask, unsafe-mode identity-bound cleanup, nested permissive-umask proof, release wrapper coverage, and absence of a post-open chmod window. Fix any Critical or Important finding test-first and repeat the corresponding review.
+Use `requesting-code-review` after spec compliance passes. Reviewers must verify the seven-file boundary, atomic process umask, dedicated unsafe-descriptor close, preservation of the empty partial without pathname unlink, typed close-failure details, nested permissive-umask proof, release wrapper coverage, and absence of a post-open chmod window or new native primitive. Fix any Critical or Important finding test-first and repeat the corresponding review.
 
 - [ ] **Step 2: Fast-forward local main and reverify**
 

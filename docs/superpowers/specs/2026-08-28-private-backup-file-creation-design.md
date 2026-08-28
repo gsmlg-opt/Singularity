@@ -35,9 +35,11 @@ tightened.
 The local destination removes the ineffective `{:mode, 0o600}` option. After
 exclusive open, it reads metadata from the open descriptor, requires an exact
 permission mask of `0600`, and only then returns the descriptor to the backup
-writer. If the mode is unsafe, it closes and removes the still-empty partial by
-its already captured device/inode identity and returns a typed error. No backup
-bytes are written on the unsafe path.
+writer. If the mode is unsafe, it rejects the descriptor before any write,
+closes it promptly, and deliberately preserves the still-empty partial. It
+does not call pathname cleanup: `remove_owned_path/4` ends with an `lstat`
+followed by `File.rm/1`, so a replacement between those operations could be
+deleted. No application-owned native primitive is added for this correction.
 
 ## 3. Alternatives rejected
 
@@ -56,24 +58,37 @@ The implementation is limited to:
 - `devenv.nix` for development/CI process inheritance;
 - `rel/env.sh.eex` for OTP release process inheritance;
 - `apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex`
-  for removing the ignored option and verifying the descriptor mode;
-- the existing local-destination and release/container contract tests required
-  to prove those boundaries.
+  for removing the ignored option, verifying the descriptor mode, and closing
+  an unsafe descriptor without pathname removal;
+- `apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs`
+  for the at-open and real permissive-umask regressions;
+- `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`
+  for the launch-surface and source contracts;
+- this design and its implementation plan, which record the conservative TOCTOU
+  correction and the preserved-partial contract.
 
-No backup format, encryption, publication, cleanup, database, container image,
-or GitHub release transaction behavior changes.
+No backup format, encryption, publication, database, container image, or GitHub
+release transaction behavior changes. Cleanup changes only for the unsafe-mode
+empty partial described above; other cleanup paths remain unchanged.
 
 ## 5. Error handling
 
 Exclusive creation, path containment, symlink rejection, and inode ownership
-checks remain in their current order. Descriptor identity is captured before
-the permission check so an unsafe empty partial can be removed without deleting
-a replacement path. Any close, identity, inspection, or cleanup failure keeps
-the existing fail-closed typed error behavior.
+checks for other verification failures remain unchanged. Unsafe descriptor mode
+has a dedicated branch: it closes the descriptor without calling
+`remove_owned_path/4` and returns the primary `:invalid` error when close
+succeeds. The empty partial is intentionally preserved because pathname unlink
+cannot prove that the pathname still names the inspected file at removal time.
+
+If that close fails, the result is a retryable `:storage_unavailable` error
+whose details include `operation: :open_cleanup`, the `primary_error`, the
+`close_error`, and `partial_state: :preserved`. This keeps the close failure
+observable without weakening the no-write guarantee.
 
 Running the application outside devenv or the OTP release wrapper with a
 permissive umask cannot silently write a permissive backup: descriptor
-verification rejects the file before the first write.
+verification rejects the file before the first write, closes its descriptor,
+and leaves the empty partial for conservative operator-visible recovery.
 
 ## 6. Verification and release continuation
 
@@ -83,10 +98,12 @@ surfaces and reject the obsolete mode tuple. After implementation:
 
 - the focused local-destination test passes under devenv;
 - a direct Mix probe launched with umask `0022` fails closed before writing and
-  leaves no owned partial;
+  proves the preserved partial is empty and actually has mode `0644`;
 - storage tests, release/container contracts, formatting, warnings-as-errors
   compilation, and workflow lint pass;
-- the narrow fix is reviewed, committed, merged, and pushed;
+- the original five-file private-creation commit is amended with the conservative
+  correction into one seven-file commit with the same message, then reviewed,
+  merged, and pushed;
 - CI and Tests are rerun for the new exact SHA.
 
 Only after both required workflows conclude successfully may `release.yml` be

@@ -20,6 +20,7 @@ in
   };
 
   enterShell = ''
+    umask 077
     export SINGULARITY_ROLE_PROVISIONER_DATABASE_URL="postgresql:///postgres?host=$PGHOST&port=$PGPORT"
   '';
 

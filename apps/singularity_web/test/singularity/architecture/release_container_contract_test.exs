@@ -105,6 +105,23 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     refute env =~ ~r/>>?/
   end
 
+  test "supported launch surfaces enforce private file creation" do
+    devenv = read!("devenv.nix")
+    release_env = read!("rel/env.sh.eex")
+
+    destination =
+      read!("apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex")
+
+    assert devenv =~ ~S<enterShell = ''
+    umask 077>
+
+    assert release_env =~ "#!/bin/sh\n\numask 077\n"
+    refute destination =~ "{:mode, 0o600}"
+    assert destination =~ "{:ok, ownership, 0o600}"
+    assert destination =~ "Bitwise.band(mode, 0o777)"
+    assert destination =~ "close_unsafe_partial(device, Error.new(:invalid))"
+  end
+
   test "Docker build context excludes devenv state" do
     ignored = read!(".dockerignore")
 

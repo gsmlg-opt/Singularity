@@ -5,6 +5,7 @@ defmodule Singularity.Storage.Backup.LocalDestinationTest do
   alias Singularity.Storage.Backup.BundleWriter
   alias Singularity.Storage.Backup.LocalDestination
 
+  @repo_root Path.expand("../../../../../..", __DIR__)
   @manifest_id "00000000-0000-4000-8000-000000000901"
   @vault_id "00000000-0000-4000-8000-000000000902"
   @snapshot_id "00000000-0000-4000-8000-000000000903"
@@ -342,6 +343,40 @@ defmodule Singularity.Storage.Backup.LocalDestinationTest do
 
     assert Bitwise.band(File.stat!(partial).mode, 0o777) == 0o600
     assert :ok = destination.file_system.close.(device)
+  end
+
+  @tag :insecure_umask_probe
+  test "rejects and preserves an empty partial under a permissive process umask", %{
+    tmp_dir: tmp_dir
+  } do
+    if System.get_env("SINGULARITY_INSECURE_UMASK_PROBE") == "1" do
+      root = Path.join(tmp_dir, "backups")
+      context = backup_context(root)
+      reference = "backup.bundle"
+
+      assert {:ok, destination} = LocalDestination.writer_destination(context, reference)
+      partial = destination.partial_path.(@manifest_id)
+
+      assert {:error, %Error{code: :invalid}} =
+               destination.file_system.open.(partial, [:write, :binary, :exclusive])
+
+      assert File.read!(partial) == ""
+      assert Bitwise.band(File.stat!(partial).mode, 0o777) == 0o644
+    else
+      {output, status} =
+        System.cmd(
+          "sh",
+          [
+            "-c",
+            "umask 022; export SINGULARITY_INSECURE_UMASK_PROBE=1; exec mix test --no-compile apps/singularity_storage/test/singularity/storage/backup/local_destination_test.exs --only insecure_umask_probe"
+          ],
+          cd: @repo_root,
+          env: [{"MIX_ENV", "test"}],
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, output
+    end
   end
 
   test "an opened partial replaced before publication is neither published nor deleted", %{
