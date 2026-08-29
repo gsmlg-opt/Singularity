@@ -442,6 +442,21 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
 
     refute preparation_run =~ ~S<"$RELEASE_VERSION" == "$current_version">
 
+    assert {identity_offset, _length} =
+             :binary.match(preparation_run, "git config user.name github-actions[bot]")
+
+    assert {bump_offset, _length} =
+             :binary.match(
+               preparation_run,
+               ~S<if [[ "$RELEASE_VERSION" != "$current_version" ]]; then>
+             )
+
+    assert {tag_offset, _length} =
+             :binary.match(preparation_run, ~S<git tag -a "$RELEASE_TAG">)
+
+    assert identity_offset < bump_offset
+    assert identity_offset < tag_offset
+
     metadata_labels = step!(steps, "Generate image metadata") |> get_in(["with", "labels"])
     assert metadata_labels =~ "org.opencontainers.image.revision=${{ env.SOURCE_REVISION }}"
     refute metadata_labels =~ "${{ github.sha }}"
@@ -762,6 +777,8 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
         echo "new release version must not be lower than the canonical Mix version" >&2
         exit 1
       fi
+      git config user.name github-actions[bot]
+      git config user.email 41898282+github-actions[bot]@users.noreply.github.com
       if [[ "$RELEASE_VERSION" != "$current_version" ]]; then
         python3 - "$RELEASE_VERSION" <<'PY'
     import pathlib
@@ -785,8 +802,6 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
           echo "canonical Mix version was not updated" >&2
           exit 1
         }
-        git config user.name github-actions[bot]
-        git config user.email 41898282+github-actions[bot]@users.noreply.github.com
         git add mix.exs
         git commit -m "chore(release): v${RELEASE_VERSION}"
       fi
