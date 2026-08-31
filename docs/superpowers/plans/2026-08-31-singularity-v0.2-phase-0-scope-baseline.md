@@ -440,6 +440,7 @@ end
 
 defp normalize_markdown(source) do
   source
+  |> String.replace(~r/(?:^|\n)\s*>\s?/, " ")
   |> String.replace(~r/\s+/, " ")
   |> String.trim()
 end
