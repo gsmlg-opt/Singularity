@@ -431,6 +431,22 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     ```
     -->
 
+    <!---->```bash
+    (
+    set -euo pipefail
+    trap 'devenv processes down' EXIT
+    git status --short
+    )
+    <!---->```
+
+    `<!---->``bash
+    (
+    set -euo pipefail
+    trap 'devenv processes down' EXIT
+    git status --short
+    )
+    `<!---->``
+
     ```bash
     (
     set -euo pipefail
@@ -477,13 +493,14 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
       |> complete_verification_block_from_markdown!("synthetic commented gate")
       |> verification_commands("synthetic commented gate")
 
-    error =
-      assert_raise ExUnit.AssertionError, fn ->
-        assert commands == @canonical_verification_commands,
-               "fenced HTML comment lines were not preserved as canonical oracle input"
-      end
+    assert ["<!--", "echo this fenced command must not be erased", "-->"] in Enum.chunk_every(
+             commands,
+             3,
+             1,
+             :discard
+           )
 
-    assert error.message =~ "fenced HTML comment lines were not preserved"
+    refute commands == @canonical_verification_commands
   end
 
   test "verification command parsing rejects malformed complete gate wrappers" do
@@ -1409,31 +1426,35 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     |> scan_markdown_fences(1, {:outside, false}, [])
   end
 
-  defp strip_markdown_html_comment_line(line, false) do
+  defp mask_markdown_html_comment_line(line, false) do
     case :binary.match(line, "<!--") do
       {start, 4} ->
         visible_prefix = binary_part(line, 0, start)
         remaining_size = byte_size(line) - start - 4
         remainder = binary_part(line, start + 4, remaining_size)
-        {visible_suffix, inside_comment?} = strip_markdown_html_comment_line(remainder, true)
-        {visible_prefix <> visible_suffix, inside_comment?}
+        {masked_suffix, inside_comment?} = mask_markdown_html_comment_line(remainder, true)
+        {visible_prefix <> "    " <> masked_suffix, inside_comment?}
 
       :nomatch ->
         {line, false}
     end
   end
 
-  defp strip_markdown_html_comment_line(line, true) do
+  defp mask_markdown_html_comment_line(line, true) do
     case :binary.match(line, "-->") do
       {finish, 3} ->
+        masked_comment = line |> binary_part(0, finish + 3) |> mask_characters()
         remaining_size = byte_size(line) - finish - 3
         remainder = binary_part(line, finish + 3, remaining_size)
-        strip_markdown_html_comment_line(remainder, false)
+        {visible_suffix, inside_comment?} = mask_markdown_html_comment_line(remainder, false)
+        {masked_comment <> visible_suffix, inside_comment?}
 
       :nomatch ->
-        {"", true}
+        {mask_characters(line), true}
     end
   end
+
+  defp mask_characters(text), do: String.duplicate(" ", String.length(text))
 
   defp scan_markdown_fences([], _line_number, {:outside, _inside_comment?}, blocks),
     do: {:ok, Enum.reverse(blocks)}
@@ -1453,7 +1474,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
          blocks
        ) do
     {visible_line, inside_comment?} =
-      strip_markdown_html_comment_line(line, inside_comment?)
+      mask_markdown_html_comment_line(line, inside_comment?)
 
     case opening_fence(visible_line) do
       {:ok, character, length, language} ->
