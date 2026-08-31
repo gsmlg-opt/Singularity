@@ -568,6 +568,37 @@ test "complete verification scanner ignores inline and nested fenced block looka
   assert complete_verification_block_from_markdown!(markdown, "synthetic Markdown") == expected
 end
 
+test "comments inside a fenced verification gate remain literal oracle input" do
+  gate_lines =
+    [
+      "(",
+      "set -euo pipefail",
+      "trap 'devenv processes down' EXIT"
+    ] ++
+      @canonical_verification_commands ++
+      [
+        "<!--",
+        "echo this fenced command must not be erased",
+        "-->",
+        ")"
+      ]
+
+  markdown = "```bash\n#{Enum.join(gate_lines, "\n")}\n```"
+
+  commands =
+    markdown
+    |> complete_verification_block_from_markdown!("synthetic commented gate")
+    |> verification_commands("synthetic commented gate")
+
+  error =
+    assert_raise ExUnit.AssertionError, fn ->
+      assert commands == @canonical_verification_commands,
+             "fenced HTML comment lines were not preserved as canonical oracle input"
+    end
+
+  assert error.message =~ "fenced HTML comment lines were not preserved"
+end
+
 test "verification command parsing rejects malformed complete gate wrappers" do
   cleanup_trap = "trap 'devenv processes down' EXIT"
 
@@ -644,15 +675,7 @@ end
 defp scan_markdown_fences(markdown) do
   markdown
   |> String.split(~r/\r?\n/, trim: false)
-  |> strip_markdown_html_comments()
-  |> scan_markdown_fences(1, :outside, [])
-end
-
-defp strip_markdown_html_comments(lines) do
-  {stripped_lines, _inside_comment?} =
-    Enum.map_reduce(lines, false, &strip_markdown_html_comment_line/2)
-
-  stripped_lines
+  |> scan_markdown_fences(1, {:outside, false}, [])
 end
 
 defp strip_markdown_html_comment_line(line, false) do
@@ -681,7 +704,7 @@ defp strip_markdown_html_comment_line(line, true) do
   end
 end
 
-defp scan_markdown_fences([], _line_number, :outside, blocks),
+defp scan_markdown_fences([], _line_number, {:outside, _inside_comment?}, blocks),
   do: {:ok, Enum.reverse(blocks)}
 
 defp scan_markdown_fences(
@@ -692,8 +715,16 @@ defp scan_markdown_fences(
      ),
      do: {:error, opening_line}
 
-defp scan_markdown_fences([line | lines], line_number, :outside, blocks) do
-  case opening_fence(line) do
+defp scan_markdown_fences(
+       [line | lines],
+       line_number,
+       {:outside, inside_comment?},
+       blocks
+     ) do
+  {visible_line, inside_comment?} =
+    strip_markdown_html_comment_line(line, inside_comment?)
+
+  case opening_fence(visible_line) do
     {:ok, character, length, language} ->
       scan_markdown_fences(
         lines,
@@ -703,7 +734,7 @@ defp scan_markdown_fences([line | lines], line_number, :outside, blocks) do
       )
 
     :none ->
-      scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+      scan_markdown_fences(lines, line_number + 1, {:outside, inside_comment?}, blocks)
   end
 end
 
@@ -721,7 +752,7 @@ defp scan_markdown_fences(
         blocks
       end
 
-    scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+    scan_markdown_fences(lines, line_number + 1, {:outside, false}, blocks)
   else
     scan_markdown_fences(
       lines,
@@ -1319,8 +1350,8 @@ devenv shell -- mix test \
 Expected:
 
 - Notes scope contract: all tests pass;
-- release/container contract: `17 tests, 0 failures`;
-- combined four-file architecture gate: `41 tests, 0 failures`;
+- release/container contract: `18 tests, 0 failures`;
+- combined four-file architecture gate: `42 tests, 0 failures`;
 - no workflow or production file changed.
 
 - [ ] **Step 7: Inspect the complete scope diff**
