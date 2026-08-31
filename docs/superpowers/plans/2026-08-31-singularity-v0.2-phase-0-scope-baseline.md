@@ -544,6 +544,14 @@ test "complete verification scanner ignores inline and nested fenced block looka
   ```
   -->
 
+  <!--
+  -->```bash
+  (
+  set -euo pipefail
+  trap 'devenv processes down' EXIT
+  git status --short
+  )
+
   <!---->```bash
   (
   set -euo pipefail
@@ -691,35 +699,33 @@ defp scan_markdown_fences(markdown) do
   |> scan_markdown_fences(1, {:outside, false}, [])
 end
 
-defp mask_markdown_html_comment_line(line, false) do
+defp advance_markdown_html_comment_state(line, inside_comment?) do
+  advance_markdown_html_comment_state(line, inside_comment?, inside_comment?)
+end
+
+defp advance_markdown_html_comment_state(line, false, comment_line?) do
   case :binary.match(line, "<!--") do
     {start, 4} ->
-      visible_prefix = binary_part(line, 0, start)
       remaining_size = byte_size(line) - start - 4
       remainder = binary_part(line, start + 4, remaining_size)
-      {masked_suffix, inside_comment?} = mask_markdown_html_comment_line(remainder, true)
-      {visible_prefix <> "    " <> masked_suffix, inside_comment?}
+      advance_markdown_html_comment_state(remainder, true, true)
 
     :nomatch ->
-      {line, false}
+      {false, comment_line?}
   end
 end
 
-defp mask_markdown_html_comment_line(line, true) do
+defp advance_markdown_html_comment_state(line, true, _comment_line?) do
   case :binary.match(line, "-->") do
     {finish, 3} ->
-      masked_comment = line |> binary_part(0, finish + 3) |> mask_characters()
       remaining_size = byte_size(line) - finish - 3
       remainder = binary_part(line, finish + 3, remaining_size)
-      {visible_suffix, inside_comment?} = mask_markdown_html_comment_line(remainder, false)
-      {masked_comment <> visible_suffix, inside_comment?}
+      advance_markdown_html_comment_state(remainder, false, true)
 
     :nomatch ->
-      {mask_characters(line), true}
+      {true, true}
   end
 end
-
-defp mask_characters(text), do: String.duplicate(" ", String.length(text))
 
 defp scan_markdown_fences([], _line_number, {:outside, _inside_comment?}, blocks),
   do: {:ok, Enum.reverse(blocks)}
@@ -738,10 +744,19 @@ defp scan_markdown_fences(
        {:outside, inside_comment?},
        blocks
      ) do
-  {visible_line, inside_comment?} =
-    mask_markdown_html_comment_line(line, inside_comment?)
+  started_inside_comment? = inside_comment?
 
-  case opening_fence(visible_line) do
+  {inside_comment?, comment_line?} =
+    advance_markdown_html_comment_state(line, inside_comment?)
+
+  opening_fence =
+    if not started_inside_comment? and not comment_line? and not inside_comment? do
+      opening_fence(line)
+    else
+      :none
+    end
+
+  case opening_fence do
     {:ok, character, length, language} ->
       scan_markdown_fences(
         lines,
