@@ -56,9 +56,18 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   end
 
   test "Phase 0 governance documents record the approved scope lock" do
-    agents = Path.join(@repo_root, "AGENTS.md") |> read_required!() |> active_markdown()
-    vault_adr_source = @vault_adr |> read_required!() |> active_markdown()
-    master_plan_source = @master_plan |> read_required!() |> active_markdown()
+    agents = Path.join(@repo_root, "AGENTS.md") |> read_required!() |> assert_active_prose!()
+    vault_adr_source = @vault_adr |> read_required!() |> assert_active_prose!()
+    master_plan_source = read_required!(@master_plan)
+
+    phase0_deliverables =
+      master_plan_source
+      |> markdown_section!(
+        "## Phase 0 — Scope lock and green baseline",
+        "## Phase 1 — Canonical Document and knowledge-link model"
+      )
+      |> markdown_section!("### Deliverables", "### Acceptance")
+      |> assert_active_prose!()
 
     for {name, source} <- [
           {"AGENTS.md", normalize_markdown(agents)},
@@ -76,110 +85,131 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert normalize_markdown(agents) =~ @qdrant_lock
     assert vault_adr_source =~ "Status: Accepted"
 
-    assert normalize_markdown(master_plan_source) =~ @production_repair_gate,
+    assert normalize_markdown(phase0_deliverables) =~ @production_repair_gate,
            "canonical release plan does not reserve production repairs for explicit approval"
   end
 
   test "active README and guide state the v0.2 scope lock" do
-    readme_source =
-      @repo_root |> Path.join("README.md") |> read_required!() |> active_markdown()
+    readme_source = @repo_root |> Path.join("README.md") |> read_required!()
+    guide_source = @repo_root |> Path.join("docs/guide.md") |> read_required!()
 
-    guide_source =
-      @repo_root |> Path.join("docs/guide.md") |> read_required!() |> active_markdown()
+    readme_scope =
+      active_section!(readme_source, "## Active `0.2.0` scope", "## Development")
+
+    guide_header =
+      case String.split(guide_source, "\n---\n", parts: 2) do
+        [header, _rest] -> assert_active_prose!(header)
+        [_source] -> flunk("guide active header separator is missing")
+      end
+
+    roadmap =
+      active_section!(
+        guide_source,
+        "# 21. Active implementation roadmap",
+        "# 22. Cross-cutting invariants"
+      )
+
+    invariants =
+      active_section!(
+        guide_source,
+        "# 22. Cross-cutting invariants",
+        "# 23. Architecture decision records"
+      )
+
+    guide_active = Enum.join([guide_header, roadmap, invariants], "\n")
 
     for {name, source} <- [
-          {"README.md", normalize_markdown(readme_source)},
-          {"docs/guide.md", normalize_markdown(guide_source)}
+          {"README.md", normalize_markdown(readme_scope)},
+          {"docs/guide.md", normalize_markdown(guide_active)}
         ] do
       for marker <- [@scope_lock, @qdrant_lock, @owner_scope_invariant] do
         assert source =~ marker, "#{name} is missing required Phase 0 marker #{inspect(marker)}"
       end
     end
 
-    assert readme_source =~
+    assert readme_scope =~
              "[ADR 0003](docs/adr/0003-vault-frozen-for-knowledge-base-development.md)",
            "README does not contain the rendered ADR 0003 link"
 
-    assert guide_source =~
+    assert guide_header =~
              "[ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)",
            "guide does not contain the rendered ADR 0003 link"
 
     assert File.regular?(@vault_adr), "ADR 0003 link target does not resolve"
 
-    assert normalize_markdown(readme_source) =~
+    assert normalize_markdown(readme_scope) =~
              "Phase 1 must not begin until Phase 0 is accepted and Phase 1 has its own approved design and detailed implementation plan."
 
-    refute normalize_markdown(readme_source) =~ "Qdrant is required"
+    refute normalize_markdown(readme_scope) =~ "Qdrant is required"
 
-    roadmap =
-      guide_source
-      |> markdown_section!(
-        "# 21. Active implementation roadmap",
-        "# 22. Cross-cutting invariants"
-      )
-      |> normalize_markdown()
-
-    assert roadmap =~ @scope_lock
+    assert normalize_markdown(roadmap) =~ @scope_lock
     assert roadmap =~ "Conflicting roadmap guidance is superseded by ADR 0003."
 
-    invariants =
-      guide_source
-      |> markdown_section!(
-        "# 22. Cross-cutting invariants",
-        "# 23. Architecture decision records"
-      )
-      |> normalize_markdown()
-
-    assert invariants =~ @owner_scope_invariant
+    assert normalize_markdown(invariants) =~ @owner_scope_invariant
     refute invariants =~ "Every user-owned object belongs to a vault."
   end
 
-  test "active scope scanner ignores fenced and commented guidance" do
-    markdown = """
-    <!--
-    # 21. Active implementation roadmap
-    #{@scope_lock}
-    # 22. Cross-cutting invariants
-    #{@owner_scope_invariant}
-    # 23. Architecture decision records
-    -->
+  test "active scope sections reject inactive Markdown constructs" do
+    fixtures = [
+      {"headings inside a top-level fence",
+       """
+       ```markdown
+       # 21. Active implementation roadmap
+       #{@scope_lock}
+       # 22. Cross-cutting invariants
+       ```
+       """},
+      {"headings inside an HTML comment",
+       """
+       <!--
+       # 21. Active implementation roadmap
+       #{@scope_lock}
+       # 22. Cross-cutting invariants
+       -->
+       """},
+      {"blockquote fenced code",
+       """
+       # 21. Active implementation roadmap
+       > ```markdown
+       > #{@scope_lock}
+       > ```
+       # 22. Cross-cutting invariants
+       """},
+      {"list-nested fenced code",
+       """
+       # 21. Active implementation roadmap
+       - ```markdown
+         #{@scope_lock}
+         ```
+       # 22. Cross-cutting invariants
+       """},
+      {"four-space indented code",
+       """
+       # 21. Active implementation roadmap
+           #{@scope_lock}
+       # 22. Cross-cutting invariants
+       """},
+      {"mixed tab indented code",
+       "# 21. Active implementation roadmap\n \t#{@scope_lock}\n# 22. Cross-cutting invariants\n"},
+      {"inline HTML comment with rendered stale guidance",
+       """
+       # 21. Active implementation roadmap
+       <!-- compatibility note --> Every user-owned object belongs to a vault.
+       # 22. Cross-cutting invariants
+       """}
+    ]
 
-    ```markdown
-    # 21. Active implementation roadmap
-    #{@scope_lock}
-    # 22. Cross-cutting invariants
-    #{@owner_scope_invariant}
-    # 23. Architecture decision records
-    ```
-
-    # 21. Active implementation roadmap
-    visible roadmap
-    # 22. Cross-cutting invariants
-    visible invariant
-    # 23. Architecture decision records
-    visible decisions
-    """
-
-    visible = active_markdown(markdown)
-
-    roadmap =
-      markdown_section!(
-        visible,
-        "# 21. Active implementation roadmap",
-        "# 22. Cross-cutting invariants"
-      )
-
-    invariants =
-      markdown_section!(
-        visible,
-        "# 22. Cross-cutting invariants",
-        "# 23. Architecture decision records"
-      )
-
-    assert normalize_markdown(roadmap) =~ "visible roadmap"
-    refute normalize_markdown(roadmap) =~ @scope_lock
-    assert normalize_markdown(invariants) =~ "visible invariant"
-    refute normalize_markdown(invariants) =~ @owner_scope_invariant
+    for {_name, markdown} <- fixtures do
+      assert_raise ExUnit.AssertionError,
+                   ~r/(?:inactive Markdown constructs|required Markdown heading is missing|unclosed Markdown fence)/,
+                   fn ->
+                     active_section!(
+                       markdown,
+                       "# 21. Active implementation roadmap",
+                       "# 22. Cross-cutting invariants"
+                     )
+                   end
+    end
   end
 
   test "documentation and tests are intentionally outside the active-scope scan" do
@@ -194,15 +224,135 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   end
 
   defp markdown_section!(source, start_heading, end_heading) do
-    after_start =
-      case String.split(source, start_heading, parts: 2) do
-        [_before, after_start] -> after_start
-        [_source] -> flunk("required Markdown heading is missing: #{start_heading}")
-      end
+    lines = String.split(source, ~r/\r?\n/, trim: false)
+    active_lines = active_top_level_lines!(lines)
+    start_index = heading_index!(active_lines, start_heading, 0)
+    end_index = heading_index!(active_lines, end_heading, start_index + 1)
 
-    case String.split(after_start, end_heading, parts: 2) do
-      [section, _after] -> section
-      [_after_start] -> flunk("required Markdown heading is missing: #{end_heading}")
+    lines
+    |> Enum.slice(start_index + 1, max(end_index - start_index - 1, 0))
+    |> Enum.join("\n")
+  end
+
+  defp heading_index!(active_lines, heading, offset) do
+    indexes =
+      active_lines
+      |> Enum.filter(fn {line, index} ->
+        index >= offset and String.trim_trailing(line) == heading
+      end)
+      |> Enum.map(&elem(&1, 1))
+
+    case indexes do
+      [index] -> index
+      [] -> flunk("required Markdown heading is missing: #{heading}")
+      matches -> flunk("required Markdown heading appears #{length(matches)} times: #{heading}")
+    end
+  end
+
+  defp active_top_level_lines!(lines) do
+    scan_top_level_lines(lines, 0, {:outside, false}, [])
+  end
+
+  defp scan_top_level_lines([], _index, {:outside, false}, active),
+    do: Enum.reverse(active)
+
+  defp scan_top_level_lines([], _index, {:outside, true}, _active),
+    do: flunk("unclosed Markdown HTML comment")
+
+  defp scan_top_level_lines(
+         [],
+         _index,
+         {:inside_fence, _character, _length, opening_index},
+         _active
+       ),
+       do: flunk("unclosed Markdown fence starting on line #{opening_index + 1}")
+
+  defp scan_top_level_lines([line | lines], index, {:outside, inside_comment?}, active) do
+    started_inside_comment? = inside_comment?
+
+    {inside_comment?, comment_line?} =
+      advance_top_level_comment_state(line, inside_comment?)
+
+    cond do
+      started_inside_comment? or comment_line? or inside_comment? ->
+        scan_top_level_lines(lines, index + 1, {:outside, inside_comment?}, active)
+
+      true ->
+        case top_level_opening_fence(line) do
+          {:ok, character, length} ->
+            scan_top_level_lines(
+              lines,
+              index + 1,
+              {:inside_fence, character, length, index},
+              active
+            )
+
+          :none ->
+            scan_top_level_lines(lines, index + 1, {:outside, false}, [
+              {line, index} | active
+            ])
+        end
+    end
+  end
+
+  defp scan_top_level_lines(
+         [line | lines],
+         index,
+         {:inside_fence, character, length, opening_index},
+         active
+       ) do
+    if top_level_closing_fence?(line, character, length) do
+      scan_top_level_lines(lines, index + 1, {:outside, false}, active)
+    else
+      scan_top_level_lines(
+        lines,
+        index + 1,
+        {:inside_fence, character, length, opening_index},
+        active
+      )
+    end
+  end
+
+  defp advance_top_level_comment_state(line, inside_comment?) do
+    advance_top_level_comment_state(line, inside_comment?, inside_comment?)
+  end
+
+  defp advance_top_level_comment_state(line, false, comment_line?) do
+    case :binary.match(line, "<!--") do
+      {start, 4} ->
+        remainder = binary_part(line, start + 4, byte_size(line) - start - 4)
+        advance_top_level_comment_state(remainder, true, true)
+
+      :nomatch ->
+        {false, comment_line?}
+    end
+  end
+
+  defp advance_top_level_comment_state(line, true, _comment_line?) do
+    case :binary.match(line, "-->") do
+      {finish, 3} ->
+        remainder = binary_part(line, finish + 3, byte_size(line) - finish - 3)
+        advance_top_level_comment_state(remainder, false, true)
+
+      :nomatch ->
+        {true, true}
+    end
+  end
+
+  defp top_level_opening_fence(line) do
+    case Regex.run(~r/^ {0,3}(`{3,}|~{3,}).*$/, line, capture: :all_but_first) do
+      [fence] -> {:ok, String.first(fence), String.length(fence)}
+      nil -> :none
+    end
+  end
+
+  defp top_level_closing_fence?(line, opening_character, opening_length) do
+    case Regex.run(~r/^ {0,3}(`{3,}|~{3,})[ \t]*$/, line, capture: :all_but_first) do
+      [fence] ->
+        String.first(fence) == opening_character and String.length(fence) >= opening_length
+
+      nil ->
+        false
     end
   end
 
@@ -213,121 +363,30 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     |> String.trim()
   end
 
-  defp active_markdown(source) do
-    case source
-         |> String.split(~r/\r?\n/, trim: false)
-         |> scan_active_markdown(1, {:outside, false}, []) do
-      {:ok, lines} -> lines |> Enum.reverse() |> Enum.join("\n")
-      {:error, opening_line} -> flunk("unclosed Markdown fence starting on line #{opening_line}")
-    end
+  defp active_section!(source, start_heading, end_heading) do
+    source
+    |> markdown_section!(start_heading, end_heading)
+    |> assert_active_prose!()
   end
 
-  defp scan_active_markdown([], _line_number, {:outside, _inside_comment?}, visible),
-    do: {:ok, visible}
+  defp assert_active_prose!(source) do
+    problems =
+      [
+        if(Regex.match?(~r/(?:`{3,}|~{3,})/, source), do: "fenced code"),
+        if(String.contains?(source, "<!--") or String.contains?(source, "-->"),
+          do: "HTML comments"
+        ),
+        if(Regex.match?(~r/^(?: {4,}| {0,3}\t)[ \t]*\S/m, source), do: "indented code")
+      ]
+      |> Enum.reject(&is_nil/1)
 
-  defp scan_active_markdown(
-         [],
-         _line_number,
-         {:inside, _character, _length, opening_line},
-         _visible
-       ),
-       do: {:error, opening_line}
-
-  defp scan_active_markdown(
-         [line | lines],
-         line_number,
-         {:outside, inside_comment?},
-         visible
-       ) do
-    started_inside_comment? = inside_comment?
-
-    {inside_comment?, comment_line?} =
-      advance_html_comment_state(line, inside_comment?)
-
-    cond do
-      started_inside_comment? or comment_line? or inside_comment? ->
-        scan_active_markdown(lines, line_number + 1, {:outside, inside_comment?}, visible)
-
-      true ->
-        case markdown_opening_fence(line) do
-          {:ok, character, length} ->
-            scan_active_markdown(
-              lines,
-              line_number + 1,
-              {:inside, character, length, line_number},
-              visible
-            )
-
-          :none ->
-            scan_active_markdown(
-              lines,
-              line_number + 1,
-              {:outside, false},
-              [line | visible]
-            )
-        end
-    end
-  end
-
-  defp scan_active_markdown(
-         [line | lines],
-         line_number,
-         {:inside, character, length, opening_line},
-         visible
-       ) do
-    if markdown_closing_fence?(line, character, length) do
-      scan_active_markdown(lines, line_number + 1, {:outside, false}, visible)
-    else
-      scan_active_markdown(
-        lines,
-        line_number + 1,
-        {:inside, character, length, opening_line},
-        visible
+    if problems != [] do
+      flunk(
+        "active documentation contains inactive Markdown constructs: #{Enum.join(problems, ", ")}"
       )
     end
-  end
 
-  defp advance_html_comment_state(line, inside_comment?) do
-    advance_html_comment_state(line, inside_comment?, inside_comment?)
-  end
-
-  defp advance_html_comment_state(line, false, comment_line?) do
-    case :binary.match(line, "<!--") do
-      {start, 4} ->
-        remainder = binary_part(line, start + 4, byte_size(line) - start - 4)
-        advance_html_comment_state(remainder, true, true)
-
-      :nomatch ->
-        {false, comment_line?}
-    end
-  end
-
-  defp advance_html_comment_state(line, true, _comment_line?) do
-    case :binary.match(line, "-->") do
-      {finish, 3} ->
-        remainder = binary_part(line, finish + 3, byte_size(line) - finish - 3)
-        advance_html_comment_state(remainder, false, true)
-
-      :nomatch ->
-        {true, true}
-    end
-  end
-
-  defp markdown_opening_fence(line) do
-    case Regex.run(~r/^ {0,3}(`{3,}|~{3,}).*$/, line, capture: :all_but_first) do
-      [fence] -> {:ok, String.first(fence), String.length(fence)}
-      nil -> :none
-    end
-  end
-
-  defp markdown_closing_fence?(line, opening_character, opening_length) do
-    case Regex.run(~r/^ {0,3}(`{3,}|~{3,})[ \t]*$/, line, capture: :all_but_first) do
-      [fence] ->
-        String.first(fence) == opening_character and String.length(fence) >= opening_length
-
-      nil ->
-        false
-    end
+    source
   end
 
   defp tracked_files(root) do

@@ -1595,8 +1595,10 @@ snippets in Task 2 and must enforce all of these reviewed properties:
 - README and the master plan match the explicit oracle exactly; CI and Tests
   workflow commands remain ordered subsequences; additions, duplicates, and
   coordinated reordering fail;
-- the Notes scope scanner ignores fenced code and HTML comments before
-  matching active markers or extracting sections 21–23;
+- active governance sections use exact unique top-level headings and reject
+  fenced code in any container, HTML comments, and four-space or tab-indented
+  code—including zero-to-three spaces followed by a tab—before matching
+  markers or links; inactive Markdown can never satisfy the scope contract;
 - README and guide must contain their exact rendered ADR 0003 links, and the
   resolved ADR target must be a regular file;
 - the master Phase 0 deliverables contain this exact restriction:
