@@ -1,6 +1,17 @@
 defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   use ExUnit.Case, async: true
 
+  @repo_root Path.expand("../../../../..", __DIR__)
+  @vault_adr Path.join(
+               @repo_root,
+               "docs/adr/0003-vault-frozen-for-knowledge-base-development.md"
+             )
+  @vault_adr_name Path.basename(@vault_adr)
+
+  @scope_lock "Vault is frozen compatibility substrate for `0.2.0`, not an active product module or release deliverable."
+  @qdrant_lock "Qdrant is out of scope for `0.2.0`."
+  @owner_scope_invariant "Every user-owned object belongs to an authenticated owner scope, and every projection points to an immutable source version."
+
   @required_root_paths ~w[
     mix.exs mix.lock devenv.nix devenv.yaml devenv.lock
     config/config.exs config/dev.exs config/runtime.exs config/test.exs
@@ -8,7 +19,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   ]
 
   test "active dependencies, configuration, production code and deployment manifests exclude Qdrant" do
-    root = Path.expand("../../../../..", __DIR__)
+    root = @repo_root
     files = tracked_files(root)
     active = Enum.filter(files, &active_path?/1)
 
@@ -39,10 +50,97 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     end
   end
 
+  test "Phase 0 governance documents record the approved scope lock" do
+    agents = read_required!(Path.join(@repo_root, "AGENTS.md"))
+    vault_adr_source = read_required!(@vault_adr)
+
+    for {name, source} <- [
+          {"AGENTS.md", normalize_markdown(agents)},
+          {@vault_adr_name, normalize_markdown(vault_adr_source)}
+        ] do
+      assert source =~ @scope_lock, "#{name} is missing the approved Vault scope lock"
+
+      assert source =~ @owner_scope_invariant,
+             "#{name} is missing the authenticated owner-scope invariant"
+
+      assert source =~ "requires a separately approved migration project",
+             "#{name} does not reserve Vault migration for a separately approved project"
+    end
+
+    assert normalize_markdown(agents) =~ @qdrant_lock
+    assert vault_adr_source =~ "Status: Accepted"
+  end
+
+  test "active README and guide state the v0.2 scope lock" do
+    readme_source = read_required!(Path.join(@repo_root, "README.md"))
+    guide_source = read_required!(Path.join(@repo_root, "docs/guide.md"))
+
+    for {name, source} <- [
+          {"README.md", normalize_markdown(readme_source)},
+          {"docs/guide.md", normalize_markdown(guide_source)}
+        ] do
+      for marker <- [@scope_lock, @qdrant_lock, @owner_scope_invariant] do
+        assert source =~ marker, "#{name} is missing required Phase 0 marker #{inspect(marker)}"
+      end
+
+      assert source =~ @vault_adr_name,
+             "#{name} does not link to the accepted Vault scope ADR"
+    end
+
+    refute normalize_markdown(readme_source) =~ "Qdrant is required"
+
+    roadmap =
+      guide_source
+      |> markdown_section!(
+        "# 21. Active implementation roadmap",
+        "# 22. Cross-cutting invariants"
+      )
+      |> normalize_markdown()
+
+    assert roadmap =~ @scope_lock
+    assert roadmap =~ "Conflicting roadmap guidance is superseded by ADR 0003."
+
+    invariants =
+      guide_source
+      |> markdown_section!(
+        "# 22. Cross-cutting invariants",
+        "# 23. Architecture decision records"
+      )
+      |> normalize_markdown()
+
+    assert invariants =~ @owner_scope_invariant
+    refute invariants =~ "Every user-owned object belongs to a vault."
+  end
+
   test "documentation and tests are intentionally outside the active-scope scan" do
     refute active_path?("docs/superpowers/plans/2026-08-18-milestone-2-private-markdown-notes.md")
     refute active_path?("apps/singularity_web/test/example_test.exs")
     refute active_path?("README.md")
+  end
+
+  defp read_required!(path) do
+    assert File.regular?(path), "required Phase 0 document is missing: #{path}"
+    File.read!(path)
+  end
+
+  defp markdown_section!(source, start_heading, end_heading) do
+    after_start =
+      case String.split(source, start_heading, parts: 2) do
+        [_before, after_start] -> after_start
+        [_source] -> flunk("required Markdown heading is missing: #{start_heading}")
+      end
+
+    case String.split(after_start, end_heading, parts: 2) do
+      [section, _after] -> section
+      [_after_start] -> flunk("required Markdown heading is missing: #{end_heading}")
+    end
+  end
+
+  defp normalize_markdown(source) do
+    source
+    |> String.replace(~r/(?:^|\n)\s*>\s?/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   defp tracked_files(root) do

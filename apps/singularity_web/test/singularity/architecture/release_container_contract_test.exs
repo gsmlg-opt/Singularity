@@ -347,6 +347,41 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert_upstream_comments!("test.yml")
   end
 
+  test "documented complete verification sequence exactly covers CI and Tests" do
+    readme_block = complete_verification_block!("README.md")
+
+    plan_block =
+      complete_verification_block!(
+        "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
+      )
+
+    trap = "trap 'devenv processes down' EXIT"
+
+    assert readme_block =~ trap, "README complete verification block is missing the cleanup trap"
+
+    assert plan_block =~ trap,
+           "release plan complete verification block is missing the cleanup trap"
+
+    readme_commands = verification_commands(readme_block)
+    plan_commands = verification_commands(plan_block)
+    ci_commands = workflow_verification_commands("ci.yml", "checks")
+    test_commands = workflow_verification_commands("test.yml", "test")
+
+    assert ordered_subsequence?(ci_commands, plan_commands),
+           "CI workflow commands are not an ordered subsequence of the canonical release plan\nCI: #{inspect(ci_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
+
+    assert ordered_subsequence?(test_commands, plan_commands),
+           "Tests workflow commands are not an ordered subsequence of the canonical release plan\nTests: #{inspect(test_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
+
+    assert Enum.take(plan_commands, -3) == [
+             "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
+             "git diff --check",
+             "git status --short"
+           ]
+
+    assert readme_commands == plan_commands
+  end
+
   test "release workflow exactly validates, packages, publishes, and tags a release" do
     workflow = workflow!("release.yml")
 
@@ -1194,6 +1229,67 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
         --verify-tag
     fi
     """
+  end
+
+  defp complete_verification_block!(path) do
+    blocks =
+      Regex.scan(
+        ~r/```bash[ \t]*\r?\n(\(\r?\nset -euo pipefail\r?\ntrap 'devenv processes down' EXIT\r?\n.*?^\))\r?\n```/ms,
+        read!(path),
+        capture: :all_but_first
+      )
+
+    case blocks do
+      [[block]] ->
+        block
+
+      [] ->
+        flunk("complete verification bash block is missing from #{path}")
+
+      matches ->
+        flunk("complete verification bash block appears #{length(matches)} times in #{path}")
+    end
+  end
+
+  defp verification_commands(block) do
+    block
+    |> String.replace(~r/\\\r?\n[ \t]*/, " ")
+    |> String.split(~r/\r?\n/)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(fn command ->
+      command in ["", "(", ")", "set -euo pipefail"] or
+        String.starts_with?(command, "#") or String.starts_with?(command, "trap ")
+    end)
+    |> Enum.map(&normalize_command/1)
+  end
+
+  defp workflow_verification_commands(workflow_name, job_name) do
+    workflow_name
+    |> workflow!()
+    |> job!(job_name)
+    |> Map.fetch!("steps")
+    |> Enum.flat_map(fn step ->
+      case Map.fetch(step, "run") do
+        {:ok, command} -> [normalize_command(command)]
+        :error -> []
+      end
+    end)
+    |> Enum.reject(&(&1 in ["nix profile add nixpkgs#devenv", "devenv processes down"]))
+  end
+
+  defp ordered_subsequence?([], _commands), do: true
+  defp ordered_subsequence?(_expected, []), do: false
+
+  defp ordered_subsequence?([command | expected], [command | commands]),
+    do: ordered_subsequence?(expected, commands)
+
+  defp ordered_subsequence?(expected, [_command | commands]),
+    do: ordered_subsequence?(expected, commands)
+
+  defp normalize_command(command) do
+    command
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   defp workflow!(name) do

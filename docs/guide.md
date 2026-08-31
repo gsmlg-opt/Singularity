@@ -1,9 +1,28 @@
 # Singularity Architecture and Implementation Guide
 
-**Status:** Draft v0.1
-**Product type:** Personal Data and Knowledge Operating System
-**Initial deployment:** Single owner, multiple devices, local-first
-**Primary stack assumptions:** Elixir/Phoenix, PostgreSQL, embedded/S3-compatible ESS
+**Status:** Draft v0.1 architecture reference; conflicting active guidance is superseded for `0.2.0`<br>
+**Product type:** Personal Data and Knowledge Operating System<br>
+**Initial deployment:** Single owner, multiple devices, local-first<br>
+**Active release:** `0.2.0`, the first complete single-user personal knowledge base<br>
+**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
+
+> **Active `0.2.0` scope**
+>
+> Vault is frozen compatibility substrate for `0.2.0`, not an active product
+> module or release deliverable.
+>
+> Qdrant is out of scope for `0.2.0`.
+>
+> Every user-owned object belongs to an authenticated owner scope, and every
+> projection points to an immutable source version.
+>
+> ADR 0003 supersedes conflicting active Vault guidance in this document.
+> Vault passages in sections 1–20 remain architecture and compatibility
+> context; they do not authorize Vault features, redesign, cleanup, removal,
+> migration, UX, policies, commands, telemetry, tests, or acceptance work.
+> Existing `vault_id` fields may remain as opaque legacy owner-scope encoding.
+> New knowledge APIs derive owner scope from authenticated runtime context and
+> never accept caller-selected Vault scope.
 
 ---
 
@@ -322,6 +341,11 @@ Authorization should be evaluated against principals, not only users.
 ---
 
 ## 4.4 Vault
+
+> **Legacy compatibility model:** This section records the superseded v0.1
+> model. For active development, follow ADR 0003 and the authenticated
+> owner-scope invariant. Do not implement or migrate the model described below
+> during `0.2.0`.
 
 A data ownership, policy, and encryption boundary.
 
@@ -1992,239 +2016,33 @@ Backups are not considered valid until a test restore succeeds.
 
 ---
 
-# 21. Implementation roadmap
+# 21. Active implementation roadmap
 
-## Milestone 0 — Foundation
+The
+[canonical `0.2.0` release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md)
+is the sole detailed roadmap. Work proceeds one accepted phase at a time in
+separate branches and worktrees.
 
-Implement:
+Conflicting roadmap guidance is superseded by ADR 0003.
 
-* Architecture decision records
-* Umbrella application
-* PostgreSQL repository
-* Migrations
-* Job system
-* Outbox
-* Structured application logging through `LoggerMetadata.log/3`
-* Basic metrics
-* Development environment
+Vault is frozen compatibility substrate for `0.2.0`, not an active product
+module or release deliverable.
 
-Required decisions:
+Qdrant is out of scope for `0.2.0`.
 
-```text
-PostgreSQL is canonical structured storage
-ESS is canonical binary storage
-Vault is the ownership boundary
-Modular monolith is the initial architecture
-Projections are rebuildable
-No distributed transaction with ESS
-```
+The only currently authorized work is **Phase 0 — Scope lock and green
+baseline**. Phase 0 is limited to documentation, governance,
+characterization, verification-contract reconciliation, and baseline
+evidence. It does not change production code or behavior, Vault
+functionality, application versions, tags, releases, pushes, or deployments.
 
-### Completion criteria
+Phases 1–7 remain unstarted. No later phase begins until its predecessor is
+accepted and the new phase has its own approved design and detailed
+implementation plan.
 
-* Application starts reproducibly.
-* Database migrations are automated.
-* Jobs survive process restarts.
-* Outbox delivery is idempotent.
-
----
-
-## Milestone 1 — Identity, vault, and assets
-
-Implement:
-
-* Person
-* Account
-* Principal
-* Device
-* Vault
-* Classification
-* ESS embedded adapter
-* S3 adapter
-* Asset state machine
-* Audit events
-
-Complete one vertical workflow:
-
-```text
-unlock vault
-→ upload file
-→ ESS stage
-→ verify
-→ PostgreSQL commit
-→ download
-→ logical delete
-→ physical cleanup
-```
-
-### Completion criteria
-
-* Duplicate upload creates a reference without duplicating bytes.
-* Interrupted upload can resume or cleanly fail.
-* Orphan staging objects are collected.
-* Sensitive operations are audited.
-* Backup and restore of one vault succeeds.
-
----
-
-## Milestone 2 — Notes and documents
-
-Implement:
-
-* Markdown notes
-* Resource versions
-* Attachments
-* Tags
-* Relationships
-* PDF import
-* Text extraction
-* PostgreSQL lexical search
-* Citations
-
-### Completion criteria
-
-* Every search result points to a resource version.
-* Editing creates deterministic version history.
-* Deleting a document invalidates its projections.
-* Notes and documents export without proprietary lock-in.
-
----
-
-## Milestone 3 — Photo library
-
-Implement:
-
-* Device photo source
-* Incremental synchronization
-* EXIF extraction
-* Content-hash deduplication
-* Thumbnail and preview jobs
-* Albums
-* Timeline
-* Tombstones
-* Optional OCR
-
-### Completion criteria
-
-* Rename or move does not duplicate a photo.
-* Deletion does not resurrect on another device.
-* Original photo remains unchanged.
-* Thumbnail loss can be recovered by rebuilding.
-
----
-
-## Milestone 4 — Personal video and media library
-
-Implement:
-
-* Video ingestion
-* FFprobe metadata
-* Movie and television model
-* Tracks and subtitles
-* Posters
-* Playback progress
-* HTTP range streaming
-* Local cache
-* ESS materialization
-* Jellyfin adapter or basic native playback
-
-### Completion criteria
-
-* Compatible media direct-plays.
-* Seek-heavy playback uses local cache where needed.
-* Interrupted playback resumes correctly.
-* Original media survives transcode failure.
-
----
-
-## Milestone 5 — External subscriptions
-
-Implement:
-
-* RSS/news
-* Wiki revision monitoring
-* YouTube channel metadata
-* Book, movie, and music catalog updates
-* Subscription scheduling
-* Inbox
-* Deduplication
-* Notifications or digest generation
-
-### Completion criteria
-
-* Connector restart does not duplicate items.
-* Source checkpoints are recoverable.
-* Raw source and normalized item retain provenance.
-* One failing feed does not block other subscriptions.
-
----
-
-## Milestone 6 — Finance
-
-Implement:
-
-* Accounts
-* Transactions
-* Statements
-* Bills
-* Assets and liabilities
-* Holdings
-* Market observations
-* Reconciliation
-* Finance encryption domain
-* Finance-specific audit and search
-
-### Completion criteria
-
-* No floating-point monetary arithmetic.
-* Duplicate statement imports do not duplicate transactions.
-* Account identifiers are encrypted or masked.
-* Agent access can be restricted to aggregate values.
-
----
-
-## Milestone 7 — Health
-
-Implement:
-
-* Providers
-* Encounters
-* Documents
-* Medications
-* Observations
-* Lab results
-* Health encryption domain
-* Provenance-aware extraction
-* Health-specific search
-
-### Completion criteria
-
-* Every extracted value cites its source.
-* Machine inference is visually distinct from source facts.
-* Global search excludes health data by default.
-* Health exports include original documents and structured records.
-
----
-
-## Milestone 8 — Advanced retrieval and agents
-
-Implement:
-
-* Tantivy BM25
-* Chinese tokenizer
-* Semantic retrieval
-* Result fusion
-* Entity extraction
-* Inferred relationships
-* Summaries
-* Scoped agent tools
-* Cross-domain questions
-
-### Completion criteria
-
-* All projections can be rebuilt.
-* Agent requests are capability-scoped.
-* Finance and health never enter LLM context implicitly.
-* Search results preserve classification and provenance.
+Embeddings, semantic retrieval, RAG, Agents, OCR, photos, media,
+subscriptions, finance, health, synchronization, and external connectors are
+not `0.2.0` work.
 
 ---
 
@@ -2232,7 +2050,7 @@ Implement:
 
 The following rules should be enforced throughout development:
 
-1. **Every user-owned object belongs to a vault.**
+1. **Every user-owned object belongs to an authenticated owner scope, and every projection points to an immutable source version.**
 2. **Every actor is a principal.**
 3. **Every asset is immutable.**
 4. **Every imported record retains provenance.**
@@ -2249,73 +2067,34 @@ The following rules should be enforced throughout development:
 14. **No universal JSON object replaces typed domain models.**
 15. **No derived data has a lower security classification than its source.**
 
----
-
-# 23. Initial architecture decision records
-
-Create these files under `docs/adr/`:
-
-```text
-ADR-001-postgresql-as-canonical-structured-store.md
-ADR-002-ess-as-canonical-binary-store.md
-ADR-003-vault-as-ownership-boundary.md
-ADR-004-modular-monolith.md
-ADR-005-rebuildable-projections.md
-ADR-006-embedded-and-s3-ess-adapters.md
-ADR-007-no-distributed-transactions.md
-ADR-008-data-classification-and-key-domains.md
-ADR-009-principal-and-capability-model.md
-ADR-010-resource-versioning.md
-ADR-011-ingestion-provenance.md
-ADR-012-media-cache-and-materialization.md
-ADR-013-sensitive-search-isolation.md
-ADR-014-jellyfin-as-initial-playback-adapter.md
-```
+Current persistence may encode authenticated owner scope through legacy
+`vault_id` columns and adapter plumbing until a separately approved migration
+is performed. That compatibility encoding is not a caller-selectable
+knowledge-domain concept.
 
 ---
 
-# 24. First implementation target
+# 23. Architecture decision records
 
-The first release should not attempt photos, movies, finance, health, subscriptions, and AI simultaneously.
+Active records:
 
-Build this complete vertical slice first:
+* [ADR 0001 — PostgreSQL is canonical](adr/0001-postgresql-is-canonical.md)
+* [ADR 0002 — Local storage until embedded ESS](adr/0002-local-storage-until-embedded-ess.md)
+* [ADR 0003 — Vault frozen for knowledge-base development](adr/0003-vault-frozen-for-knowledge-base-development.md)
 
-```text
-Owner account
-→ Vault unlock
-→ Import one PDF or photo
-→ ESS deduplicated storage
-→ PostgreSQL resource and version
-→ Background metadata extraction
-→ Search
-→ Authorized download
-→ Logical deletion
-→ Projection cleanup
-→ Audit
-→ Backup and restore
-```
+The unimplemented v0.1 draft ADR backlog is not an active task list.
+Additional ADR work requires phase-specific approval.
 
-Once this workflow is reliable, every new domain becomes an extension of the same foundation rather than another storage system.
+---
 
-The core architecture can therefore be summarized as:
+# 24. Current implementation gate
 
-```text
-Singularity
-  Personal data semantics and user experience
+Phase 0 is the current target. Follow the approved release design and
+canonical directive; do not infer product implementation authority from the
+historical architecture material in this guide.
 
-PostgreSQL
-  Structured canonical truth
-
-ESS
-  Immutable binary truth
-
-Workers
-  Idempotent processing
-
-Indexes
-  Rebuildable retrieval projections
-
-Vault and capabilities
-  Privacy and authorization boundary
-```
-
+Phase 0 must finish with corrected active guidance, recorded baseline
+evidence, a clean worktree, the complete supported verification gate passing,
+and independent review. It must not begin Phase 1, change production code or
+behavior, modify Vault functionality, bump versions, tag, publish, push, or
+deploy.
