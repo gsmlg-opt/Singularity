@@ -5777,7 +5777,7 @@ pagination, and browser-versus-unit coverage.
 
   ```bash
   devenv up -d
-  trap 'devenv down' EXIT
+  trap 'devenv processes down' EXIT
   devenv processes wait --timeout 120
   devenv shell -- bash \
     apps/singularity_storage/priv/repo/bootstrap_roles.sh
@@ -5787,7 +5787,9 @@ pagination, and browser-versus-unit coverage.
   devenv shell -- mix compile --warnings-as-errors
   devenv shell -- mix singularity.test.integration
   devenv shell -- mix singularity.test.restore
-  mix npm.install --frozen
+  # TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+  # WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
+  NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
   mix npm.verify
   mix duskmoon_bundler.js.check
   mix npm.run test:js
