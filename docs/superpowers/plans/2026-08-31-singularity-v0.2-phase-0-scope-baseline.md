@@ -1134,6 +1134,7 @@ Expected: the Phase 0 branch is clean at the green scope commit.
 Run from one shell so cleanup remains active:
 
 ```bash
+set -euo pipefail
 (
 set -euo pipefail
 trap 'devenv processes down' EXIT
