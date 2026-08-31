@@ -85,6 +85,7 @@ nix run nixpkgs#actionlint -- \
 
 git diff --check
 git status --short
+test -z "$(git status --porcelain)"
 )
 ```
 

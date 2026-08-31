@@ -14,6 +14,30 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     "cancel-in-progress" => true
   }
 
+  @canonical_verification_commands [
+    "devenv up -d",
+    "devenv processes wait --timeout 120",
+    "devenv shell -- bash apps/singularity_storage/priv/repo/bootstrap_roles.sh",
+    "devenv shell -- mix deps.get",
+    "devenv shell -- mix deps.unlock --check-unused",
+    "devenv shell -- mix format --check-formatted",
+    "devenv shell -- mix compile --warnings-as-errors",
+    "devenv shell -- mix test",
+    "devenv shell -- mix singularity.test.integration",
+    "devenv shell -- mix singularity.test.restore",
+    "devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen",
+    "devenv shell -- mix npm.verify",
+    "devenv shell -- mix duskmoon_bundler.js.check",
+    "devenv shell -- mix npm.run test:js",
+    "devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind",
+    "devenv shell -- mix npm.run test:e2e",
+    "devenv shell -- mix xref graph --format cycles --fail-above 0",
+    "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
+    "git diff --check",
+    "git status --short",
+    ~S<test -z "$(git status --porcelain)">
+  ]
+
   test "root project defines the singularity OTP release" do
     source = read!("mix.exs")
 
@@ -373,19 +397,70 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert ordered_subsequence?(test_commands, plan_commands),
            "Tests workflow commands are not an ordered subsequence of the canonical release plan\nTests: #{inspect(test_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
 
-    assert Enum.take(plan_commands, -3) == [
+    assert Enum.take(plan_commands, -4) == [
              "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
              "git diff --check",
-             "git status --short"
+             "git status --short",
+             ~S<test -z "$(git status --porcelain)">
            ]
 
     assert readme_commands == plan_commands
+
+    assert plan_commands == @canonical_verification_commands,
+           "canonical release plan complete verification commands differ from the explicit canonical order"
+
+    assert readme_commands == @canonical_verification_commands,
+           "README complete verification commands differ from the explicit canonical order"
 
     assert length(readme_commands) == length(Enum.uniq(readme_commands)),
            "README complete verification sequence contains duplicate commands: #{inspect(readme_commands -- Enum.uniq(readme_commands), pretty: true)}"
 
     assert length(plan_commands) == length(Enum.uniq(plan_commands)),
            "canonical release plan complete verification sequence contains duplicate commands: #{inspect(plan_commands -- Enum.uniq(plan_commands), pretty: true)}"
+  end
+
+  test "complete verification scanner ignores inline and nested fenced block lookalikes" do
+    markdown = """
+    prose ```bash
+    (
+    set -euo pipefail
+    trap 'devenv processes down' EXIT
+    git status --short
+    )
+    prose ```
+
+    ````markdown
+    ```bash
+    (
+    set -euo pipefail
+    trap 'devenv processes down' EXIT
+    git status --short
+    )
+    ```
+    ````
+
+    ```bash
+    (
+    set -euo pipefail
+    trap 'devenv processes down' EXIT
+    git status --short
+    )
+    ```
+    """
+
+    expected =
+      Enum.join(
+        [
+          "(",
+          "set -euo pipefail",
+          "trap 'devenv processes down' EXIT",
+          "git status --short",
+          ")"
+        ],
+        "\n"
+      )
+
+    assert complete_verification_block_from_markdown!(markdown, "synthetic Markdown") == expected
   end
 
   test "release workflow exactly validates, packages, publishes, and tags a release" do
@@ -1238,22 +1313,112 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
   end
 
   defp complete_verification_block!(path) do
+    path
+    |> read!()
+    |> complete_verification_block_from_markdown!(path)
+  end
+
+  defp complete_verification_block_from_markdown!(markdown, source_name) do
     blocks =
-      Regex.scan(
-        ~r/```bash[ \t]*\r?\n(\(\r?\nset -euo pipefail\r?\ntrap 'devenv processes down' EXIT\r?\n.*?^\))\r?\n```/ms,
-        read!(path),
-        capture: :all_but_first
-      )
+      case scan_markdown_fences(markdown) do
+        {:ok, fenced_bash_blocks} ->
+          Enum.filter(
+            fenced_bash_blocks,
+            &String.starts_with?(&1, "(\nset -euo pipefail")
+          )
+
+        {:error, opening_line} ->
+          flunk("unclosed Markdown fence starting on line #{opening_line} in #{source_name}")
+      end
 
     case blocks do
-      [[block]] ->
+      [block] ->
         block
 
       [] ->
-        flunk("complete verification bash block is missing from #{path}")
+        flunk("complete verification bash block is missing from #{source_name}")
 
       matches ->
-        flunk("complete verification bash block appears #{length(matches)} times in #{path}")
+        flunk(
+          "complete verification bash block appears #{length(matches)} times in #{source_name}"
+        )
+    end
+  end
+
+  defp scan_markdown_fences(markdown) do
+    markdown
+    |> String.split(~r/\r?\n/, trim: false)
+    |> scan_markdown_fences(1, :outside, [])
+  end
+
+  defp scan_markdown_fences([], _line_number, :outside, blocks),
+    do: {:ok, Enum.reverse(blocks)}
+
+  defp scan_markdown_fences(
+         [],
+         _line_number,
+         {:inside, _character, _length, _language, opening_line, _content},
+         _blocks
+       ),
+       do: {:error, opening_line}
+
+  defp scan_markdown_fences([line | lines], line_number, :outside, blocks) do
+    case opening_fence(line) do
+      {:ok, character, length, language} ->
+        scan_markdown_fences(
+          lines,
+          line_number + 1,
+          {:inside, character, length, language, line_number, []},
+          blocks
+        )
+
+      :none ->
+        scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+    end
+  end
+
+  defp scan_markdown_fences(
+         [line | lines],
+         line_number,
+         {:inside, character, length, language, opening_line, content},
+         blocks
+       ) do
+    if closing_fence?(line, character, length) do
+      blocks =
+        if language == "bash" do
+          [content |> Enum.reverse() |> Enum.join("\n") | blocks]
+        else
+          blocks
+        end
+
+      scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+    else
+      scan_markdown_fences(
+        lines,
+        line_number + 1,
+        {:inside, character, length, language, opening_line, [line | content]},
+        blocks
+      )
+    end
+  end
+
+  defp opening_fence(line) do
+    case Regex.run(~r/^ {0,3}(`{3,}|~{3,})(.*)$/, line, capture: :all_but_first) do
+      [fence, info] ->
+        {:ok, String.first(fence), String.length(fence), String.trim(info)}
+
+      nil ->
+        :none
+    end
+  end
+
+  defp closing_fence?(line, opening_character, opening_length) do
+    case Regex.run(~r/^ {0,3}(`{3,}|~{3,})[ \t]*$/, line, capture: :all_but_first) do
+      [fence] ->
+        String.first(fence) == opening_character and String.length(fence) >= opening_length
+
+      nil ->
+        false
     end
   end
 

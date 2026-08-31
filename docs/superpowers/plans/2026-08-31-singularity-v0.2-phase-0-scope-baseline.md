@@ -452,11 +452,38 @@ historical text names Qdrant and Vault.
 
 - [ ] **Step 2: Add the verification reconciliation contract**
 
-Add this test to
-`release_container_contract_test.exs` immediately after
-`"test workflow preserves every exact acceptance gate"`:
+Add the explicit command oracle after `@concurrency`:
 
 ```elixir
+@canonical_verification_commands [
+  "devenv up -d",
+  "devenv processes wait --timeout 120",
+  "devenv shell -- bash apps/singularity_storage/priv/repo/bootstrap_roles.sh",
+  "devenv shell -- mix deps.get",
+  "devenv shell -- mix deps.unlock --check-unused",
+  "devenv shell -- mix format --check-formatted",
+  "devenv shell -- mix compile --warnings-as-errors",
+  "devenv shell -- mix test",
+  "devenv shell -- mix singularity.test.integration",
+  "devenv shell -- mix singularity.test.restore",
+  "devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen",
+  "devenv shell -- mix npm.verify",
+  "devenv shell -- mix duskmoon_bundler.js.check",
+  "devenv shell -- mix npm.run test:js",
+  "devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind",
+  "devenv shell -- mix npm.run test:e2e",
+  "devenv shell -- mix xref graph --format cycles --fail-above 0",
+  "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
+  "git diff --check",
+  "git status --short",
+  ~S<test -z "$(git status --porcelain)">
+]
+```
+
+Add these tests immediately after
+`"test workflow preserves every exact acceptance gate"`:
+
+`````elixir
 test "documented complete verification sequence exactly covers CI and Tests" do
   readme_block = complete_verification_block!("README.md")
 
@@ -465,70 +492,212 @@ test "documented complete verification sequence exactly covers CI and Tests" do
       "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
     )
 
-  assert readme_block =~ "trap 'devenv processes down' EXIT"
-  assert plan_block =~ "trap 'devenv processes down' EXIT"
+  trap = "trap 'devenv processes down' EXIT"
+
+  assert readme_block =~ trap, "README complete verification block is missing the cleanup trap"
+
+  assert plan_block =~ trap,
+         "release plan complete verification block is missing the cleanup trap"
 
   readme_commands = verification_commands(readme_block)
   plan_commands = verification_commands(plan_block)
+  ci_commands = workflow_verification_commands("ci.yml", "checks")
+  test_commands = workflow_verification_commands("test.yml", "test")
+
+  assert ordered_subsequence?(ci_commands, plan_commands),
+         "CI workflow commands are not an ordered subsequence of the canonical release plan\nCI: #{inspect(ci_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
+
+  assert ordered_subsequence?(test_commands, plan_commands),
+         "Tests workflow commands are not an ordered subsequence of the canonical release plan\nTests: #{inspect(test_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
+
+  assert Enum.take(plan_commands, -4) == [
+           "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
+           "git diff --check",
+           "git status --short",
+           ~S<test -z "$(git status --porcelain)">
+         ]
 
   assert readme_commands == plan_commands
 
-  excluded_workflow_commands =
-    MapSet.new([
-      "nix profile add nixpkgs#devenv",
-      "devenv processes down"
-    ])
+  assert plan_commands == @canonical_verification_commands,
+         "canonical release plan complete verification commands differ from the explicit canonical order"
 
-  for {workflow_name, job_name} <- [{"ci.yml", "checks"}, {"test.yml", "test"}] do
-    required =
-      workflow_verification_commands(workflow_name, job_name)
-      |> Enum.reject(&MapSet.member?(excluded_workflow_commands, &1))
+  assert readme_commands == @canonical_verification_commands,
+         "README complete verification commands differ from the explicit canonical order"
 
-    assert ordered_subsequence?(plan_commands, required),
-           "#{workflow_name} verification commands are not an ordered subsequence"
-  end
+  assert length(readme_commands) == length(Enum.uniq(readme_commands)),
+         "README complete verification sequence contains duplicate commands: #{inspect(readme_commands -- Enum.uniq(readme_commands), pretty: true)}"
 
-  assert Enum.take(plan_commands, -3) == [
-           "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
-           "git diff --check",
-           "git status --short"
-         ]
+  assert length(plan_commands) == length(Enum.uniq(plan_commands)),
+         "canonical release plan complete verification sequence contains duplicate commands: #{inspect(plan_commands -- Enum.uniq(plan_commands), pretty: true)}"
 end
-```
+
+test "complete verification scanner ignores inline and nested fenced block lookalikes" do
+  markdown = """
+  prose ```bash
+  (
+  set -euo pipefail
+  trap 'devenv processes down' EXIT
+  git status --short
+  )
+  prose ```
+
+  ````markdown
+  ```bash
+  (
+  set -euo pipefail
+  trap 'devenv processes down' EXIT
+  git status --short
+  )
+  ```
+  ````
+
+  ```bash
+  (
+  set -euo pipefail
+  trap 'devenv processes down' EXIT
+  git status --short
+  )
+  ```
+  """
+
+  expected =
+    Enum.join(
+      [
+        "(",
+        "set -euo pipefail",
+        "trap 'devenv processes down' EXIT",
+        "git status --short",
+        ")"
+      ],
+      "\n"
+    )
+
+  assert complete_verification_block_from_markdown!(markdown, "synthetic Markdown") == expected
+end
+`````
 
 Add these helpers immediately before the existing `workflow!/1` helper:
 
 ```elixir
 defp complete_verification_block!(path) do
+  path
+  |> read!()
+  |> complete_verification_block_from_markdown!(path)
+end
+
+defp complete_verification_block_from_markdown!(markdown, source_name) do
   blocks =
-    Regex.scan(
-      ~r/```bash\n(.*?)\n```/s,
-      read!(path),
-      capture: :all_but_first
-    )
-    |> List.flatten()
-    |> Enum.filter(
-      &String.starts_with?(
-        &1,
-        "(\nset -euo pipefail\ntrap 'devenv processes down' EXIT"
-      )
-    )
+    case scan_markdown_fences(markdown) do
+      {:ok, fenced_bash_blocks} ->
+        Enum.filter(
+          fenced_bash_blocks,
+          &String.starts_with?(&1, "(\nset -euo pipefail")
+        )
+
+      {:error, opening_line} ->
+        flunk("unclosed Markdown fence starting on line #{opening_line} in #{source_name}")
+    end
 
   case blocks do
-    [block] -> block
-    [] -> flunk("complete verification block is missing from #{path}")
-    matches -> flunk("#{length(matches)} complete verification blocks found in #{path}")
+    [block] ->
+      block
+
+    [] ->
+      flunk("complete verification bash block is missing from #{source_name}")
+
+    matches ->
+      flunk(
+        "complete verification bash block appears #{length(matches)} times in #{source_name}"
+      )
+  end
+end
+
+defp scan_markdown_fences(markdown) do
+  markdown
+  |> String.split(~r/\r?\n/, trim: false)
+  |> scan_markdown_fences(1, :outside, [])
+end
+
+defp scan_markdown_fences([], _line_number, :outside, blocks),
+  do: {:ok, Enum.reverse(blocks)}
+
+defp scan_markdown_fences(
+       [],
+       _line_number,
+       {:inside, _character, _length, _language, opening_line, _content},
+       _blocks
+     ),
+     do: {:error, opening_line}
+
+defp scan_markdown_fences([line | lines], line_number, :outside, blocks) do
+  case opening_fence(line) do
+    {:ok, character, length, language} ->
+      scan_markdown_fences(
+        lines,
+        line_number + 1,
+        {:inside, character, length, language, line_number, []},
+        blocks
+      )
+
+    :none ->
+      scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+  end
+end
+
+defp scan_markdown_fences(
+       [line | lines],
+       line_number,
+       {:inside, character, length, language, opening_line, content},
+       blocks
+     ) do
+  if closing_fence?(line, character, length) do
+    blocks =
+      if language == "bash" do
+        [content |> Enum.reverse() |> Enum.join("\n") | blocks]
+      else
+        blocks
+      end
+
+    scan_markdown_fences(lines, line_number + 1, :outside, blocks)
+  else
+    scan_markdown_fences(
+      lines,
+      line_number + 1,
+      {:inside, character, length, language, opening_line, [line | content]},
+      blocks
+    )
+  end
+end
+
+defp opening_fence(line) do
+  case Regex.run(~r/^ {0,3}(`{3,}|~{3,})(.*)$/, line, capture: :all_but_first) do
+    [fence, info] ->
+      {:ok, String.first(fence), String.length(fence), String.trim(info)}
+
+    nil ->
+      :none
+  end
+end
+
+defp closing_fence?(line, opening_character, opening_length) do
+  case Regex.run(~r/^ {0,3}(`{3,}|~{3,})[ \t]*$/, line, capture: :all_but_first) do
+    [fence] ->
+      String.first(fence) == opening_character and String.length(fence) >= opening_length
+
+    nil ->
+      false
   end
 end
 
 defp verification_commands(block) do
   block
-  |> String.replace(~r/\\\n\s*/, " ")
-  |> String.split("\n")
+  |> String.replace(~r/\\\r?\n[ \t]*/, " ")
+  |> String.split(~r/\r?\n/)
   |> Enum.map(&String.trim/1)
-  |> Enum.reject(fn line ->
-    line == "" or line in ["(", ")", "set -euo pipefail"] or
-      String.starts_with?(line, "#") or String.starts_with?(line, "trap ")
+  |> Enum.reject(fn command ->
+    command in ["", "(", ")", "set -euo pipefail"] or
+      String.starts_with?(command, "#") or String.starts_with?(command, "trap ")
   end)
   |> Enum.map(&normalize_command/1)
 end
@@ -544,23 +713,20 @@ defp workflow_verification_commands(workflow_name, job_name) do
       :error -> []
     end
   end)
+  |> Enum.reject(&(&1 in ["nix profile add nixpkgs#devenv", "devenv processes down"]))
 end
 
-defp ordered_subsequence?(_available, []), do: true
-defp ordered_subsequence?([], _required), do: false
+defp ordered_subsequence?([], _commands), do: true
+defp ordered_subsequence?(_expected, []), do: false
 
-defp ordered_subsequence?(
-       [command | available],
-       [command | required]
-     ),
-     do: ordered_subsequence?(available, required)
+defp ordered_subsequence?([command | expected], [command | commands]),
+  do: ordered_subsequence?(expected, commands)
 
-defp ordered_subsequence?([_command | available], required),
-  do: ordered_subsequence?(available, required)
+defp ordered_subsequence?(expected, [_command | commands]),
+  do: ordered_subsequence?(expected, commands)
 
 defp normalize_command(command) do
   command
-  |> String.replace(~r/\\\s*\n\s*/, " ")
   |> String.replace(~r/\s+/, " ")
   |> String.trim()
 end
@@ -595,8 +761,9 @@ Expected RED:
 
 - the Notes scope contract reports missing `AGENTS.md` and ADR 0003, the old
   README Qdrant direction, and the stale guide invariant/roadmap;
-- the release/container contract reports that README lacks exactly the
-  canonical `actionlint`, `git diff --check`, and `git status --short` tail;
+- the release/container contract reports that README differs from the explicit
+  21-command canonical order, including the `actionlint`, `git diff --check`,
+  `git status --short`, and final clean-tree assertion tail;
 - every pre-existing test remains green.
 
 Do not commit RED tests. Continue directly to Tasks 3 and 4.
@@ -891,6 +1058,7 @@ nix run nixpkgs#actionlint -- \
 
 git diff --check
 git status --short
+test -z "$(git status --porcelain)"
 )
 ```
 
@@ -1057,8 +1225,8 @@ devenv shell -- mix test \
 Expected:
 
 - Notes scope contract: all tests pass;
-- release/container contract: all tests pass;
-- combined four-file architecture gate: `39 tests, 0 failures`;
+- release/container contract: `16 tests, 0 failures`;
+- combined four-file architecture gate: `40 tests, 0 failures`;
 - no workflow or production file changed.
 
 - [ ] **Step 7: Inspect the complete scope diff**
@@ -1168,9 +1336,8 @@ nix run nixpkgs#actionlint -- \
 
 git diff --check
 git status --short
-)
-
 test -z "$(git status --porcelain)"
+)
 ```
 
 Expected: every command exits `0`; ExUnit, PostgreSQL integration, restore,
