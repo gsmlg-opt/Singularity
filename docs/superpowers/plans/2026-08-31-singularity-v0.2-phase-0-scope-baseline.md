@@ -492,44 +492,26 @@ test "documented complete verification sequence exactly covers CI and Tests" do
       "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
     )
 
-  trap = "trap 'devenv processes down' EXIT"
-
-  assert readme_block =~ trap, "README complete verification block is missing the cleanup trap"
-
-  assert plan_block =~ trap,
-         "release plan complete verification block is missing the cleanup trap"
-
-  readme_commands = verification_commands(readme_block)
-  plan_commands = verification_commands(plan_block)
+  readme_commands = verification_commands(readme_block, "README.md")
+  plan_commands = verification_commands(plan_block, "canonical release plan")
   ci_commands = workflow_verification_commands("ci.yml", "checks")
   test_commands = workflow_verification_commands("test.yml", "test")
+
+  assert readme_commands == plan_commands,
+         "README and canonical release plan complete verification commands differ"
+
+  assert plan_commands == @canonical_verification_commands,
+         "canonical release plan complete verification commands differ from the explicit canonical order"
+
+  assert length(@canonical_verification_commands) ==
+           length(Enum.uniq(@canonical_verification_commands)),
+         "explicit canonical verification commands contain duplicates: #{inspect(@canonical_verification_commands -- Enum.uniq(@canonical_verification_commands), pretty: true)}"
 
   assert ordered_subsequence?(ci_commands, plan_commands),
          "CI workflow commands are not an ordered subsequence of the canonical release plan\nCI: #{inspect(ci_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
 
   assert ordered_subsequence?(test_commands, plan_commands),
          "Tests workflow commands are not an ordered subsequence of the canonical release plan\nTests: #{inspect(test_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
-
-  assert Enum.take(plan_commands, -4) == [
-           "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
-           "git diff --check",
-           "git status --short",
-           ~S<test -z "$(git status --porcelain)">
-         ]
-
-  assert readme_commands == plan_commands
-
-  assert plan_commands == @canonical_verification_commands,
-         "canonical release plan complete verification commands differ from the explicit canonical order"
-
-  assert readme_commands == @canonical_verification_commands,
-         "README complete verification commands differ from the explicit canonical order"
-
-  assert length(readme_commands) == length(Enum.uniq(readme_commands)),
-         "README complete verification sequence contains duplicate commands: #{inspect(readme_commands -- Enum.uniq(readme_commands), pretty: true)}"
-
-  assert length(plan_commands) == length(Enum.uniq(plan_commands)),
-         "canonical release plan complete verification sequence contains duplicate commands: #{inspect(plan_commands -- Enum.uniq(plan_commands), pretty: true)}"
 end
 
 test "complete verification scanner ignores inline and nested fenced block lookalikes" do
@@ -551,6 +533,16 @@ test "complete verification scanner ignores inline and nested fenced block looka
   )
   ```
   ````
+
+  <!--
+  ```bash
+  (
+  set -euo pipefail
+  trap 'devenv processes down' EXIT
+  git status --short
+  )
+  ```
+  -->
 
   ```bash
   (
@@ -574,6 +566,42 @@ test "complete verification scanner ignores inline and nested fenced block looka
     )
 
   assert complete_verification_block_from_markdown!(markdown, "synthetic Markdown") == expected
+end
+
+test "verification command parsing rejects malformed complete gate wrappers" do
+  cleanup_trap = "trap 'devenv processes down' EXIT"
+
+  valid_lines = [
+    "(",
+    "set -euo pipefail",
+    cleanup_trap,
+    "devenv up -d",
+    ")"
+  ]
+
+  malformed_blocks = [
+    {"missing closing parenthesis", Enum.drop(valid_lines, -1),
+     "must end with exact line"},
+    {"commented-out cleanup trap", List.replace_at(valid_lines, 2, "# #{cleanup_trap}"),
+     "third nonblank line must be exactly"},
+    {"cleanup trap with an appended command",
+     List.replace_at(valid_lines, 2, "#{cleanup_trap}; false"),
+     "third nonblank line must be exactly"}
+  ]
+
+  for {source_name, lines, expected_diagnostic} <- malformed_blocks do
+    error =
+      assert_raise ExUnit.AssertionError, fn ->
+        lines
+        |> Enum.join("\n")
+        |> verification_commands()
+      end
+
+    assert error.message =~ "complete verification block wrapper is invalid"
+
+    assert error.message =~ expected_diagnostic,
+           "#{source_name} returned an unexpected diagnostic: #{error.message}"
+  end
 end
 `````
 
@@ -616,7 +644,41 @@ end
 defp scan_markdown_fences(markdown) do
   markdown
   |> String.split(~r/\r?\n/, trim: false)
+  |> strip_markdown_html_comments()
   |> scan_markdown_fences(1, :outside, [])
+end
+
+defp strip_markdown_html_comments(lines) do
+  {stripped_lines, _inside_comment?} =
+    Enum.map_reduce(lines, false, &strip_markdown_html_comment_line/2)
+
+  stripped_lines
+end
+
+defp strip_markdown_html_comment_line(line, false) do
+  case :binary.match(line, "<!--") do
+    {start, 4} ->
+      visible_prefix = binary_part(line, 0, start)
+      remaining_size = byte_size(line) - start - 4
+      remainder = binary_part(line, start + 4, remaining_size)
+      {visible_suffix, inside_comment?} = strip_markdown_html_comment_line(remainder, true)
+      {visible_prefix <> visible_suffix, inside_comment?}
+
+    :nomatch ->
+      {line, false}
+  end
+end
+
+defp strip_markdown_html_comment_line(line, true) do
+  case :binary.match(line, "-->") do
+    {finish, 3} ->
+      remaining_size = byte_size(line) - finish - 3
+      remainder = binary_part(line, finish + 3, remaining_size)
+      strip_markdown_html_comment_line(remainder, false)
+
+    :nomatch ->
+      {"", true}
+  end
 end
 
 defp scan_markdown_fences([], _line_number, :outside, blocks),
@@ -690,16 +752,48 @@ defp closing_fence?(line, opening_character, opening_length) do
   end
 end
 
-defp verification_commands(block) do
-  block
-  |> String.replace(~r/\\\r?\n[ \t]*/, " ")
-  |> String.split(~r/\r?\n/)
-  |> Enum.map(&String.trim/1)
-  |> Enum.reject(fn command ->
-    command in ["", "(", ")", "set -euo pipefail"] or
-      String.starts_with?(command, "#") or String.starts_with?(command, "trap ")
-  end)
+defp verification_commands(block, source_name \\ "complete verification block") do
+  lines =
+    block
+    |> String.replace(~r/\\\r?\n[ \t]*/, " ")
+    |> String.split(~r/\r?\n/)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
+  validate_verification_wrapper!(lines, source_name)
+
+  ["(", "set -euo pipefail", "trap 'devenv processes down' EXIT" | commands_and_close] =
+    lines
+
+  commands_and_close
+  |> Enum.drop(-1)
   |> Enum.map(&normalize_command/1)
+end
+
+defp validate_verification_wrapper!(lines, source_name) do
+  cleanup_trap = "trap 'devenv processes down' EXIT"
+
+  problems =
+    [
+      if(Enum.at(lines, 0) != "(", do: ~s<must start with exact line "(">),
+      if(Enum.at(lines, 1) != "set -euo pipefail",
+        do: ~s<second nonblank line must be exactly "set -euo pipefail">
+      ),
+      if(Enum.at(lines, 2) != cleanup_trap,
+        do: "third nonblank line must be exactly #{inspect(cleanup_trap)}"
+      ),
+      if(List.last(lines) != ")", do: ~s<must end with exact line ")">),
+      if(Enum.count(lines, &(&1 == cleanup_trap)) != 1,
+        do: "must contain exactly one exact cleanup trap line"
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+
+  if problems != [] do
+    flunk(
+      "#{source_name} complete verification block wrapper is invalid: #{Enum.join(problems, "; ")}"
+    )
+  end
 end
 
 defp workflow_verification_commands(workflow_name, job_name) do
@@ -1225,8 +1319,8 @@ devenv shell -- mix test \
 Expected:
 
 - Notes scope contract: all tests pass;
-- release/container contract: `16 tests, 0 failures`;
-- combined four-file architecture gate: `40 tests, 0 failures`;
+- release/container contract: `17 tests, 0 failures`;
+- combined four-file architecture gate: `41 tests, 0 failures`;
 - no workflow or production file changed.
 
 - [ ] **Step 7: Inspect the complete scope diff**
