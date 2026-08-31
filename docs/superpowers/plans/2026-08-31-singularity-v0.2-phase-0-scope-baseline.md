@@ -1383,7 +1383,7 @@ Expected:
 
 - Notes scope contract: all tests pass;
 - release/container contract: `18 tests, 0 failures`;
-- combined four-file architecture gate: `42 tests, 0 failures`;
+- combined four-file architecture gate: `43 tests, 0 failures`;
 - no workflow or production file changed.
 
 - [ ] **Step 7: Inspect the complete scope diff**
@@ -1580,6 +1580,53 @@ For each Critical or Important finding:
 Any proposed production change, Vault change, workflow-release change, version
 bump, or later-phase work stops for explicit approval.
 
+- [ ] **Step 4: Apply the accepted documentation-contract hardening**
+
+The final architecture contracts supersede the earlier raw Markdown parsing
+snippets in Task 2 and must enforce all of these reviewed properties:
+
+- the canonical README and master-plan gate contains one exact shell wrapper,
+  one exact cleanup trap, the explicit 21-command ordered oracle, and a final
+  failing clean-tree assertion;
+- the verification fence scanner recognizes only active CommonMark fences,
+  ignores inline, nested, and outside-comment lookalikes, preserves comment
+  markers inside Bash fences as literal commands, and never synthesizes an
+  opener across an HTML-comment transition;
+- README and the master plan match the explicit oracle exactly; CI and Tests
+  workflow commands remain ordered subsequences; additions, duplicates, and
+  coordinated reordering fail;
+- the Notes scope scanner ignores fenced code and HTML comments before
+  matching active markers or extracting sections 21–23;
+- README and guide must contain their exact rendered ADR 0003 links, and the
+  resolved ADR target must be a regular file;
+- the master Phase 0 deliverables contain this exact restriction:
+
+  ```text
+  Any production-code or production-behavior repair requires an approved design amendment and explicit user approval.
+  ```
+
+- ADR 0003 uses the grammatically correct sentence, "Active README and guide
+  text point to this ADR."
+
+Verify the accepted final focused counts:
+
+```bash
+devenv shell -- mix test \
+  apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+
+devenv shell -- mix test \
+  apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+
+devenv shell -- mix test \
+  apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs \
+  apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs \
+  apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
+  apps/singularity_web/test/singularity/architecture/observability_contract_test.exs
+```
+
+Expected: Notes `5 tests, 0 failures`; release/container `18 tests, 0
+failures`; combined architecture `43 tests, 0 failures`.
+
 ### Task 7: Prove final Phase 0 acceptance and hand off
 
 **Files:**
@@ -1650,7 +1697,7 @@ The final handoff must record:
 - every Phase 0 commit hash and subject;
 - every changed file;
 - migrations added: `none`;
-- the three tests added and their final counts;
+- the seven tests added and their final counts;
 - every focused and complete command run, exit result, test count, and
   duration available from output;
 - remote main SHA, `v0.1.0` tag object and peeled source, GitHub Release

@@ -49,5 +49,5 @@ Current persistence may continue to encode authenticated owner scope with
 legacy columns until a separately approved migration is designed. That
 encoding is not a caller-selectable knowledge-domain concept.
 
-Active README and guide text points to this ADR. Historical implementation
+Active README and guide text point to this ADR. Historical implementation
 records are not rewritten to erase earlier decisions.

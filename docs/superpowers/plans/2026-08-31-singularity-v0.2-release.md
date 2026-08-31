@@ -731,7 +731,8 @@ Do not implement the entire release in one branch. Complete, review, and verify 
 - [ ] Update active `README.md` and `docs/guide.md` roadmap/invariants.
 - [ ] Do not rewrite historical specifications.
 - [ ] Run the complete repository verification sequence.
-- [ ] Repair baseline failures that block knowledge-base development, without initiating Vault work.
+- [ ] Characterize and report baseline failures that block knowledge-base development.
+- [ ] Phase 0 may correct only documentation, test-contract, and workflow-contract failures. Any production-code or production-behavior repair requires an approved design amendment and explicit user approval.
 - [ ] Add or update workflow contract tests if the documented verification sequence differs from CI.
 
 ### Acceptance
