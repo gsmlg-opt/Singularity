@@ -495,16 +495,40 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
 
     digest_run = step!(steps, "Verify immutable image digest")["run"]
     assert digest_run =~ ~S<jq -r '."containerimage.digest" // empty'>
-    assert digest_run =~ ~S<test "$ACTION_DIGEST" = "$metadata_digest">
+    assert digest_run =~ "build action digest ("
+    assert digest_run =~ "did not match build metadata digest ("
 
     assert digest_run =~
              ~S<docker buildx imagetools inspect "$IMAGE_NAME@$ACTION_DIGEST" --raw>
 
-    assert digest_run =~ ~S<test "$ACTION_DIGEST" = "$resolved_digest">
+    assert digest_run =~ "immutable registry raw manifest digest ("
+    assert digest_run =~ "did not match build action digest ("
     assert digest_run =~ ~S<tar -xOf "$OCI_ARCHIVE" index.json>
-    assert digest_run =~ ~S<tar -xOf "$OCI_ARCHIVE" "blobs/sha256/$oci_root_hex">
-    assert digest_run =~ ~S<test "$oci_root_digest" = "$oci_blob_digest">
-    assert digest_run =~ ~S<test "$oci_root_digest" = "$resolved_digest">
+    assert digest_run =~ "expected exactly one OCI root descriptor"
+
+    assert digest_run =~
+             "OCI root descriptor must provide OCI image-index media type, a sha256 digest, and positive integer size"
+
+    assert digest_run =~ ~S<oci_root_blob="$(mktemp)">
+    assert digest_run =~ ~S<trap 'rm -f "$registry_root_blob" "${oci_root_blob:-}"' EXIT>
+
+    assert digest_run =~
+             ~S|tar -xOf "$OCI_ARCHIVE" "blobs/sha256/$oci_root_hex" > "$oci_root_blob"|
+
+    assert digest_run =~ "OCI root blob digest ("
+    assert digest_run =~ "OCI root blob size ("
+    assert digest_run =~ "required_platform_descriptors()"
+    assert digest_run =~ "jq -Sce"
+    assert digest_run =~ "root index must have schemaVersion 2 and OCI image-index media type"
+    assert digest_run =~ "unexpected descriptor platform"
+    assert digest_run =~ "missing a platform object"
+    assert digest_run =~ "{mediaType, size, digest, platform}"
+    assert digest_run =~ "application/vnd.oci.image.manifest.v1+json"
+    assert digest_run =~ "linux/amd64"
+    assert digest_run =~ "linux/arm64"
+    assert digest_run =~ "registry and OCI runnable platform descriptors differ"
+    assert digest_run =~ "diff -u"
+    refute digest_run =~ ~S<test "$oci_root_digest" = "$resolved_digest">
 
     source_run = step!(steps, "Publish source branch and tag")["run"]
     assert source_run =~ ~S<if [[ "$RELEASE_MODE" == "new" ]]; then>
@@ -545,6 +569,98 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert release_run =~ "--generate-notes"
 
     refute File.exists?(Path.join([@repo_root, ".github", "workflows", "e2e.yml"]))
+  end
+
+  test "release verification executes the parsed runnable descriptor classifier" do
+    amd64 = descriptor("amd64", "a")
+    arm64 = descriptor("arm64", "b")
+    unknown_attestation = descriptor("unknown", "unknown", "c")
+    amd64_attestation = attestation(amd64, "c")
+    arm64_attestation = attestation(arm64, "d")
+
+    valid_registry = oci_index([amd64, arm64, amd64_attestation, arm64_attestation])
+
+    valid_oci =
+      oci_index([attestation(arm64, "e"), arm64, attestation(amd64, "f"), amd64])
+
+    assert {0, registry_descriptors} = required_platform_descriptors(valid_registry)
+    assert {0, oci_descriptors} = required_platform_descriptors(valid_oci)
+    assert registry_descriptors == oci_descriptors
+
+    changed_amd64 = put_in(amd64, ["digest"], digest("e"))
+
+    assert {0, changed_amd64_descriptors} =
+             required_platform_descriptors(
+               oci_index([
+                 changed_amd64,
+                 arm64,
+                 attestation(changed_amd64, "f"),
+                 arm64_attestation
+               ])
+             )
+
+    refute registry_descriptors == changed_amd64_descriptors
+
+    changed_platform = put_in(amd64, ["platform", "variant"], "v3")
+
+    assert {0, changed_platform_descriptors} =
+             required_platform_descriptors(
+               oci_index([changed_platform, arm64, amd64_attestation, arm64_attestation])
+             )
+
+    refute registry_descriptors == changed_platform_descriptors
+
+    invalid_indexes = [
+      {"extra runnable platform",
+       oci_index([amd64, arm64, descriptor("s390x", "e"), amd64_attestation, arm64_attestation]),
+       "unexpected descriptor platform"},
+      {"missing platform",
+       oci_index([amd64, arm64, Map.delete(amd64_attestation, "platform"), arm64_attestation]),
+       "missing a platform object"},
+      {"malformed unknown attestation",
+       oci_index([amd64, arm64, put_in(amd64_attestation, ["size"], 0), arm64_attestation]),
+       "must have OCI image-manifest media type"},
+      {"bare unknown platform",
+       oci_index([amd64, arm64, unknown_attestation, amd64_attestation, arm64_attestation]),
+       "unknown/unknown descriptor must be an attestation manifest"},
+      {"wrong reference type",
+       oci_index([
+         amd64,
+         arm64,
+         put_in(amd64_attestation, ["annotations", "vnd.docker.reference.type"], "other"),
+         arm64_attestation
+       ]), "unknown/unknown descriptor must be an attestation manifest"},
+      {"malformed reference digest",
+       oci_index([
+         amd64,
+         arm64,
+         put_in(amd64_attestation, ["annotations", "vnd.docker.reference.digest"], "invalid"),
+         arm64_attestation
+       ]), "unknown/unknown descriptor must be an attestation manifest"},
+      {"unknown attestation reference",
+       oci_index([
+         amd64,
+         arm64,
+         put_in(amd64_attestation, ["annotations", "vnd.docker.reference.digest"], digest("f")),
+         arm64_attestation
+       ]), "attestation references must match required runnable digests"},
+      {"duplicate and missing attestation linkage",
+       oci_index([amd64, arm64, amd64_attestation, attestation(amd64, "e")]),
+       "attestation references must match required runnable digests"},
+      {"Docker manifest-list root",
+       oci_index([amd64, arm64, amd64_attestation, arm64_attestation], %{
+         "mediaType" => "application/vnd.docker.distribution.manifest.list.v2+json"
+       }), "root index must have schemaVersion 2 and OCI image-index media type"},
+      {"wrong schema version",
+       oci_index([amd64, arm64, amd64_attestation, arm64_attestation], %{"schemaVersion" => 1}),
+       "root index must have schemaVersion 2 and OCI image-index media type"}
+    ]
+
+    for {name, index, diagnostic} <- invalid_indexes do
+      assert {exit_status, output} = required_platform_descriptors(index), name
+      assert exit_status != 0, name
+      assert output =~ diagnostic, "#{name}: #{output}"
+    end
   end
 
   defp release_steps do
@@ -852,29 +968,154 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
   defp verify_image_digest_run do
     ~S"""
     set -euo pipefail
+    required_platform_descriptors() {
+      jq -Sce '
+        def positive_integer:
+          type == "number" and . > 0 and floor == .;
+        def sha256_digest:
+          type == "string" and test("^sha256:[0-9a-f]{64}$");
+        def valid_descriptor:
+          if type != "object" then
+            error("image index descriptor must be an object")
+          elif
+            .mediaType != "application/vnd.oci.image.manifest.v1+json" or
+              (.size | positive_integer | not) or
+              (.digest | sha256_digest | not)
+          then
+            error("image index descriptor must have OCI image-manifest media type, positive integer size, and lowercase sha256 digest")
+          else .
+          end;
+        def descriptor_kind:
+          if (.platform | type) != "object" then
+            error("image index descriptor is missing a platform object")
+          elif
+            (.platform.os | type) != "string" or
+              (.platform.architecture | type) != "string"
+          then
+            error("image index descriptor has a malformed platform object")
+          elif
+            .platform.os == "linux" and
+              (.platform.architecture == "amd64" or .platform.architecture == "arm64")
+          then {kind: "runnable"}
+          elif
+            .platform.os == "unknown" and
+              .platform.architecture == "unknown"
+          then
+            if
+              ((.platform | keys | sort) == ["architecture", "os"]) and
+                (.annotations | type) == "object" and
+                .annotations["vnd.docker.reference.type"] == "attestation-manifest" and
+                (.annotations["vnd.docker.reference.digest"] | sha256_digest)
+            then {
+              kind: "attestation",
+              reference_digest: .annotations["vnd.docker.reference.digest"]
+            }
+            else error("unknown/unknown descriptor must be an attestation manifest with a valid runnable reference digest")
+            end
+          else
+            error("unexpected descriptor platform \(.platform.os)/\(.platform.architecture)")
+          end;
+        if
+          .schemaVersion == 2 and
+            .mediaType == "application/vnd.oci.image.index.v1+json"
+        then .
+        else error("root index must have schemaVersion 2 and OCI image-index media type")
+        end
+        | if (.manifests | type) != "array" then
+            error("image index must contain a manifests array")
+          else .manifests
+          end
+        | map(
+            . as $descriptor
+            | valid_descriptor
+            | descriptor_kind as $kind
+            | $kind + {descriptor: $descriptor}
+          )
+        | . as $classified
+        | [.[] | select(.kind == "runnable") | .descriptor | {mediaType, size, digest, platform}]
+        | sort_by(.platform.os, .platform.architecture)
+        | if length != 2 then
+            error("expected exactly linux/amd64 and linux/arm64 runnable descriptors")
+          elif (map(.platform | "\(.os)/\(.architecture)") | unique | sort) != ["linux/amd64", "linux/arm64"] then
+            error("expected exactly one descriptor for each required runnable platform")
+          else .
+          end
+        | . as $runnable_descriptors
+        | [$classified[] | select(.kind == "attestation") | .reference_digest] | sort
+        | if . == ($runnable_descriptors | map(.digest) | sort) then
+            $runnable_descriptors
+          else error("attestation references must match required runnable digests exactly once each")
+          end
+      '
+    }
+
     metadata_digest="$(jq -r '."containerimage.digest" // empty' <<< "$BUILD_METADATA")"
+    if [[ ! "$ACTION_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      echo "build action did not return a valid image digest" >&2
+      exit 1
+    fi
     if [[ ! "$metadata_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
       echo "build metadata did not contain a valid image digest" >&2
       exit 1
     fi
-    test "$ACTION_DIGEST" = "$metadata_digest"
-    raw_manifest="$(docker buildx imagetools inspect "$IMAGE_NAME@$ACTION_DIGEST" --raw)"
-    resolved_digest="sha256:$(printf '%s' "$raw_manifest" | sha256sum | cut -d ' ' -f1)"
-    test "$ACTION_DIGEST" = "$resolved_digest"
-    oci_index="$(tar -xOf "$OCI_ARCHIVE" index.json)"
-    oci_root_digest="$(
-      jq -er '.manifests | if length == 1 then .[0].digest else error("expected one OCI root descriptor") end' <<< "$oci_index"
-    )"
-    if [[ ! "$oci_root_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-      echo "OCI archive root descriptor has an invalid digest" >&2
+    if [[ "$ACTION_DIGEST" != "$metadata_digest" ]]; then
+      echo "build action digest ($ACTION_DIGEST) did not match build metadata digest ($metadata_digest)" >&2
       exit 1
     fi
-    oci_root_hex="${oci_root_digest#sha256:}"
-    oci_blob_digest="sha256:$(
-      tar -xOf "$OCI_ARCHIVE" "blobs/sha256/$oci_root_hex" | sha256sum | cut -d ' ' -f1
+
+    registry_root_blob="$(mktemp)"
+    oci_root_blob=""
+    trap 'rm -f "$registry_root_blob" "${oci_root_blob:-}"' EXIT
+    oci_root_blob="$(mktemp)"
+    docker buildx imagetools inspect "$IMAGE_NAME@$ACTION_DIGEST" --raw > "$registry_root_blob"
+    resolved_digest="sha256:$(sha256sum "$registry_root_blob" | cut -d ' ' -f1)"
+    if [[ "$ACTION_DIGEST" != "$resolved_digest" ]]; then
+      echo "immutable registry raw manifest digest ($resolved_digest) did not match build action digest ($ACTION_DIGEST)" >&2
+      exit 1
+    fi
+
+    oci_index="$(tar -xOf "$OCI_ARCHIVE" index.json)"
+    oci_root_descriptor="$(
+      jq -Sce '
+        if (.manifests | type) != "array" or (.manifests | length) != 1 then
+          error("expected exactly one OCI root descriptor")
+        else
+          .manifests[0] | {mediaType, digest, size}
+        end
+        | if
+            (.mediaType == "application/vnd.oci.image.index.v1+json" and
+              (.digest | if type == "string" then test("^sha256:[0-9a-f]{64}$") else false end) and
+              (.size | (type == "number" and . > 0 and floor == .)))
+          then .
+          else error("OCI root descriptor must provide OCI image-index media type, a sha256 digest, and positive integer size")
+          end
+      ' <<< "$oci_index"
     )"
-    test "$oci_root_digest" = "$oci_blob_digest"
-    test "$oci_root_digest" = "$resolved_digest"
+    oci_root_digest="$(jq -er '.digest' <<< "$oci_root_descriptor")"
+    oci_root_size="$(jq -er '.size' <<< "$oci_root_descriptor")"
+    oci_root_hex="${oci_root_digest#sha256:}"
+    tar -xOf "$OCI_ARCHIVE" "blobs/sha256/$oci_root_hex" > "$oci_root_blob"
+    oci_blob_digest="sha256:$(sha256sum "$oci_root_blob" | cut -d ' ' -f1)"
+    oci_blob_size="$(wc -c < "$oci_root_blob" | tr -d ' ')"
+    if [[ "$oci_root_digest" != "$oci_blob_digest" ]]; then
+      echo "OCI root blob digest ($oci_blob_digest) did not match index digest ($oci_root_digest)" >&2
+      exit 1
+    fi
+    if [[ "$oci_root_size" != "$oci_blob_size" ]]; then
+      echo "OCI root blob size ($oci_blob_size) did not match index size ($oci_root_size)" >&2
+      exit 1
+    fi
+
+    registry_platform_descriptors="$(required_platform_descriptors < "$registry_root_blob")"
+    oci_platform_descriptors="$(required_platform_descriptors < "$oci_root_blob")"
+    if [[ "$registry_platform_descriptors" != "$oci_platform_descriptors" ]]; then
+      echo "registry and OCI runnable platform descriptors differ" >&2
+      diff -u \
+        <(jq . <<< "$registry_platform_descriptors") \
+        <(jq . <<< "$oci_platform_descriptors") >&2 || true
+      exit 1
+    fi
+
     echo "IMAGE_DIGEST=$resolved_digest" >> "$GITHUB_ENV"
     """
   end
@@ -958,6 +1199,69 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
   defp workflow!(name) do
     YamlElixir.read_from_file!(Path.join([@repo_root, ".github", "workflows", name]))
   end
+
+  defp required_platform_descriptors(index) do
+    run =
+      workflow!("release.yml")
+      |> job!("release")
+      |> Map.fetch!("steps")
+      |> step!("Verify immutable image digest")
+      |> Map.fetch!("run")
+
+    [function] = Regex.run(~r/^required_platform_descriptors\(\) \{\n.*?^\}/ms, run)
+
+    System.cmd(
+      "bash",
+      ["-ceu", function <> "\nprintf %s \"$INDEX\" | required_platform_descriptors"],
+      env: [{"INDEX", Jason.encode!(index)}],
+      stderr_to_stdout: true
+    )
+    |> then(fn {output, exit_status} -> {exit_status, output} end)
+  end
+
+  defp oci_index(manifests, overrides \\ %{}) do
+    Map.merge(
+      %{
+        "schemaVersion" => 2,
+        "mediaType" => "application/vnd.oci.image.index.v1+json",
+        "manifests" => manifests
+      },
+      overrides
+    )
+  end
+
+  defp descriptor(architecture, digest_character) do
+    %{
+      "mediaType" => "application/vnd.oci.image.manifest.v1+json",
+      "size" => 100,
+      "digest" => digest(digest_character),
+      "platform" => %{"os" => "linux", "architecture" => architecture}
+    }
+  end
+
+  defp descriptor(os, architecture, digest_character) do
+    %{
+      "mediaType" => "application/vnd.oci.image.manifest.v1+json",
+      "size" => 100,
+      "digest" => digest(digest_character),
+      "platform" => %{"os" => os, "architecture" => architecture}
+    }
+  end
+
+  defp attestation(runnable_descriptor, digest_character) do
+    %{
+      "mediaType" => "application/vnd.oci.image.manifest.v1+json",
+      "size" => 1112,
+      "digest" => digest(digest_character),
+      "annotations" => %{
+        "vnd.docker.reference.digest" => runnable_descriptor["digest"],
+        "vnd.docker.reference.type" => "attestation-manifest"
+      },
+      "platform" => %{"os" => "unknown", "architecture" => "unknown"}
+    }
+  end
+
+  defp digest(character), do: "sha256:" <> String.duplicate(character, 64)
 
   defp job!(workflow, name) do
     workflow
