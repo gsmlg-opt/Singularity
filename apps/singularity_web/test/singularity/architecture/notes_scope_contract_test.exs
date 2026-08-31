@@ -87,6 +87,9 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
              "#{name} does not link to the accepted Vault scope ADR"
     end
 
+    assert normalize_markdown(readme_source) =~
+             "Phase 1 must not begin until Phase 0 is accepted and Phase 1 has its own approved design and detailed implementation plan."
+
     refute normalize_markdown(readme_source) =~ "Qdrant is required"
 
     roadmap =

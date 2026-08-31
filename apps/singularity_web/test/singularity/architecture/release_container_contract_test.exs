@@ -380,6 +380,12 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
            ]
 
     assert readme_commands == plan_commands
+
+    assert length(readme_commands) == length(Enum.uniq(readme_commands)),
+           "README complete verification sequence contains duplicate commands: #{inspect(readme_commands -- Enum.uniq(readme_commands), pretty: true)}"
+
+    assert length(plan_commands) == length(Enum.uniq(plan_commands)),
+           "canonical release plan complete verification sequence contains duplicate commands: #{inspect(plan_commands -- Enum.uniq(plan_commands), pretty: true)}"
   end
 
   test "release workflow exactly validates, packages, publishes, and tags a release" do

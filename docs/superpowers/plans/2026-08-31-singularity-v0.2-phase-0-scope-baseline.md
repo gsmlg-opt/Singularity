@@ -814,8 +814,8 @@ list with:
 ## Active `0.2.0` scope
 
 Current work is Phase 0 only: scope lock, governance, characterization, and a
-green baseline. Phase 1 must not begin until Phase 0 is accepted and receives
-its own approved design and detailed implementation plan.
+green baseline. Phase 1 must not begin until Phase 0 is accepted and Phase 1
+has its own approved design and detailed implementation plan.
 
 Vault is frozen compatibility substrate for `0.2.0`, not an active product
 module or release deliverable. Existing `vault_id` persistence and adapter
