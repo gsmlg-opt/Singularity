@@ -8,6 +8,8 @@ defmodule Singularity.Runtime.AssetDeletionTest do
   alias Singularity.Runtime.Assets.ObjectCleanup
   alias Singularity.Runtime.SessionContext
 
+  @async_handshake_timeout 1_000
+
   defmodule ScopeSpy do
     def with_read_request(runtime, _session, requirement, callback) do
       send(runtime.test_pid, {:scope, :read, requirement})
@@ -197,19 +199,27 @@ defmodule Singularity.Runtime.AssetDeletionTest do
         Delete.run(runtime, session, asset_id, 2)
       end)
 
-    assert_receive {:resolve_delete_lock_target, delete_process, :write_repo, command}
+    assert_receive {:resolve_delete_lock_target, delete_process, :write_repo, command},
+                   @async_handshake_timeout
+
     refute_received {:tombstone_and_release, :write_repo, _command}
     send(delete_process, {:resolve_as, self(), first_object_id})
 
-    assert_receive {:object_lock, :write_repo, ^first_object_id}
-    assert_receive {:resolve_delete_lock_target, ^delete_process, :write_repo, ^command}
+    assert_receive {:object_lock, :write_repo, ^first_object_id}, @async_handshake_timeout
+
+    assert_receive {:resolve_delete_lock_target, ^delete_process, :write_repo, ^command},
+                   @async_handshake_timeout
+
     send(delete_process, {:resolve_as, self(), current_object_id})
 
-    assert_receive {:object_unlock, :write_repo, ^first_object_id}
+    assert_receive {:object_unlock, :write_repo, ^first_object_id}, @async_handshake_timeout
     refute_received {:tombstone_and_release, :write_repo, _command}
 
-    assert_receive {:object_lock, :write_repo, ^current_object_id}
-    assert_receive {:resolve_delete_lock_target, ^delete_process, :write_repo, ^command}
+    assert_receive {:object_lock, :write_repo, ^current_object_id}, @async_handshake_timeout
+
+    assert_receive {:resolve_delete_lock_target, ^delete_process, :write_repo, ^command},
+                   @async_handshake_timeout
+
     send(delete_process, {:resolve_as, self(), current_object_id})
 
     assert {:ok, %{state: :pending_delete, state_revision: 3}} =
