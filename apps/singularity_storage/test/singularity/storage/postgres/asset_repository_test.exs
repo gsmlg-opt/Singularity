@@ -164,6 +164,19 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                    ]
                  )
 
+               query!(
+                 repo,
+                 """
+                 UPDATE content.resources
+                 SET classification = 'restricted'
+                 WHERE id = $1 AND vault_id = $2
+                 """,
+                 [
+                   Ecto.UUID.dump!(fixture.resource_id),
+                   Ecto.UUID.dump!(fixture.vault_id)
+                 ]
+               )
+
                :ok
              end)
 
@@ -1050,6 +1063,19 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
                query!(
                  repo,
                  """
+                 UPDATE content.resources
+                 SET classification = 'restricted'
+                 WHERE id = $1 AND vault_id = $2
+                 """,
+                 [
+                   Ecto.UUID.dump!(fixture.resource_id),
+                   Ecto.UUID.dump!(fixture.vault_id)
+                 ]
+               )
+
+               query!(
+                 repo,
+                 """
                  UPDATE content.assets
                  SET classification = 'restricted'
                  WHERE id = $1 AND vault_id = $2
@@ -1179,6 +1205,19 @@ defmodule Singularity.Storage.Postgres.AssetRepositoryTest do
               """,
               [
                 Ecto.UUID.dump!(fixture.resource_version_id),
+                Ecto.UUID.dump!(fixture.vault_id)
+              ]
+            )
+
+            query!(
+              repo,
+              """
+              UPDATE content.resources
+              SET classification = 'restricted'
+              WHERE id = $1 AND vault_id = $2
+              """,
+              [
+                Ecto.UUID.dump!(fixture.resource_id),
                 Ecto.UUID.dump!(fixture.vault_id)
               ]
             )

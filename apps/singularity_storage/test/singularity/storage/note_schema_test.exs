@@ -158,6 +158,9 @@ defmodule Singularity.Storage.NoteSchemaTest do
     assert constraint_definition!("resources_note_version_head_fkey") =~
              "DEFERRABLE INITIALLY DEFERRED"
 
+    assert constraint_definition!("resource_versions_resource_classification_fkey") =~
+             "DEFERRABLE INITIALLY DEFERRED"
+
     assert constraint_definition!("note_versions_parent_fkey") =~
              "DEFERRABLE INITIALLY DEFERRED"
 

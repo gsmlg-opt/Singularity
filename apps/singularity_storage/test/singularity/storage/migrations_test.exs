@@ -8,6 +8,8 @@ defmodule Singularity.Storage.MigrationsTest do
 
   @notes_migration_version 20_260_818_000_100
   @notes_migration Singularity.Storage.Migrations.CreatePrivateMarkdownNotes
+  @classification_migration_version 20_260_901_000_100
+  @classification_migration Singularity.Storage.Migrations.DeferResourceVersionClassificationForeignKey
   @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
   @schemas ~w(identity core content jobs audit)
   @tables [
@@ -59,7 +61,11 @@ defmodule Singularity.Storage.MigrationsTest do
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
 
   setup context do
-    prepare_private_notes_migration!(context[:with_private_notes] == true)
+    prepare_migration_state!(
+      private_notes?: context[:with_private_notes] == true,
+      classification_repair?: context[:with_classification_repair] == true
+    )
+
     on_exit(&restore_all_migrations!/0)
 
     # Migration DDL and the audit baseline are database-global, so this module
@@ -97,35 +103,59 @@ defmodule Singularity.Storage.MigrationsTest do
     |> Path.join("repo/migrations")
   end
 
-  defp prepare_private_notes_migration!(true) do
+  defp prepare_migration_state!(options) do
+    include_classification? = Keyword.fetch!(options, :classification_repair?)
+    include_notes? = Keyword.fetch!(options, :private_notes?) or include_classification?
     {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
 
     try do
-      unless notes_migration_up?() do
-        Ecto.Migrator.run(MigrationRepo, migrations_path(), :up, all: true, log: false)
-      end
-    after
-      Supervisor.stop(migration_repo)
-    end
-  end
-
-  defp prepare_private_notes_migration!(false) do
-    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
-
-    try do
-      if notes_migration_up?() do
-        cleanup_notes_with_started_repo!()
-
+      if migration_up?(@classification_migration_version) and not include_classification? do
         :ok =
           Ecto.Migrator.down(
             MigrationRepo,
-            @notes_migration_version,
-            @notes_migration,
+            @classification_migration_version,
+            @classification_migration,
             log: false
           )
 
-        :code.purge(@notes_migration)
-        :code.delete(@notes_migration)
+        purge_migration(@classification_migration)
+      end
+
+      cond do
+        include_notes? and not migration_up?(@notes_migration_version) ->
+          :ok =
+            Ecto.Migrator.up(
+              MigrationRepo,
+              @notes_migration_version,
+              @notes_migration,
+              log: false
+            )
+
+        not include_notes? and migration_up?(@notes_migration_version) ->
+          cleanup_notes_with_started_repo!()
+
+          :ok =
+            Ecto.Migrator.down(
+              MigrationRepo,
+              @notes_migration_version,
+              @notes_migration,
+              log: false
+            )
+
+          purge_migration(@notes_migration)
+
+        true ->
+          :ok
+      end
+
+      if include_classification? and not migration_up?(@classification_migration_version) do
+        :ok =
+          Ecto.Migrator.up(
+            MigrationRepo,
+            @classification_migration_version,
+            @classification_migration,
+            log: false
+          )
       end
     after
       Supervisor.stop(migration_repo)
@@ -145,15 +175,20 @@ defmodule Singularity.Storage.MigrationsTest do
     end
   end
 
-  defp notes_migration_up? do
+  defp migration_up?(version) do
     %{rows: rows} =
       query!(
         MigrationRepo,
         "SELECT 1 FROM public.schema_migrations WHERE version = $1",
-        [@notes_migration_version]
+        [version]
       )
 
     rows == [[1]]
+  end
+
+  defp purge_migration(migration) do
+    :code.purge(migration)
+    :code.delete(migration)
   end
 
   @tag :with_private_notes
@@ -1009,6 +1044,127 @@ defmodule Singularity.Storage.MigrationsTest do
       )
 
     assert trigger_count == 1
+  end
+
+  @tag :with_classification_repair
+  test "classification deferral migration round-trips the exact foreign-key contract" do
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
+
+    try do
+      assert {true, true, deferred_definition} = classification_foreign_key_contract()
+      assert deferred_definition =~ "FOREIGN KEY (resource_id, vault_id, classification)"
+      assert deferred_definition =~ "REFERENCES content.resources(id, vault_id, classification)"
+      assert deferred_definition =~ "DEFERRABLE INITIALLY DEFERRED"
+
+      assert :ok =
+               Ecto.Migrator.down(
+                 MigrationRepo,
+                 @classification_migration_version,
+                 @classification_migration,
+                 log: false
+               )
+
+      assert {false, false, immediate_definition} = classification_foreign_key_contract()
+      assert immediate_definition =~ "FOREIGN KEY (resource_id, vault_id, classification)"
+
+      assert immediate_definition =~
+               "REFERENCES content.resources(id, vault_id, classification)"
+
+      refute immediate_definition =~ "DEFERRABLE"
+
+      assert :ok =
+               Ecto.Migrator.up(
+                 MigrationRepo,
+                 @classification_migration_version,
+                 @classification_migration,
+                 log: false
+               )
+
+      assert {true, true, _definition} = classification_foreign_key_contract()
+    after
+      unless migration_up?(@classification_migration_version) do
+        Ecto.Migrator.up(
+          MigrationRepo,
+          @classification_migration_version,
+          @classification_migration,
+          log: false
+        )
+      end
+
+      Supervisor.stop(migration_repo)
+    end
+  end
+
+  @tag :with_classification_repair
+  test "classification migration changes deferrability without locking referenced resources" do
+    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 1)
+    {:ok, blocker} = Postgrex.start_link(postgrex_options())
+
+    try do
+      assert :ok =
+               Ecto.Migrator.down(
+                 MigrationRepo,
+                 @classification_migration_version,
+                 @classification_migration,
+                 log: false,
+                 migration_lock: false
+               )
+
+      Postgrex.query!(blocker, "BEGIN", [])
+      Postgrex.query!(blocker, "SET LOCAL ROLE singularity_table_owner", [])
+
+      Postgrex.query!(
+        blocker,
+        "LOCK TABLE content.resources IN ROW EXCLUSIVE MODE",
+        []
+      )
+
+      query!(MigrationRepo, "SET lock_timeout = '500ms'")
+
+      assert :ok =
+               Ecto.Migrator.up(
+                 MigrationRepo,
+                 @classification_migration_version,
+                 @classification_migration,
+                 log: false,
+                 migration_lock: false
+               )
+
+      assert {true, true, _definition} = classification_foreign_key_contract()
+    after
+      try do
+        Postgrex.query(blocker, "ROLLBACK", [])
+        query!(MigrationRepo, "RESET lock_timeout")
+
+        unless migration_up?(@classification_migration_version) do
+          Ecto.Migrator.up(
+            MigrationRepo,
+            @classification_migration_version,
+            @classification_migration,
+            log: false,
+            migration_lock: false
+          )
+        end
+      after
+        GenServer.stop(blocker)
+        Supervisor.stop(migration_repo)
+      end
+    end
+  end
+
+  defp classification_foreign_key_contract do
+    %{rows: [[deferrable?, deferred?, definition]]} =
+      query!(
+        RequestRepo,
+        """
+        SELECT condeferrable, condeferred, pg_get_constraintdef(oid)
+        FROM pg_catalog.pg_constraint
+        WHERE conrelid = 'content.resource_versions'::regclass
+          AND conname = 'resource_versions_resource_classification_fkey'
+        """
+      )
+
+    {deferrable?, deferred?, definition}
   end
 
   test "Task 15 audit contract deterministically migrates legacy actor and target rows" do
@@ -2019,7 +2175,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_001_000,
                20_260_728_000_100,
                20_260_729_000_100,
-               @notes_migration_version
+               @notes_migration_version,
+               @classification_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2135,7 +2292,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_001_000,
                20_260_728_000_100,
                20_260_729_000_100,
-               @notes_migration_version
+               @notes_migration_version,
+               @classification_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2520,7 +2678,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_722_001_000,
                20_260_728_000_100,
                20_260_729_000_100,
-               @notes_migration_version
+               @notes_migration_version,
+               @classification_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,

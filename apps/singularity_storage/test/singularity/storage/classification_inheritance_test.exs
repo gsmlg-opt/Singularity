@@ -3,9 +3,12 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
 
   @moduletag :integration
 
+  import ExUnit.CaptureLog
+
   alias Singularity.Core.AuditEvent, as: CoreAuditEvent
   alias Singularity.Core.OutboxEvent, as: CoreOutboxEvent
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.AssetSearchStore
   alias Singularity.Storage.Postgres.AuditSink
   alias Singularity.Storage.Postgres.BackupRepository
@@ -75,6 +78,80 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
              {schema.__schema__(:prefix), schema.__schema__(:source)}
            end) ==
              Enum.map(@schemas, fn {_schema, prefix, source} -> {prefix, source} end)
+  end
+
+  test "resource/version classification strengthening commits in either statement order" do
+    for order <- [[:resource, :resource_version], [:resource_version, :resource]] do
+      %{one: fixture} = Fixtures.two_vaults!()
+      updates = classification_updates(fixture)
+
+      assert :ok =
+               Fixtures.with_owner(fn ->
+                 Enum.each(order, fn target ->
+                   {statement, parameters} = Map.fetch!(updates, target)
+                   query!(MigrationRepo, statement, parameters)
+                 end)
+
+                 :ok
+               end)
+
+      assert %{rows: [["restricted", "restricted"]]} =
+               Fixtures.with_owner(fn ->
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT resource.classification, resource_version.classification
+                   FROM content.resources AS resource
+                   JOIN content.resource_versions AS resource_version
+                     ON resource_version.resource_id = resource.id
+                    AND resource_version.vault_id = resource.vault_id
+                   WHERE resource.id = $1
+                     AND resource_version.id = $2
+                     AND resource.vault_id = $3
+                   """,
+                   [fixture.resource_id, fixture.resource_version_id, fixture.vault_id]
+                 )
+               end)
+    end
+  end
+
+  test "partial resource/version classification strengthening fails at commit and rolls back" do
+    parent = self()
+
+    for target <- [:resource, :resource_version] do
+      %{one: fixture} = Fixtures.two_vaults!()
+      {statement, parameters} = Map.fetch!(classification_updates(fixture), target)
+
+      capture_log(fn ->
+        assert_raise Postgrex.Error, ~r/resource_versions_resource_classification_fkey/, fn ->
+          Fixtures.with_owner(fn ->
+            query!(MigrationRepo, statement, parameters)
+            send(parent, {:partial_statement_completed, target})
+            :ok
+          end)
+        end
+      end)
+
+      assert_receive {:partial_statement_completed, ^target}
+
+      assert %{rows: [["private", "private"]]} =
+               Fixtures.with_owner(fn ->
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT resource.classification, resource_version.classification
+                   FROM content.resources AS resource
+                   JOIN content.resource_versions AS resource_version
+                     ON resource_version.resource_id = resource.id
+                    AND resource_version.vault_id = resource.vault_id
+                   WHERE resource.id = $1
+                     AND resource_version.id = $2
+                     AND resource.vault_id = $3
+                   """,
+                   [fixture.resource_id, fixture.resource_version_id, fixture.vault_id]
+                 )
+               end)
+    end
   end
 
   test "classification and vault identity survive the complete persistence chain" do
@@ -362,6 +439,19 @@ defmodule Singularity.Storage.ClassificationInheritanceTest do
       %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
       callback
     )
+  end
+
+  defp classification_updates(fixture) do
+    %{
+      resource: {
+        "UPDATE content.resources SET classification = 'restricted' WHERE id = $1 AND vault_id = $2",
+        [fixture.resource_id, fixture.vault_id]
+      },
+      resource_version: {
+        "UPDATE content.resource_versions SET classification = 'restricted' WHERE id = $1 AND vault_id = $2",
+        [fixture.resource_version_id, fixture.vault_id]
+      }
+    }
   end
 
   defp load_ids(fixture) do

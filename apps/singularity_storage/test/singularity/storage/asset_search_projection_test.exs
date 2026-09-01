@@ -1021,6 +1021,16 @@ defmodule Singularity.Storage.AssetSearchProjectionTest do
       query!(
         MigrationRepo,
         """
+        UPDATE content.resources
+        SET classification = 'sensitive'
+        WHERE id = $1 AND vault_id = $2
+        """,
+        [raw_fixture.resource_id, raw_fixture.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        """
         UPDATE content.assets
         SET classification = 'sensitive'
         WHERE id = $1 AND vault_id = $2
