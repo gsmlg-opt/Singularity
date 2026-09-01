@@ -10,6 +10,14 @@ defmodule Singularity.Storage.MigrationsTest do
   @notes_migration Singularity.Storage.Migrations.CreatePrivateMarkdownNotes
   @classification_migration_version 20_260_901_000_100
   @classification_migration Singularity.Storage.Migrations.DeferResourceVersionClassificationForeignKey
+  @wake_migration_version 20_260_901_000_200
+  @wake_migration Singularity.Storage.Migrations.MoveWakeGenerationsToJobSubmissions
+  @runtime_repositories [
+    Singularity.Storage.RequestRepo,
+    Singularity.Storage.PreAuthRepo,
+    Singularity.Storage.DispatcherRepo,
+    Singularity.Storage.WorkerRepo
+  ]
   @legacy_retirement_reason "legacy_missing_principal_authorization_epoch_provenance"
   @schemas ~w(identity core content jobs audit)
   @tables [
@@ -61,12 +69,28 @@ defmodule Singularity.Storage.MigrationsTest do
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
 
   setup context do
+    runtime_started? = runtime_started?()
+
+    if runtime_started? do
+      :ok = Application.stop(:singularity_runtime)
+    end
+
+    on_exit(fn ->
+      stop_runtime_repositories!()
+      restore_all_migrations!()
+
+      if runtime_started? do
+        assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+      end
+    end)
+
     prepare_migration_state!(
       private_notes?: context[:with_private_notes] == true,
-      classification_repair?: context[:with_classification_repair] == true
+      classification_repair?: context[:with_classification_repair] == true,
+      wake_repair?: context[:with_wake_repair] == true
     )
 
-    on_exit(&restore_all_migrations!/0)
+    start_runtime_repositories!()
 
     # Migration DDL and the audit baseline are database-global, so this module
     # remains async: false and removes only residue that Task 15 cannot map back.
@@ -103,12 +127,50 @@ defmodule Singularity.Storage.MigrationsTest do
     |> Path.join("repo/migrations")
   end
 
+  defp runtime_started? do
+    Enum.any?(Application.started_applications(), fn {app, _description, _version} ->
+      app == :singularity_runtime
+    end)
+  end
+
+  defp start_runtime_repositories! do
+    Enum.each(@runtime_repositories, fn repo ->
+      assert {:ok, pid} = repo.start_link()
+      Process.unlink(pid)
+    end)
+  end
+
+  defp stop_runtime_repositories! do
+    Enum.each(Enum.reverse(@runtime_repositories), fn repo ->
+      case Process.whereis(repo) do
+        nil -> :ok
+        pid -> Supervisor.stop(pid)
+      end
+    end)
+  end
+
   defp prepare_migration_state!(options) do
-    include_classification? = Keyword.fetch!(options, :classification_repair?)
+    include_wake? = Keyword.fetch!(options, :wake_repair?)
+
+    include_classification? =
+      Keyword.fetch!(options, :classification_repair?) or include_wake?
+
     include_notes? = Keyword.fetch!(options, :private_notes?) or include_classification?
     {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
 
     try do
+      if migration_up?(@wake_migration_version) and not include_wake? do
+        :ok =
+          Ecto.Migrator.down(
+            MigrationRepo,
+            @wake_migration_version,
+            @wake_migration,
+            log: false
+          )
+
+        purge_migration(@wake_migration)
+      end
+
       if migration_up?(@classification_migration_version) and not include_classification? do
         :ok =
           Ecto.Migrator.down(
@@ -154,6 +216,16 @@ defmodule Singularity.Storage.MigrationsTest do
             MigrationRepo,
             @classification_migration_version,
             @classification_migration,
+            log: false
+          )
+      end
+
+      if include_wake? and not migration_up?(@wake_migration_version) do
+        :ok =
+          Ecto.Migrator.up(
+            MigrationRepo,
+            @wake_migration_version,
+            @wake_migration,
             log: false
           )
       end
@@ -2176,7 +2248,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_728_000_100,
                20_260_729_000_100,
                @notes_migration_version,
-               @classification_migration_version
+               @classification_migration_version,
+               @wake_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2293,7 +2366,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_728_000_100,
                20_260_729_000_100,
                @notes_migration_version,
-               @classification_migration_version
+               @classification_migration_version,
+               @wake_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,
@@ -2679,7 +2753,8 @@ defmodule Singularity.Storage.MigrationsTest do
                20_260_728_000_100,
                20_260_729_000_100,
                @notes_migration_version,
-               @classification_migration_version
+               @classification_migration_version,
+               @wake_migration_version
              ] =
                Ecto.Migrator.run(
                  MigrationRepo,

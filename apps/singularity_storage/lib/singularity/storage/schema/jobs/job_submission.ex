@@ -15,6 +15,8 @@ defmodule Singularity.Storage.Schema.Jobs.JobSubmission do
     field :idempotency_key, :string
     field :job_type, :string
     field :runner_job_id, :string
+    field :wake_requested_generation, :integer, default: 0
+    field :wake_consumed_generation, :integer, default: 0
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -52,5 +54,15 @@ defmodule Singularity.Storage.Schema.Jobs.JobSubmission do
     submission
     |> cast(attrs, [:runner_job_id])
     |> validate_required([:runner_job_id])
+  end
+
+  def wake_generation_changeset(submission, attrs) do
+    submission
+    |> cast(attrs, [:wake_requested_generation, :wake_consumed_generation])
+    |> validate_number(:wake_requested_generation, greater_than_or_equal_to: 0)
+    |> validate_number(:wake_consumed_generation, greater_than_or_equal_to: 0)
+    |> check_constraint(:wake_consumed_generation,
+      name: :job_submissions_wake_generations_check
+    )
   end
 end

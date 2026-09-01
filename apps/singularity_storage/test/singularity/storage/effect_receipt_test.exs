@@ -11,6 +11,7 @@ defmodule Singularity.Storage.EffectReceiptTest do
   alias Singularity.Storage.Jobs.GenericWorker
   alias Singularity.Storage.Jobs.ObanAdapter
   alias Singularity.Storage.Jobs.Progress
+  alias Singularity.Storage.Jobs.WakeHandshake
   alias Singularity.Storage.Jobs.WakeReconciler
   alias Singularity.Storage.ScopedRepo
 
@@ -353,10 +354,31 @@ defmodule Singularity.Storage.EffectReceiptTest do
 
     assert %{failure: 0, snoozed: 1, success: 0} = Task.await(drain, 5_000)
 
-    assert %{rows: [["scheduled", scheduled_at, 1]]} =
+    assert %{rows: [["scheduled", scheduled_at, 0, 1]]} =
              query!(
                WorkerRepo,
-               "SELECT state, scheduled_at, attempt FROM jobs.oban_jobs WHERE id = $1",
+               """
+               SELECT
+                 state,
+                 scheduled_at,
+                 attempt,
+                 (meta->>'snoozed')::integer
+               FROM jobs.oban_jobs
+               WHERE id = $1
+               """,
+               [runner_id]
+             )
+
+    assert %{rows: [[false, false]]} =
+             query!(
+               WorkerRepo,
+               """
+               SELECT
+                 meta ? 'singularity_wake_requested_generation',
+                 meta ? 'singularity_wake_consumed_generation'
+               FROM jobs.oban_jobs
+               WHERE id = $1
+               """,
                [runner_id]
              )
 
@@ -378,10 +400,14 @@ defmodule Singularity.Storage.EffectReceiptTest do
                with_scheduled: true
              )
 
-    assert %{rows: [["scheduled", 2]]} =
+    assert %{rows: [["scheduled", 0, 2]]} =
              query!(
                WorkerRepo,
-               "SELECT state, attempt FROM jobs.oban_jobs WHERE id = $1",
+               """
+               SELECT state, attempt, (meta->>'snoozed')::integer
+               FROM jobs.oban_jobs
+               WHERE id = $1
+               """,
                [runner_id]
              )
 
@@ -438,22 +464,7 @@ defmodule Singularity.Storage.EffectReceiptTest do
              )
 
     assert :ok = ObanAdapter.wake_vault(%{}, envelope.vault_id)
-
-    assert %{rows: [[1, 0]]} =
-             query!(
-               WorkerRepo,
-               """
-               SELECT
-                 (meta->>'singularity_wake_requested_generation')::integer,
-                 COALESCE(
-                   (meta->>'singularity_wake_consumed_generation')::integer,
-                   0
-                 )
-               FROM jobs.oban_jobs
-               WHERE id = $1
-               """,
-               [runner_id]
-             )
+    assert wake_generations(envelope) == {1, 0}
 
     assert %{rows: [[1]]} =
              query!(
@@ -480,7 +491,9 @@ defmodule Singularity.Storage.EffectReceiptTest do
                [Ecto.UUID.dump!(envelope.job_id)]
              )
 
-    assert %{rows: [["scheduled", scheduled_at, 1, 1, 1]]} =
+    assert wake_generations(envelope) == {1, 1}
+
+    assert %{rows: [["scheduled", scheduled_at, 0, 1]]} =
              query!(
                WorkerRepo,
                """
@@ -488,8 +501,7 @@ defmodule Singularity.Storage.EffectReceiptTest do
                  state,
                  scheduled_at,
                  attempt,
-                 (meta->>'singularity_wake_requested_generation')::integer,
-                 (meta->>'singularity_wake_consumed_generation')::integer
+                 (meta->>'snoozed')::integer
                FROM jobs.oban_jobs
                WHERE id = $1
                """,
@@ -557,22 +569,7 @@ defmodule Singularity.Storage.EffectReceiptTest do
              )
 
     assert :ok = ObanAdapter.wake_vault(%{}, envelope.vault_id)
-
-    assert %{rows: [[1, 0]]} =
-             query!(
-               WorkerRepo,
-               """
-               SELECT
-                 (meta->>'singularity_wake_requested_generation')::integer,
-                 COALESCE(
-                   (meta->>'singularity_wake_consumed_generation')::integer,
-                   0
-                 )
-               FROM jobs.oban_jobs
-               WHERE id = $1
-               """,
-               [runner_id]
-             )
+    assert wake_generations(envelope) == {1, 0}
 
     assert %{rows: [[reconciler_id, "scheduled", ^runner_id, 1]]} =
              query!(
@@ -594,11 +591,20 @@ defmodule Singularity.Storage.EffectReceiptTest do
     send(drain.pid, {:release_snooze_ack, ref})
 
     assert %{failure: 0, snoozed: 1, success: 0} = Task.await(drain, 5_000)
+    assert wake_generations(envelope) == {1, 0}
 
-    assert %{rows: [["scheduled", scheduled_at, 1]]} =
+    assert %{rows: [["scheduled", scheduled_at, 0, 1]]} =
              query!(
                WorkerRepo,
-               "SELECT state, scheduled_at, attempt FROM jobs.oban_jobs WHERE id = $1",
+               """
+               SELECT
+                 state,
+                 scheduled_at,
+                 attempt,
+                 (meta->>'snoozed')::integer
+               FROM jobs.oban_jobs
+               WHERE id = $1
+               """,
                [runner_id]
              )
 
@@ -629,14 +635,117 @@ defmodule Singularity.Storage.EffectReceiptTest do
                with_scheduled: true
              )
 
-    assert %{rows: [["available", 1, 1]]} =
+    assert wake_generations(envelope) == {1, 1}
+
+    assert %{rows: [["available"]]} =
+             query!(
+               WorkerRepo,
+               "SELECT state FROM jobs.oban_jobs WHERE id = $1",
+               [runner_id]
+             )
+
+    assert_no_active_wake_reconcilers()
+    assert_context_absent()
+  end
+
+  test "wake generations ignore historical target metadata", %{fixture: fixture} do
+    envelope =
+      submitted_envelope(fixture, 0, %{
+        "wait_for_unlock" => true,
+        "checkpoint" => %{"next_chunk_index" => 17}
+      })
+
+    assert {:ok, encoded} = EnvelopeCodec.encode(envelope)
+    assert {:snooze, 60} = GenericWorker.perform(%Oban.Job{args: encoded})
+
+    runner_id = runner_id(envelope)
+    put_oban_state(runner_id, "scheduled")
+    on_exit(fn -> clear_legacy_wake_metadata(runner_id) end)
+
+    assert %{num_rows: 1} =
+             query!(
+               WorkerRepo,
+               """
+               UPDATE jobs.oban_jobs
+               SET meta = meta || $2::text::jsonb
+               WHERE id = $1
+               """,
+               [
+                 runner_id,
+                 JSON.encode!(%{
+                   "singularity_wake_requested_generation" => 99,
+                   "singularity_wake_consumed_generation" => 99
+                 })
+               ]
+             )
+
+    assert :ok = ObanAdapter.wake_vault(%{}, envelope.vault_id)
+    assert wake_generations(envelope) == {1, 1}
+
+    assert %{rows: [[99, 99]]} =
              query!(
                WorkerRepo,
                """
                SELECT
-                 state,
                  (meta->>'singularity_wake_requested_generation')::integer,
                  (meta->>'singularity_wake_consumed_generation')::integer
+               FROM jobs.oban_jobs
+               WHERE id = $1
+               """,
+               [runner_id]
+             )
+
+    assert_no_active_wake_reconcilers()
+    assert_context_absent()
+  end
+
+  test "a stale reconciler cannot lower the consumed generation", %{fixture: fixture} do
+    envelope = submitted_envelope(fixture, 0)
+    runner_id = runner_id(envelope)
+    put_oban_state(runner_id, "scheduled")
+    on_exit(fn -> clear_legacy_wake_metadata(runner_id) end)
+
+    assert %{num_rows: 1} =
+             scoped_query(
+               envelope,
+               """
+               UPDATE jobs.job_submissions
+               SET wake_requested_generation = 2,
+                   wake_consumed_generation = 2
+               WHERE id = $1
+               """,
+               [Ecto.UUID.dump!(envelope.job_id)]
+             )
+
+    assert %{num_rows: 1} =
+             query!(
+               WorkerRepo,
+               """
+               UPDATE jobs.oban_jobs
+               SET meta = meta || $2::text::jsonb
+               WHERE id = $1
+               """,
+               [
+                 runner_id,
+                 JSON.encode!(%{
+                   "singularity_wake_requested_generation" => 2,
+                   "singularity_wake_consumed_generation" => 0
+                 })
+               ]
+             )
+
+    assert :done =
+             ScopedRepo.transact(WorkerRepo, envelope, fn repo ->
+               WakeHandshake.reconcile(repo, "jobs", envelope, runner_id, 1)
+             end)
+
+    assert wake_generations(envelope) == {2, 2}
+
+    assert %{rows: [[0]]} =
+             query!(
+               WorkerRepo,
+               """
+               SELECT (meta->>'singularity_wake_consumed_generation')::integer
                FROM jobs.oban_jobs
                WHERE id = $1
                """,
@@ -699,17 +808,12 @@ defmodule Singularity.Storage.EffectReceiptTest do
     assert_receive {:before_snooze_ack, ^snooze_ref, ack_pid}, 5_000
     assert ack_pid == drain.pid
 
-    assert %{rows: [["executing", 1, 1]]} =
+    assert wake_generations(envelope) == {1, 1}
+
+    assert %{rows: [["executing", 1]]} =
              query!(
                WorkerRepo,
-               """
-               SELECT
-                 state,
-                 (meta->>'singularity_wake_requested_generation')::integer,
-                 (meta->>'singularity_wake_consumed_generation')::integer
-               FROM jobs.oban_jobs
-               WHERE id = $1
-               """,
+               "SELECT state, attempt FROM jobs.oban_jobs WHERE id = $1",
                [runner_id]
              )
 
@@ -832,6 +936,24 @@ defmodule Singularity.Storage.EffectReceiptTest do
     end)
   end
 
+  defp wake_generations(envelope) do
+    assert %{rows: [[requested, consumed]]} =
+             scoped_query(
+               envelope,
+               """
+               SELECT wake_requested_generation, wake_consumed_generation
+               FROM jobs.job_submissions
+               WHERE id = $1 AND vault_id = $2
+               """,
+               [
+                 Ecto.UUID.dump!(envelope.job_id),
+                 Ecto.UUID.dump!(envelope.vault_id)
+               ]
+             )
+
+    {requested, consumed}
+  end
+
   defp runner_id(envelope) do
     assert %{rows: [[runner_id]]} =
              query!(
@@ -863,6 +985,23 @@ defmodule Singularity.Storage.EffectReceiptTest do
                WHERE id = $1
                """,
                [runner_id, state]
+             )
+
+    :ok
+  end
+
+  defp clear_legacy_wake_metadata(runner_id) do
+    assert %{num_rows: 1} =
+             query!(
+               WorkerRepo,
+               """
+               UPDATE jobs.oban_jobs
+               SET meta = meta
+                 - 'singularity_wake_requested_generation'
+                 - 'singularity_wake_consumed_generation'
+               WHERE id = $1
+               """,
+               [runner_id]
              )
 
     :ok

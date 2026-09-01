@@ -280,6 +280,19 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       refute inspect(imported) =~ fixture.raw_payload
       refute inspect(imported) =~ object_root
       assert_all_logical_groups_imported(fixture.row_counts)
+
+      assert %{rows: [[0, 0]]} =
+               owner_transaction(fn ->
+                 query(
+                   """
+                   SELECT wake_requested_generation, wake_consumed_generation
+                   FROM jobs.job_submissions
+                   WHERE id = $1
+                   """,
+                   [Ecto.UUID.dump!(fixture.ids.job_submission_id)]
+                 )
+               end)
+
       assert_v1_resources_use_note_safe_defaults(fixture.ids.resource_id)
       assert_note_runtime_tables_empty()
       assert next_outbox_sequence() == 43

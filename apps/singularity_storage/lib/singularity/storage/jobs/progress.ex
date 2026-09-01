@@ -657,8 +657,6 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
   alias Singularity.Storage.Schema.Jobs.JobSubmission
 
   @generic_worker "Singularity.Storage.Jobs.GenericWorker"
-  @requested_key "singularity_wake_requested_generation"
-  @consumed_key "singularity_wake_consumed_generation"
   @wakeable_states ["executing", "scheduled", "retryable"]
 
   @spec request(module(), String.t(), JobEnvelope.t(), pos_integer()) ::
@@ -667,19 +665,22 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
           | {:error, Error.t()}
   def request(repo, prefix, %JobEnvelope{} = envelope, runner_job_id)
       when is_binary(prefix) and is_integer(runner_job_id) and runner_job_id > 0 do
-    case lock_job(repo, prefix, envelope, runner_job_id, @wakeable_states) do
-      %Oban.Job{state: "executing"} = job ->
-        request_generation(repo, job)
+    with %Oban.Job{} = job <-
+           lock_job(repo, prefix, envelope, runner_job_id, @wakeable_states),
+         %JobSubmission{} = submission <-
+           lock_submission(repo, envelope, runner_job_id) do
+      cond do
+        job.state == "executing" ->
+          request_generation(repo, submission, job.state)
 
-      %Oban.Job{} = job ->
-        if waiting?(repo, envelope, runner_job_id) do
-          request_generation(repo, job)
-        else
+        waiting?(repo, envelope) ->
+          request_generation(repo, submission, job.state)
+
+        true ->
           :skipped
-        end
-
-      nil ->
-        :skipped
+      end
+    else
+      nil -> :skipped
     end
   end
 
@@ -690,15 +691,16 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
           :pending | :none | :skipped | {:error, Error.t()}
   def consume(repo, prefix, %JobEnvelope{} = envelope, runner_job_id)
       when is_binary(prefix) and is_integer(runner_job_id) and runner_job_id > 0 do
-    with %Oban.Job{} = job <-
+    with %Oban.Job{} <-
            lock_job(repo, prefix, envelope, runner_job_id, @wakeable_states),
-         true <- waiting?(repo, envelope, runner_job_id) do
-      requested = generation(job.meta, @requested_key)
-      consumed = generation(job.meta, @consumed_key)
-
-      if requested > consumed do
-        case put_generation(repo, job, @consumed_key, requested) do
-          {:ok, _job} -> :pending
+         %JobSubmission{} = submission <-
+           lock_submission(repo, envelope, runner_job_id),
+         true <- waiting?(repo, envelope) do
+      if submission.wake_requested_generation > submission.wake_consumed_generation do
+        case put_generations(repo, submission, %{
+               wake_consumed_generation: submission.wake_requested_generation
+             }) do
+          {:ok, _submission} -> :pending
           {:error, %Ecto.Changeset{}} -> storage_unavailable()
         end
       else
@@ -718,33 +720,29 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
   def reconcile(repo, prefix, %JobEnvelope{} = envelope, runner_job_id, wake_generation)
       when is_binary(prefix) and is_integer(runner_job_id) and runner_job_id > 0 and
              is_integer(wake_generation) and wake_generation > 0 do
-    case lock_job(repo, prefix, envelope, runner_job_id, :all) do
-      nil ->
-        :done
+    with %Oban.Job{} = job <- lock_job(repo, prefix, envelope, runner_job_id, :all),
+         %JobSubmission{} = submission <- lock_submission(repo, envelope, runner_job_id) do
+      cond do
+        submission.wake_requested_generation < wake_generation ->
+          :done
 
-      %Oban.Job{} = job ->
-        requested = generation(job.meta, @requested_key)
-        consumed = generation(job.meta, @consumed_key)
+        job.state == "executing" ->
+          :wait
 
-        cond do
-          requested < wake_generation ->
-            :done
+        submission.wake_consumed_generation >= wake_generation ->
+          :done
 
-          job.state == "executing" ->
-            :wait
+        not waiting?(repo, envelope) ->
+          consume_generation(repo, submission, wake_generation, :done)
 
-          not waiting?(repo, envelope, runner_job_id) ->
-            consume_generation(repo, job, wake_generation, :done)
+        job.state in ["scheduled", "retryable"] ->
+          consume_generation(repo, submission, wake_generation, {:retry, job})
 
-          consumed >= wake_generation ->
-            :done
-
-          job.state in ["scheduled", "retryable"] ->
-            consume_generation(repo, job, wake_generation, {:retry, job})
-
-          true ->
-            consume_generation(repo, job, wake_generation, :done)
-        end
+        true ->
+          consume_generation(repo, submission, wake_generation, :done)
+      end
+    else
+      nil -> :done
     end
   end
 
@@ -773,19 +771,27 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
     repo.one(query, prefix: prefix)
   end
 
-  defp waiting?(repo, envelope, runner_job_id) do
-    query =
-      from(progress in JobProgress,
-        join: submission in JobSubmission,
-        on:
-          submission.id == progress.submission_id and
-            submission.vault_id == progress.vault_id,
+  defp lock_submission(repo, envelope, runner_job_id) do
+    repo.one(
+      from(submission in JobSubmission,
         where:
-          progress.submission_id == ^envelope.job_id and
-            progress.vault_id == ^envelope.vault_id and
+          submission.id == ^envelope.job_id and
+            submission.outbox_event_id == ^envelope.job_id and
+            submission.vault_id == ^envelope.vault_id and
             submission.runner_job_id == ^Integer.to_string(runner_job_id) and
             submission.job_type == ^envelope.job_type and
             submission.classification == ^envelope.classification,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp waiting?(repo, envelope) do
+    query =
+      from(progress in JobProgress,
+        where:
+          progress.submission_id == ^envelope.job_id and
+            progress.vault_id == ^envelope.vault_id,
         select: progress.state,
         limit: 1,
         lock: "FOR UPDATE"
@@ -798,35 +804,36 @@ defmodule Singularity.Storage.Jobs.WakeHandshake do
     end
   end
 
-  defp consume_generation(repo, job, wake_generation, result) do
-    case put_generation(repo, job, @consumed_key, wake_generation) do
-      {:ok, _job} -> result
+  defp consume_generation(repo, submission, wake_generation, result) do
+    next_consumed = max(submission.wake_consumed_generation, wake_generation)
+
+    case put_generations(repo, submission, %{
+           wake_consumed_generation: next_consumed
+         }) do
+      {:ok, _submission} -> result
       {:error, %Ecto.Changeset{}} -> storage_unavailable()
     end
   end
 
-  defp request_generation(repo, job) do
-    requested = generation(job.meta, @requested_key)
-    consumed = generation(job.meta, @consumed_key)
-    next_generation = max(requested, consumed) + 1
+  defp request_generation(repo, submission, state) do
+    next_generation =
+      max(
+        submission.wake_requested_generation,
+        submission.wake_consumed_generation
+      ) + 1
 
-    case put_generation(repo, job, @requested_key, next_generation) do
-      {:ok, _job} -> {:ok, %{generation: next_generation, state: job.state}}
+    case put_generations(repo, submission, %{
+           wake_requested_generation: next_generation
+         }) do
+      {:ok, _submission} -> {:ok, %{generation: next_generation, state: state}}
       {:error, %Ecto.Changeset{}} -> storage_unavailable()
     end
   end
 
-  defp put_generation(repo, job, key, value) do
-    job
-    |> Ecto.Changeset.change(meta: Map.put(job.meta, key, value))
+  defp put_generations(repo, submission, attrs) do
+    submission
+    |> JobSubmission.wake_generation_changeset(attrs)
     |> repo.update()
-  end
-
-  defp generation(meta, key) do
-    case Map.get(meta, key, 0) do
-      generation when is_integer(generation) and generation >= 0 -> generation
-      _invalid -> 0
-    end
   end
 
   defp storage_unavailable,

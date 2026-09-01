@@ -39,11 +39,15 @@ defmodule Singularity.Storage.RunnerSubmissionRecoveryTest do
     # but before it acknowledged the outbox lease.
     assert {:ok, ^runner_id_before} = ObanAdapter.submit(%{}, envelope)
 
-    assert %{rows: [[1, ^runner_id_before]]} =
+    assert %{rows: [[1, ^runner_id_before, 0, 0]]} =
              scoped_query(
                envelope,
                """
-               SELECT count(*), max(runner_job_id)
+               SELECT
+                 count(*),
+                 max(runner_job_id),
+                 max(wake_requested_generation),
+                 max(wake_consumed_generation)
                FROM jobs.job_submissions
                WHERE outbox_event_id = $1
                """,

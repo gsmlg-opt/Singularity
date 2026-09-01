@@ -165,6 +165,23 @@ defmodule Singularity.Architecture.DependencyGraphTest do
     end
   end
 
+  test "storage declares and locks the supported Oban 2.24 line" do
+    storage_dependencies =
+      :singularity_storage
+      |> project_config()
+      |> Keyword.fetch!(:deps)
+
+    assert {:oban, "~> 2.24"} in storage_dependencies
+
+    assert {:hex, :oban, locked_version, _, _, _, "hexpm", _} =
+             @repo_root
+             |> Path.join("mix.lock")
+             |> Mix.Dep.Lock.read()
+             |> Map.fetch!(:oban)
+
+    assert Version.match?(locked_version, "~> 2.24")
+  end
+
   defp child_apps do
     @repo_root
     |> Path.join("apps/*/mix.exs")
