@@ -16,6 +16,45 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   @qdrant_lock "Qdrant is out of scope for `0.2.0`."
   @owner_scope_invariant "Every user-owned object belongs to an authenticated owner scope, and every projection points to an immutable source version."
   @production_repair_gate "Any production-code or production-behavior repair requires an approved design amendment and explicit user approval."
+  @release_design_path "docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md"
+  @blocker_repair_design_path "docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md"
+  @release_plan_path "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
+  @classification_repair_scope "The only classification repair makes `resource_versions_resource_classification_fkey` deferrable and initially deferred through a new forward migration."
+  @wake_repair_scope "The only wake repair moves application-owned wake generation counters from Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to 2.24."
+  @no_other_repair_scope "No other Phase 0 production-code, production-behavior, or schema change is authorized."
+  @release_prohibition_scope "Version bumps, tags, releases, pushes, deployments, and Phase 1 work remain prohibited."
+  @blocker_repair_design_heading "# Singularity v0.2.0 Phase 0 Blocker Repair Design"
+  @blocker_repair_heading "### Approved Phase 0 blocker repairs"
+  @stop_conditions_heading "## Stop conditions"
+  @governing_document_bullets [
+    "- `#{@release_design_path}`",
+    "- `#{@blocker_repair_design_path}`",
+    "- `#{@release_plan_path}`"
+  ]
+  @approved_blocker_repair_scope Enum.join(
+                                   [
+                                     "- `#{@blocker_repair_design_path}`",
+                                     @classification_repair_scope,
+                                     @wake_repair_scope,
+                                     @no_other_repair_scope,
+                                     @release_prohibition_scope
+                                   ],
+                                   " "
+                                 )
+  @approved_phase_protocol_scope Enum.join(
+                                   [
+                                     "- Characterize established behavior before changing it.",
+                                     "- Add a failing focused contract before changing enforced behavior.",
+                                     "- Never edit a released migration.",
+                                     "- Never weaken, skip, delete, or reclassify a required assertion.",
+                                     "- Run focused checks during a phase and the complete README verification gate before accepting the phase.",
+                                     "- Preserve the seven-application dependency graph and require zero xref cycles.",
+                                     "- Record commits, changed files, migrations, tests, exact commands and results, remaining risks, and confirmation that no Vault feature work occurred.",
+                                     @blocker_repair_heading,
+                                     @approved_blocker_repair_scope
+                                   ],
+                                   " "
+                                 )
 
   @required_root_paths ~w[
     mix.exs mix.lock devenv.nix devenv.yaml devenv.lock
@@ -87,6 +126,140 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
 
     assert normalize_markdown(phase0_deliverables) =~ @production_repair_gate,
            "canonical release plan does not reserve production repairs for explicit approval"
+  end
+
+  test "Phase 0 governance names only the approved blocker repair exceptions" do
+    agents =
+      @repo_root
+      |> Path.join("AGENTS.md")
+      |> read_required!()
+      |> assert_active_prose!()
+
+    design_path = Path.join(@repo_root, @blocker_repair_design_path)
+    design = read_required!(design_path)
+
+    assert_phase0_governance_contract!(agents, design)
+  end
+
+  test "Phase 0 governance rejects an extra repair authorization" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+
+    extra_authorization =
+      String.replace(
+        agents,
+        "\n## Stop conditions",
+        "\nAn additional production repair is authorized.\n\n## Stop conditions",
+        global: false
+      )
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_phase0_governance_contract!(extra_authorization, design)
+    end
+  end
+
+  test "Phase 0 governance requires the amendment in the governing-document list" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+    amendment_bullet = "- `#{@blocker_repair_design_path}`\n"
+    missing_governing_bullet = String.replace(agents, amendment_bullet, "", global: false)
+
+    assert missing_governing_bullet =~ @blocker_repair_design_path
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_phase0_governance_contract!(missing_governing_bullet, design)
+    end
+  end
+
+  test "Phase 0 governance rejects an extra non-backtick governing-document bullet" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+
+    extra_governing_bullet =
+      String.replace(
+        agents,
+        "- `#{@release_plan_path}`\n",
+        "- `#{@release_plan_path}`\n- docs/extra-governance.md\n",
+        global: false
+      )
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_phase0_governance_contract!(extra_governing_bullet, design)
+    end
+  end
+
+  test "Phase 0 governance rejects an authorization before the repair subsection" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+
+    extra_authorization =
+      String.replace(
+        agents,
+        "\n#{@blocker_repair_heading}",
+        "\nAn earlier production repair is authorized.\n\n#{@blocker_repair_heading}",
+        global: false
+      )
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_phase0_governance_contract!(extra_authorization, design)
+    end
+  end
+
+  test "Phase 0 blocker design requires an active approved status in its header" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+
+    approved_only_in_comment =
+      String.replace(
+        design,
+        "**Status:** Approved",
+        "<!-- **Status:** Approved -->",
+        global: false
+      )
+
+    approved_only_in_fence =
+      String.replace(
+        design,
+        "**Status:** Approved",
+        "```markdown\n**Status:** Approved\n```",
+        global: false
+      )
+
+    approved_only_outside_header =
+      design
+      |> String.replace("**Status:** Approved\n\n", "", global: false)
+      |> String.replace(
+        "## 1. Purpose",
+        "## 1. Purpose\n\n**Status:** Approved",
+        global: false
+      )
+
+    for invalid_design <- [
+          approved_only_in_comment,
+          approved_only_in_fence,
+          approved_only_outside_header
+        ] do
+      assert_raise ExUnit.AssertionError, fn ->
+        assert_phase0_governance_contract!(agents, invalid_design)
+      end
+    end
+  end
+
+  test "Phase 0 blocker design rejects an indented approved status" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    design = @repo_root |> Path.join(@blocker_repair_design_path) |> read_required!()
+
+    approved_only_in_indented_code =
+      String.replace(
+        design,
+        "**Status:** Approved",
+        "    **Status:** Approved",
+        global: false
+      )
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_phase0_governance_contract!(agents, approved_only_in_indented_code)
+    end
   end
 
   test "active README and guide state the v0.2 scope lock" do
@@ -216,6 +389,58 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     refute active_path?("docs/superpowers/plans/2026-08-18-milestone-2-private-markdown-notes.md")
     refute active_path?("apps/singularity_web/test/example_test.exs")
     refute active_path?("README.md")
+  end
+
+  defp assert_phase0_governance_contract!(agents, design) do
+    assert_governing_documents!(agents)
+    assert_phase_protocol!(agents)
+    assert_approved_design_status!(design)
+  end
+
+  defp assert_governing_documents!(agents) do
+    governing_document_bullets =
+      agents
+      |> active_section!("## Active release", "## Vault freeze")
+      |> String.split(~r/\r?\n/)
+      |> Enum.filter(&markdown_bullet_line?/1)
+      |> Enum.map(&String.trim_trailing/1)
+
+    assert governing_document_bullets == @governing_document_bullets,
+           "active release governing-document bullets must match the approved ordered list"
+  end
+
+  defp assert_phase_protocol!(agents) do
+    phase_protocol =
+      agents
+      |> active_section!("## Phase and verification protocol", @stop_conditions_heading)
+      |> normalize_markdown()
+
+    assert phase_protocol == @approved_phase_protocol_scope,
+           "Phase 0 protocol must match the exact verification and blocker repair contract"
+  end
+
+  defp assert_approved_design_status!(design) do
+    header =
+      design
+      |> markdown_section!(@blocker_repair_design_heading, "## 1. Purpose")
+      |> assert_active_prose!()
+
+    status_lines =
+      header
+      |> String.split(~r/\r?\n/)
+      |> Enum.map(&String.trim/1)
+      |> Enum.filter(&status_line?/1)
+
+    assert status_lines == ["**Status:** Approved"],
+           "blocker repair design header must contain only the active status **Status:** Approved"
+  end
+
+  defp markdown_bullet_line?(line) do
+    Regex.match?(~r/^ {0,3}(?:> ?)* {0,3}(?:[-+*]|\d+[.)])\s+\S/, line)
+  end
+
+  defp status_line?(line) do
+    Regex.match?(~r/^(?:[-#]+\s*)?\*{0,2}Status(?:\*{0,2})?:\*{0,2}(?:\s|$)/i, line)
   end
 
   defp read_required!(path) do

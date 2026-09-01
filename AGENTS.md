@@ -6,6 +6,7 @@ The only active product release is Singularity `0.2.0`, the first complete
 single-user personal knowledge base. Its governing documents are:
 
 - `docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md`
+- `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
 - `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md`
 
 Work proceeds one accepted phase at a time in a separate project-local
@@ -74,10 +75,21 @@ expansion are also out of scope.
   results, remaining risks, and confirmation that no Vault feature work
   occurred.
 
-Phase 0 permits documentation, test-contract, and workflow-contract
-corrections only. It does not authorize production-code or
-production-behavior changes, version bumps, tags, releases, pushes,
-deployments, or Phase 1 work.
+### Approved Phase 0 blocker repairs
+
+- `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
+
+The only classification repair makes
+`resource_versions_resource_classification_fkey` deferrable and initially
+deferred through a new forward migration.
+
+The only wake repair moves application-owned wake generation counters from
+Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to
+2.24.
+
+No other Phase 0 production-code, production-behavior, or schema change is
+authorized. Version bumps, tags, releases, pushes, deployments, and Phase 1
+work remain prohibited.
 
 ## Stop conditions
 
