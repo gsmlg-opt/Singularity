@@ -86,13 +86,16 @@ verification-harness and documentation corrections only:
 - `playwright.config.ts`
 - this alignment of the approved blocker design in
   `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
+- `apps/singularity_storage/test/singularity/storage/roles_test.exs` for
+  test-only isolation of the dispatcher `LIMIT 1` claim from older undelivered
+  outbox events left by another integration test
 
 These corrections do not alter the original two production repair slices and
 authorize no further production, Vault, backup-format, version, workflow,
 release, deployment, or Phase 1 change.
 
-The original 18 paths plus these six corrections form the
-complete approved 24-path set.
+The original 18 paths plus these seven corrections form the
+complete approved 25-path set.
 Any path outside that combined set requires new approval before editing.
 
 ## File responsibility map
@@ -122,6 +125,9 @@ Any path outside that combined set requires new approval before editing.
   semantics, reconciler uniqueness, and crash recovery.
 - `runner_submission_recovery_test.exs` and `restore_import_test.exs`: prove
   idempotent submission defaults and immutable logical-backup compatibility.
+- `roles_test.exs`: isolate the dispatcher-role `LIMIT 1` claim and
+  acknowledgement test from older undelivered integration state without
+  changing production claim SQL or its behavioral assertions.
 - `dependency_graph_test.exs` and `mix.exs`: enforce the supported Oban 2.24
   floor without lock churn.
 
@@ -2619,6 +2625,7 @@ expected_paths="$(
     apps/singularity_storage/test/singularity/storage/migrations_test.exs \
     apps/singularity_storage/test/singularity/storage/note_schema_test.exs \
     apps/singularity_storage/test/singularity/storage/postgres/asset_repository_test.exs \
+    apps/singularity_storage/test/singularity/storage/roles_test.exs \
     apps/singularity_storage/test/singularity/storage/runner_submission_recovery_test.exs \
     apps/singularity_storage/test/singularity/storage/wake_generation_migration_test.exs \
     apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
@@ -2652,9 +2659,13 @@ commit_subjects="$(git log --format='%s' --reverse 78b929a..HEAD)"
 governance_position="$(printf '%s\n' "$commit_subjects" | rg -n '^docs\(scope\): authorize approved phase 0 blocker repairs$' | cut -d: -f1)"
 classification_position="$(printf '%s\n' "$commit_subjects" | rg -n '^fix\(storage\): make classification strengthening atomic$' | cut -d: -f1)"
 wake_position="$(printf '%s\n' "$commit_subjects" | rg -n '^fix\(jobs\): preserve wakes across Oban snoozes$' | cut -d: -f1)"
+roles_governance_position="$(printf '%s\n' "$commit_subjects" | rg -n '^docs\(scope\): authorize roles test isolation repair$' | cut -d: -f1)"
+roles_isolation_position="$(printf '%s\n' "$commit_subjects" | rg -n '^test\(storage\): isolate dispatcher role claim$' | cut -d: -f1)"
 
 test "$governance_position" -lt "$classification_position"
 test "$classification_position" -lt "$wake_position"
+test "$wake_position" -lt "$roles_governance_position"
+test "$roles_governance_position" -lt "$roles_isolation_position"
 
 git log --format='%h %s' --reverse 78b929a..HEAD
 git diff --check
@@ -2665,13 +2676,15 @@ test -z "$(git status --porcelain)"
 Expected:
 
 - changed files exactly match the original allowlist plus the separately
-  approved correction list (24 paths total);
+  approved correction list (25 paths total);
 - exactly two new 2026-09-01 migrations exist;
 - released migrations, backup schemas, lockfile, and release workflow are
   unchanged;
 - all eight Mix project versions remain `0.1.0`;
 - no Vault production path changed;
-- governance commit precedes both production commits; and
+- the original governance commit precedes both production commits, and the
+  roles-isolation governance commit follows them and precedes the roles test
+  commit; and
 - the worktree is clean.
 
 - [ ] **Step 7: Report and stop at the Phase 0 acceptance boundary**
