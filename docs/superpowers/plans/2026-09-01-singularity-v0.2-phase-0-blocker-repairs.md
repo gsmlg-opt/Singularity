@@ -31,7 +31,7 @@ Execution remains on:
 The committed version of this plan must be the newest checkpoint before Task
 1 starts. The worktree must be clean.
 
-### Exact implementation allowlist
+### Original implementation allowlist (18 paths)
 
 Create:
 
@@ -70,8 +70,9 @@ Expected unchanged:
 - `apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex`
 - all Vault production files, public APIs, versions, and release workflows
 
-If implementation needs a path outside this literal allowlist, stop and obtain
-approval before editing it.
+At initial plan approval, any path outside this 18-path set required explicit
+approval before editing. The following section records the only subsequent
+approvals.
 
 ### Separately approved canonical-gate corrections
 
@@ -89,6 +90,10 @@ verification-harness and documentation corrections only:
 These corrections do not alter the original two production repair slices and
 authorize no further production, Vault, backup-format, version, workflow,
 release, deployment, or Phase 1 change.
+
+The original 18 paths plus these six corrections form the
+complete approved 24-path set.
+Any path outside that combined set requires new approval before editing.
 
 ## File responsibility map
 
@@ -545,9 +550,13 @@ end
 Each direction changes only validation timing in place. This preserves the
 constraint identity and name, child and parent columns, referenced key, and
 committed equality invariant while avoiding FK drop, recreation, revalidation,
-and a required lock on referenced `content.resources`. Down restores immediate
-validation safely because every committed row remains valid. Do not change the
-released Notes migration.
+and the referenced-table lock involved in adding a foreign key. Specifically,
+it avoids the add-FK `SHARE ROW EXCLUSIVE` lock on referenced
+`content.resources`. The bounded guarantee is that migration-up requests
+no referenced-table lock mode that conflicts with an already held
+`ROW EXCLUSIVE` lock; compatible weaker locks are not excluded. Down restores
+immediate validation safely because every committed row remains valid. Do not
+change the released Notes migration.
 
 - [ ] **Step 2: Teach the historical migration harness about the new head**
 
@@ -726,10 +735,11 @@ end
 
 The existing regression
 `classification migration changes deferrability without locking referenced resources`
-is also required evidence. It proves migration-up succeeds with a `500ms` lock
-timeout while a separate transaction holds `ROW EXCLUSIVE` on referenced
-`content.resources`, guarding the in-place operation against referenced-table
-lock acquisition.
+is also required evidence. Despite its historical name, its bounded guarantee
+is only that migration-up succeeds with a `500ms` lock timeout and requests
+no referenced-table lock mode that conflicts with the `ROW EXCLUSIVE` lock
+held by a separate transaction on `content.resources`; compatible weaker locks
+are not excluded.
 
 - [ ] **Step 4: Run GREEN classification verification**
 
@@ -757,8 +767,8 @@ git diff --exit-code 78b929a -- \
 ```
 
 Expected: all scoped tests pass, including all six original FK failures and the
-referenced-table lock-avoidance regression. The released Notes migration is
-byte-unchanged.
+bounded referenced-table lock-mode regression. The released Notes migration
+is byte-unchanged.
 
 - [ ] **Step 5: Commit Slice A only**
 
@@ -2556,8 +2566,10 @@ Dispatch two fresh reviewers in parallel.
 Specification review must check every acceptance item in the approved design,
 including:
 
-- exact FK identity and shape, equality, commit timing, and referenced-table
-  lock avoidance;
+- exact FK identity and shape, equality, commit timing, avoidance of the
+  add-FK `SHARE ROW EXCLUSIVE` mode, and bounded evidence that no requested
+  referenced-table lock mode conflicts with `ROW EXCLUSIVE` while compatible
+  weaker locks remain possible;
 - complete versus partial classification transitions;
 - one-time legacy wake transfer and malformed-value refusal;
 - runtime lock order and canonical submission ownership;

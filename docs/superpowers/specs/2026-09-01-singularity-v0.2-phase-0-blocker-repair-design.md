@@ -183,10 +183,13 @@ Changing the validation timing with `ALTER CONSTRAINT` preserves the FK's
 identity and name, its child and parent columns, the referenced
 `resources_id_vault_classification_key`, the version aggregate unique key,
 and the committed resource/version equality invariant. It avoids dropping,
-recreating, or revalidating the FK and therefore avoids requiring a lock on
-the referenced `content.resources` table. The constraint remains enforced by
-PostgreSQL; its validation point moves from each statement to transaction
-commit.
+recreating, or revalidating the FK. In particular, it avoids the
+`SHARE ROW EXCLUSIVE` lock on referenced `content.resources` that adding a
+foreign key would require.
+The bounded lock guarantee is that migration-up requests no referenced-table
+lock mode that conflicts with an already held `ROW EXCLUSIVE` lock; compatible
+weaker locks are not excluded. The constraint remains enforced by PostgreSQL;
+its validation point moves from each statement to transaction commit.
 
 The migration is reversible in place. Down safely restores immediate
 validation because every successful transaction under the deferred form still
@@ -393,9 +396,12 @@ Before implementing the migration, add focused assertions that prove:
 
 - the composite foreign key is deferrable and initially deferred after all
   migrations run;
-- `classification migration changes deferrability without locking referenced resources`
+- the historical regression
+  `classification migration changes deferrability without locking referenced resources`
   succeeds under a `500ms` lock timeout while a separate transaction holds
-  `ROW EXCLUSIVE` on referenced `content.resources`;
+  `ROW EXCLUSIVE` on referenced `content.resources`; its bounded guarantee is
+  that migration-up requests no referenced-table lock mode that conflicts with
+  the held lock, while compatible weaker locks are not excluded;
 - a complete resource/version strengthening in either statement order commits
   successfully;
 - a partial or divergent strengthening raises at constraint validation/commit
@@ -522,7 +528,9 @@ This amendment is satisfied only when:
 - both new migrations exist and no released migration changed;
 - the classification migration's referenced-table lock regression passes
   while a separate transaction holds `ROW EXCLUSIVE` on
-  `content.resources` with a `500ms` lock timeout;
+  `content.resources` with a `500ms` lock timeout, proving only that
+  migration-up requests no referenced-table lock mode that conflicts with the
+  held lock; compatible weaker locks are not excluded;
 - committed resource/version rows still have equal owner scope and
   classification, while complete atomic strengthening succeeds;
 - partial strengthening fails at commit and downgrade protection is intact;
