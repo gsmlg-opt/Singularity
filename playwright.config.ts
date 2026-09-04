@@ -19,6 +19,7 @@ if (!chromiumExecutablePath) {
 }
 
 export default defineConfig({
+  outputDir: join(stateDirectory, runId),
   testDir: "./test/e2e",
   testMatch: "**/*.spec.ts",
   workers: 1,

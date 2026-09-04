@@ -330,6 +330,20 @@ defmodule Mix.Tasks.Singularity.Test.Browser do
             log: false
           )
 
+          case SafeSQL.query!(
+                 MigrationRepo,
+                 """
+                 UPDATE identity.security_settings
+                 SET login_max_attempts = 20
+                 WHERE singleton
+                 """,
+                 [],
+                 log: false
+               ) do
+            %Postgrex.Result{num_rows: 1} -> :ok
+            _unexpected -> MigrationRepo.rollback(:browser_security_settings_update_failed)
+          end
+
           primary = bootstrap_owner!(adapters, context.run_id, :primary)
           :ok = release_global_bootstrap_marker(primary.principal_id)
           secondary = bootstrap_owner!(adapters, context.run_id, :secondary)

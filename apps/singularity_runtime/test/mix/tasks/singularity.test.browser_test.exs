@@ -108,6 +108,44 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
              ~w[asset.read asset.write backup.create note.export note.read note.write vault.lock vault.unlock vault.password_change]
   end
 
+  test "widens only the ephemeral browser login budget and preserves production defaults" do
+    root = Path.expand("../../../../../", __DIR__)
+
+    browser_task =
+      File.read!(
+        Path.join(root, "apps/singularity_runtime/lib/mix/tasks/singularity.test.browser.ex")
+      )
+
+    migration =
+      File.read!(
+        Path.join(
+          root,
+          "apps/singularity_storage/priv/repo/migrations/20260718000200_create_identity_and_vault_tables.exs"
+        )
+      )
+
+    assert migration =~
+             ~r/INSERT INTO identity\.security_settings \(\s*singleton,\s*dummy_verifier,\s*login_window_seconds,\s*login_max_attempts,\s*source_window_seconds,\s*source_max_attempts\s*\)\s*VALUES \(\s*true,\s*'[^']+',\s*300,\s*5,\s*300,\s*20\s*\);/s
+
+    assert [security_update] =
+             Regex.run(
+               ~r/UPDATE identity\.security_settings\s+SET .*?\s+WHERE singleton/s,
+               browser_task,
+               capture: :first
+             )
+
+    assert security_update =~ ~r/SET login_max_attempts = 20/
+    refute security_update =~ "source_max_attempts"
+
+    assert browser_task =~
+             ~r/SET LOCAL ROLE singularity_table_owner.*?UPDATE identity\.security_settings.*?%Postgrex\.Result\{num_rows: 1\}.*?primary = bootstrap_owner!/s
+
+    assert browser_task =~
+             ~r/_unexpected ->\s*MigrationRepo\.rollback\(:browser_security_settings_update_failed\)/
+
+    assert browser_task =~ ~s|Mix.raise("browser owner bootstrap failed")|
+  end
+
   @tag :tmp_dir
   test "writes only public browser coordinates to an owned mode-0600 state file", %{
     tmp_dir: tmp_dir

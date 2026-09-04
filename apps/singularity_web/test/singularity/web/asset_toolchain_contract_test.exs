@@ -179,5 +179,15 @@ defmodule Singularity.Web.AssetToolchainContractTest do
              ~s("apps/singularity_web/assets/test/**/*.test.{ts,tsx}")
   end
 
+  test "keeps Playwright artifacts under the run-specific temporary state directory" do
+    playwright = read!("playwright.config.ts")
+
+    assert playwright =~
+             ~s|const stateDirectory = join(tmpdir(), "singularity", "playwright");|
+
+    assert playwright =~ ~r/outputDir:\s*join\(stateDirectory,\s*runId\),/
+    refute playwright =~ ~r/outputDir:\s*["'](?:\.\/)?test-results/
+  end
+
   defp read!(path), do: File.read!(Path.join(@root, path))
 end
