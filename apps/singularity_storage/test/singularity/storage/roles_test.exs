@@ -387,7 +387,17 @@ defmodule Singularity.Storage.RolesTest do
   end
 
   test "dispatcher can claim and acknowledge only through the audited definer interface" do
-    mark_existing_events_delivered!()
+    Fixtures.with_owner(fn ->
+      query!(
+        Singularity.Storage.MigrationRepo,
+        """
+        UPDATE core.outbox_events
+        SET delivered_at = CURRENT_TIMESTAMP
+        WHERE delivered_at IS NULL
+        """
+      )
+    end)
+
     %{one: one} = Fixtures.two_vaults!()
     event = Fixtures.outbox_event!(one)
     claim_token = Ecto.UUID.generate() |> Ecto.UUID.dump!()
@@ -614,19 +624,6 @@ defmodule Singularity.Storage.RolesTest do
                  )
                """
              )
-  end
-
-  defp mark_existing_events_delivered! do
-    Fixtures.with_owner(fn ->
-      query!(
-        Singularity.Storage.MigrationRepo,
-        """
-        UPDATE core.outbox_events
-        SET delivered_at = CURRENT_TIMESTAMP
-        WHERE delivered_at IS NULL
-        """
-      )
-    end)
   end
 
   defp grant_unexpected_role! do
