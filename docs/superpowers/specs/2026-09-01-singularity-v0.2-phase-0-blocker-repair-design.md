@@ -161,24 +161,37 @@ authorized. Every changed line must trace to one of the two verified blockers.
 
 ### 5.1 Schema decision
 
-Add a new migration after the released Notes migration. It will drop and
-recreate `resource_versions_resource_classification_fkey` with the same child
-columns, parent columns, and constraint name, adding only:
+Add a new migration after the released Notes migration. It changes the
+existing `resource_versions_resource_classification_fkey` validation timing
+in place. Up executes:
 
 ```sql
-DEFERRABLE INITIALLY DEFERRED
+ALTER TABLE content.resource_versions
+  ALTER CONSTRAINT resource_versions_resource_classification_fkey
+  DEFERRABLE INITIALLY DEFERRED
 ```
 
-The referenced unique key
-`resources_id_vault_classification_key` and the version aggregate unique key
-remain unchanged. The constraint remains enforced by PostgreSQL and remains
-enabled by default; its validation point moves from each statement to the
-transaction commit.
+Down executes:
 
-The migration must be reversible. Its down direction may restore the original
-immediate form only after PostgreSQL has confirmed that all committed rows are
-valid. Because every successful transaction still ends with a valid composite
-reference, no invalid committed data is introduced by the up migration.
+```sql
+ALTER TABLE content.resource_versions
+  ALTER CONSTRAINT resource_versions_resource_classification_fkey
+  NOT DEFERRABLE INITIALLY IMMEDIATE
+```
+
+Changing the validation timing with `ALTER CONSTRAINT` preserves the FK's
+identity and name, its child and parent columns, the referenced
+`resources_id_vault_classification_key`, the version aggregate unique key,
+and the committed resource/version equality invariant. It avoids dropping,
+recreating, or revalidating the FK and therefore avoids requiring a lock on
+the referenced `content.resources` table. The constraint remains enforced by
+PostgreSQL; its validation point moves from each statement to transaction
+commit.
+
+The migration is reversible in place. Down safely restores immediate
+validation because every successful transaction under the deferred form still
+commits a valid composite reference; the up migration cannot introduce invalid
+committed rows.
 
 ### 5.2 Aggregate invariant
 
@@ -380,6 +393,9 @@ Before implementing the migration, add focused assertions that prove:
 
 - the composite foreign key is deferrable and initially deferred after all
   migrations run;
+- `classification migration changes deferrability without locking referenced resources`
+  succeeds under a `500ms` lock timeout while a separate transaction holds
+  `ROW EXCLUSIVE` on referenced `content.resources`;
 - a complete resource/version strengthening in either statement order commits
   successfully;
 - a partial or divergent strengthening raises at constraint validation/commit
@@ -504,6 +520,9 @@ This amendment is satisfied only when:
 - `AGENTS.md` names this amendment and grants only its two bounded exceptions
   before production implementation begins;
 - both new migrations exist and no released migration changed;
+- the classification migration's referenced-table lock regression passes
+  while a separate transaction holds `ROW EXCLUSIVE` on
+  `content.resources` with a `500ms` lock timeout;
 - committed resource/version rows still have equal owner scope and
   classification, while complete atomic strengthening succeeds;
 - partial strengthening fails at commit and downgrade protection is intact;

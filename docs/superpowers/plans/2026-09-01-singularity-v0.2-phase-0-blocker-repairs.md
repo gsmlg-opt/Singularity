@@ -73,12 +73,30 @@ Expected unchanged:
 If implementation needs a path outside this literal allowlist, stop and obtain
 approval before editing it.
 
+### Separately approved canonical-gate corrections
+
+Later canonical-gate failures separately received explicit approval for these
+verification-harness and documentation corrections only:
+
+- `apps/singularity_runtime/test/singularity/runtime/asset_deletion_test.exs`
+- `apps/singularity_runtime/lib/mix/tasks/singularity.test.browser.ex`
+- `apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs`
+- `apps/singularity_web/test/singularity/web/asset_toolchain_contract_test.exs`
+- `playwright.config.ts`
+- this alignment of the approved blocker design in
+  `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
+
+These corrections do not alter the original two production repair slices and
+authorize no further production, Vault, backup-format, version, workflow,
+release, deployment, or Phase 1 change.
+
 ## File responsibility map
 
 - `AGENTS.md` and `notes_scope_contract_test.exs`: make the approved two-slice
   exception active without relaxing any other Phase 0 rule.
-- `20260901000100_defer_resource_version_classification_fkey.exs`: replace the
-  immediate composite FK with the same initially deferred FK.
+- `20260901000100_defer_resource_version_classification_fkey.exs`: change the
+  existing composite FK's validation timing in place while preserving its
+  identity, shape, referenced key, and committed equality invariant.
 - Classification integration files: prove statement-order independence,
   commit-time rejection of partial state, strictest-contributor behavior, and
   repair the three incomplete fixture chains in each affected search/repository
@@ -503,11 +521,8 @@ defmodule Singularity.Storage.Migrations.DeferResourceVersionClassificationForei
 
     execute("""
     ALTER TABLE content.resource_versions
-      DROP CONSTRAINT resource_versions_resource_classification_fkey,
-      ADD CONSTRAINT resource_versions_resource_classification_fkey
-        FOREIGN KEY (resource_id, vault_id, classification)
-        REFERENCES content.resources(id, vault_id, classification)
-        DEFERRABLE INITIALLY DEFERRED
+      ALTER CONSTRAINT resource_versions_resource_classification_fkey
+      DEFERRABLE INITIALLY DEFERRED
     """)
 
     execute("SET LOCAL ROLE NONE")
@@ -518,10 +533,8 @@ defmodule Singularity.Storage.Migrations.DeferResourceVersionClassificationForei
 
     execute("""
     ALTER TABLE content.resource_versions
-      DROP CONSTRAINT resource_versions_resource_classification_fkey,
-      ADD CONSTRAINT resource_versions_resource_classification_fkey
-        FOREIGN KEY (resource_id, vault_id, classification)
-        REFERENCES content.resources(id, vault_id, classification)
+      ALTER CONSTRAINT resource_versions_resource_classification_fkey
+      NOT DEFERRABLE INITIALLY IMMEDIATE
     """)
 
     execute("SET LOCAL ROLE NONE")
@@ -529,8 +542,12 @@ defmodule Singularity.Storage.Migrations.DeferResourceVersionClassificationForei
 end
 ```
 
-The one `ALTER TABLE` makes each drop/add atomic. Do not change the constraint
-name, columns, referenced key, or released Notes migration.
+Each direction changes only validation timing in place. This preserves the
+constraint identity and name, child and parent columns, referenced key, and
+committed equality invariant while avoiding FK drop, recreation, revalidation,
+and a required lock on referenced `content.resources`. Down restores immediate
+validation safely because every committed row remains valid. Do not change the
+released Notes migration.
 
 - [ ] **Step 2: Teach the historical migration harness about the new head**
 
@@ -707,6 +724,13 @@ defp classification_foreign_key_contract do
 end
 ```
 
+The existing regression
+`classification migration changes deferrability without locking referenced resources`
+is also required evidence. It proves migration-up succeeds with a `500ms` lock
+timeout while a separate transaction holds `ROW EXCLUSIVE` on referenced
+`content.resources`, guarding the in-place operation against referenced-table
+lock acquisition.
+
 - [ ] **Step 4: Run GREEN classification verification**
 
 Run:
@@ -732,8 +756,9 @@ git diff --exit-code 78b929a -- \
   apps/singularity_storage/priv/repo/migrations/20260818000100_create_private_markdown_notes.exs
 ```
 
-Expected: all scoped tests pass, including all six original FK failures. The
-released Notes migration is byte-unchanged.
+Expected: all scoped tests pass, including all six original FK failures and the
+referenced-table lock-avoidance regression. The released Notes migration is
+byte-unchanged.
 
 - [ ] **Step 5: Commit Slice A only**
 
@@ -2531,7 +2556,8 @@ Dispatch two fresh reviewers in parallel.
 Specification review must check every acceptance item in the approved design,
 including:
 
-- exact FK equality and commit timing;
+- exact FK identity and shape, equality, commit timing, and referenced-table
+  lock avoidance;
 - complete versus partial classification transitions;
 - one-time legacy wake transfer and malformed-value refusal;
 - runtime lock order and canonical submission ownership;
@@ -2566,6 +2592,9 @@ set -euo pipefail
 expected_paths="$(
   printf '%s\n' \
     AGENTS.md \
+    apps/singularity_runtime/lib/mix/tasks/singularity.test.browser.ex \
+    apps/singularity_runtime/test/mix/tasks/singularity.test.browser_test.exs \
+    apps/singularity_runtime/test/singularity/runtime/asset_deletion_test.exs \
     apps/singularity_storage/lib/singularity/storage/jobs/progress.ex \
     apps/singularity_storage/lib/singularity/storage/schema/jobs/job_submission.ex \
     apps/singularity_storage/mix.exs \
@@ -2582,7 +2611,10 @@ expected_paths="$(
     apps/singularity_storage/test/singularity/storage/wake_generation_migration_test.exs \
     apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs \
     apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs \
-    docs/superpowers/plans/2026-09-01-singularity-v0.2-phase-0-blocker-repairs.md |
+    apps/singularity_web/test/singularity/web/asset_toolchain_contract_test.exs \
+    docs/superpowers/plans/2026-09-01-singularity-v0.2-phase-0-blocker-repairs.md \
+    docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md \
+    playwright.config.ts |
     sort
 )"
 
@@ -2620,7 +2652,8 @@ test -z "$(git status --porcelain)"
 
 Expected:
 
-- changed files exactly match the allowlist;
+- changed files exactly match the original allowlist plus the separately
+  approved correction list (24 paths total);
 - exactly two new 2026-09-01 migrations exist;
 - released migrations, backup schemas, lockfile, and release workflow are
   unchanged;
