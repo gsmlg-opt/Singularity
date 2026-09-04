@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
 
 const runId = process.env.SINGULARITY_TEST_RUN_ID ?? crypto.randomUUID();
+const artifactRunId = crypto.randomUUID();
 const stateDirectory = join(tmpdir(), "singularity", "playwright");
 const stateFile = join(stateDirectory, `${runId}.json`);
 
@@ -19,7 +20,7 @@ if (!chromiumExecutablePath) {
 }
 
 export default defineConfig({
-  outputDir: join(stateDirectory, runId),
+  outputDir: join(stateDirectory, artifactRunId),
   testDir: "./test/e2e",
   testMatch: "**/*.spec.ts",
   workers: 1,

@@ -127,23 +127,48 @@ defmodule Mix.Tasks.Singularity.Test.BrowserTest do
     assert migration =~
              ~r/INSERT INTO identity\.security_settings \(\s*singleton,\s*dummy_verifier,\s*login_window_seconds,\s*login_max_attempts,\s*source_window_seconds,\s*source_max_attempts\s*\)\s*VALUES \(\s*true,\s*'[^']+',\s*300,\s*5,\s*300,\s*20\s*\);/s
 
-    assert [security_update] =
+    assert [bootstrap_owners] =
              Regex.run(
-               ~r/UPDATE identity\.security_settings\s+SET .*?\s+WHERE singleton/s,
+               ~r/  defp bootstrap_owners\([^)]*\) do.*?(?=\n  defp bootstrap_owner!\()/s,
                browser_task,
                capture: :first
              )
 
-    assert security_update =~ ~r/SET login_max_attempts = 20/
-    refute security_update =~ "source_max_attempts"
+    assert [[set_clause]] =
+             Regex.scan(
+               ~r/UPDATE identity\.security_settings\s+SET\s+(.*?)\s+WHERE singleton/s,
+               bootstrap_owners,
+               capture: :all_but_first
+             )
 
-    assert browser_task =~
-             ~r/SET LOCAL ROLE singularity_table_owner.*?UPDATE identity\.security_settings.*?%Postgrex\.Result\{num_rows: 1\}.*?primary = bootstrap_owner!/s
+    normalized_set_clause =
+      set_clause
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
 
-    assert browser_task =~
-             ~r/_unexpected ->\s*MigrationRepo\.rollback\(:browser_security_settings_update_failed\)/
+    assert normalized_set_clause == "login_max_attempts = 20"
 
-    assert browser_task =~ ~s|Mix.raise("browser owner bootstrap failed")|
+    assert [{role_offset, _length}] =
+             :binary.matches(bootstrap_owners, "SET LOCAL ROLE singularity_table_owner")
+
+    assert [{update_offset, _length}] =
+             :binary.matches(bootstrap_owners, "UPDATE identity.security_settings")
+
+    assert [{first_owner_offset, _}, {_second_owner_offset, _}] =
+             :binary.matches(bootstrap_owners, "bootstrap_owner!(")
+
+    assert role_offset < update_offset
+    assert update_offset < first_owner_offset
+    assert bootstrap_owners =~ ~r/num_rows:\s*1\}\s*->\s*:ok/
+
+    assert [{_offset, _length}] =
+             :binary.matches(
+               bootstrap_owners,
+               "MigrationRepo.rollback(:browser_security_settings_update_failed)"
+             )
+
+    assert [{_offset, _length}] =
+             :binary.matches(bootstrap_owners, ~s|Mix.raise("browser owner bootstrap failed")|)
   end
 
   @tag :tmp_dir

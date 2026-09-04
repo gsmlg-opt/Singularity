@@ -185,7 +185,9 @@ defmodule Singularity.Web.AssetToolchainContractTest do
     assert playwright =~
              ~s|const stateDirectory = join(tmpdir(), "singularity", "playwright");|
 
-    assert playwright =~ ~r/outputDir:\s*join\(stateDirectory,\s*runId\),/
+    assert playwright =~ ~s|const artifactRunId = crypto.randomUUID();|
+    assert playwright =~ ~r/outputDir:\s*join\(stateDirectory,\s*artifactRunId\),/
+    refute playwright =~ ~r/outputDir:\s*join\(stateDirectory,\s*runId\),/
     refute playwright =~ ~r/outputDir:\s*["'](?:\.\/)?test-results/
   end
 
