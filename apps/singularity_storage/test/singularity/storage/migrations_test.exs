@@ -588,6 +588,7 @@ defmodule Singularity.Storage.MigrationsTest do
   end
 
   test "Task 17 upload grant retirement guards ambiguous upgrade history and downgrade" do
+    Fixtures.reset_bootstrap_state!()
     %{one: fixture} = Fixtures.two_vaults!()
 
     migrations_path =
