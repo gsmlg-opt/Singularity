@@ -42,4 +42,40 @@ defmodule Singularity.Core.KnowledgeValidation do
   end
 
   def string(_, _), do: Types.invalid()
+
+  @spec bounded_name(term()) :: {:ok, String.t()} | {:error, Error.t()}
+  def bounded_name(value) when is_binary(value) do
+    with true <- String.valid?(value),
+         {:ok, trimmed} <- string(String.trim(value), 255),
+         true <- trimmed != "" do
+      {:ok, trimmed}
+    else
+      _ -> Types.invalid()
+    end
+  end
+
+  def bounded_name(_), do: Types.invalid()
+
+  @spec utc_datetime(map(), atom()) :: {:ok, DateTime.t()} | {:error, Error.t()}
+  def utc_datetime(attrs, key) do
+    with {:ok, value} <- Types.utc_datetime(attrs, key),
+         %DateTime{
+           calendar: Calendar.ISO,
+           year: year,
+           month: month,
+           day: day,
+           hour: hour,
+           minute: minute,
+           second: second,
+           microsecond: {micro, precision}
+         } <- value,
+         true <-
+           Enum.all?([year, month, day, hour, minute, second, micro, precision], &is_integer/1),
+         true <- Calendar.ISO.valid_date?(year, month, day),
+         true <- Calendar.ISO.valid_time?(hour, minute, second, {micro, precision}) do
+      {:ok, value}
+    else
+      _ -> Types.invalid()
+    end
+  end
 end
