@@ -203,16 +203,27 @@ defmodule Singularity.Core.DocumentValuesTest do
 
   test "completion enforces aggregate fragment count and byte limits" do
     fragments = for ordinal <- 0..4096, do: %{attrs() | ordinal: ordinal}
+    digest = :crypto.hash(:sha256, Enum.map(fragments, & &1.text))
 
     assert {:error, %Error{code: :invalid}} =
-             DocumentCompletion.new(%{completion_attrs() | fragments: fragments})
+             DocumentCompletion.new(%{
+               completion_attrs()
+               | fragments: fragments,
+                 extracted_text_digest: digest
+             })
 
     fragments =
       for ordinal <- 0..256,
           do: %{attrs() | ordinal: ordinal, text: String.duplicate("a", 65_536)}
 
+    digest = :crypto.hash(:sha256, Enum.map(fragments, & &1.text))
+
     assert {:error, %Error{code: :invalid}} =
-             DocumentCompletion.new(%{completion_attrs() | fragments: fragments})
+             DocumentCompletion.new(%{
+               completion_attrs()
+               | fragments: fragments,
+                 extracted_text_digest: digest
+             })
   end
 
   test "source cannot be the same resource or version as its Document" do
