@@ -8,10 +8,31 @@ single-user personal knowledge base. Its governing documents are:
 - `docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md`
 - `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
 - `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md`
+- `docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md`
+- `docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md`
 
 Work proceeds one accepted phase at a time in a separate project-local
-worktree and branch. Phase 1 must not begin until Phase 0 is accepted and
-Phase 1 has its own approved design and detailed implementation plan.
+worktree and branch. Phase 0 is accepted at
+`6c3e8d5afb2cc9dbf264d276796070e16aa49e55`.
+The active implementation slice is Phase 1 under the approved canonical-model
+design and implementation plan above. Later phases require separate approved
+designs and detailed implementation plans after their predecessors are accepted.
+
+New canonical writes remain unavailable to production runtime roles.
+Public import, extraction workers, search, Note Save integration, backup V3,
+and browser behavior remain in their designated later phases.
+Version bumps, tags, releases, pushes, and deployments require separate authorization.
+
+Phase 2 must provide original-byte retention and abandoned extraction recovery
+before public import. Phase 4 must seal Note source-set membership before enabling
+its writes. Production activation requires a fail-closed backup guard for
+unsupported canonical rows or complete V3 support.
+
+Phase 1 source acceptance covers only the bounded authenticated storage digest
+primitive, source-proof contract, source revalidation, and isolated contract tests.
+Live runtime custody composition requires a separately approved Phase 2 design.
+No custody, key, capability, or Vault change is authorized.
+Test doubles do not prove live source verification.
 
 ## Vault freeze
 
@@ -75,7 +96,10 @@ expansion are also out of scope.
   results, remaining risks, and confirmation that no Vault feature work
   occurred.
 
-### Approved Phase 0 blocker repairs
+### Historical Phase 0 blocker repairs
+
+The following approved repair scope records the accepted Phase 0 boundary;
+its Phase 1 prohibition is historical and does not override the active release scope.
 
 - `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
 

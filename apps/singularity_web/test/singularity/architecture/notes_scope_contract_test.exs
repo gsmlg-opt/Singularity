@@ -19,20 +19,26 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   @release_design_path "docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md"
   @blocker_repair_design_path "docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md"
   @release_plan_path "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
+  @phase1_design_path "docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md"
+  @phase1_plan_path "docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md"
   @classification_repair_scope "The only classification repair makes `resource_versions_resource_classification_fkey` deferrable and initially deferred through a new forward migration."
   @wake_repair_scope "The only wake repair moves application-owned wake generation counters from Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to 2.24."
   @no_other_repair_scope "No other Phase 0 production-code, production-behavior, or schema change is authorized."
   @release_prohibition_scope "Version bumps, tags, releases, pushes, deployments, and Phase 1 work remain prohibited."
   @blocker_repair_design_heading "# Singularity v0.2.0 Phase 0 Blocker Repair Design"
-  @blocker_repair_heading "### Approved Phase 0 blocker repairs"
+  @blocker_repair_heading "### Historical Phase 0 blocker repairs"
+  @historical_repair_notice "The following approved repair scope records the accepted Phase 0 boundary; its Phase 1 prohibition is historical and does not override the active release scope."
   @stop_conditions_heading "## Stop conditions"
   @governing_document_bullets [
     "- `#{@release_design_path}`",
     "- `#{@blocker_repair_design_path}`",
-    "- `#{@release_plan_path}`"
+    "- `#{@release_plan_path}`",
+    "- `#{@phase1_design_path}`",
+    "- `#{@phase1_plan_path}`"
   ]
   @approved_blocker_repair_scope Enum.join(
                                    [
+                                     @historical_repair_notice,
                                      "- `#{@blocker_repair_design_path}`",
                                      @classification_repair_scope,
                                      @wake_repair_scope,
@@ -128,7 +134,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
            "canonical release plan does not reserve production repairs for explicit approval"
   end
 
-  test "Phase 0 governance names only the approved blocker repair exceptions" do
+  test "historical Phase 0 governance names only the approved blocker repair exceptions" do
     agents =
       @repo_root
       |> Path.join("AGENTS.md")
@@ -311,7 +317,12 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert File.regular?(@vault_adr), "ADR 0003 link target does not resolve"
 
     assert normalize_markdown(readme_scope) =~
-             "Phase 1 must not begin until Phase 0 is accepted and Phase 1 has its own approved design and detailed implementation plan."
+             "Phase 0 is accepted at `6c3e8d5afb2cc9dbf264d276796070e16aa49e55`."
+
+    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 1"
+
+    assert normalize_markdown(readme_scope) =~
+             "Later phases require their own approved design and detailed implementation plan after their predecessors are accepted."
 
     refute normalize_markdown(readme_scope) =~ "Qdrant is required"
 
@@ -416,7 +427,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
       |> normalize_markdown()
 
     assert phase_protocol == @approved_phase_protocol_scope,
-           "Phase 0 protocol must match the exact verification and blocker repair contract"
+           "phase protocol must preserve the exact verification and historical Phase 0 repair contract"
   end
 
   defp assert_approved_design_status!(design) do

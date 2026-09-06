@@ -16,9 +16,28 @@ The Elixir umbrella is split into seven applications with a fixed dependency gra
 
 ## Active `0.2.0` scope
 
-Current work is Phase 0 only: scope lock, governance, characterization, and a
-green baseline. Phase 1 must not begin until Phase 0 is accepted and Phase 1
-has its own approved design and detailed implementation plan.
+Phase 0 is accepted at `6c3e8d5afb2cc9dbf264d276796070e16aa49e55`.
+The active implementation slice is Phase 1 under the
+[approved canonical-model design](docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md)
+and [detailed implementation plan](docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md).
+Later phases require their own approved design and detailed implementation plan
+after their predecessors are accepted.
+
+New canonical writes remain unavailable to production runtime roles.
+Public import, extraction workers, search, Note Save integration, backup V3,
+and browser behavior remain in their designated later phases.
+Version bumps, tags, releases, pushes, and deployments require separate authorization.
+
+Phase 2 must provide original-byte retention and abandoned extraction recovery
+before public import. Phase 4 must seal Note source-set membership before enabling
+its writes. Production activation requires a fail-closed backup guard for
+unsupported canonical rows or complete V3 support.
+
+Phase 1 source acceptance covers only the bounded authenticated storage digest
+primitive, source-proof contract, source revalidation, and isolated contract tests.
+Live runtime custody composition requires a separately approved Phase 2 design.
+No custody, key, capability, or Vault change is authorized.
+Test doubles do not prove live source verification.
 
 Vault is frozen compatibility substrate for `0.2.0`, not an active product
 module or release deliverable. Existing `vault_id` persistence and adapter

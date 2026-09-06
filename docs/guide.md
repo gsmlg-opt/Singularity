@@ -4,7 +4,7 @@
 **Product type:** Personal Data and Knowledge Operating System<br>
 **Initial deployment:** Single owner, multiple devices, local-first<br>
 **Active release:** `0.2.0`, the first complete single-user personal knowledge base<br>
-**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
+**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), [approved Phase 1 design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md), [Phase 1 implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
 
 > **Active `0.2.0` scope**
 >
@@ -2020,7 +2020,7 @@ Backups are not considered valid until a test restore succeeds.
 
 The
 [canonical `0.2.0` release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md)
-is the sole detailed roadmap. Work proceeds one accepted phase at a time in
+governs the release roadmap. Work proceeds one accepted phase at a time in
 separate branches and worktrees.
 
 Conflicting roadmap guidance is superseded by ADR 0003.
@@ -2030,15 +2030,29 @@ module or release deliverable.
 
 Qdrant is out of scope for `0.2.0`.
 
-The only currently authorized work is **Phase 0 — Scope lock and green
-baseline**. Phase 0 is limited to documentation, governance,
-characterization, verification-contract reconciliation, and baseline
-evidence. It does not change production code or behavior, Vault
-functionality, application versions, tags, releases, pushes, or deployments.
-
-Phases 1–7 remain unstarted. No later phase begins until its predecessor is
+Phase 0 is accepted at `6c3e8d5afb2cc9dbf264d276796070e16aa49e55`.
+The active implementation slice is Phase 1 under the
+[approved canonical-model design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md)
+and [detailed implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md).
+No later phase begins until its predecessor is
 accepted and the new phase has its own approved design and detailed
 implementation plan.
+
+New canonical writes remain unavailable to production runtime roles.
+Public import, extraction workers, search, Note Save integration, backup V3,
+and browser behavior remain in their designated later phases.
+Version bumps, tags, releases, pushes, and deployments require separate authorization.
+
+Phase 2 must provide original-byte retention and abandoned extraction recovery
+before public import. Phase 4 must seal Note source-set membership before enabling
+its writes. Production activation requires a fail-closed backup guard for
+unsupported canonical rows or complete V3 support.
+
+Phase 1 source acceptance covers only the bounded authenticated storage digest
+primitive, source-proof contract, source revalidation, and isolated contract tests.
+Live runtime custody composition requires a separately approved Phase 2 design.
+No custody, key, capability, or Vault change is authorized.
+Test doubles do not prove live source verification.
 
 Embeddings, semantic retrieval, RAG, Agents, OCR, photos, media,
 subscriptions, finance, health, synchronization, and external connectors are
@@ -2089,12 +2103,11 @@ Additional ADR work requires phase-specific approval.
 
 # 24. Current implementation gate
 
-Phase 0 is the current target. Follow the approved release design and
-canonical directive; do not infer product implementation authority from the
+Phase 1 is the current target. Follow its approved canonical-model design and
+detailed implementation plan above; do not infer product implementation authority from the
 historical architecture material in this guide.
 
-Phase 0 must finish with corrected active guidance, recorded baseline
-evidence, a clean worktree, the complete supported verification gate passing,
-and independent review. It must not begin Phase 1, change production code or
-behavior, modify Vault functionality, bump versions, tag, publish, push, or
-deploy.
+Phase 1 must finish with recorded scoped evidence, a clean worktree, the complete
+supported verification gate passing, and independent review. Production canonical
+writes remain disabled. It must not begin later phases, modify Vault functionality,
+bump versions, tag, publish, push, or deploy without separate authorization.
