@@ -224,6 +224,24 @@ defmodule Singularity.Core.KnowledgeLinkValuesTest do
     end
   end
 
+  test "resource kinds and generic version ownership remain internally consistent" do
+    other =
+      target() |> Map.merge(%{kind: :asset, resource_version_id: id(30)}) |> Map.delete(:state)
+
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(Map.put(source_set(), :targets, [target(), other]))
+  end
+
+  test "attachments cannot assign their note version to another resource" do
+    assert {:error, %Error{code: :invalid}} =
+             NoteAttachment.new(Map.put(attachment(), :target_resource_version_id, id(3)))
+  end
+
+  test "citations cannot assign their note version to another resource" do
+    assert {:error, %Error{code: :invalid}} =
+             NoteCitation.new(Map.put(citation(), :source_resource_version_id, id(3)))
+  end
+
   property "constructors reject arbitrary unknown fields on maps and handcrafted structs" do
     check all(value <- term()) do
       for {module, attrs} <- [

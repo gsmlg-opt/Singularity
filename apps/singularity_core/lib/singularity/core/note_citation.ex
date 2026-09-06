@@ -64,6 +64,7 @@ defmodule Singularity.Core.NoteCitation do
          {:ok, _} <- Types.canonical_uuid(attrs, :source_resource_version_id),
          :private <- attrs[:classification],
          true <- attrs.note_resource_id != attrs.source_resource_id,
+         true <- attrs.note_resource_version_id != attrs.source_resource_version_id,
          true <-
            is_binary(attrs[:fragment_id]) and
              Regex.match?(~r/\A[0-9a-f]{64}\z/, attrs.fragment_id),

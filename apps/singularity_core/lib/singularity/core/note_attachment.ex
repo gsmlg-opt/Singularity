@@ -69,6 +69,7 @@ defmodule Singularity.Core.NoteAttachment do
          true <- attrs[:target_kind] in [:asset, :note, :document],
          :source <- attrs[:role],
          true <- attrs.note_resource_id != attrs.target_resource_id,
+         true <- attrs.note_resource_version_id != attrs.target_resource_version_id,
          {:ok, ordinal} <- KnowledgeValidation.integer(attrs[:ordinal]),
          {:ok, label} <- label(attrs[:label]) do
       {:ok, struct(__MODULE__, Map.merge(attrs, %{ordinal: ordinal, label: label}))}

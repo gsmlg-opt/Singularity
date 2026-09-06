@@ -92,9 +92,13 @@ defmodule Singularity.Core.NoteSourceSet do
   defp values(_, _, _), do: Types.invalid()
 
   defp consistent_targets?(targets) do
-    targets
-    |> Enum.group_by(& &1.resource_version_id)
-    |> Enum.all?(fn {_version, summaries} -> length(Enum.uniq(summaries)) == 1 end)
+    versions = Enum.group_by(targets, & &1.resource_version_id)
+    resources = Enum.group_by(targets, & &1.resource_id)
+
+    Enum.all?(versions, fn {_version, summaries} -> length(Enum.uniq(summaries)) == 1 end) and
+      Enum.all?(resources, fn {_resource, summaries} ->
+        length(Enum.uniq_by(summaries, & &1.kind)) == 1
+      end)
   end
 
   defp target(input) do
