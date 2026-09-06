@@ -244,6 +244,45 @@ defmodule Singularity.Core.KnowledgeLinkValuesTest do
              NoteSourceSet.new(Map.put(source_set(), :fragments, [fragment(), fragment()]))
   end
 
+  test "one immutable document ordinal cannot identify distinct fragments" do
+    {:ok, other} =
+      fragment()
+      |> Map.from_struct()
+      |> Map.drop([:digest, :fragment_id])
+      |> Map.put(:text, "different source")
+      |> DocumentFragment.new()
+
+    second_citation =
+      Map.merge(citation(), %{
+        citation_id: id(31),
+        ordinal: 1,
+        fragment_id: other.fragment_id,
+        locator: other.locator
+      })
+
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(
+               Map.merge(source_set(), %{
+                 fragments: [fragment(), other],
+                 citations: [citation(), second_citation]
+               })
+             )
+  end
+
+  test "extra target evidence cannot contradict the owning note version" do
+    contradictory = Map.put(target(), :resource_version_id, id(3))
+
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(Map.put(source_set(), :targets, [target(), contradictory]))
+  end
+
+  test "extra target evidence cannot change the owning note resource kind" do
+    contradictory = Map.merge(target(), %{resource_id: id(2), resource_version_id: id(32)})
+
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(Map.put(source_set(), :targets, [target(), contradictory]))
+  end
+
   test "resource kinds and generic version ownership remain internally consistent" do
     other =
       target() |> Map.merge(%{kind: :asset, resource_version_id: id(30)}) |> Map.delete(:state)
