@@ -1,7 +1,7 @@
 # Singularity v0.2 Phase 1 Canonical Knowledge Model
 
 Date: 2026-09-06
-Status: Draft for user review; guarded Document lifecycle direction approved.
+Status: Approved by the user on 2026-09-06 following review of commit ba45d11.
 
 ## Authority and baseline
 
@@ -14,9 +14,8 @@ both reported success for it.
 
 Planning branch: `codex/v0.2-phase-1-canonical-model`.
 Worktree: `.trees/v0.2-phase-1-canonical-model`.
-This document proposes Phase 1 behavior; its creation does not authorize
-production implementation. A detailed implementation plan follows approval
-of this written design.
+This document approves the Phase 1 design. Production implementation follows
+the separate detailed implementation plan and its execution handoff.
 
 ## Scope and delivery boundary
 
@@ -114,10 +113,19 @@ evidence. Changing the source association or digest of an accepted Document is
 forbidden. The preparation contract and tests belong to Phase 1; public import
 orchestration remains Phase 2.
 
+The user approved a narrower Phase 1 acceptance boundary on 2026-09-07:
+implement the bounded authenticated digest primitive, source-proof contract,
+source revalidation, and isolated contract tests. Verify the real digest primitive
+with encrypted fixtures and repository composition with injected test-only
+preparation dependencies. Live runtime key-custody integration belongs to a
+separately approved Phase 2 design; it is not a Phase 1 acceptance criterion.
+No custody, key, capability, or Vault change is authorized. Production Document
+writes remain disabled, and no test double is evidence of live source verification.
+
 The initial Document model supports private sources, matching established
 Notes classification. Sensitive/restricted Assets cannot be imported into a
-private Document. This is a proposed scope restriction for approval, not a
-change to Asset classification behavior.
+private Document. This restriction applies to Document import and does not
+change Asset classification behavior.
 
 An existing Asset delete releases resource-Asset associations and may schedule
 original-byte cleanup. A Document FK alone does not retain those bytes. Phase 1
