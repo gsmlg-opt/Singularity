@@ -224,6 +224,26 @@ defmodule Singularity.Core.KnowledgeLinkValuesTest do
     end
   end
 
+  test "fragment evidence cannot contradict target or fragment version ownership" do
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(
+               Map.put(source_set(), :fragments, [
+                 fragment(),
+                 Map.put(fragment(), :resource_id, id(20))
+               ])
+             )
+
+    asset_target = target() |> Map.put(:kind, :asset) |> Map.delete(:state)
+
+    assert {:error, %Error{code: :invalid}} =
+             NoteSourceSet.new(
+               Map.merge(source_set(), %{attachments: [], citations: [], targets: [asset_target]})
+             )
+
+    assert {:ok, _} =
+             NoteSourceSet.new(Map.put(source_set(), :fragments, [fragment(), fragment()]))
+  end
+
   test "resource kinds and generic version ownership remain internally consistent" do
     other =
       target() |> Map.merge(%{kind: :asset, resource_version_id: id(30)}) |> Map.delete(:state)

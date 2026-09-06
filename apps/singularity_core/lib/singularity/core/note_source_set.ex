@@ -53,7 +53,7 @@ defmodule Singularity.Core.NoteSourceSet do
          {:ok, citations} <- values(attrs[:citations], &NoteCitation.new/1),
          {:ok, targets} <- values(attrs[:targets], &target/1),
          {:ok, fragments} <- values(attrs[:fragments], &DocumentFragment.new/1),
-         true <- consistent_targets?(targets),
+         true <- consistent_evidence?(targets, fragments),
          true <- ordered?(attachments) and ordered?(citations),
          true <- unique?(attachments, & &1.attachment_id),
          true <- unique?(citations, & &1.citation_id),
@@ -90,6 +90,20 @@ defmodule Singularity.Core.NoteSourceSet do
   end
 
   defp values(_, _, _), do: Types.invalid()
+
+  defp consistent_evidence?(targets, fragments) do
+    fragment_targets =
+      Enum.map(fragments, fn fragment ->
+        fragment
+        |> Map.take([:resource_id, :resource_version_id, :owner_scope_id, :classification])
+        |> Map.merge(%{kind: :document, state: :ready})
+      end)
+
+    consistent_targets?(targets ++ fragment_targets) and
+      fragments
+      |> Enum.group_by(& &1.fragment_id)
+      |> Enum.all?(fn {_id, values} -> length(Enum.uniq(values)) == 1 end)
+  end
 
   defp consistent_targets?(targets) do
     versions = Enum.group_by(targets, & &1.resource_version_id)
