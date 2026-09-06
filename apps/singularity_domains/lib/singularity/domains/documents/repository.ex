@@ -3,8 +3,10 @@ defmodule Singularity.Domains.Documents.Repository do
   Internal authenticated persistence boundary for immutable Document versions.
 
   Context carries opaque repository, principal, owner and preparation dependencies.
-  Storage independently checks custody and receipt identity. Claim and reset compare
-  the expected generation; complete atomically checks the claimed generation.
+  Storage independently checks scoped principal/owner, source proof and binding,
+  and receipt identity. Live runtime custody composition is deferred to Phase 2.
+  Claim and reset compare the expected generation; complete atomically checks
+  the claimed generation.
   """
   alias Singularity.Core.{DocumentCompletion, DocumentVersion, Error, Types}
   alias Singularity.Domains.Documents.Command
