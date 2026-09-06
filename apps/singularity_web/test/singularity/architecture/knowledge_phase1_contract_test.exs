@@ -70,21 +70,52 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
       source = @repo_root |> Path.join(path) |> File.read!()
       assert {:ok, ast} = Code.string_to_quoted(source)
 
-      {_ast, document_terms} =
-        Macro.prewalk(ast, [], fn
-          {:@, _, [{attribute, _, _}]}, found
-          when attribute in [:doc, :moduledoc, :typedoc] ->
-            {nil, found}
-
-          value, found when is_atom(value) or is_binary(value) ->
-            {value, if(to_string(value) =~ ~r/document/i, do: [value | found], else: found)}
-
-          node, found ->
-            {node, found}
-        end)
-
-      assert document_terms == [], "public Document registration found in #{path}"
+      assert document_terms(ast) == [], "public Document registration found in #{path}"
     end
+  end
+
+  test "Document function names cannot evade the registration scan" do
+    assert {:ok, ast} =
+             Code.string_to_quoted(
+               "defmodule Example do; def import_document(input), do: input; end"
+             )
+
+    assert :import_document in document_terms(ast)
+  end
+
+  test "documentation attributes remain outside the registration scan" do
+    assert {:ok, ast} =
+             Code.string_to_quoted("""
+             defmodule Example do
+               @moduledoc "Document imports remain deferred"
+               @doc "Document imports remain deferred"
+               def identity(input), do: input
+               @typedoc "Document imports remain deferred"
+               @type input :: term()
+             end
+             """)
+
+    assert document_terms(ast) == []
+  end
+
+  defp document_terms(ast) do
+    {_ast, found} =
+      Macro.prewalk(ast, [], fn
+        {:@, _, [{attribute, _, _}]}, found
+        when attribute in [:doc, :moduledoc, :typedoc] ->
+          {nil, found}
+
+        {name, _metadata, _arguments} = node, found when is_atom(name) ->
+          {node, if(to_string(name) =~ ~r/document/i, do: [name | found], else: found)}
+
+        value, found when is_atom(value) or is_binary(value) ->
+          {value, if(to_string(value) =~ ~r/document/i, do: [value | found], else: found)}
+
+        node, found ->
+          {node, found}
+      end)
+
+    found
   end
 
   defp active_section!(path, start, finish) do
