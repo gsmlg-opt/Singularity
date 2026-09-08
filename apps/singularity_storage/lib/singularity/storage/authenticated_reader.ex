@@ -44,6 +44,63 @@ defmodule Singularity.Storage.AuthenticatedReader do
     end
   end
 
+  @doc """
+  Authenticates every record and returns only the plaintext SHA-256 and size.
+
+  Reads and hashes one data record at a time, then validates final metadata.
+  Adapter error messages and details are omitted at this boundary.
+  """
+  @spec digest(
+          %{required(:adapter) => module(), required(:context) => term()},
+          binding(),
+          <<_::256>>
+        ) :: {:ok, %{sha256: <<_::256>>, byte_size: non_neg_integer()}} | {:error, Error.t()}
+  def digest(storage, binding, object_dek) do
+    with :ok <- validate_inputs(storage, binding, object_dek, :all),
+         {:ok, layout} <- canonical_layout(binding),
+         :ok <- stat_matches(storage, binding.object_ref, layout.ciphertext_byte_size),
+         {:ok, handle} <- open(storage, binding.object_ref),
+         {:ok, header, parsed} <- read_header(storage, handle),
+         :ok <- header_matches(parsed, binding),
+         {:ok, digest} <-
+           digest_data(storage, handle, header, parsed, object_dek, layout),
+         {:ok, metadata} <-
+           read_final_record(storage, handle, header, parsed, object_dek, layout),
+         :ok <- verify_digest(digest, metadata, layout) do
+      {:ok, digest}
+    else
+      {:error, %Error{code: code, retryable?: retryable?}} ->
+        {:error, Error.new(code, retryable?: retryable?)}
+    end
+  end
+
+  defp digest_data(storage, handle, header, parsed, object_dek, layout) do
+    0..(layout.chunk_count - 1)//1
+    |> Enum.reduce_while({:ok, :crypto.hash_init(:sha256), 0}, fn counter, {:ok, hash, size} ->
+      case read_data_record(storage, handle, header, parsed, object_dek, layout, counter) do
+        {:ok, chunk} ->
+          {:cont, {:ok, :crypto.hash_update(hash, chunk), size + byte_size(chunk)}}
+
+        {:error, %Error{} = error} ->
+          {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, hash, size} -> {:ok, %{sha256: :crypto.hash_final(hash), byte_size: size}}
+      {:error, %Error{} = error} -> {:error, error}
+    end
+  end
+
+  defp verify_digest(digest, metadata, layout) do
+    valid? =
+      digest.byte_size == layout.plaintext_byte_size and
+        metadata.plaintext_bytes == digest.byte_size and
+        metadata.chunk_count == layout.chunk_count and
+        :crypto.hash_equals(metadata.plaintext_sha256, digest.sha256)
+
+    if valid?, do: :ok, else: integrity_failure()
+  end
+
   defp validate_inputs(
          %{adapter: adapter, context: _context},
          %{
@@ -258,19 +315,8 @@ defmodule Singularity.Storage.AuthenticatedReader do
        ) do
     first_chunk..last_chunk
     |> Enum.reduce_while({:ok, []}, fn counter, {:ok, plaintext} ->
-      plaintext_size = data_plaintext_size(layout, counter)
-      offset = Format.header_size() + counter * (Format.chunk_size() + @record_overhead)
-      record_range = offset..(offset + plaintext_size + @record_overhead - 1)
-
-      with {:ok, record} <- exact_read(storage, handle, record_range),
-           {:ok, chunk} <-
-             ChunkedAEAD.decrypt_data_record(record, %{
-               key: object_dek,
-               header: header,
-               nonce_prefix: parsed.nonce_prefix,
-               counter: counter,
-               plaintext_size: plaintext_size
-             }) do
+      with {:ok, chunk} <-
+             read_data_record(storage, handle, header, parsed, object_dek, layout, counter) do
         {:cont, {:ok, [chunk | plaintext]}}
       else
         {:error, %Error{} = error} -> {:halt, {:error, error}}
@@ -281,6 +327,27 @@ defmodule Singularity.Storage.AuthenticatedReader do
     |> case do
       {:ok, plaintext} -> {:ok, plaintext |> Enum.reverse() |> IO.iodata_to_binary()}
       {:error, %Error{} = error} -> {:error, error}
+    end
+  end
+
+  defp read_data_record(storage, handle, header, parsed, object_dek, layout, counter) do
+    plaintext_size = data_plaintext_size(layout, counter)
+    offset = Format.header_size() + counter * (Format.chunk_size() + @record_overhead)
+    record_range = offset..(offset + plaintext_size + @record_overhead - 1)
+
+    with {:ok, record} <- exact_read(storage, handle, record_range),
+         {:ok, chunk} <-
+           ChunkedAEAD.decrypt_data_record(record, %{
+             key: object_dek,
+             header: header,
+             nonce_prefix: parsed.nonce_prefix,
+             counter: counter,
+             plaintext_size: plaintext_size
+           }) do
+      {:ok, chunk}
+    else
+      {:error, %Error{} = error} -> {:error, error}
+      _invalid -> integrity_failure()
     end
   end
 

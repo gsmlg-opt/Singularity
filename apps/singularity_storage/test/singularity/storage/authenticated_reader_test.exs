@@ -18,14 +18,21 @@ defmodule Singularity.Storage.AuthenticatedReaderTest do
   @final_record_size 68
 
   defmodule RecordingStorage do
+    def stat(%{fail_at: :stat, failure: error}, _object_ref), do: {:error, error}
+
     def stat(%{delegate_context: context}, object_ref),
       do: LocalFilesystemAdapter.stat(context, object_ref)
+
+    def open(%{fail_at: :open, failure: error}, _object_ref), do: {:error, error}
 
     def open(%{delegate_context: context}, object_ref) do
       with {:ok, handle} <- LocalFilesystemAdapter.open(context, object_ref) do
         {:ok, handle}
       end
     end
+
+    def read_range(%{fail_at: :read, failure: error}, _handle, _range),
+      do: {:error, error}
 
     def read_range(
           %{delegate_context: context, owner: owner},
@@ -35,6 +42,135 @@ defmodule Singularity.Storage.AuthenticatedReaderTest do
       send(owner, {:ciphertext_range, range})
       LocalFilesystemAdapter.read_range(context, handle, range)
     end
+  end
+
+  test "digest authenticates empty content", %{tmp_dir: tmp_dir} do
+    fixture = publish!(tmp_dir, "")
+    expected = %{sha256: :crypto.hash(:sha256, ""), byte_size: 0}
+
+    assert {:ok, ^expected} =
+             AuthenticatedReader.digest(fixture.storage, fixture.binding, fixture.key)
+
+    assert_received {:ciphertext_range, 66..133}
+  end
+
+  for corrupt_record <- [:middle, :final] do
+    test "digest rejects corrupt #{corrupt_record} record", %{tmp_dir: tmp_dir} do
+      fixture = publish!(tmp_dir, :binary.copy("C", Format.chunk_size() * 2) <> "tail")
+
+      offset =
+        case unquote(corrupt_record) do
+          :middle -> @header_size + Format.chunk_size() + @record_overhead + 8
+          :final -> fixture.binding.ciphertext_byte_size - 1
+        end
+
+      corrupt_byte!(fixture.path, offset)
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               AuthenticatedReader.digest(fixture.storage, fixture.binding, fixture.key)
+    end
+  end
+
+  for field <- [:plaintext_bytes, :chunk_count, :plaintext_sha256] do
+    test "digest rejects authenticated false #{field}", %{tmp_dir: tmp_dir} do
+      plaintext = :binary.copy("D", Format.chunk_size()) <> "tail"
+      fixture = publish!(tmp_dir, plaintext)
+
+      metadata = %{
+        plaintext_bytes: byte_size(plaintext),
+        chunk_count: 2,
+        plaintext_sha256: :crypto.hash(:sha256, plaintext)
+      }
+
+      false_value = if unquote(field) == :plaintext_sha256, do: <<0::256>>, else: 1
+      replace_final!(fixture, Map.put(metadata, unquote(field), false_value))
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               AuthenticatedReader.digest(fixture.storage, fixture.binding, fixture.key)
+    end
+  end
+
+  test "digest rejects truncation, wrong keys and wrong object binding", %{tmp_dir: tmp_dir} do
+    fixture = publish!(tmp_dir, "private content")
+    other_id = Ecto.UUID.generate()
+
+    wrong_binding = %{
+      fixture.binding
+      | object_id: other_id,
+        object_ref: %ObjectRef{object_id: other_id}
+    }
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             AuthenticatedReader.digest(fixture.storage, fixture.binding, <<0::256>>)
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             AuthenticatedReader.digest(fixture.storage, wrong_binding, fixture.key)
+
+    ciphertext = File.read!(fixture.path)
+    File.chmod!(fixture.path, 0o600)
+    File.write!(fixture.path, binary_part(ciphertext, 0, byte_size(ciphertext) - 1))
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             AuthenticatedReader.digest(fixture.storage, fixture.binding, fixture.key)
+  end
+
+  for operation <- [:stat, :open, :read] do
+    test "digest strips private #{operation} error details and preserves read errors", %{
+      tmp_dir: tmp_dir
+    } do
+      fixture = publish!(tmp_dir, "private plaintext")
+
+      failure =
+        Error.new(:storage_unavailable,
+          message: fixture.path,
+          details: %{key: fixture.key, handle: fixture.path, plaintext: "private plaintext"},
+          retryable?: true
+        )
+
+      storage = %{
+        fixture.storage
+        | context:
+            Map.merge(fixture.storage.context, %{fail_at: unquote(operation), failure: failure})
+      }
+
+      assert {:error,
+              %Error{code: :storage_unavailable, retryable?: true, message: nil, details: %{}} =
+                error} =
+               AuthenticatedReader.digest(storage, fixture.binding, fixture.key)
+
+      assert error.details == %{}
+
+      assert {:error, ^failure} =
+               AuthenticatedReader.read(storage, fixture.binding, fixture.key, :all)
+    end
+  end
+
+  test "digest authenticates content and final metadata with bounded reads", %{tmp_dir: tmp_dir} do
+    plaintext = :binary.copy("A", Format.chunk_size() * 2) <> "tail"
+    fixture = publish!(tmp_dir, plaintext)
+    expected = %{sha256: :crypto.hash(:sha256, plaintext), byte_size: byte_size(plaintext)}
+
+    assert {:ok, ^expected} =
+             AuthenticatedReader.digest(fixture.storage, fixture.binding, fixture.key)
+
+    chunk_size = Format.chunk_size()
+    second_offset = @header_size + chunk_size + @record_overhead
+    third_offset = second_offset + chunk_size + @record_overhead
+    final_offset = fixture.binding.ciphertext_byte_size - @final_record_size
+
+    for expected_range <- [
+          0..(@header_size - 1),
+          @header_size..(second_offset - 1),
+          second_offset..(third_offset - 1),
+          third_offset..(final_offset - 1),
+          final_offset..(fixture.binding.ciphertext_byte_size - 1)
+        ] do
+      assert_receive {:ciphertext_range, ^expected_range}
+      assert Range.size(expected_range) <= chunk_size + @record_overhead
+      assert Range.size(expected_range) < fixture.binding.ciphertext_byte_size
+    end
+
+    refute_receive {:ciphertext_range, _other}
   end
 
   test "authenticates aligned records and trims a range crossing chunk boundaries", %{
@@ -235,5 +371,33 @@ defmodule Singularity.Storage.AuthenticatedReaderTest do
     after
       :ok = :file.close(io)
     end
+  end
+
+  defp replace_final!(fixture, metadata) do
+    ciphertext = File.read!(fixture.path)
+    {:ok, header, _records, parsed} = Format.split_header(ciphertext)
+
+    plaintext =
+      <<metadata.plaintext_bytes::unsigned-big-64, metadata.chunk_count::unsigned-big-32,
+        metadata.plaintext_sha256::binary>>
+
+    {encrypted, tag} =
+      :crypto.crypto_one_time_aead(
+        :aes_256_gcm,
+        fixture.key,
+        Format.nonce(parsed.nonce_prefix, Format.final_counter()),
+        plaintext,
+        Format.final_aad(header),
+        16,
+        true
+      )
+
+    final =
+      <<Format.final_counter()::unsigned-big-32, 44::unsigned-big-32, encrypted::binary,
+        tag::binary>>
+
+    offset = byte_size(ciphertext) - @final_record_size
+    File.chmod!(fixture.path, 0o600)
+    File.write!(fixture.path, binary_part(ciphertext, 0, offset) <> final)
   end
 end
