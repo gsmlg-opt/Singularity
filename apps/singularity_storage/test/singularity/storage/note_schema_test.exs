@@ -17,7 +17,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
     resources_note_head_check
     resources_id_vault_classification_key
     resources_head_vault_classification_key
-    resources_note_version_head_fkey
+    resources_version_head_fkey
     resource_versions_identity_aggregate_key
     resource_versions_resource_classification_fkey
     note_versions_pkey
@@ -155,7 +155,7 @@ defmodule Singularity.Storage.NoteSchemaTest do
     assert catalog_names("pg_catalog.pg_constraint", "conname", @constraints) ==
              Enum.sort(@constraints)
 
-    assert constraint_definition!("resources_note_version_head_fkey") =~
+    assert constraint_definition!("resources_version_head_fkey") =~
              "DEFERRABLE INITIALLY DEFERRED"
 
     assert constraint_definition!("resource_versions_resource_classification_fkey") =~

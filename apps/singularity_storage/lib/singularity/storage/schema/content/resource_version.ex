@@ -34,6 +34,7 @@ defmodule Singularity.Storage.Schema.Content.ResourceVersion do
     )
     |> check_constraint(:classification, name: :resource_versions_classification_check)
     |> check_constraint(:revision, name: :resource_versions_note_identity_immutable_check)
+    |> check_constraint(:revision, name: :resource_versions_document_identity_immutable_check)
     |> check_constraint(:revision, name: :resource_versions_revision_check)
   end
 end
