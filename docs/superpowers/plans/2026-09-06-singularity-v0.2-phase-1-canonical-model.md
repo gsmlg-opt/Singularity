@@ -12,6 +12,12 @@
 2026-09-07. Detailed plan finalized for execution handoff; no implementation or
 phase acceptance is claimed by this document.
 
+**Execution amendment (2026-09-08):** The user approved the test-only historical
+migration harness repair described below and requested that end-to-end tests
+remain deferred. Continue scoped unit and database checks, but do not execute
+the complete README gate or claim Phase 1 acceptance until its deferred
+end-to-end checks are authorized and pass. Phase 2 has not started.
+
 ---
 
 ## Authority, baseline, and execution boundary
@@ -97,7 +103,7 @@ an unlisted existing file. New modules have the standard `Singularity` namespace
 - `apps/singularity_storage/lib/singularity/storage/authenticated_reader.ex`: additive bounded digest operation, preserving `read/4`.
 - `apps/singularity_storage/test/singularity/storage/authenticated_reader_test.exs`: digest and existing-read characterization.
 - `apps/singularity_storage/test/singularity/storage/note_schema_test.exs`: replace exact old-head-FK assertion with equivalent stronger typed-head assertions if required.
-- `apps/singularity_storage/test/singularity/storage/migrations_test.exs`: update latest-schema exact inventory only if its existing assertions require it; retain historical and Phase 0 checks.
+- `apps/singularity_storage/test/singularity/storage/migrations_test.exs`: retain every historical and Phase 0 assertion; isolate the historical harness in a disposable database capped at Phase 0, including every full-path migration restoration. This test-only harness change was separately approved because the released Notes downgrade cannot run beneath the new forward-only Document schema.
 
 **New core files under `apps/singularity_core/lib/singularity/core/`:**
 
@@ -134,6 +140,7 @@ an unlisted existing file. New modules have the standard `Singularity` namespace
 - Core `test/singularity/core/`: `source_locator_test.exs`, `document_values_test.exs`, `knowledge_link_values_test.exs`, `knowledge_properties_test.exs`.
 - Domains `test/singularity/domains/`: `documents_test.exs`, `knowledge_ports_test.exs`; `test/support/fake/document_repository.ex`.
 - Storage `test/support/knowledge_fixtures.ex`, `test/support/knowledge_test_grants.ex`.
+- Storage `test/support/migration_test_environment.ex`: separately approved test-only helper for isolated historical/preflight databases, with guaranteed generated-database cleanup and repository/runtime configuration restoration. Current-schema checks remain in the outer isolated integration database.
 - Storage `test/singularity/storage/`: `document_schema_test.exs`, `document_lifecycle_test.exs`, `knowledge_schema_test.exs`, `knowledge_rls_test.exs`, `knowledge_grants_test.exs`, `knowledge_migration_test.exs`, `knowledge_concurrency_test.exs`, `knowledge_privacy_test.exs`.
 - Storage `test/singularity/storage/documents/prepare_source_test.exs`.
 - Storage `test/singularity/storage/postgres/`: `document_repository_test.exs`, `document_mutation_receipts_test.exs`, `knowledge_link_repository_test.exs`, `tag_repository_test.exs`, `relationship_repository_test.exs`.
