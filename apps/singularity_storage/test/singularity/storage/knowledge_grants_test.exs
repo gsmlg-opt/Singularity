@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.KnowledgeGrantsTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
-  @tables ~w(document_versions document_import_receipts)
+  @tables ~w(document_versions document_import_receipts document_fragments)
   alias Singularity.Storage.{
     Fixtures,
     KnowledgeFixtures,
@@ -143,6 +143,75 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
                  WHERE function.oid = to_regprocedure($1) AND acl.grantee <> function.proowner
                  """,
                  [signature]
+               )
+    end
+  end
+
+  test "lifecycle functions are owner-defined with fixed search path and no public or runtime execution" do
+    for signature <- [
+          "content.claim_document_extraction(uuid,bigint,text,integer)",
+          "content.complete_document_extraction(uuid,bigint,jsonb,bytea,text)",
+          "content.fail_document_extraction(uuid,bigint,text,text)",
+          "content.reset_document_extraction(uuid,bigint)"
+        ] do
+      assert %{rows: [[true, "singularity_table_owner", config]]} =
+               query!(
+                 RequestRepo,
+                 """
+                 SELECT p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig
+                 FROM pg_proc AS p WHERE p.oid = to_regprocedure($1)
+                 """,
+                 [signature]
+               )
+
+      assert "search_path=pg_catalog, content, core, identity" in config
+
+      for role <-
+            ~w(singularity_web singularity_worker singularity_dispatcher singularity_pre_auth) do
+        assert %{rows: [[false]]} =
+                 query!(RequestRepo, "SELECT has_function_privilege($1,$2,'EXECUTE')", [
+                   role,
+                   signature
+                 ])
+      end
+
+      assert %{rows: []} =
+               query!(
+                 RequestRepo,
+                 """
+                 SELECT acl.grantee FROM pg_proc AS p
+                 CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) AS acl
+                 WHERE p.oid = to_regprocedure($1) AND acl.grantee <> p.proowner
+                 """,
+                 [signature]
+               )
+    end
+  end
+
+  test "lifecycle temporary EXECUTE and accidental mutation grants are revoked after failures" do
+    for helper <- [:with_lifecycle_grants, :with_direct_mutation_grants] do
+      assert_raise RuntimeError, "intentional grant-scope failure", fn ->
+        apply(KnowledgeTestGrants, helper, [fn -> raise "intentional grant-scope failure" end])
+      end
+    end
+
+    for role <- ~w(singularity_web singularity_worker),
+        table <- ~w(document_versions document_fragments),
+        privilege <- ~w(SELECT INSERT UPDATE DELETE) do
+      assert %{rows: [[false]]} =
+               query!(RequestRepo, "SELECT has_table_privilege($1,$2,$3)", [
+                 role,
+                 "content.#{table}",
+                 privilege
+               ])
+    end
+
+    for role <- ~w(singularity_web singularity_worker) do
+      assert %{rows: [[false]]} =
+               query!(
+                 RequestRepo,
+                 "SELECT has_function_privilege($1,'content.claim_document_extraction(uuid,bigint,text,integer)','EXECUTE')",
+                 [role]
                )
     end
   end
