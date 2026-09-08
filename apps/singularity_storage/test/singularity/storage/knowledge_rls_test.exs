@@ -71,6 +71,67 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
     end)
   end
 
+  test "rollback clears context on the same connection and temporary grants restore production denial" do
+    source = KnowledgeFixtures.source!()
+
+    KnowledgeTestGrants.with_grants(["tags"], fn ->
+      for repo <- [RequestRepo, WorkerRepo] do
+        repo.checkout(fn ->
+          %{rows: [[backend]]} = query!(repo, "SELECT pg_backend_pid()", [])
+
+          assert {:error, :boundary_rollback} =
+                   ScopedRepo.transact(repo, source, fn scoped ->
+                     insert!(scoped, "tags", %{
+                       id: KnowledgeFixtures.uuid(),
+                       vault_id: source.vault_id,
+                       classification: "private",
+                       display_value: "Rollback",
+                       normalized_key: "rollback",
+                       created_by_principal_id: source.principal_id
+                     })
+
+                     {:error, :boundary_rollback}
+                   end)
+
+          assert %{rows: [[^backend, principal, owner]]} =
+                   query!(
+                     repo,
+                     "SELECT pg_backend_pid(), current_setting('singularity.principal_id',true), current_setting('singularity.vault_id',true)",
+                     []
+                   )
+
+          assert principal in [nil, ""]
+          assert owner in [nil, ""]
+
+          assert %{rows: [[0]]} =
+                   ScopedRepo.transact(repo, source, fn scoped ->
+                     query!(scoped, "SELECT count(*) FROM content.tags WHERE vault_id=$1", [
+                       source.vault_id
+                     ])
+                   end)
+        end)
+      end
+    end)
+
+    for repo <- [RequestRepo, WorkerRepo] do
+      assert %{rows: [[false, false]]} =
+               query!(
+                 repo,
+                 "SELECT has_table_privilege(current_user,'content.tags','SELECT'), has_table_privilege(current_user,'content.tags','INSERT')",
+                 []
+               )
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          ScopedRepo.transact(repo, source, fn scoped ->
+            query!(scoped, "SELECT id FROM content.tags", [])
+          end)
+        end
+
+      assert error.postgres.code == :insufficient_privilege
+    end
+  end
+
   defp organization!(source) do
     document = KnowledgeFixtures.document!(source)
     note_id = KnowledgeFixtures.uuid()

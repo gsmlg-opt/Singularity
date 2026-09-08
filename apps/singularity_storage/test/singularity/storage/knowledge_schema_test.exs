@@ -417,6 +417,158 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
 
   defp owner(fun), do: Fixtures.with_owner(fun)
 
+  test "SQL source identity violations name their constraint and roll back every inserted row" do
+    source = KnowledgeFixtures.source!()
+    other = KnowledgeFixtures.source!()
+    note = note!(source)
+    {document, fragment} = ready_document!(source)
+    attached = attachment(note, source)
+    cited = citation(note, document, fragment)
+
+    cases = [
+      {"note_attachments", %{attached | vault_id: other.vault_id}, :foreign_key_violation,
+       "note_attachments_note_fkey"},
+      {"note_attachments", %{attached | target_resource_id: document.resource_id},
+       :foreign_key_violation, "note_attachments_target_fkey"},
+      {"note_attachments", %{attached | target_resource_version_id: document.resource_version_id},
+       :foreign_key_violation, "note_attachments_target_fkey"},
+      {"note_attachments", %{attached | classification: "sensitive"}, :check_violation,
+       "note_attachments_private_check"},
+      {"note_attachments", %{attached | target_kind: "document"}, :check_violation,
+       "note_attachments_source_check"},
+      {"note_citations", %{cited | fragment_id: String.duplicate("a", 64)},
+       :foreign_key_violation, "note_citations_fragment_fkey"},
+      {"note_citations",
+       %{
+         cited
+         | locator: %{"version" => 1, "kind" => "text", "start_line" => 2, "end_line" => 2}
+       }, :check_violation, "note_citations_locator_check"},
+      {"note_attachments", %{attached | ordinal: 1}, :check_violation,
+       "note_attachments_source_set_check"}
+    ]
+
+    for {table, row, code, constraint} <- cases do
+      marker = %{tag(source) | id: KnowledgeFixtures.uuid()}
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          owner(fn ->
+            # Select the composite FK explicitly without disabling any constraint.
+            if code == :foreign_key_violation do
+              query!(MigrationRepo, "SET CONSTRAINTS content.#{constraint} IMMEDIATE", [])
+            end
+
+            insert!("tags", marker)
+            insert!(table, row)
+          end)
+        end
+
+      assert error.postgres.code == code
+      assert error.postgres.constraint == constraint
+
+      owner(fn ->
+        assert %{rows: [[0]]} =
+                 query!(MigrationRepo, "SELECT count(*) FROM content.#{table} WHERE id=$1", [
+                   row.id
+                 ])
+
+        assert %{rows: [[0]]} =
+                 query!(MigrationRepo, "SELECT count(*) FROM content.tags WHERE id=$1", [
+                   marker.id
+                 ])
+      end)
+    end
+  end
+
+  test "rejected Document source tuples leave no resource, version or typed row" do
+    source = KnowledgeFixtures.source!()
+    other = KnowledgeFixtures.source!()
+    alternative = KnowledgeFixtures.uuid()
+
+    owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',1)",
+        [alternative, source.resource_id, source.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_assets(resource_version_id,asset_id,vault_id,classification) VALUES($1,$2,$3,'private')",
+        [alternative, source.asset_id, source.vault_id]
+      )
+    end)
+
+    for invalid <- [
+          %{vault_id: other.vault_id},
+          %{source_resource_id: other.resource_id},
+          %{source_resource_version_id: other.resource_version_id},
+          %{source_resource_version_id: alternative},
+          %{source_asset_id: other.asset_id},
+          %{source_object_id: other.object_id}
+        ] do
+      resource_id = KnowledgeFixtures.uuid()
+      version_id = KnowledgeFixtures.uuid()
+      attrs = Map.merge(invalid, %{resource_id: resource_id, resource_version_id: version_id})
+      error = assert_raise Postgrex.Error, fn -> KnowledgeFixtures.document!(source, attrs) end
+      assert error.postgres.code == :check_violation
+      assert error.postgres.constraint == "document_versions_source_check"
+
+      owner(fn ->
+        assert %{rows: [[0, 0, 0]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT (SELECT count(*) FROM content.resources WHERE id=$1), (SELECT count(*) FROM content.resource_versions WHERE id=$2), (SELECT count(*) FROM content.document_versions WHERE resource_version_id=$2)",
+                   [resource_id, version_id]
+                 )
+      end)
+    end
+  end
+
+  test "a Note parent from another aggregate rolls back its new generic and typed version" do
+    source = KnowledgeFixtures.source!()
+    note = note!(source)
+    other_note = note!(source)
+    version_id = KnowledgeFixtures.uuid()
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        owner(fn ->
+          query!(MigrationRepo, "SET CONSTRAINTS content.note_versions_parent_fkey IMMEDIATE", [])
+
+          query!(
+            MigrationRepo,
+            "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',1)",
+            [version_id, note.resource_id, source.vault_id]
+          )
+
+          query!(
+            MigrationRepo,
+            "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,parent_version_id,inserted_at) VALUES($1,$2,$3,'private','Note','body',$4,$5,CURRENT_TIMESTAMP)",
+            [
+              version_id,
+              note.resource_id,
+              source.vault_id,
+              source.principal_id,
+              other_note.resource_version_id
+            ]
+          )
+        end)
+      end
+
+    assert error.postgres.code == :foreign_key_violation
+    assert error.postgres.constraint == "note_versions_parent_fkey"
+
+    owner(fn ->
+      assert %{rows: [[0, 0]]} =
+               query!(
+                 MigrationRepo,
+                 "SELECT (SELECT count(*) FROM content.resource_versions WHERE id=$1), (SELECT count(*) FROM content.note_versions WHERE resource_version_id=$1)",
+                 [version_id]
+               )
+    end)
+  end
+
   defp rejects(fun, code \\ nil) do
     error = assert_raise Postgrex.Error, fn -> owner(fun) end
     assert error.postgres.code in [:check_violation, :foreign_key_violation, :unique_violation]

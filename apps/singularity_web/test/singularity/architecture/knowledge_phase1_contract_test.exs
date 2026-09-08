@@ -83,6 +83,28 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     assert :import_document in document_terms(ast)
   end
 
+  test "logical V1 and V2 backup schemas remain unchanged from the accepted baseline" do
+    assert_baseline_files!(%{
+      "apps/singularity_storage/lib/singularity/storage/backup/logical_schema.ex" =>
+        "ba0722ca85ce0a1259ce650927aa53ed728db0b28467adf308c3ada5a03036e8",
+      "apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex" =>
+        "992ef89fb52a91ccaa0d7cf2b3ae6607a465e7b345cca5d6c55a86c3fac9f3e6"
+    })
+  end
+
+  test "runtime API and job composition stay at the accepted baseline" do
+    assert_baseline_files!(%{
+      "apps/singularity_runtime/lib/singularity/runtime/api.ex" =>
+        "eded245a1bd95410b323192de836c9b1de8cec14de4b26cb8e41263d66ebf3c4",
+      "apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex" =>
+        "2f92227526e692931e4d8e501635eb94f79e59f90f54bab7f5f9891581f507c8",
+      "apps/singularity_runtime/lib/singularity/runtime/application.ex" =>
+        "4bed50e5ab4f7ed351b0e7497a943f940466bce53101928ce4e906ae910abe35",
+      "config/config.exs" => "ebbf6e0d51ce707a67d7e29115ad0e2af7fbc372ff68072a67279ec1fa5304f8",
+      "config/runtime.exs" => "1847759a3e3461681f5e832cb4b9e35cfb1ae0217665afd7c60b375128fa55ca"
+    })
+  end
+
   test "documentation attributes remain outside the registration scan" do
     assert {:ok, ast} =
              Code.string_to_quoted("""
@@ -96,6 +118,16 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
              """)
 
     assert document_terms(ast) == []
+  end
+
+  # These byte-level contracts intentionally freeze Phase 0 formats and runtime
+  # composition. Later activation requires an explicitly approved phase change.
+  defp assert_baseline_files!(files) do
+    for {path, expected} <- files do
+      bytes = @repo_root |> Path.join(path) |> File.read!()
+      actual = :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
+      assert actual == expected, "#{path} changed from accepted baseline #{@baseline}"
+    end
   end
 
   defp document_terms(ast) do
