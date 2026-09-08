@@ -239,44 +239,6 @@ defmodule Singularity.Storage.DocumentSchemaTest do
     end)
   end
 
-  test "two connections serialize Document head changes against typed deletion and reparenting" do
-    for operation <- [:delete, :reparent] do
-      source = KnowledgeFixtures.source!()
-      document = KnowledgeFixtures.document!(source)
-      next = %{document | resource_version_id: KnowledgeFixtures.uuid()}
-      target = KnowledgeFixtures.document!(source)
-      target_version = KnowledgeFixtures.uuid()
-
-      Fixtures.with_owner(fn ->
-        for {id, resource} <- [
-              {next.resource_version_id, document.resource_id},
-              {target_version, target.resource_id}
-            ] do
-          query!(
-            MigrationRepo,
-            "INSERT INTO content.resource_versions (id, resource_id, vault_id, classification, revision) VALUES ($1,$2,$3,'private',1)",
-            [id, resource, source.vault_id]
-          )
-        end
-
-        KnowledgeFixtures.insert_typed!(next)
-      end)
-
-      mutation =
-        case operation do
-          :delete ->
-            {"DELETE FROM content.document_versions WHERE resource_version_id = $1",
-             [next.resource_version_id]}
-
-          :reparent ->
-            {"UPDATE content.document_versions SET resource_version_id = $1, resource_id = $2 WHERE resource_version_id = $3",
-             [target_version, target.resource_id, next.resource_version_id]}
-        end
-
-      race_head!(document.resource_id, next.resource_version_id, mutation)
-    end
-  end
-
   test "existing Notes parent-first locking coexists with typed-row deletion guards" do
     note = Singularity.Storage.NoteFixtures.note!()
     next = Singularity.Storage.NoteFixtures.insert_note_version!(note, %{})
@@ -432,16 +394,6 @@ defmodule Singularity.Storage.DocumentSchemaTest do
         [document.resource_version_id, document.resource_id]
       )
     end)
-
-    assert_constraint("resources_typed_head_check", fn ->
-      Fixtures.with_owner(fn ->
-        query!(
-          MigrationRepo,
-          "DELETE FROM content.document_versions WHERE resource_version_id = $1",
-          [document.resource_version_id]
-        )
-      end)
-    end)
   end
 
   test "generic Document version identity cannot change" do
@@ -494,6 +446,140 @@ defmodule Singularity.Storage.DocumentSchemaTest do
         version
       ]
     )
+  end
+
+  defp assert_constraint(expected, fun) do
+    error = assert_raise Postgrex.Error, fun
+    assert error.postgres.constraint == expected
+    assert error.postgres.code in [:check_violation, :foreign_key_violation]
+  end
+
+  defp race_head!(resource, version, {statement, parameters}) do
+    config = MigrationRepo.config() |> Keyword.put(:pool_size, 1)
+    {:ok, first} = Postgrex.start_link(config)
+    {:ok, second} = Postgrex.start_link(config)
+
+    try do
+      for connection <- [first, second] do
+        Postgrex.query!(connection, "BEGIN", [])
+        Postgrex.query!(connection, "SET LOCAL ROLE singularity_table_owner", [])
+        Postgrex.query!(connection, "SET LOCAL lock_timeout = '5s'", [])
+      end
+
+      %{rows: [[first_pid]]} = Postgrex.query!(first, "SELECT pg_backend_pid()", [])
+      %{rows: [[second_pid]]} = Postgrex.query!(second, "SELECT pg_backend_pid()", [])
+      refute first_pid == second_pid
+
+      Postgrex.query!(
+        first,
+        "UPDATE content.resources SET current_version_id = $1 WHERE id = $2",
+        [version, resource]
+      )
+
+      Postgrex.query!(second, statement, parameters)
+      contender = Task.async(fn -> Postgrex.query(second, "COMMIT", []) end)
+      assert wait_for_blocker(second_pid, first_pid, 200)
+      assert {:ok, _} = Postgrex.query(first, "COMMIT", [])
+
+      assert {:error, %Postgrex.Error{postgres: %{constraint: "resources_typed_head_check"}}} =
+               Task.await(contender, 6_000)
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[^version]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT current_version_id FROM content.resources WHERE id = $1",
+                   [resource]
+                 )
+      end)
+    after
+      for connection <- [first, second] do
+        if Process.alive?(connection), do: GenServer.stop(connection)
+      end
+    end
+  end
+
+  defp wait_for_blocker(_, _, 0), do: false
+
+  defp wait_for_blocker(blocked, blocker, attempts) do
+    case query!(RequestRepo, "SELECT $1::integer = ANY(pg_blocking_pids($2::integer))", [
+           blocker,
+           blocked
+         ]) do
+      %{rows: [[true]]} ->
+        true
+
+      _ ->
+        Process.sleep(10)
+        wait_for_blocker(blocked, blocker, attempts - 1)
+    end
+  end
+end
+
+defmodule Singularity.Storage.DocumentTypedHeadMigrationTest do
+  use Singularity.Storage.DataCase, async: false
+  @moduletag :integration
+  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, MigrationTestEnvironment}
+
+  # Preserve deferred typed-head enforcement before the later immediate
+  # Document identity and deletion guards are installed.
+  setup_all do
+    environment = MigrationTestEnvironment.open!(20_260_906_000_100)
+    on_exit(fn -> MigrationTestEnvironment.close!(environment) end)
+    :ok
+  end
+
+  test "two connections serialize Document head changes against typed deletion and reparenting" do
+    for operation <- [:delete, :reparent] do
+      source = KnowledgeFixtures.source!()
+      document = KnowledgeFixtures.document!(source)
+      next = %{document | resource_version_id: KnowledgeFixtures.uuid()}
+      target = KnowledgeFixtures.document!(source)
+      target_version = KnowledgeFixtures.uuid()
+
+      Fixtures.with_owner(fn ->
+        for {id, resource} <- [
+              {next.resource_version_id, document.resource_id},
+              {target_version, target.resource_id}
+            ] do
+          query!(
+            MigrationRepo,
+            "INSERT INTO content.resource_versions (id, resource_id, vault_id, classification, revision) VALUES ($1,$2,$3,'private',1)",
+            [id, resource, source.vault_id]
+          )
+        end
+
+        KnowledgeFixtures.insert_typed!(next)
+      end)
+
+      mutation =
+        case operation do
+          :delete ->
+            {"DELETE FROM content.document_versions WHERE resource_version_id = $1",
+             [next.resource_version_id]}
+
+          :reparent ->
+            {"UPDATE content.document_versions SET resource_version_id = $1, resource_id = $2 WHERE resource_version_id = $3",
+             [target_version, target.resource_id, next.resource_version_id]}
+        end
+
+      race_head!(document.resource_id, next.resource_version_id, mutation)
+    end
+  end
+
+  test "deleting a Document typed head fails at commit" do
+    source = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+
+    assert_constraint("resources_typed_head_check", fn ->
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "DELETE FROM content.document_versions WHERE resource_version_id = $1",
+          [document.resource_version_id]
+        )
+      end)
+    end)
   end
 
   defp assert_constraint(expected, fun) do

@@ -18,6 +18,18 @@ remain deferred. Continue scoped unit and database checks, but do not execute
 the complete README gate or claim Phase 1 acceptance until its deferred
 end-to-end checks are authorized and pass. Phase 2 has not started.
 
+**Typed-head verification amendment (2026-09-08):** The user approved retaining
+the Task 4 Document deletion/reparenting race assertions against a disposable
+database capped at migration `20260906000100`. Task 5's immediate immutable
+identity guard intentionally prevents those statements from reaching the older
+deferred head guard. Preserve the original deferred assertions at that earlier
+schema boundary, including the direct typed-deletion assertion when superseded
+by the immutable guard. Keep final-state head updates, the Note race, and all
+other current-schema checks on the latest schema; add latest-schema checks for
+immediate immutable identity rejection and runtime deletion denial. This narrow
+test-boundary exception does not authorize weakening assertions or production
+guards. Reuse the isolated migration helper within `document_schema_test.exs`.
+
 ---
 
 ## Authority, baseline, and execution boundary
