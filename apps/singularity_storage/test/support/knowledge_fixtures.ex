@@ -113,6 +113,76 @@ defmodule Singularity.Storage.KnowledgeFixtures do
 
   def uuid, do: Ecto.UUID.generate() |> Ecto.UUID.dump!()
 
+  def note!(source) do
+    row = %{resource_id: uuid(), resource_version_id: uuid(), vault_id: source.vault_id}
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,'Note')",
+        [row.resource_id, row.vault_id, row.resource_version_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
+        [row.resource_version_id, row.resource_id, row.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private','Note','body',$4,CURRENT_TIMESTAMP)",
+        [row.resource_version_id, row.resource_id, row.vault_id, source.principal_id]
+      )
+    end)
+
+    row
+  end
+
+  def ready_document!(source) do
+    document = document!(source)
+    locator = %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
+
+    {:ok, fragment} =
+      Singularity.Core.DocumentFragment.new(%{
+        resource_id: Ecto.UUID.load!(document.resource_id),
+        resource_version_id: Ecto.UUID.load!(document.resource_version_id),
+        owner_scope_id: Ecto.UUID.load!(document.vault_id),
+        classification: :private,
+        ordinal: 0,
+        text: "text",
+        locator: locator
+      })
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+        [Ecto.UUID.load!(source.principal_id), Ecto.UUID.load!(source.vault_id)]
+      )
+
+      query!(MigrationRepo, "SELECT content.claim_document_extraction($1,0,'plain',1)", [
+        document.resource_version_id
+      ])
+
+      query!(MigrationRepo, "SELECT content.complete_document_extraction($1,1,$2,$3,'en')", [
+        document.resource_version_id,
+        [
+          %{
+            "id" => fragment.fragment_id,
+            "ordinal" => 0,
+            "text" => fragment.text,
+            "digest" => Base.encode16(fragment.digest, case: :lower),
+            "locator" => locator
+          }
+        ],
+        fragment.digest
+      ])
+    end)
+
+    {document, fragment}
+  end
+
   # Source preparation requires metadata and the established envelope lookup.
   # Keep source!/0 unchanged for the schema-only contracts.
   def prepared_source! do
