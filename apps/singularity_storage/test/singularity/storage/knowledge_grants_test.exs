@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.KnowledgeGrantsTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
-  @tables ~w(document_versions document_import_receipts document_fragments)
+  @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations tags resource_tags relationships)
   alias Singularity.Storage.{
     Fixtures,
     KnowledgeFixtures,
@@ -113,11 +113,20 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     assert_raise ArgumentError, fn ->
       KnowledgeTestGrants.with_grants(["note_versions"], fn -> :ok end)
     end
+
+    for role <- ~w(singularity_web singularity_worker) do
+      assert %{rows: [[false]]} =
+               query!(
+                 RequestRepo,
+                 "SELECT has_function_privilege($1,'content.document_trim_name(text)','EXECUTE')",
+                 [role]
+               )
+    end
   end
 
   test "aggregate trigger functions grant no PUBLIC or effective runtime execution" do
     for function <-
-          ~w(enforce_knowledge_typed_head enforce_document_source enforce_document_resource_version_update enforce_document_import_receipt) do
+          ~w(enforce_knowledge_typed_head enforce_document_source enforce_document_resource_version_update enforce_document_import_receipt enforce_note_source_immutable enforce_note_source_set enforce_knowledge_organization_resource) do
       signature = "content.#{function}()"
 
       assert %{rows: [[oid]]} =
@@ -189,14 +198,19 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
   end
 
   test "lifecycle temporary EXECUTE and accidental mutation grants are revoked after failures" do
-    for helper <- [:with_lifecycle_grants, :with_direct_mutation_grants] do
+    for helper <- [
+          :with_lifecycle_grants,
+          :with_direct_mutation_grants,
+          :with_receipt_grants,
+          :with_fragment_read_grants
+        ] do
       assert_raise RuntimeError, "intentional grant-scope failure", fn ->
         apply(KnowledgeTestGrants, helper, [fn -> raise "intentional grant-scope failure" end])
       end
     end
 
     for role <- ~w(singularity_web singularity_worker),
-        table <- ~w(document_versions document_fragments),
+        table <- ~w(document_versions document_fragments document_import_receipts),
         privilege <- ~w(SELECT INSERT UPDATE DELETE) do
       assert %{rows: [[false]]} =
                query!(RequestRepo, "SELECT has_table_privilege($1,$2,$3)", [

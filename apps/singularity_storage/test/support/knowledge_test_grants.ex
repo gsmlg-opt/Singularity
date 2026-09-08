@@ -3,7 +3,7 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
   import Singularity.Storage.DataCase, only: [query!: 2]
   alias Singularity.Storage.{Fixtures, MigrationRepo}
 
-  @tables ~w(document_versions document_import_receipts document_fragments)
+  @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations tags resource_tags relationships)
   # Lifecycle execution is a separate scope from all direct table privileges.
   @functions [
     "claim_document_extraction(uuid,bigint,text,integer)",
@@ -24,6 +24,15 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
       for table <- tables, role <- @roles do
         query!(MigrationRepo, "GRANT SELECT, INSERT ON content.#{table} TO #{role}")
       end
+
+      if "document_versions" in tables do
+        for role <- @roles do
+          query!(
+            MigrationRepo,
+            "GRANT EXECUTE ON FUNCTION content.document_trim_name(text) TO #{role}"
+          )
+        end
+      end
     end)
 
     try do
@@ -34,6 +43,15 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
 
         for table <- tables, role <- @roles do
           query!(MigrationRepo, "REVOKE SELECT, INSERT ON content.#{table} FROM #{role}")
+        end
+
+        if "document_versions" in tables do
+          for role <- @roles do
+            query!(
+              MigrationRepo,
+              "REVOKE EXECUTE ON FUNCTION content.document_trim_name(text) FROM #{role}"
+            )
+          end
         end
       end)
     end
@@ -46,6 +64,23 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
         role <- @roles,
         do: {"EXECUTE ON FUNCTION content.#{function}", role}
       ),
+      fun
+    )
+  end
+
+  def with_receipt_grants(fun) when is_function(fun, 0) do
+    with_permissions(
+      for(
+        role <- @roles,
+        do: {"SELECT, INSERT, UPDATE ON content.document_import_receipts", role}
+      ),
+      fun
+    )
+  end
+
+  def with_fragment_read_grants(fun) when is_function(fun, 0) do
+    with_permissions(
+      for(role <- @roles, do: {"SELECT ON content.document_fragments", role}),
       fun
     )
   end
