@@ -54,6 +54,27 @@ defmodule Singularity.Storage.Postgres.RelationshipRepositoryTest do
     %{source: source, first: first, second: second, context: context}
   end
 
+  defmodule PausedDeleteRepo do
+    alias Singularity.Storage.RequestRepo
+    defdelegate in_transaction?(), to: RequestRepo
+    defdelegate transaction(fun, options), to: RequestRepo
+    defdelegate rollback(reason), to: RequestRepo
+    defdelegate one(query), to: RequestRepo
+    defdelegate insert(changeset, options), to: RequestRepo
+
+    def delete_all(query), do: delete_all(query, [])
+
+    def delete_all(query, options) do
+      send(Process.get(:relationship_delete_parent), {:before_relationship_delete, self()})
+
+      receive do
+        :continue_relationship_delete -> RequestRepo.delete_all(query, options)
+      after
+        10_000 -> raise "relationship delete handshake timed out"
+      end
+    end
+  end
+
   test "existing audit shape accepts knowledge relationship operations", %{context: context} do
     for operation <- ["knowledge.related", "knowledge.unrelated"] do
       changeset =
@@ -197,6 +218,79 @@ defmodule Singularity.Storage.Postgres.RelationshipRepositoryTest do
       assert {:ok, []} = RelationshipRepository.incoming(data.context, edge.target_resource_id)
       assert {:error, %Error{code: code}} = RelationshipRepository.relate(data.context, edge)
       assert code in [:not_found, :invalid]
+    end)
+  end
+
+  test "unrelate audits the actual row deleted after concurrent same-UUID replacement", data do
+    # Raw SQL in ScopedRepo resolves registered metadata; this alias preserves
+    # RequestRepo's transaction while pausing immediately before DELETE.
+    {:ok, bridge} = Agent.start_link(fn -> nil end, name: PausedDeleteRepo)
+
+    :ok =
+      Ecto.Repo.Registry.associate(
+        bridge,
+        PausedDeleteRepo,
+        Ecto.Adapter.lookup_meta(RequestRepo)
+      )
+
+    on_exit(fn -> if Process.alive?(bridge), do: Agent.stop(bridge) end)
+
+    with_grants(fn ->
+      original = edge(data)
+      assert {:ok, ^original} = RelationshipRepository.relate(data.context, original)
+      parent = self()
+
+      deletion =
+        Task.async(fn ->
+          Process.put(:relationship_delete_parent, parent)
+
+          RelationshipRepository.unrelate(
+            %{data.context | repo: PausedDeleteRepo},
+            original.relationship_id
+          )
+        end)
+
+      assert_receive {:before_relationship_delete, deleter}, 5_000
+
+      try do
+        Fixtures.with_owner(fn ->
+          query!(MigrationRepo, "DELETE FROM content.relationships WHERE id=$1", [
+            Ecto.UUID.dump!(original.relationship_id)
+          ])
+
+          query!(
+            MigrationRepo,
+            "INSERT INTO content.relationships(id,vault_id,classification,source_resource_id,target_resource_id,target_resource_version_id,type,created_by_principal_id,inserted_at) VALUES($1,$2,'private',$3,$4,$5,'derived_from',$6,CURRENT_TIMESTAMP)",
+            [
+              Ecto.UUID.dump!(original.relationship_id),
+              data.source.vault_id,
+              data.second.resource_id,
+              data.first.resource_id,
+              data.first.resource_version_id,
+              data.source.principal_id
+            ]
+          )
+        end)
+      after
+        send(deleter, :continue_relationship_delete)
+      end
+
+      assert :ok = Task.await(deletion, 10_000)
+
+      assert {:ok, []} =
+               RelationshipRepository.outgoing(data.context, id(data.second.resource_id))
+
+      assert [["knowledge.unrelated", metadata]] =
+               Enum.filter(audits(data.context), fn [operation, _] ->
+                 operation == "knowledge.unrelated"
+               end)
+
+      assert metadata == %{
+               "source_resource_id" => id(data.second.resource_id),
+               "target_resource_id" => id(data.first.resource_id),
+               "target_resource_version_id" => id(data.first.resource_version_id),
+               "type" => "derived_from"
+             }
     end)
   end
 

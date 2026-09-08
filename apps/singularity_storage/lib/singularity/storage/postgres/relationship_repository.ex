@@ -66,15 +66,15 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
       scoped(repo, context, fn repo ->
         query =
           from r in StoredRelationship,
-            where: r.vault_id == ^context.owner_scope_id and r.id == ^id
+            where: r.vault_id == ^context.owner_scope_id and r.id == ^id,
+            select: r
 
-        case repo.one(query) do
-          nil ->
+        case repo.delete_all(query) do
+          {0, _} ->
             :ok
 
-          row ->
-            {count, _} = repo.delete_all(query)
-            maybe_audit(repo, context, row, count, "knowledge.unrelated")
+          {1, [row]} ->
+            maybe_audit(repo, context, row, 1, "knowledge.unrelated")
         end
       end)
     end
