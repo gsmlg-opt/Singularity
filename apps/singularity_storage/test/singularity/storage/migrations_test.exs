@@ -1,3 +1,114 @@
+defmodule Singularity.Storage.MigrationTestEnvironmentTest do
+  use ExUnit.Case, async: false
+
+  @moduletag :integration
+  alias Singularity.Storage.{MigrationRepo, MigrationTestEnvironment, RequestRepo}
+
+  test "historical migration environment restores the outer database and repo configuration" do
+    assert Code.ensure_loaded?(MigrationTestEnvironment)
+    configuration = Application.get_all_env(:singularity_storage)
+    query = "SELECT current_database(), (SELECT count(*) FROM public.schema_migrations)"
+    original = migration_query!(query)
+
+    database =
+      MigrationTestEnvironment.with_database(20_260_901_000_200, fn environment ->
+        assert environment.database =~ ~r/\Asingularity_test_[0-9a-f]{24}\z/
+
+        assert [[environment.database]] ==
+                 Ecto.Adapters.SQL.query!(RequestRepo, "SELECT current_database()", [],
+                   log: false
+                 ).rows
+
+        assert [[0]] ==
+                 migration_query!(
+                   "SELECT count(*) FROM public.schema_migrations WHERE version > 20260901000200"
+                 )
+
+        environment.database
+      end)
+
+    assert Application.get_all_env(:singularity_storage) |> Enum.sort() ==
+             Enum.sort(configuration)
+
+    assert migration_query!(query) == original
+
+    assert [[false]] ==
+             Ecto.Adapters.SQL.query!(
+               RequestRepo,
+               "SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)",
+               [database],
+               log: false
+             ).rows
+
+    assert_raise RuntimeError, "fixture failure", fn ->
+      MigrationTestEnvironment.with_database(20_260_901_000_200, fn environment ->
+        send(self(), {:failed_database, environment.database})
+        raise "fixture failure"
+      end)
+    end
+
+    assert_receive {:failed_database, failed_database}
+
+    assert Application.get_all_env(:singularity_storage) |> Enum.sort() ==
+             Enum.sort(configuration)
+
+    assert migration_query!(query) == original
+
+    assert [[false]] ==
+             Ecto.Adapters.SQL.query!(
+               RequestRepo,
+               "SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)",
+               [failed_database],
+               log: false
+             ).rows
+  end
+
+  test "migration setup failure drops the allocated database and restores repository configuration" do
+    database_query =
+      "SELECT datname FROM pg_database WHERE datname ~ '^singularity_test_[0-9a-f]{24}$' ORDER BY datname"
+
+    databases = migration_query!(database_query)
+    original_config = Application.fetch_env!(:singularity_storage, MigrationRepo)
+    original_database = migration_query!("SELECT current_database()")
+
+    Application.put_env(
+      :singularity_storage,
+      MigrationRepo,
+      Keyword.put(original_config, :migration_source, "")
+    )
+
+    configuration = Application.get_all_env(:singularity_storage)
+
+    runtime_started? =
+      Enum.any?(Application.started_applications(), &(elem(&1, 0) == :singularity_runtime))
+
+    try do
+      assert_raise Postgrex.Error, fn ->
+        MigrationTestEnvironment.open!(20_260_901_000_200)
+      end
+
+      assert Enum.sort(Application.get_all_env(:singularity_storage)) == Enum.sort(configuration)
+      assert migration_query!(database_query) == databases
+      assert migration_query!("SELECT current_database()") == original_database
+
+      assert Enum.any?(Application.started_applications(), &(elem(&1, 0) == :singularity_runtime)) ==
+               runtime_started?
+    after
+      Application.put_env(:singularity_storage, MigrationRepo, original_config)
+    end
+  end
+
+  defp migration_query!(statement) do
+    {:ok, pid} = MigrationRepo.start_link()
+
+    try do
+      Ecto.Adapters.SQL.query!(MigrationRepo, statement, [], log: false).rows
+    after
+      Supervisor.stop(pid)
+    end
+  end
+end
+
 defmodule Singularity.Storage.MigrationsTest do
   use Singularity.Storage.DataCase, async: false
 
@@ -68,12 +179,20 @@ defmodule Singularity.Storage.MigrationsTest do
   ]
   @protected_tables @tables -- [{"jobs", "oban_jobs"}, {"jobs", "oban_peers"}]
 
+  setup_all do
+    environment = Singularity.Storage.MigrationTestEnvironment.open!(@wake_migration_version)
+    on_exit(fn -> Singularity.Storage.MigrationTestEnvironment.close!(environment) end)
+    :ok
+  end
+
   setup context do
     runtime_started? = runtime_started?()
 
     if runtime_started? do
       :ok = Application.stop(:singularity_runtime)
     end
+
+    stop_runtime_repositories!()
 
     on_exit(fn ->
       stop_runtime_repositories!()
@@ -240,7 +359,10 @@ defmodule Singularity.Storage.MigrationsTest do
     Code.compiler_options(ignore_module_conflict: true)
 
     try do
-      Ecto.Migrator.run(MigrationRepo, migrations_path(), :up, all: true, log: false)
+      Ecto.Migrator.run(MigrationRepo, migrations_path(), :up,
+        to: @wake_migration_version,
+        log: false
+      )
     after
       Supervisor.stop(migration_repo)
       Code.compiler_options(compiler_options)
@@ -832,7 +954,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -981,7 +1103,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -1454,7 +1576,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -1730,7 +1852,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -1807,7 +1929,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -1876,7 +1998,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -2140,7 +2262,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
 
@@ -2256,7 +2378,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 all: true,
+                 to: @wake_migration_version,
                  log: false
                )
 
@@ -2316,7 +2438,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -2374,7 +2496,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 all: true,
+                 to: @wake_migration_version,
                  log: false
                )
 
@@ -2414,7 +2536,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -2535,7 +2657,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
 
@@ -2655,7 +2777,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -2761,7 +2883,7 @@ defmodule Singularity.Storage.MigrationsTest do
                  MigrationRepo,
                  migrations_path,
                  :up,
-                 all: true,
+                 to: @wake_migration_version,
                  log: false
                )
 
@@ -2788,7 +2910,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
 
@@ -2911,7 +3033,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -3019,7 +3141,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -3094,7 +3216,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
@@ -3216,7 +3338,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
 
@@ -3435,7 +3557,7 @@ defmodule Singularity.Storage.MigrationsTest do
           MigrationRepo,
           migrations_path,
           :up,
-          all: true,
+          to: @wake_migration_version,
           log: false
         )
       after
