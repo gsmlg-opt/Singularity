@@ -8,9 +8,10 @@
 
 **Tech Stack:** Existing seven-app Elixir umbrella, Ecto/PostgreSQL, existing authenticated object reader, ExUnit/StreamData, and the pinned devenv environment. No new dependency is planned.
 
-**Status:** Source-preparation scope resolution approved by the user on
-2026-09-07. Detailed plan finalized for execution handoff; no implementation or
-phase acceptance is claimed by this document.
+**Status (2026-09-08):** Tasks 1–10 are implemented and scoped verification has
+passed at `aa7c3223d5ddea5c30e2d66f658af2e5d7f5b417`. Task 11's full README
+gate remains deferred by the user's no-E2E instruction. Phase 1 acceptance and
+Phase 2 remain pending; production canonical writes remain disabled.
 
 **Execution amendment (2026-09-08):** The user approved the test-only historical
 migration harness repair described below and requested that end-to-end tests
@@ -246,18 +247,18 @@ fragment_id = a5e06997d69433d9a127780ef4d01c4e7147691745f5fcac15b230d3c3e48a48
 
 ### Task 1: Authorize execution and characterize shared behavior
 
-- [ ] Confirm branch, clean state, design approval, baseline ancestry, and current
+- [x] Confirm branch, clean state, design approval, baseline ancestry, and current
   remote main. If main advanced, inspect its delta before changing the recorded
   baseline. Record `git rev-parse HEAD` in the execution report.
-- [ ] Run existing `resource_values_test.exs`, `note_values_test.exs`, domain
+- [x] Run existing `resource_values_test.exs`, `note_values_test.exs`, domain
   `notes_test.exs`, and storage `authenticated_reader_test.exs` as focused unit
   characterization. Run `note_schema_test.exs`, `note_mutation_receipts_test.exs`,
   and `provenance_test.exs` through the isolated integration command.
-- [ ] Add `knowledge_phase1_contract_test.exs` to assert the approved design/plan
+- [x] Add `knowledge_phase1_contract_test.exs` to assert the approved design/plan
   references, closed production writes, deferred activation prerequisites, and
   absence of public Document routes/jobs. Run it and observe the missing active
   Phase 1 governance failure before editing active guidance.
-- [ ] Update AGENTS.md, README scope paragraph, and guide active roadmap with:
+- [x] Update AGENTS.md, README scope paragraph, and guide active roadmap with:
 
 ```text
 Phase 0 is accepted at 6c3e8d5afb2cc9dbf264d276796070e16aa49e55.
@@ -269,21 +270,21 @@ designated later phases. Version bumps, tags, releases, pushes, and deployments
 require separate authorization.
 ```
 
-- [ ] Add both new document paths to governing references. Preserve ADR 0003,
+- [x] Add both new document paths to governing references. Preserve ADR 0003,
   all freeze/exclusion text, the complete README command block, and historical
   Phase 0 repair text. Mark that repair section historical; scope tests must
   verify it as historical evidence and validate the new active restriction.
   Do not delete the Phase 0 assertions or loosen their security checks.
-- [ ] Run both architecture scope tests. Confirm existing Notes/Assets
+- [x] Run both architecture scope tests. Confirm existing Notes/Assets
   characterization passed before changing their shared constraints.
-- [ ] Commit `docs(scope): authorize canonical model phase 1`.
+- [x] Commit `docs(scope): authorize canonical model phase 1`.
 
 ### Task 2: Implement locators, encoding, and immutable fragments
 
 Files: new core encoding/validation/locator/fragment files and
 `source_locator_test.exs`, `document_values_test.exs`, `knowledge_properties_test.exs`.
 
-- [ ] Add the fixed vector test before implementation:
+- [x] Add the fixed vector test before implementation:
 
 ```elixir
 alias Singularity.Core.{SourceLocator, DocumentFragment}
@@ -307,29 +308,29 @@ test "fragment identity matches the independent vector" do
 end
 ```
 
-- [ ] Add failures for every kind/field mismatch, missing range endpoint,
+- [x] Add failures for every kind/field mismatch, missing range endpoint,
   reversed/negative range, invalid encoding, NUL, oversized heading, unexpected
   key, and unsupported locator version. Run the new core files; expect missing
   modules/functions, not an unrelated setup failure.
-- [ ] Implement `KnowledgeEncoding.frame/1`, `SourceLocator.new/1`, `to_map/1`,
+- [x] Implement `KnowledgeEncoding.frame/1`, `SourceLocator.new/1`, `to_map/1`,
   `encode/1`, and `DocumentFragment.id/4`, `new/1` using the fixed contract.
   Fragment constructor recomputes digest/ID, verifies supplied ones if present,
   and rejects inconsistencies. Return a typed fragment with no filesystem concerns.
-- [ ] Add property checks for constructor/serialization round-trip, map-order
+- [x] Add property checks for constructor/serialization round-trip, map-order
   independence, heading NFC equivalence, and ID changes on any version, locator,
   ordinal, or text change. Do not assert probabilistic hash uniqueness generally.
-- [ ] Run all new core files plus existing `resource_values_test.exs` and
+- [x] Run all new core files plus existing `resource_values_test.exs` and
   `note_values_test.exs`. Commit `feat(core): add canonical locators and fragments`.
 
 ### Task 3: Add knowledge values, commands, and repository contracts
 
 Files: remaining new core/domain files and their mapped tests/fake.
 
-- [ ] Add failing tests for `DocumentSource.new/1`, `DocumentVersion.new/1`,
+- [x] Add failing tests for `DocumentSource.new/1`, `DocumentVersion.new/1`,
   `DocumentCompletion.new/1`, `NoteAttachment.new/1`, `NoteCitation.new/1`,
   `NoteSourceSet.new/1`, `Tag.new/1`, `ResourceTag.new/1`, and `Relationship.new/1`.
   Verify the expected undefined-module failures with the task's test files.
-- [ ] Implement the following typed data contract. Every identity tuple is
+- [x] Implement the following typed data contract. Every identity tuple is
   checked for internal consistency; authorization remains storage/runtime work.
 
 | Value | Mandatory payload beyond owner scope and private classification |
@@ -344,23 +345,23 @@ Files: remaining new core/domain files and their mapped tests/fake.
 | ResourceTag | resource ID, tag ID |
 | Relationship | relationship UUID, source/target IDs, type, optional target-version ID |
 
-- [ ] `NoteSourceSet` rejects duplicate identities/ordinals and noncontiguous
+- [x] `NoteSourceSet` rejects duplicate identities/ordinals and noncontiguous
   order; takes validated source values to prove resource/version/fragment/locator
   equality in pure tests. Constructors that have only IDs validate shape only;
   never claim they have looked up foreign rows. Reject self-attachments/relations.
-- [ ] Implement tag key as `input |> String.trim() |> String.normalize(:nfc)
+- [x] Implement tag key as `input |> String.trim() |> String.normalize(:nfc)
   |> :string.casefold() |> IO.chardata_to_string() |> String.normalize(:nfc)`.
   Test `Straße` and `STRASSE`, decomposed accents, invalid UTF-8, embedded controls,
   key bounds, and a forged struct's normalized key. Preserve first display spelling
   in the repository, not by mutating the incoming value.
-- [ ] Use lifecycle states and fixed field rules: pending has no outcome fields;
+- [x] Use lifecycle states and fixed field rules: pending has no outcome fields;
   extracting has positive generation and adapter/format; ready has nonempty
   validated fragments, 32-byte extracted-text digest, finished time, no failure;
   failed/unsupported have a bounded code and no fragments/digest. New v1 codes are
   `invalid_utf8`, `malformed_document`, `encrypted_document`, `no_extractable_text`,
   `input_too_large`, `output_too_large`, `page_limit`, `timeout`, `extractor_failed`.
   Do not expose arbitrary extractor strings as codes.
-- [ ] Define the internal domain port signatures:
+- [x] Define the internal domain port signatures:
 
 ```elixir
 # Singularity.Domains.Documents.Repository
@@ -382,7 +383,7 @@ owner scope, and trusted source preparation dependencies; no public scope parame
 generation, adapter name, format version. `reset_failed` is an internal CAS only;
 Phase 2 owns retry eligibility and user authorization.
 
-- [ ] Define `Documents.Command.new/1` for create with mutation/resource/version
+- [x] Define `Documents.Command.new/1` for create with mutation/resource/version
   UUIDs, title, source, actor, owner scope, correlation ID and timestamp. Candidate
   resource/version IDs and execution timestamps are not fingerprint inputs.
   `fingerprint_term/1` is the versioned tuple `{:document_import_v1, mutation_id,
@@ -390,16 +391,16 @@ Phase 2 owns retry eligibility and user authorization.
   byte_size, media_type, title, :private}`. Storage computes HMAC-SHA256 with an
   injected 32-byte secret over `:erlang.term_to_binary(term, [:deterministic])`.
   Never accept a caller-supplied fingerprint or reuse Notes receipts.
-- [ ] Define `Documents.create/2` to revalidate its command, call the repository,
+- [x] Define `Documents.create/2` to revalidate its command, call the repository,
   and validate its returned result. The fake records exact calls and can return
   invalid results; tests prove no I/O on invalid commands.
-- [ ] Define other internal ports: `KnowledgeLinks.Repository.insert_set/2`,
+- [x] Define other internal ports: `KnowledgeLinks.Repository.insert_set/2`,
   `list_set/3`; `Tags.Repository.resolve/2`, `attach/3`, `detach/3`, `list/2`;
   `Relationships.Repository.relate/2`, `unrelate/2`, `outgoing/2`, `incoming/2`.
   Read results use typed lists sorted by ordinal or UUID and capped at 100 per
   internal call; public pagination/browsing is deferred. Tests assert exact
   callbacks and result types rather than adding unused public operations.
-- [ ] Run new core/domain files and existing Notes domain tests. Commit
+- [x] Run new core/domain files and existing Notes domain tests. Commit
   `feat(domains): define canonical knowledge contracts`.
 
 ### Task 4: Add Document tables and preserve typed heads
@@ -407,17 +408,17 @@ Phase 2 owns retry eligibility and user authorization.
 Files: first migration, Document/receipt schemas, Resource/ResourceVersion mapping,
 new schema/migration/grant tests, and temporary-grant support.
 
-- [ ] Add integration tests that an ordinary runtime role cannot write any new
+- [x] Add integration tests that an ordinary runtime role cannot write any new
   canonical table/function, and that Document insertion currently fails. Add
   typed-head matrix tests before writing the migration. Run the task files and
   record missing-table/unsupported-kind failures.
-- [ ] Create the first migration with `up/0`; `down/0` raises a fixed
+- [x] Create the first migration with `up/0`; `down/0` raises a fixed
   `Ecto.MigrationError` because this is forward-only schema evolution. Disposable
   tests restore state by dropping their isolated database, not rolling this down.
   Start by taking necessary table locks in resource, version, typed-table order;
   preflight Asset null heads and all current Note typed heads. Fail atomically on
   an invalid preexisting row, including before any constraint replacement.
-- [ ] Add `content.document_versions` with these columns:
+- [x] Add `content.document_versions` with these columns:
 
 ```text
 resource_version_id uuid PRIMARY KEY
@@ -444,7 +445,7 @@ attempt_finished_at timestamptz(6)
 inserted_at timestamptz(6) NOT NULL
 ```
 
-- [ ] Add a unique aggregate tuple `(resource_version_id, resource_id, vault_id,
+- [x] Add a unique aggregate tuple `(resource_version_id, resource_id, vault_id,
   classification)` and deferred FK to the existing generic identity tuple. Add
   source FKs to Assets, source generic version tuple, resource_assets association,
   and object `(id,vault_id)`. The source link guard also proves that the Asset's
@@ -453,12 +454,12 @@ inserted_at timestamptz(6) NOT NULL
   acceptance. Actor membership uses the existing principal/owner membership key.
   Persistent FKs must not bind to the mutable `asset_object_id` field of Assets;
   later Asset deletion must not be blocked by a newly introduced equality FK.
-- [ ] Create `document_import_receipts` with primary key `(vault_id,principal_id,
+- [x] Create `document_import_receipts` with primary key `(vault_id,principal_id,
   mutation_id)`, 32-byte `request_fingerprint`, pending/completed state, nullable
   result resource/version UUIDs, inserted_at, and deferred typed result FKs.
   Require null results when pending and both results when completed. A deferred
   constraint trigger rejects any pending receipt at commit.
-- [ ] Replace the existing Note-only head FK with:
+- [x] Replace the existing Note-only head FK with:
 
 ```sql
 ALTER TABLE content.resources
@@ -475,7 +476,7 @@ keys used by Note search. Add deferred typed-head guards on resources, Note type
   rows, and Document typed rows; guards re-query the final committed candidate state,
 not obsolete NEW data from earlier queued events. Generic-only heads fail.
 
-- [ ] Follow the existing `singularity.note.aggregate:` advisory-lock convention
+- [x] Follow the existing `singularity.note.aggregate:` advisory-lock convention
   for shared resource identity guards so old Notes operations and new checks
   serialize on the same key. Before validating child kind/head existence, lock
   the parent resource consistently. For reparenting attempts, inspect both old
@@ -484,15 +485,15 @@ not obsolete NEW data from earlier queued events. Generic-only heads fail.
   database connections. Enforce Document version identity immutability
   through a new trigger; preserve the existing Note trigger and the Phase 0
   deferrable classification FK. Never create a second competing identity system.
-- [ ] For each new table enable/force RLS, table-owner policy, existing owner
+- [x] For each new table enable/force RLS, table-owner policy, existing owner
   predicate for web/worker, and principal predicate for receipts. Revoke PUBLIC
   and runtime DML. Do not grant production SELECT merely to simplify tests.
   The complete grant tests inspect inherited/effective privileges as well as ACLs.
-- [ ] Add schemas with named constraint mappings and no general update changeset.
+- [x] Add schemas with named constraint mappings and no general update changeset.
   Update Resource Ecto.Enum and the replaced FK mapping. Preserve existing error
   mappings for old Notes fields. Update any exact current-schema tests while
   retaining cases that reject wrong-note and wrong-owner heads.
-- [ ] Run `document_schema_test.exs`, `knowledge_migration_test.exs`,
+- [x] Run `document_schema_test.exs`, `knowledge_migration_test.exs`,
   `knowledge_grants_test.exs`, existing `note_schema_test.exs`, and the Phase 0
   cases in `migrations_test.exs`. Commit `feat(storage): add typed document identity`.
 
@@ -500,20 +501,20 @@ not obsolete NEW data from earlier queued events. Generic-only heads fail.
 
 Files: second migration, fragment schema, lifecycle tests.
 
-- [ ] Write failing SQL tests for claim, completion, failure, reset, exact replay,
+- [x] Write failing SQL tests for claim, completion, failure, reset, exact replay,
   wrong generation, and direct UPDATE/DELETE denial before adding functions.
-- [ ] Create `document_fragments` with fragment ID text primary key constrained
+- [x] Create `document_fragments` with fragment ID text primary key constrained
   to lowercase 64-character hex, aggregate tuple, ordinal bigint, text, 32-byte
   digest, locator JSONB, and inserted_at. Add unique `(resource_version_id,ordinal)`
   and `(id,resource_id,resource_version_id,vault_id,classification)` keys, plus
   deferred Document aggregate FK. Heading metadata comes from the canonical
   locator; do not store an independently mutable duplicate heading value.
-- [ ] Add database locator validation matching core's exact fields, integer types,
+- [x] Add database locator validation matching core's exact fields, integer types,
   paired ranges, and bounds. Add canonical frame/locator/fragment-ID SQL helpers;
   use PostgreSQL built-in `sha256(bytea)` and `int8send(bigint)` with UTF-8 bytes,
   not session text collation. SQL tests compare the same independent vector.
   SQL NULL semantics must not turn unknown/invalid fields into passing CHECKs.
-- [ ] Add state-shape constraints and functions with exact argument contracts:
+- [x] Add state-shape constraints and functions with exact argument contracts:
 
 ```text
 content.claim_document_extraction(version uuid, expected_generation bigint,
@@ -532,7 +533,7 @@ from the current scope, validate active authority, then lock resource and typed
 version in that order. For Phase 1 the authority check is existing active private
 owner membership; public Document capability selection remains Phase 2.
 
-- [ ] Claim requires pending and exact generation, increments once, sets adapter
+- [x] Claim requires pending and exact generation, increments once, sets adapter
   and format, and rejects bigint exhaustion. Repeating claim with the old
   generation conflicts, avoiding two callers owning the same attempt. Completion
   revalidates every fragment in SQL, locks the version, inserts the whole set,
@@ -542,7 +543,7 @@ owner membership; public Document capability selection remains Phase 2.
   it never inserts more fragments. Failure allows only failed/unsupported and
   clears all completion data. Reset requires one of those outcomes and exact
   generation, retains generation, clears outcome/adapter fields, and sets pending.
-- [ ] Add immutable-field and state-transition triggers. Guard direct runtime
+- [x] Add immutable-field and state-transition triggers. Guard direct runtime
   UPDATE even if accidentally granted: lifecycle changes require the effective
   table-owner role of the guarded function, not a caller-set GUC. Superuser/table
   owner remain trusted administrative principals; do not claim tamper resistance
@@ -551,43 +552,43 @@ owner membership; public Document capability selection remains Phase 2.
   Fragments reject UPDATE/DELETE and INSERT into a ready version.
   Deferred completion guard verifies no partial fragments on failed/pending
   versions and a complete nonempty set on ready versions.
-- [ ] Tests grant only EXECUTE to the scoped test role, then call functions with
+- [x] Tests grant only EXECUTE to the scoped test role, then call functions with
   correct/missing/wrong scope; this proves function authorization independently
   of normal privilege denial. Raw table constraint tests use a trusted migration
   connection in an isolated database and still verify trigger rejection.
-- [ ] Separately grant direct UPDATE/DELETE to the runtime test role and prove
+- [x] Separately grant direct UPDATE/DELETE to the runtime test role and prove
   it cannot bypass lifecycle guards, mutate immutable fields/fragments, or alter
   generation. Revoke all grants afterward. Verify function ownership, fixed
   search_path, live-principal authorization, and PUBLIC execution denial.
-- [ ] Run lifecycle, schema, and grant files. Commit
+- [x] Run lifecycle, schema, and grant files. Commit
   `feat(storage): guard document extraction lifecycle`.
 
 ### Task 6: Add source-link and organization schema
 
 Files: third migration, six knowledge schemas, knowledge schema/RLS tests.
 
-- [ ] Add rejection tests first: wrong Note version, wrong source tuple, wrong
+- [x] Add rejection tests first: wrong Note version, wrong source tuple, wrong
   fragment or locator, self-reference, duplicate order, and cross-owner target.
-- [ ] Create `note_attachments` with primary key `(note_resource_version_id,id)`,
+- [x] Create `note_attachments` with primary key `(note_resource_version_id,id)`,
   Note aggregate tuple, target aggregate tuple, target_kind, ordinal, role, label,
   and inserted_at. Both sides carry private classification and owner scope.
   Add typed Note FK, generic target FK, unique Note ordinal, unique Note/target
   version/role, target-kind/readiness guard, and self-attachment check.
-- [ ] Create `note_citations` with primary key `(note_resource_version_id,id)`,
+- [x] Create `note_citations` with primary key `(note_resource_version_id,id)`,
   Note tuple, Document source tuple, fragment ID, exact locator, ordinal, timestamp.
   Add typed Note and full fragment-tuple FKs, unique Note ordinal, and deferred
   equality check against the immutable fragment locator. Duplicate citation IDs
   across different Note versions are permitted; the same Note version cannot
   reuse one. Different citation IDs may cite the same fragment.
-- [ ] Both source tables deny all production writes and write-function execution.
+- [x] Both source tables deny all production writes and write-function execution.
   UPDATE/DELETE triggers protect inserted rows; INSERT guards require a valid
   complete source set in test transactions. Do not describe row immutability as
   sealed membership: that separate Phase 4 prerequisite remains explicit.
-- [ ] Create `tags(id,vault_id,classification,display_value,normalized_key,
+- [x] Create `tags(id,vault_id,classification,display_value,normalized_key,
   created_by_principal_id,inserted_at)` with private check, bounds, actor FK,
   `(id,vault_id)` uniqueness and bytewise `(vault_id,normalized_key COLLATE "C")`
   unique index. No SQL claim of full Unicode normalization equivalence.
-- [ ] Create `resource_tags(resource_id,tag_id,vault_id,classification,inserted_at)`
+- [x] Create `resource_tags(resource_id,tag_id,vault_id,classification,inserted_at)`
   with owner/resource/tag PK and composite resource/tag FKs. Create
   `relationships(id,vault_id,classification,source_resource_id,target_resource_id,
   target_resource_version_id,type,created_by_principal_id,inserted_at)` with source/
@@ -595,10 +596,10 @@ Files: third migration, six knowledge schemas, knowledge schema/RLS tests.
   checks, exact type allowlist, non-self check, unique owner/source/target/type,
   and owner/target/type/source incoming index. An absent target pin is allowed;
   a non-null pin must match the target resource.
-- [ ] Resource/target guards verify initial private supported kinds and same scope;
+- [x] Resource/target guards verify initial private supported kinds and same scope;
   tombstoning retains rows. Add RLS to every table and deny production writes as
   in Task 4. No cascading deletion from tombstone or physical Asset cleanup.
-- [ ] Run `knowledge_schema_test.exs`, `knowledge_rls_test.exs`, and grant tests.
+- [x] Run `knowledge_schema_test.exs`, `knowledge_rls_test.exs`, and grant tests.
   Commit `feat(storage): add versioned sources and organization tables`.
 
 ### Task 7: Implement the digest primitive and source-preparation contract
@@ -612,7 +613,7 @@ Files: additive AuthenticatedReader operation, new preparation modules/source
 repository, reader tests and prepare_source tests. This task can run alongside
 schema tasks after Task 3.
 
-- [ ] Add a failing `AuthenticatedReader.digest/3` test inside the existing reader
+- [x] Add a failing `AuthenticatedReader.digest/3` test inside the existing reader
   test module so it can use its private encrypted fixture builder:
 
 ```elixir
@@ -626,17 +627,17 @@ test "digest authenticates content and final metadata", %{tmp_dir: tmp_dir} do
 end
 ```
 
-- [ ] Implement digest with existing input/header/layout/stat checks, incremental
+- [x] Implement digest with existing input/header/layout/stat checks, incremental
   `:crypto.hash_init/update/final`, one authenticated record at a time, and
   final-record digest/byte/chunk validation. Do not call `read(:all)` or repeatedly
   range-read without final authentication. Empty input hashes correctly. Keep
   existing `read/4` semantics untouched; add only private helpers actually shared.
-- [ ] Prove corrupt middle/final record, false byte count, truncation, wrong key,
+- [x] Prove corrupt middle/final record, false byte count, truncation, wrong key,
   wrong object binding, and storage failure never return a digest. A recording
   adapter proves no read requests the full ciphertext and reads are bounded by
   one chunk plus format overhead. Return only digest/size; no plaintext buffer,
   ciphertext handle, path, key, or exception detail escapes in the result.
-- [ ] Implement internal `DocumentSourceRepository.load(repo, context, asset_id)` to read the private live
+- [x] Implement internal `DocumentSourceRepository.load(repo, context, asset_id)` to read the private live
   Asset and exact source tuple in a scoped short transaction. Construct object
   binding using the established authorized object read/key-envelope contract.
   `PrepareSource.prepare/2` accepts a trusted digest-operation dependency, source IDs,
@@ -647,7 +648,7 @@ end
   association (`released_at IS NULL`), not just Asset/object IDs. The future live
   dependency must perform reads within runtime custody; storage must never load or unwrap
   keys, depend on runtime, or reuse a download response as a digest proof.
-- [ ] The prepared value is an internal result, not an unforgeable BEAM capability.
+- [x] The prepared value is an internal result, not an unforgeable BEAM capability.
   `DocumentRepository` receives a preparation dependency and invokes it itself;
   its public adapter entry never accepts externally manufactured digest evidence.
   Production composition is deferred to Phase 2. A fake proves only the internal
@@ -655,12 +656,12 @@ end
   initializer or application configuration wires this adapter. Missing digest
   dependencies return `Error.new(:storage_unavailable)` without I/O or writes;
   add a focused test for this fail-closed path.
-- [ ] Recheck Asset state, source association, object identity and immutable
+- [x] Recheck Asset state, source association, object identity and immutable
   binding in the later create transaction; source-change/tombstone races fail
   without receipt/data. Phase 1 does not acquire long-lived object retention or
   redesign keys. Missing authorization for the in-scope source query is a blocker;
   the deferred live digest capability is not a Phase 1 blocker.
-- [ ] Run reader and prepare-source tests plus existing
+- [x] Run reader and prepare-source tests plus existing
   `asset_authorized_object_test.exs` in integration. Commit
   `feat(storage): define authenticated source preparation contract`.
 
@@ -669,11 +670,11 @@ end
 Files: DocumentRepository, DocumentMutationReceipts, KnowledgeError, mapped tests
 and KnowledgeFixtures. Reuse existing isolated account/Asset/Note fixture builders.
 
-- [ ] Write pending creation, sequential/concurrent replay, changed-input conflict,
+- [x] Write pending creation, sequential/concurrent replay, changed-input conflict,
   source-race rollback, and dangling-result tests first. Expected first failure is
   missing adapter behavior. Use the same mutation with different generated
   candidate resource IDs to prove replay returns original identifiers.
-- [ ] DocumentRepository separates preparation and commit: validate input and
+- [x] DocumentRepository separates preparation and commit: validate input and
   invoke the injected preparation contract outside any DB transaction, then use
   ScopedRepo.transact with authenticated internal context to validate source and
   claim receipt. Internal
@@ -681,7 +682,7 @@ and KnowledgeFixtures. Reuse existing isolated account/Asset/Note fixture builde
   A supplied already-open transaction at the preparation entry is invalid.
   Phase 1 exercises this composition with test-only preparation dependencies;
   no live runtime import entry point or raw-key dependency is introduced.
-- [ ] Claim receipt with `INSERT ... ON CONFLICT DO NOTHING`; on existing row,
+- [x] Claim receipt with `INSERT ... ON CONFLICT DO NOTHING`; on existing row,
   `SELECT ... FOR UPDATE`, compare fingerprint/principal/scope, and return stored
   result. New owner locks source Asset and object using established lock order,
   rechecks association, inserts generic resource/version/typed row, sets head,
@@ -690,56 +691,56 @@ and KnowledgeFixtures. Reuse existing isolated account/Asset/Note fixture builde
   Include head, source, and typed identity constraints in that explicit list;
   do not copy only the four Notes receipt constraints or force unrelated work
   with `SET CONSTRAINTS ALL`.
-- [ ] Receipt result is stable accepted identity. `create_pending` replay returns
+- [x] Receipt result is stable accepted identity. `create_pending` replay returns
   a typed current view of that same accepted version even after its lifecycle
   advances; it never resets state. If original source is unavailable, no new import
   is accepted. Phase 1 does not promise public replay without source access.
-- [ ] HMAC input uses canonical accepted fields from Task 3 and server-injected
+- [x] HMAC input uses canonical accepted fields from Task 3 and server-injected
   secret. Do not store title/text/raw secret in receipt fields or diagnostics.
   Different mutation IDs with identical source are two accepted logical Documents.
-- [ ] Adapter lifecycle operations invoke only the guarded SQL functions. Map
+- [x] Adapter lifecycle operations invoke only the guarded SQL functions. Map
   their stable conflict/invalid/forbidden/not-found outcomes through KnowledgeError;
   map connection failures to retryable storage_unavailable. Never include raw
   changeset, query, parameter, or database detail in Core.Error.
-- [ ] Grant helper accepts explicit new table/function allowlists; it checks
+- [x] Grant helper accepts explicit new table/function allowlists; it checks
   generated isolated database identity, grants only within that database, and
   uses try/after revocation. It never grants BYPASSRLS/superuser/role membership.
   All test modules using it are synchronous and call grant-denial verification
   afterward. Test-only grants may not be copied into migrations or bootstrap.
-- [ ] Run repository, receipt, lifecycle, source-preparation and grants tests.
+- [x] Run repository, receipt, lifecycle, source-preparation and grants tests.
   Commit `feat(storage): persist idempotent document imports`.
 
 ### Task 9: Implement internal knowledge-link and organization adapters
 
 Files: three knowledge adapters and their mapped tests.
 
-- [ ] Add failing tests for atomically inserting/reading a complete source set,
+- [x] Add failing tests for atomically inserting/reading a complete source set,
   typed target validation, normalized tag replay, assignment replay, relationship
   pin conflict, and deterministic outgoing/incoming lists.
-- [ ] `KnowledgeLinkRepository.insert_set/2` requires the existing outer scoped
+- [x] `KnowledgeLinkRepository.insert_set/2` requires the existing outer scoped
   transaction, revalidates NoteSourceSet and database source values, then inserts
   all attachments/citations. It forces its deferred constraints before success;
   any failure returns through the outer rollback. No overwrite/update/upsert of
   an old source row is allowed. Entire equal-set replay returns existing values;
   partial or mismatched stored sets conflict. Read by exact Note resource/version.
   This adapter remains disabled by runtime grants until Phase 4 adds membership sealing.
-- [ ] Tag resolve computes display/key in trusted code, inserts on owner/key
+- [x] Tag resolve computes display/key in trusted code, inserts on owner/key
   conflict do-nothing, then fetches the established row; first accepted spelling
   and UUID win. Attach inserts on owner/resource/tag conflict do-nothing; detach
   deletes that exact assignment. Only a real mutation emits an ID-only audit.
-- [ ] Relationship relate inserts on natural edge key conflict do-nothing; replay
+- [x] Relationship relate inserts on natural edge key conflict do-nothing; replay
   fetches the row and compares the optional pin. A changed pin conflicts. Unrelate
   of a missing owned edge is successful without duplicate audit. No automatic
   inferred/reverse edge is created. Incoming is a reverse query on stored directed
   edges; live lists join live source and target resources. Limit 100 and sort by
   stable UUID tuple; public cursors and browser API remain deferred.
-- [ ] Use existing audit transaction pattern with operation names
+- [x] Use existing audit transaction pattern with operation names
   `knowledge.tag_created`, `knowledge.tag_attached`, `knowledge.tag_detached`,
   `knowledge.related`, `knowledge.unrelated`; metadata contains only UUIDs/type
   allowlist. Audit failure rolls back the canonical mutation. Validate existing
   audit shape accepts these operation names before adapter writes; do not expand
   global audit/Vault semantics to force them through.
-- [ ] Run the three adapter test files, knowledge schema/RLS tests, and privacy
+- [x] Run the three adapter test files, knowledge schema/RLS tests, and privacy
   tests. Commit `feat(storage): persist internal knowledge links`.
 
 ### Task 10: Prove isolation, concurrency, privacy, and compatibility
@@ -747,35 +748,35 @@ Files: three knowledge adapters and their mapped tests.
 Files: new knowledge concurrency/privacy/RLS/migration/grant tests and existing
 current-schema tests only when exact inventory changed.
 
-- [ ] Concurrency fixtures use separate scoped connections, process handshakes,
+- [x] Concurrency fixtures use separate scoped connections, process handshakes,
   bounded lock waits and monitored process completion. No fixed sleep proves a
   race. Prove equivalent import winner/replay, mismatched request conflict,
   claim collision, ready/failure collision, reset/stale completion, and source
   deletion between authentication and create. Repeat scoped tests only when a
   code change or unresolved race concern warrants it.
-- [ ] Execute the FK rejection matrix using SQL bypassing Ecto: wrong owner,
+- [x] Execute the FK rejection matrix using SQL bypassing Ecto: wrong owner,
   resource, version, classification, typed kind, Note parent, source Asset version,
   Document fragment, and locator. Assert exact constraint/error code and no leaked
   committed rows. Corrupt stored prerequisites only within disposable database
   migration tests; keep ordinary tests' production constraints enabled.
-- [ ] Test direct grants do not permit immutable UPDATE/DELETE or raw lifecycle
+- [x] Test direct grants do not permit immutable UPDATE/DELETE or raw lifecycle
   transitions; temporary EXECUTE still enforces live scope. Test missing context,
   other owner, another principal's receipt, revoked membership, and context cleanup
   after rollback. Recheck production effective privileges after temporary revocation.
-- [ ] Add privacy canaries for title, body, source filename, tag, label, and locator
+- [x] Add privacy canaries for title, body, source filename, tag, label, and locator
   through successful and failing paths. Capture supported logger/telemetry/audit
   surfaces using existing helpers. New errors contain only code/retryability;
   no arbitrary exception inspection. Architecture tests forbid public API/job
   activation and changes to logical V1/V2 backup schemas.
-- [ ] Re-run existing Notes schema/repository/receipt/concurrency/rollback and
+- [x] Re-run existing Notes schema/repository/receipt/concurrency/rollback and
   Asset provenance/authorized-object tests to show the generic head change and
   digest helper preserve supported behavior. Report any outside-scope failure
   and stop acceptance; do not repair it under this plan.
-- [ ] Commit `test(knowledge): prove canonical model boundaries`.
+- [x] Commit `test(knowledge): prove canonical model boundaries`.
 
 ### Task 11: Complete verification and independent review
 
-- [ ] Check the full diff from `6c3e8d5` against the exact file map. Confirm three
+- [x] Check the full diff from `6c3e8d5` against the exact file map. Confirm three
   new migrations only, every released migration unchanged, all versions unchanged,
   and no Vault/crypto-format/job/workflow/browser/backup-format edits.
 - [ ] Run format and compilation checks and commit any scoped formatting changes.
@@ -812,15 +813,134 @@ section && fence { print }
 
 ## Specification coverage checklist
 
-- [ ] Reused generic identity, private source model, typed head constraints: 3–4.
-- [ ] Digest primitive and idempotent pending creation with test-only source
+- [x] Reused generic identity, private source model, typed head constraints: 3–4.
+- [x] Digest primitive and idempotent pending creation with test-only source
   preparation; live custody composition deferred to Phase 2: 7–8.
-- [ ] Guarded lifecycle, retries, generations, atomic completion: 3, 5, 8, 10.
-- [ ] Locators, stable IDs, canonical fragments: 2, 5.
-- [ ] Immutable Note source links and explicit membership-sealing gate: 3, 6, 9.
-- [ ] Tags, directed relations, pinned targets and backlink queries: 3, 6, 9.
-- [ ] Scope isolation, grants, no production new-data writes: 4–6, 8, 10.
+- [x] Guarded lifecycle, retries, generations, atomic completion: 3, 5, 8, 10.
+- [x] Locators, stable IDs, canonical fragments: 2, 5.
+- [x] Immutable Note source links and explicit membership-sealing gate: 3, 6, 9.
+- [x] Tags, directed relations, pinned targets and backlink queries: 3, 6, 9.
+- [x] Scope isolation, grants, no production new-data writes: 4–6, 8, 10.
 - [ ] Privacy, unchanged existing Notes/Assets/V1/V2 behavior: 1, 7, 10–11.
 - [ ] Forward migrations, complete gate, independent review and report: 4–6, 11.
-- [ ] Phase 2 retention/recovery, Phase 4 sealing, and backup activation
+- [x] Phase 2 retention/recovery, Phase 4 sealing, and backup activation
   prerequisites remain explicit and no later-phase public behavior was added.
+
+## Scoped execution record — 2026-09-08
+
+Tested implementation commit: `aa7c3223d5ddea5c30e2d66f658af2e5d7f5b417`.
+This record is a subsequent documentation-only update, not a new implementation
+or acceptance claim. The complete README gate, including E2E and independent
+restore acceptance, was **not run**. Focused verification does not replace it.
+
+### Delivered commits and scope
+
+- Canonical values, ports, and governance: `ebaa57b` through `df908bf`.
+- Bounded authenticated digest and fixture-backed preparation: `a89a9b2`, `de5c4a1`.
+- Approved historical test boundaries: `7de821e`, `07efcbf`, `1c097bb`.
+- Typed Document identity: `71ebb66`; lifecycle/fragments: `d918fbf`.
+- Source-link/organization schema: `6da1579`; Document persistence: `fa951d8`.
+- Link/tag/relationship persistence and privacy: `6bb389c`.
+- Auditing the actual deleted relationship row: `e71d399`.
+- Deterministic concurrency, exact SQL rejection/rollback, scope cleanup, and
+  frozen backup/runtime contracts: `aa7c322`.
+
+The complete commit and changed-file inventories are reproducible with:
+
+```bash
+git log --oneline --reverse 6c3e8d5..aa7c322
+git diff --name-status 6c3e8d5..aa7c322
+```
+
+The 76 changed files match the approved file inventory, including the approved
+design and this plan. Exactly the three new migrations listed above were added;
+every released migration is unchanged. No Vault feature or compatibility patch,
+crypto-format, runtime/job, workflow, browser, backup-format, dependency, or
+application-version edit occurred. Main and the implementation worktree were
+clean at verification. No merge, push, release, deployment, or production
+migration occurred.
+
+### Final scoped commands and results
+
+All commands ran from the phase worktree in its pinned devenv environment.
+The following non-database checks exited zero: formatting, warnings-as-errors
+compilation of all seven applications, 77 tests and 5 properties (seed `834482`),
+zero xref cycles, and whitespace checks.
+
+```bash
+set -euo pipefail
+devenv shell -- mix format --check-formatted
+devenv shell -- mix compile --warnings-as-errors
+devenv shell -- mix test \
+  apps/singularity_core/test/singularity/core/source_locator_test.exs \
+  apps/singularity_core/test/singularity/core/document_values_test.exs \
+  apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs \
+  apps/singularity_core/test/singularity/core/knowledge_properties_test.exs \
+  apps/singularity_domains/test/singularity/domains/documents_test.exs \
+  apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs \
+  apps/singularity_storage/test/singularity/storage/authenticated_reader_test.exs \
+  apps/singularity_storage/test/singularity/storage/provenance_test.exs \
+  apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs \
+  apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+devenv shell -- mix xref graph --format cycles --fail-above 0
+git diff --check
+```
+
+The consolidated database run exited zero: **231 tests, zero failures**, seed
+`756851`, 157.6 seconds. Its allocated database was
+`singularity_test_279299a34558a96ee0cf7b7c`. The integration task cleaned up the
+database and the service trap completed; a subsequent process-status check
+confirmed no process manager remained running.
+
+```bash
+set -euo pipefail
+trap 'devenv processes down' EXIT
+devenv up -d
+devenv processes wait --timeout 120
+devenv shell -- mix singularity.test.integration \
+  apps/singularity_storage/test/singularity/storage/document_schema_test.exs \
+  apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_migration_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_concurrency_test.exs \
+  apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs \
+  apps/singularity_storage/test/singularity/storage/documents/prepare_source_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/document_mutation_receipts_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/migrations_test.exs \
+  apps/singularity_storage/test/singularity/storage/note_schema_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs \
+  apps/singularity_storage/test/singularity/storage/note_mutation_concurrency_test.exs \
+  apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs \
+  apps/singularity_storage/test/singularity/storage/postgres/asset_repository_test.exs \
+  apps/singularity_storage/test/singularity/storage/asset_authorized_object_test.exs
+```
+
+`provenance_test.exs` is an existing untagged unit test: an earlier integration
+invocation excluded it, so it was run correctly as a unit test without changing
+its classification. It is included in the final unit command above.
+
+### Review and remaining gates
+
+Tasks 1–10 passed independent specification and quality review. Final
+cross-task implementation specification and quality reviews passed at the
+tested SHA, with no outstanding important findings. Review-driven regressions reproduced and
+then verified fixes for source-set replay constraints, atomic multi-query source
+reads, and relationship deletion audit metadata under concurrent replacement.
+
+Production new-data access remains denied after temporary test grants are
+revoked. Source preparation is an isolated contract with injected digest
+fixtures, not live custody verification. Phase 2 still owns custody composition,
+original-byte retention, and abandoned-extraction recovery. Phase 4 still owns
+Note source-set membership sealing. Production activation still requires a
+fail-closed unsupported-data backup guard or complete V3 support.
+
+Do not accept Phase 1, start Phase 2, or integrate/release this work on the basis
+of these scoped results. The user's deferred full verification gate remains the
+next acceptance prerequisite.
