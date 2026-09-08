@@ -112,4 +112,97 @@ defmodule Singularity.Storage.KnowledgeFixtures do
   end
 
   def uuid, do: Ecto.UUID.generate() |> Ecto.UUID.dump!()
+
+  # Source preparation requires metadata and the established envelope lookup.
+  # Keep source!/0 unchanged for the schema-only contracts.
+  def prepared_source! do
+    source = source!()
+
+    Fixtures.with_owner(fn ->
+      %{rows: [[domain_id]]} =
+        query!(MigrationRepo, "SELECT key_domain_id FROM content.asset_objects WHERE id=$1", [
+          source.object_id
+        ])
+
+      vault_version = uuid()
+      domain_version = uuid()
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.vault_key_versions (id,vault_id,generation,state,algorithm,activated_at) VALUES ($1,$2,1,'active','aes_256_gcm',CURRENT_TIMESTAMP)",
+        [vault_version, source.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.domain_key_versions (id,vault_id,key_domain_id,vault_key_version_id,generation,state,algorithm,wrapped_key) VALUES ($1,$2,$3,$4,1,'active','aes_256_gcm',decode(repeat('01',60),'hex'))",
+        [domain_version, source.vault_id, domain_id, vault_version]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.asset_key_envelopes (id,vault_id,asset_object_id,domain_key_version_id,key_domain_id,classification,algorithm,key_generation,wrapped_dek) VALUES ($1,$2,$3,$4,$5,'private','aes_256_gcm',1,decode(repeat('02',60),'hex'))",
+        [uuid(), source.vault_id, source.object_id, domain_version, domain_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.asset_metadata (id,asset_id,resource_version_id,vault_id,classification,projection_version,original_filename,declared_media_type,detected_media_type,plaintext_byte_size,extraction_state,completed_at) VALUES ($1,$2,$3,$4,'private',1,'test.txt','text/plain','text/plain',12,'completed',CURRENT_TIMESTAMP)",
+        [uuid(), source.asset_id, source.resource_version_id, source.vault_id]
+      )
+    end)
+
+    Map.new(source, fn {key, value} ->
+      {key,
+       if(String.ends_with?(Atom.to_string(key), "_id"), do: Ecto.UUID.load!(value), else: value)}
+    end)
+  end
+
+  def document_context(source) do
+    %{
+      repo: Singularity.Storage.RequestRepo,
+      principal_id: source.principal_id,
+      owner_scope_id: source.vault_id,
+      fingerprint_secret: :binary.copy(<<7>>, 32),
+      digest_operation: fn _, _ ->
+        {:ok, %{sha256: source.digest, byte_size: source.byte_size}}
+      end
+    }
+  end
+
+  def document_command(source, attrs \\ %{}) do
+    {:ok, pinned} =
+      Singularity.Core.DocumentSource.new(%{
+        asset_id: source.asset_id,
+        resource_id: source.resource_id,
+        resource_version_id: source.resource_version_id,
+        object_id: source.object_id,
+        owner_scope_id: source.vault_id,
+        classification: :private,
+        digest: source.digest,
+        byte_size: source.byte_size,
+        media_type: "text/plain"
+      })
+
+    {:ok, command} =
+      Singularity.Domains.Documents.Command.new(
+        Map.merge(
+          %{
+            mutation_id: Ecto.UUID.generate(),
+            resource_id: Ecto.UUID.generate(),
+            resource_version_id: Ecto.UUID.generate(),
+            title: "Document",
+            source: pinned,
+            principal_id: source.principal_id,
+            owner_scope_id: source.vault_id,
+            classification: :private,
+            correlation_id: Ecto.UUID.generate(),
+            inserted_at: DateTime.utc_now(:microsecond)
+          },
+          attrs
+        )
+      )
+
+    command
+  end
 end
