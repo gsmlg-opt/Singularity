@@ -25,7 +25,7 @@ gate. Afterward, update the checkboxes and verification record together.
 **Files:**
 - Test: `apps/singularity_storage/test/singularity/storage/upload_grant_csrf_migration_test.exs:1`
 
-- [ ] **Step 1: Confirm the worktree begins at the approved design commit**
+- [x] **Step 1: Confirm the worktree begins at the approved design commit**
 
 Run:
 
@@ -36,7 +36,7 @@ git log -2 --oneline
 
 Expected: branch `codex/v0.2-phase-1-acceptance-repair`, clean worktree, and design commit `2da8609` above Phase 1 commit `9e20fed`.
 
-- [ ] **Step 2: Run the focused integration test and preserve the red result**
+- [x] **Step 2: Run the focused integration test and preserve the red result**
 
 Run:
 
@@ -59,7 +59,7 @@ Expected: exit code 2; 1 test, 1 failure; `Ecto.MigrationError` reports `Knowled
 - Modify: `apps/singularity_storage/test/singularity/storage/upload_grant_csrf_migration_test.exs:6`
 - Test: `apps/singularity_storage/test/singularity/storage/upload_grant_csrf_migration_test.exs:19`
 
-- [ ] **Step 1: Add the migration environment and explicit ceiling**
+- [x] **Step 1: Add the migration environment and explicit ceiling**
 
 Replace the aliases and version attributes at the top of the test with:
 
@@ -73,11 +73,11 @@ alias Singularity.Storage.Migrations.SecureUploadGrantCsrf
 
 `@previous_version` is `20260722001000_guard_active_domain_key_envelopes.exs`, the latest migration before `SecureUploadGrantCsrf`.
 
-- [ ] **Step 2: Remove shared-database preparation**
+- [x] **Step 2: Remove shared-database preparation**
 
 Delete the module `setup` block. The disposable migration environment owns database creation and cleanup, so truncating the fully migrated integration database is no longer part of this test.
 
-- [ ] **Step 3: Wrap the established assertions in the isolated database**
+- [x] **Step 3: Wrap the established assertions in the isolated database**
 
 Replace the beginning of the test body through the existing manual `try` setup with:
 
@@ -102,7 +102,7 @@ test "legacy grants fail closed and the migration round-trips their prior consum
 
 Keep the existing digest-length, invalid-digest, rollback-state, and final reapply assertions unchanged inside the callback.
 
-- [ ] **Step 4: Use the migration environment for cleanup**
+- [x] **Step 4: Use the migration environment for cleanup**
 
 Remove the old manual `after` block, including `Ecto.Migrator.run(..., :up, all: true)`, `Supervisor.stop/1`, and compiler-option restoration. Close the callback and test with:
 
@@ -113,7 +113,7 @@ end
 
 Delete the now-unused private `migrations_path/0` helper. Do not change `insert_legacy_grant!/2` or `with_owner/1`.
 
-- [ ] **Step 5: Format and inspect the surgical diff**
+- [x] **Step 5: Format and inspect the surgical diff**
 
 Run:
 
@@ -127,7 +127,7 @@ git diff -- \
 
 Expected: the diff changes only migration-environment setup and cleanup; all behavioral assertions remain present.
 
-- [ ] **Step 6: Run the focused test and verify green**
+- [x] **Step 6: Run the focused test and verify green**
 
 Run:
 
@@ -144,7 +144,7 @@ devenv shell -- mix singularity.test.integration \
 
 Expected: exit code 0; 1 test, 0 failures.
 
-- [ ] **Step 7: Commit the test-only repair**
+- [x] **Step 7: Commit the test-only repair**
 
 Run:
 
@@ -163,7 +163,7 @@ Expected: the staged file list contains only the upload-grant migration test.
 **Files:**
 - Update: `docs/superpowers/plans/2026-09-14-singularity-v0.2-phase-1-acceptance-repair.md`
 
-- [ ] **Step 1: Run the exact complete README verification sequence**
+- [x] **Step 1: Run the exact complete README verification sequence**
 
 Run from one shell so cleanup remains active:
 
@@ -209,7 +209,7 @@ Expected: exit code 0; backend, integration, restore, frontend, browser, xref, a
 
 If any command fails, stop without changing unrelated code and report the exact failing command and output.
 
-- [ ] **Step 2: Append the execution record**
+- [x] **Step 2: Append the execution record**
 
 Append a `## Verification record` section to this plan containing:
 
@@ -220,7 +220,7 @@ Append a `## Verification record` section to this plan containing:
 - complete README gate command and result;
 - remaining risks, including that Phase 2 has not started and release publication remains unauthorized.
 
-- [ ] **Step 3: Commit the verification record**
+- [x] **Step 3: Commit the verification record**
 
 Run:
 
@@ -234,7 +234,7 @@ git commit -m "docs(phase1): record acceptance repair verification"
 
 Expected: the staged file list contains only this plan.
 
-- [ ] **Step 4: Audit final scope and history**
+- [x] **Step 4: Audit final scope and history**
 
 Run:
 
@@ -254,3 +254,49 @@ docs/superpowers/specs/2026-09-14-singularity-v0.2-phase-1-acceptance-repair-des
 ```
 
 Expected: clean worktree, no whitespace errors, and no production or released-migration changes.
+
+## Verification record
+
+- Test-only repair commit: `743309e3ee30e7d30b9ee98c57d5e9101dcfd2ad`
+- Repair changed file: `apps/singularity_storage/test/singularity/storage/upload_grant_csrf_migration_test.exs`
+- Scope confirmation: the repair changed no production file, released migration,
+  dependency, workflow, or Vault behavior.
+- Task 1 red contract: the focused `mix singularity.test.integration
+  apps/singularity_storage/test/singularity/storage/upload_grant_csrf_migration_test.exs`
+  command exited 2 with 1 test, 1 failure. `Ecto.MigrationError` reported
+  `Knowledge links migration is forward-only` from
+  `CreateKnowledgeLinksAndOrganization.down/0`.
+- Task 2 focused green: the same focused integration command exited 0 with
+  1 test, 0 failures. Independent verification also exited 0 with 1 test,
+  0 failures, a clean worktree, and no leaked database or service.
+- Approved narrow deviation: `MigrationTestEnvironment` stops `MigrationRepo`
+  before invoking its callback, so the test retains a callback-scoped
+  `MigrationRepo.start_link`; the environment owns repository stop, database
+  drop, and configuration restoration. Specification and quality review
+  approved this deviation.
+- Complete README gate: the exact single-shell sequence in Task 3 Step 1 exited
+  0. Role bootstrap, `mix deps.get`, `mix deps.unlock --check-unused`,
+  `mix format --check-formatted`, and `mix compile --warnings-as-errors` passed.
+  `mix test` reported: core 10 properties and 105 tests, domains 38 tests,
+  storage 796 tests with 537 excluded, retrieval 26 tests, ingest 30 tests,
+  runtime 544 tests with 78 excluded, and web 164 tests; every application
+  reported 0 failures. `mix singularity.test.integration` reported storage
+  796 tests, 0 failures, 259 excluded and runtime 544 tests, 0 failures,
+  466 excluded; applications with no integration cases reported all tests
+  excluded and 0 failures. `mix singularity.test.restore` exited 0; both
+  restore scenarios reported `maintenance_mode ok=true`,
+  `empty_destination ok=true`, and `restore complete`.
+- Frontend and browser gate: frozen npm installation installed 166 packages;
+  `mix npm.verify` reported that `node_modules` matches the 166-package lockfile;
+  `mix duskmoon_bundler.js.check` reported 22 formatted files and no lint issues;
+  `mix npm.run test:js` reported 9 files and 197 tests passed; the Tailwind and
+  JavaScript build exited 0; `mix npm.run test:e2e` reported 10 tests passed.
+- Architecture and workflow gate: xref reported `No cycles found`; actionlint
+  exited 0 with no diagnostics. `git diff --check`, `git status --short`, and
+  the porcelain-cleanliness assertion all exited 0 with no output.
+- Cleanup proof: the single-shell EXIT trap invoked `devenv processes down`.
+  A subsequent idempotent cleanup check reported
+  `No process manager is running. Start processes first with devenv up -d`,
+  and the worktree remained clean.
+- Remaining risks and exclusions: Phase 2 has not started. Remote `main`, push,
+  release publication, and deployment remain unverified and unauthorized.
