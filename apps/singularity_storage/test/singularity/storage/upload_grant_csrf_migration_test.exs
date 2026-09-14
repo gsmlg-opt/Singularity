@@ -3,39 +3,18 @@ defmodule Singularity.Storage.UploadGrantCsrfMigrationTest do
 
   @moduletag :integration
 
-  alias Singularity.Storage.{Fixtures, MigrationRepo}
+  alias Singularity.Storage.{Fixtures, MigrationRepo, MigrationTestEnvironment}
   alias Singularity.Storage.Migrations.SecureUploadGrantCsrf
 
   @version 20_260_728_000_100
-
-  setup do
-    Fixtures.with_owner(fn ->
-      query!(MigrationRepo, "TRUNCATE TABLE core.vaults, identity.people CASCADE")
-    end)
-
-    :ok
-  end
+  @previous_version 20_260_722_001_000
 
   test "legacy grants fail closed and the migration round-trips their prior consumption state" do
-    %{one: fixture} = Fixtures.two_vaults!()
-    migrations_path = migrations_path()
-    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
-    compiler_options = Code.compiler_options()
-    Code.compiler_options(ignore_module_conflict: true)
+    MigrationTestEnvironment.with_database(@previous_version, fn _environment ->
+      %{one: fixture} = Fixtures.two_vaults!()
+      {:ok, _migration_repo} = MigrationRepo.start_link(pool_size: 2)
 
-    try do
       assert Code.ensure_loaded?(SecureUploadGrantCsrf)
-
-      rolled_back_versions =
-        Ecto.Migrator.run(
-          MigrationRepo,
-          migrations_path,
-          :down,
-          to: @version,
-          log: false
-        )
-
-      assert List.last(rolled_back_versions) == @version
 
       unconsumed_id = insert_legacy_grant!(fixture, nil)
       consumed_at = DateTime.add(DateTime.utc_now(:microsecond), -60, :second)
@@ -130,20 +109,7 @@ defmodule Singularity.Storage.UploadGrantCsrfMigrationTest do
                  SecureUploadGrantCsrf,
                  log: false
                )
-    after
-      try do
-        Ecto.Migrator.run(
-          MigrationRepo,
-          migrations_path,
-          :up,
-          all: true,
-          log: false
-        )
-      after
-        Supervisor.stop(migration_repo)
-        Code.compiler_options(compiler_options)
-      end
-    end
+    end)
   end
 
   defp insert_legacy_grant!(fixture, consumed_at) do
@@ -186,12 +152,5 @@ defmodule Singularity.Storage.UploadGrantCsrfMigrationTest do
       query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
       callback.()
     end)
-  end
-
-  defp migrations_path do
-    :singularity_storage
-    |> :code.priv_dir()
-    |> to_string()
-    |> Path.join("repo/migrations")
   end
 end
