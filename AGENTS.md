@@ -12,16 +12,18 @@ single-user personal knowledge base. Its governing documents are:
 - `docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md`
 
 Work proceeds one accepted phase at a time in a separate project-local
-worktree and branch. Phase 0 is accepted at
-`6c3e8d5afb2cc9dbf264d276796070e16aa49e55`.
-The active implementation slice is Phase 1 under the approved canonical-model
-design and implementation plan above. Later phases require separate approved
-designs and detailed implementation plans after their predecessors are accepted.
+worktree and branch. Phase 1 is accepted locally at
+`a80957da41582de40bdf586a0cba1e14644acf0a`. The active implementation
+slice is Phase 2 under
+`docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md`
+and
+`docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md`.
+Later phases still require separate approved designs and detailed plans.
+Version bumps, tags, releases, pushes, and deployments remain separately gated.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
 and browser behavior remain in their designated later phases.
-Version bumps, tags, releases, pushes, and deployments require separate authorization.
 
 Phase 2 must provide original-byte retention and abandoned extraction recovery
 before public import. Phase 4 must seal Note source-set membership before enabling
