@@ -31,6 +31,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
   alias Singularity.Storage.Schema.Content.{Resource, ResourceVersion}
   alias Singularity.Storage.Schema.Content.DocumentVersion, as: StoredDocument
   alias Singularity.Storage.Schema.Content.DocumentFragment, as: StoredFragment
+  alias Singularity.Storage.Schema.Core.OutboxEvent
 
   @impl true
   def create_pending(context, input) do
@@ -71,7 +72,8 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
                           auth_context(context),
                           prepared
                         ),
-                      :ok <- persist(transaction_repo, command) do
+                      :ok <- persist(transaction_repo, command),
+                      :ok <- request_extraction(transaction_repo, command) do
                    {:ok, Map.take(command, [:resource_id, :resource_version_id])}
                  end
                end),
@@ -317,6 +319,69 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
       :ok
     else
       {:error, reason} -> {:error, KnowledgeError.from(reason)}
+    end
+  end
+
+  defp request_extraction(repo, command) do
+    with {:ok, epochs} <- authorization_epochs(repo, command),
+         {:ok, _event} <-
+           repo.insert(
+             OutboxEvent.create_changeset(
+               %OutboxEvent{},
+               Map.merge(epochs, %{
+                 id: Ecto.UUID.generate(),
+                 event_type: "document.extraction_requested",
+                 idempotency_key: "document-extraction:#{command.resource_version_id}",
+                 vault_id: command.owner_scope_id,
+                 principal_id: command.principal_id,
+                 required_capability: "asset.read",
+                 classification: :private,
+                 correlation_id: command.correlation_id,
+                 causation_id: command.mutation_id,
+                 expected_entity_revision: 0,
+                 envelope_version: 1,
+                 payload: %{
+                   "resource_id" => command.resource_id,
+                   "resource_version_id" => command.resource_version_id
+                 },
+                 occurred_at: DateTime.utc_now(:microsecond)
+               })
+             ),
+             log: false
+           ) do
+      :ok
+    else
+      {:error, reason} -> {:error, KnowledgeError.from(reason)}
+    end
+  end
+
+  defp authorization_epochs(repo, command) do
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT principal_authorization_epoch, vault_authorization_epoch
+           FROM core.live_principal_authorization()
+           WHERE principal_id = $1 AND vault_id = $2
+           """,
+           [Ecto.UUID.dump!(command.principal_id), Ecto.UUID.dump!(command.owner_scope_id)]
+         ) do
+      {:ok, %{rows: [[principal_epoch, vault_epoch]]}}
+      when is_integer(principal_epoch) and principal_epoch >= 0 and
+             is_integer(vault_epoch) and vault_epoch >= 0 ->
+        {:ok,
+         %{
+           principal_authorization_epoch: principal_epoch,
+           vault_authorization_epoch: vault_epoch
+         }}
+
+      {:ok, %{rows: []}} ->
+        error(:forbidden)
+
+      {:ok, _} ->
+        error(:integrity_failure)
+
+      {:error, _} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
     end
   end
 

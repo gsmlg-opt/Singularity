@@ -55,6 +55,47 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
              )
   end
 
+  test "new import emits one IDs-only extraction event with live authorization", c do
+    grants(fn ->
+      assert {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
+
+      assert [event] = extraction_events(c)
+
+      assert event["payload"] == %{
+               "resource_id" => document.resource_id,
+               "resource_version_id" => document.resource_version_id
+             }
+
+      assert event["event_type"] == "document.extraction_requested"
+      assert event["required_capability"] == "asset.read"
+      assert event["classification"] == "private"
+      assert event["causation_id"] == c.command.mutation_id
+      assert event["correlation_id"] == c.command.correlation_id
+      assert event["idempotency_key"] == "document-extraction:#{document.resource_version_id}"
+      assert event["expected_entity_revision"] == 0
+
+      assert {:ok, %{rows: [[principal_epoch, vault_epoch]]}} =
+               ScopedRepo.transact(
+                 RequestRepo,
+                 %{principal_id: c.context.principal_id, vault_id: c.context.owner_scope_id},
+                 fn repo ->
+                   {:ok,
+                    query!(
+                      repo,
+                      "SELECT principal_authorization_epoch, vault_authorization_epoch FROM core.live_principal_authorization() WHERE principal_id=$1 AND vault_id=$2",
+                      [
+                        Ecto.UUID.dump!(c.context.principal_id),
+                        Ecto.UUID.dump!(c.context.owner_scope_id)
+                      ]
+                    )}
+                 end
+               )
+
+      assert event["principal_authorization_epoch"] == principal_epoch
+      assert event["vault_authorization_epoch"] == vault_epoch
+    end)
+  end
+
   test "replay ignores candidate IDs and time but preserves current lifecycle", c do
     grants(fn ->
       assert {:ok, first} = DocumentRepository.create_pending(c.context, c.command)
@@ -68,6 +109,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       }
 
       assert {:ok, ^first} = DocumentRepository.create_pending(c.context, retry)
+      assert [_event] = extraction_events(c)
 
       KnowledgeTestGrants.with_lifecycle_grants(fn ->
         job = Ecto.UUID.generate()
@@ -105,6 +147,8 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       assert {:error, %Error{code: :conflict, message: nil, details: %{}}} =
                DocumentRepository.create_pending(c.context, %{c.command | title: "Other"})
 
+      assert [_event] = extraction_events(c)
+
       assert {:ok, second} =
                DocumentRepository.create_pending(
                  c.context,
@@ -113,6 +157,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
 
       refute first.resource_id == second.resource_id
       assert first.source == second.source
+      assert [_first_event, _second_event] = extraction_events(c)
     end)
   end
 
@@ -156,6 +201,24 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
     grants(fn ->
       assert {:error, %Error{}} = DocumentRepository.create_pending(context, c.command)
       assert_counts(c, 0, 0)
+    end)
+  end
+
+  test "outbox insertion failure rolls back document and receipt", c do
+    grants(fn ->
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "REVOKE INSERT ON core.outbox_events FROM singularity_web")
+      end)
+
+      try do
+        assert {:error, %Error{}} = DocumentRepository.create_pending(c.context, c.command)
+        assert_counts(c, 0, 0)
+        assert [] = extraction_events(c)
+      after
+        Fixtures.with_owner(fn ->
+          query!(MigrationRepo, "GRANT INSERT ON core.outbox_events TO singularity_web")
+        end)
+      end
     end)
   end
 
@@ -535,6 +598,19 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       KnowledgeTestGrants.with_grants(["document_versions"], fn ->
         KnowledgeTestGrants.with_receipt_grants(fun)
       end)
+
+  defp extraction_events(c) do
+    Fixtures.with_owner(fn ->
+      %{rows: rows} =
+        query!(
+          MigrationRepo,
+          "SELECT to_jsonb(event) FROM core.outbox_events AS event WHERE vault_id=$1 AND event_type='document.extraction_requested' ORDER BY sequence",
+          [Ecto.UUID.dump!(c.context.owner_scope_id)]
+        )
+
+      Enum.map(rows, fn [event] -> event end)
+    end)
+  end
 
   defp assert_counts(c, documents, receipts) do
     Fixtures.with_owner(fn ->
