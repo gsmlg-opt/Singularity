@@ -48,4 +48,20 @@ defmodule Singularity.Ingest.Documents.MarkdownTest do
     assert up.locator.heading_path == ["Up"]
     assert body.locator.heading_path == ["Up"]
   end
+
+  test "closing ATX markers require whitespace before the hashes" do
+    assert {:ok, [language, closed, body]} =
+             Markdown.extract("# C#\n# Heading ###\ntext")
+
+    assert language.locator.heading_path == ["C#"]
+    assert closed.locator.heading_path == ["Heading"]
+    assert body.locator.heading_path == ["Heading"]
+  end
+
+  test "keeps a valid long heading in extracted provenance for builder fallback" do
+    heading = String.duplicate("é", 128)
+    assert {:ok, [title, body]} = Markdown.extract("# " <> heading <> "\nbody")
+    assert title.locator.heading_path == [heading]
+    assert body.locator.heading_path == [heading]
+  end
 end

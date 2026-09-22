@@ -67,6 +67,56 @@ defmodule Singularity.Core.DocumentFragmentationTest do
              DocumentFragmentation.build(identity(), "text/plain", [block])
   end
 
+  test "uses final ordinal when a valid Markdown heading exceeds locator capacity" do
+    heading = String.duplicate("é", 128)
+    assert byte_size(heading) == 256
+
+    blocks = [
+      %{
+        text: "intro",
+        locator: %{version: 1, kind: "markdown", heading_path: [], start_line: 1, end_line: 1}
+      },
+      %{
+        text: "# " <> heading,
+        locator: %{
+          version: 1,
+          kind: "markdown",
+          heading_path: [heading],
+          start_line: 2,
+          end_line: 2
+        }
+      }
+    ]
+
+    assert {:ok, [intro, title]} =
+             DocumentFragmentation.build(identity(), "text/markdown", blocks)
+
+    assert intro.ordinal == 0
+    assert title.ordinal == 1
+    assert title.locator.kind == "fragment"
+    assert title.locator.fields.ordinal == 1
+
+    malformed = %{text: "bad", locator: %{version: 1, kind: "markdown", heading_path: [42]}}
+
+    assert {:error, {:unsupported, "invalid_input"}} =
+             DocumentFragmentation.build(identity(), "text/markdown", [malformed])
+
+    split_malformed = %{malformed | text: String.duplicate("b", 65_537)}
+
+    assert {:error, {:unsupported, "invalid_input"}} =
+             DocumentFragmentation.build(identity(), "text/markdown", [split_malformed])
+  end
+
+  test "fragments the largest allowed UTF-8 block without changing content" do
+    text = String.duplicate("é", 8_388_608)
+    block = %{text: text, locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}}
+
+    assert {:ok, fragments} = DocumentFragmentation.build(identity(), "text/plain", [block])
+    assert length(fragments) == 256
+    assert Enum.all?(fragments, &(byte_size(&1.text) == 65_536))
+    assert IO.iodata_to_binary(Enum.map(fragments, & &1.text)) == text
+  end
+
   defp identity,
     do: %{
       resource_id: @id,

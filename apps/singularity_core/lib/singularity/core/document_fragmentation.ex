@@ -1,7 +1,7 @@
 defmodule Singularity.Core.DocumentFragmentation do
   @moduledoc "Builds bounded, deterministic fragments from extracted semantic blocks."
 
-  alias Singularity.Core.DocumentFragment
+  alias Singularity.Core.{DocumentFragment, SourceLocator}
 
   @fragment_bytes 65_536
   @total_bytes 16_777_216
@@ -69,28 +69,31 @@ defmodule Singularity.Core.DocumentFragmentation do
   defp build_blocks(_, _, _, _), do: unsupported("invalid_input")
 
   defp chunks(text) do
-    text
-    |> String.graphemes()
-    |> Enum.reduce_while({[], [], 0}, fn grapheme, {chunks, current, bytes} ->
-      size = byte_size(grapheme)
+    chunk_next(text, [], [], 0)
+  end
 
-      cond do
-        size > @fragment_bytes ->
-          {:halt, :invalid}
+  defp chunk_next("", previous, current, _bytes) do
+    {:ok, Enum.reverse([IO.iodata_to_binary(Enum.reverse(current)) | previous])}
+  end
 
-        bytes + size > @fragment_bytes ->
-          {:cont, {[IO.iodata_to_binary(Enum.reverse(current)) | chunks], [grapheme], size}}
+  defp chunk_next(text, previous, current, bytes) do
+    {grapheme, rest} = String.next_grapheme(text)
+    size = byte_size(grapheme)
 
-        true ->
-          {:cont, {chunks, [grapheme | current], bytes + size}}
-      end
-    end)
-    |> case do
-      :invalid ->
+    cond do
+      size > @fragment_bytes ->
         unsupported("output_too_large")
 
-      {previous, current, _} ->
-        {:ok, Enum.reverse([IO.iodata_to_binary(Enum.reverse(current)) | previous])}
+      bytes + size > @fragment_bytes ->
+        chunk_next(
+          rest,
+          [IO.iodata_to_binary(Enum.reverse(current)) | previous],
+          [grapheme],
+          size
+        )
+
+      true ->
+        chunk_next(rest, previous, [grapheme | current], bytes + size)
     end
   end
 
@@ -98,17 +101,52 @@ defmodule Singularity.Core.DocumentFragmentation do
     split? = length(chunks) > 1
 
     Enum.reduce_while(chunks, {:ok, acc, ordinal}, fn chunk, {:ok, built, index} ->
-      effective_locator =
-        if split?, do: %{version: 1, kind: "fragment", ordinal: index}, else: locator
-
-      attrs = Map.merge(identity, %{ordinal: index, text: chunk, locator: effective_locator})
-
-      case DocumentFragment.new(attrs) do
-        {:ok, fragment} -> {:cont, {:ok, [fragment | built], index + 1}}
-        {:error, _} -> {:halt, unsupported("invalid_input")}
+      with {:ok, effective_locator} <- effective_locator(locator, index, split?),
+           attrs =
+             Map.merge(identity, %{ordinal: index, text: chunk, locator: effective_locator}),
+           {:ok, fragment} <- DocumentFragment.new(attrs) do
+        {:cont, {:ok, [fragment | built], index + 1}}
+      else
+        _ -> {:halt, unsupported("invalid_input")}
       end
     end)
   end
+
+  defp effective_locator(locator, index, split?) do
+    case SourceLocator.new(locator) do
+      {:ok, _} ->
+        {:ok, if(split?, do: ordinal_locator(index), else: locator)}
+
+      {:error, _} ->
+        if oversized_markdown_heading?(locator) do
+          {:ok, ordinal_locator(index)}
+        else
+          unsupported("invalid_input")
+        end
+    end
+  end
+
+  defp oversized_markdown_heading?(%{version: 1, kind: "markdown", heading_path: path} = locator)
+       when is_list(path) do
+    oversized = Enum.filter(path, &(is_binary(&1) and byte_size(&1) > 255))
+
+    oversized != [] and
+      Enum.all?(oversized, &(String.valid?(&1) and not String.contains?(&1, <<0>>))) and
+      match?(
+        {:ok, _},
+        SourceLocator.new(%{
+          locator
+          | heading_path:
+              Enum.map(path, fn heading ->
+                if heading in oversized, do: "x", else: heading
+              end)
+        })
+      )
+  end
+
+  defp oversized_markdown_heading?(_), do: false
+
+  defp ordinal_locator(index), do: %{version: 1, kind: "fragment", ordinal: index}
 
   defp unsupported(code), do: {:error, {:unsupported, code}}
 end

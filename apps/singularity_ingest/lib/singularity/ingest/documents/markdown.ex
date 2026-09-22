@@ -82,9 +82,15 @@ defmodule Singularity.Ingest.Documents.Markdown do
   end
 
   defp heading(line) do
-    case Regex.run(~r/^([#]{1,6})[ \t]+(.+?)\s*#*\s*$/, line) do
-      [_, hashes, title] -> {byte_size(hashes), title}
-      _ -> nil
+    case Regex.run(~r/^([#]{1,6})[ \t]+(.+?)$/, line) do
+      [_, hashes, raw_title] ->
+        title =
+          raw_title |> then(&Regex.replace(~r/[ \t]+#+[ \t]*$/, &1, "")) |> String.trim_trailing()
+
+        {byte_size(hashes), title}
+
+      _ ->
+        nil
     end
   end
 
