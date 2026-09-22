@@ -349,15 +349,20 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
         where:
           d.resource_version_id == ^version and d.resource_id == ^resource and
             d.vault_id == ^context.owner_scope_id,
-        where:
-          d.classification == :private and r.kind == :document and
-            d.attempt_job_id == ^job_id and d.attempt_generation == ^generation and
-            d.state in [:extracting, :ready, :failed, :unsupported],
+        where: d.classification == :private and r.kind == :document,
         select: {d, v.revision}
 
     case repo.one(query, log: false) do
-      nil -> error(:not_found)
-      {row, revision} -> hydrate(repo, row, revision)
+      nil ->
+        error(:not_found)
+
+      {row, revision}
+      when row.attempt_job_id == job_id and row.attempt_generation == generation and
+             row.state in [:extracting, :ready, :failed, :unsupported] ->
+        hydrate(repo, row, revision)
+
+      _ ->
+        error(:conflict)
     end
   end
 

@@ -346,6 +346,28 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
 
           {:ok, completion} = DocumentCompletion.new(attrs)
 
+          assert {:error, %Error{code: :conflict}} =
+                   DocumentRepository.complete(c.context, Ecto.UUID.generate(), completion)
+
+          if outcome == :failed do
+            assert {:error, %Error{code: :not_found}} =
+                     DocumentRepository.complete(
+                       c.context,
+                       job,
+                       %{completion | resource_id: Ecto.UUID.generate()}
+                     )
+
+            other = KnowledgeFixtures.prepared_source!()
+            other_context = KnowledgeFixtures.document_context(other)
+
+            assert {:error, %Error{code: :not_found}} =
+                     DocumentRepository.complete(
+                       other_context,
+                       job,
+                       %{completion | owner_scope_id: other.vault_id}
+                     )
+          end
+
           KnowledgeTestGrants.with_fragment_read_grants(fn ->
             assert {:ok, %DocumentVersion{state: ^outcome}} =
                      DocumentRepository.complete(c.context, job, completion)
