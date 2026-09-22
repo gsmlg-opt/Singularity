@@ -255,6 +255,113 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
     end)
   end
 
+  test "claimed job can finish after tombstone while public lookup and new claims stay closed",
+       c do
+    grants(fn ->
+      KnowledgeTestGrants.with_lifecycle_grants(fn ->
+        for outcome <- [:failed, :ready] do
+          {:ok, document} =
+            DocumentRepository.create_pending(
+              c.context,
+              KnowledgeFixtures.document_command(c.source)
+            )
+
+          job = Ecto.UUID.generate()
+
+          assert {:ok, %DocumentVersion{state: :extracting}} =
+                   DocumentRepository.claim(
+                     c.context,
+                     document.resource_version_id,
+                     0,
+                     job,
+                     "plain",
+                     1
+                   )
+
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              "UPDATE content.resources SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1",
+              [Ecto.UUID.dump!(document.resource_id)]
+            )
+          end)
+
+          assert {:error, %Error{code: :not_found}} =
+                   DocumentRepository.get_version(
+                     c.context,
+                     document.resource_id,
+                     document.resource_version_id
+                   )
+
+          assert {:error, %Error{}} =
+                   DocumentRepository.claim(
+                     c.context,
+                     document.resource_version_id,
+                     0,
+                     Ecto.UUID.generate(),
+                     "plain",
+                     1
+                   )
+
+          identity = %{
+            resource_id: document.resource_id,
+            resource_version_id: document.resource_version_id,
+            owner_scope_id: document.owner_scope_id,
+            classification: :private,
+            generation: 1,
+            adapter_name: "plain",
+            format_version: 1,
+            finished_at: DateTime.utc_now(:microsecond),
+            media_type: "text/plain"
+          }
+
+          attrs =
+            case outcome do
+              :failed ->
+                Map.merge(identity, %{outcome: :failed, failure_code: "timeout"})
+
+              :ready ->
+                {:ok, fragment} =
+                  DocumentFragment.new(%{
+                    resource_id: document.resource_id,
+                    resource_version_id: document.resource_version_id,
+                    owner_scope_id: document.owner_scope_id,
+                    classification: :private,
+                    ordinal: 0,
+                    text: "hello",
+                    locator: %{
+                      "version" => 1,
+                      "kind" => "text",
+                      "start_line" => 1,
+                      "end_line" => 1
+                    }
+                  })
+
+                Map.merge(identity, %{
+                  outcome: :ready,
+                  fragments: [fragment],
+                  extracted_text_digest: :crypto.hash(:sha256, "hello")
+                })
+            end
+
+          {:ok, completion} = DocumentCompletion.new(attrs)
+
+          KnowledgeTestGrants.with_fragment_read_grants(fn ->
+            assert {:ok, %DocumentVersion{state: ^outcome}} =
+                     DocumentRepository.complete(c.context, job, completion)
+          end)
+
+          assert {:error, %Error{code: :not_found}} =
+                   DocumentRepository.get_version(
+                     c.context,
+                     document.resource_id,
+                     document.resource_version_id
+                   )
+        end
+      end)
+    end)
+  end
+
   test "attempt claim binds a job and fixed database deadline", c do
     grants(fn ->
       KnowledgeTestGrants.with_lifecycle_grants(fn ->

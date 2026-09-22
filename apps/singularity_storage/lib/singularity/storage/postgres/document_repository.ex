@@ -144,11 +144,13 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
          true <- completion.owner_scope_id == context.owner_scope_id do
       scoped(repo, context, fn transaction_repo ->
         with {:ok, current} <-
-               load(
+               load_for_attempt(
                  transaction_repo,
                  context,
                  completion.resource_id,
-                 completion.resource_version_id
+                 completion.resource_version_id,
+                 job_id,
+                 completion.generation
                ),
              true <-
                completion.adapter_name == current.adapter_name and
@@ -156,9 +158,14 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
                  completion.media_type == current.source.media_type do
           {function, args} = completion_args(completion)
 
-          invoke(transaction_repo, context, completion.resource_version_id, function, [
-            Ecto.UUID.dump!(job_id) | args
-          ])
+          invoke(
+            transaction_repo,
+            context,
+            completion.resource_version_id,
+            function,
+            [Ecto.UUID.dump!(job_id) | args],
+            {job_id, completion.generation}
+          )
         else
           false -> error(:conflict)
           {:error, %Error{}} = result -> result
@@ -181,7 +188,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
   end
 
   # Function names and placeholder lists are internal constants; data is always bound.
-  defp invoke(repo, context, version, function, args) do
+  defp invoke(repo, context, version, function, args, attempt \\ nil) do
     placeholders =
       case function do
         "claim_document_extraction" ->
@@ -207,7 +214,13 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
         [Ecto.UUID.dump!(version) | args]
       )
 
-    load(repo, context, Ecto.UUID.load!(resource), version)
+    case attempt do
+      nil ->
+        load(repo, context, Ecto.UUID.load!(resource), version)
+
+      {job_id, generation} ->
+        load_for_attempt(repo, context, Ecto.UUID.load!(resource), version, job_id, generation)
+    end
   end
 
   defp completion_args(%DocumentCompletion{outcome: :ready} = completion) do
@@ -318,6 +331,28 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
           d.resource_version_id == ^version and d.resource_id == ^resource and
             d.vault_id == ^context.owner_scope_id,
         where: d.classification == :private and r.kind == :document and is_nil(r.deleted_at),
+        select: {d, v.revision}
+
+    case repo.one(query, log: false) do
+      nil -> error(:not_found)
+      {row, revision} -> hydrate(repo, row, revision)
+    end
+  end
+
+  defp load_for_attempt(repo, context, resource, version, job_id, generation) do
+    query =
+      from d in StoredDocument,
+        join: v in ResourceVersion,
+        on: v.id == d.resource_version_id and v.resource_id == d.resource_id,
+        join: r in Resource,
+        on: r.id == d.resource_id and r.vault_id == d.vault_id,
+        where:
+          d.resource_version_id == ^version and d.resource_id == ^resource and
+            d.vault_id == ^context.owner_scope_id,
+        where:
+          d.classification == :private and r.kind == :document and
+            d.attempt_job_id == ^job_id and d.attempt_generation == ^generation and
+            d.state in [:extracting, :ready, :failed, :unsupported],
         select: {d, v.revision}
 
     case repo.one(query, log: false) do

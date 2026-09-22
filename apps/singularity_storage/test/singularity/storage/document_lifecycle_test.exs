@@ -56,6 +56,22 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
                  ["content." <> signature]
                )
     end
+
+    assert %{rows: [[false, true, config]]} =
+             query!(
+               RequestRepo,
+               "SELECT p.prosecdef, p.proowner = c.relowner, p.proconfig FROM pg_proc p CROSS JOIN pg_class c WHERE p.oid = to_regprocedure('content.lock_document_terminal_extraction(uuid,uuid,bigint)') AND c.oid = 'content.document_versions'::regclass"
+             )
+
+    assert "search_path=pg_catalog, content, core, identity" in config
+
+    for role <- ~w(singularity_web singularity_worker singularity_dispatcher singularity_pre_auth) do
+      assert %{rows: [[false]]} =
+               query!(RequestRepo, "SELECT has_function_privilege($1,$2,'EXECUTE')", [
+                 role,
+                 "content.lock_document_terminal_extraction(uuid,uuid,bigint)"
+               ])
+    end
   end
 
   test "claim increments once, completion seals all fragments and exact replay does not mutate" do
@@ -97,6 +113,65 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
       conflict(fn -> reset(source, document, 1) end)
       conflict(fn -> fail(source, document, 1, "failed", "timeout") end)
       assert state(document) == ready
+    end)
+  end
+
+  test "claimed extraction may complete after tombstone but a new claim is denied" do
+    source = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+    body = [fragment(document, 0, "retained")]
+
+    KnowledgeTestGrants.with_lifecycle_grants(fn ->
+      claim(source, document)
+      tombstone(document)
+      denied(fn -> claim(source, document) end)
+
+      conflict(fn ->
+        invoke(
+          RequestRepo,
+          source,
+          "complete",
+          [
+            document.resource_version_id,
+            KnowledgeFixtures.uuid(),
+            1,
+            body,
+            :crypto.hash(:sha256, "retained"),
+            "en"
+          ],
+          "uuid,uuid,bigint,jsonb,bytea,text"
+        )
+      end)
+
+      assert %{"state" => "ready"} = complete(source, document, body)
+      assert %{"state" => "ready"} = complete(source, document, body)
+      assert stored_fragments(document) == [Map.take(hd(body), ~w(id ordinal text locator))]
+    end)
+  end
+
+  test "claimed extraction may fail after tombstone but a new claim is denied" do
+    source = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+
+    KnowledgeTestGrants.with_lifecycle_grants(fn ->
+      claim(source, document)
+      tombstone(document)
+      denied(fn -> claim(source, document) end)
+
+      conflict(fn ->
+        invoke(
+          RequestRepo,
+          source,
+          "fail",
+          [document.resource_version_id, KnowledgeFixtures.uuid(), 1, "failed", "timeout"],
+          "uuid,uuid,bigint,text,text"
+        )
+      end)
+
+      assert %{"state" => "failed", "failure_code" => "timeout"} =
+               fail(source, document, 1, "failed", "timeout")
+
+      assert stored_fragments(document) == []
     end)
   end
 
@@ -775,6 +850,16 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         [document.resource_version_id, generation, document.resource_version_id, "plain", 1],
         "uuid,bigint,uuid,text,integer"
       )
+
+  defp tombstone(document) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [document.resource_id]
+      )
+    end)
+  end
 
   defp fail(scope, document, generation, outcome, code),
     do:
