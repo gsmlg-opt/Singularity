@@ -317,6 +317,63 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
     end)
   end
 
+  test "import and Asset cleanup contend on the source lock without losing bytes" do
+    source = prepared_cleanup_source!()
+    storage = materialize_source!(source)
+    object_ref = %ObjectRef{object_id: source.object_id}
+    assert {:ok, ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+    parent = self()
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      KnowledgeTestGrants.with_receipt_grants(fn ->
+        {import, cleanup} =
+          scoped(source, fn repo ->
+            assert %{rows: [[holder_pid]]} =
+                     query!(
+                       repo,
+                       "SELECT pg_backend_pid() FROM content.assets WHERE id=$1 FOR UPDATE",
+                       [Ecto.UUID.dump!(source.asset_id)]
+                     )
+
+            import =
+              Task.async(fn ->
+                send(parent, :import_started)
+
+                DocumentRepository.create_pending(
+                  KnowledgeFixtures.document_context(source),
+                  KnowledgeFixtures.document_command(source)
+                )
+              end)
+
+            cleanup =
+              Task.async(fn ->
+                send(parent, :cleanup_started)
+                delete_asset_and_finish_cleanup(source)
+              end)
+
+            assert_receive :import_started, 1_000
+            assert_receive :cleanup_started, 1_000
+            assert_two_waiters_blocked_by!(holder_pid)
+            {import, cleanup}
+          end)
+
+        assert {:ok, %{state: :deleted}} = Task.await(cleanup, 10_000)
+        import_result = Task.await(import, 10_000)
+
+        case import_result do
+          {:ok, document} ->
+            assert document.source.object_id == source.object_id
+            assert_import_cleanup_rows(source, "available", 1, 1)
+
+          {:error, %Singularity.Core.Error{}} ->
+            assert_import_cleanup_rows(source, "orphan_pending", 0, 0)
+        end
+
+        assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+      end)
+    end)
+  end
+
   defp run_object_cleanup(envelope, storage) do
     WorkerScope.run(envelope, fn worker_context ->
       context =
@@ -429,6 +486,40 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
                  [Ecto.UUID.dump!(source.object_id), Ecto.UUID.dump!(source.principal_id)]
                )
     end)
+  end
+
+  defp assert_two_waiters_blocked_by!(holder_pid) do
+    deadline = System.monotonic_time(:millisecond) + 5_000
+
+    wait = fn wait ->
+      %{rows: [[count]]} =
+        Fixtures.with_owner(fn ->
+          query!(
+            MigrationRepo,
+            """
+            WITH RECURSIVE waiters(pid) AS (
+              SELECT pid FROM pg_stat_activity
+              WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))
+              UNION
+              SELECT activity.pid FROM pg_stat_activity AS activity
+              JOIN waiters AS blocker ON blocker.pid=ANY(pg_blocking_pids(activity.pid))
+              WHERE activity.datname=current_database()
+            )
+            SELECT count(*) FROM waiters
+            """,
+            [holder_pid]
+          )
+        end)
+
+      if count >= 2 or System.monotonic_time(:millisecond) >= deadline do
+        assert count >= 2
+      else
+        Process.sleep(25)
+        wait.(wait)
+      end
+    end
+
+    wait.(wait)
   end
 
   defp materialize_source!(source) do
