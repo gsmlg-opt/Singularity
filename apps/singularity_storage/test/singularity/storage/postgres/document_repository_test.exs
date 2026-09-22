@@ -15,6 +15,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
 
   setup do
     source = KnowledgeFixtures.prepared_source!()
+    grant_asset_read!(source)
 
     %{
       source: source,
@@ -201,6 +202,81 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
     grants(fn ->
       assert {:error, %Error{}} = DocumentRepository.create_pending(context, c.command)
       assert_counts(c, 0, 0)
+    end)
+  end
+
+  test "principal revoked during source preparation cannot create document or event", c do
+    context = %{
+      c.context
+      | digest_operation: fn _, _ ->
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              "UPDATE identity.principals SET revoked_at=CURRENT_TIMESTAMP WHERE id=$1",
+              [Ecto.UUID.dump!(c.source.principal_id)]
+            )
+          end)
+
+          {:ok, %{sha256: c.source.digest, byte_size: c.source.byte_size}}
+        end
+    }
+
+    grants(fn ->
+      assert {:error, %Error{code: :forbidden}} =
+               DocumentRepository.create_pending(context, c.command)
+
+      assert_counts(c, 0, 0)
+      assert [] = extraction_events(c)
+    end)
+  end
+
+  test "asset.read revoked during source preparation cannot create document or event", c do
+    context = %{
+      c.context
+      | digest_operation: fn _, _ ->
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              "UPDATE core.principal_capabilities SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+              [Ecto.UUID.dump!(c.source.principal_id), Ecto.UUID.dump!(c.source.vault_id)]
+            )
+          end)
+
+          {:ok, %{sha256: c.source.digest, byte_size: c.source.byte_size}}
+        end
+    }
+
+    grants(fn ->
+      assert {:error, %Error{code: :forbidden}} =
+               DocumentRepository.create_pending(context, c.command)
+
+      assert_counts(c, 0, 0)
+      assert [] = extraction_events(c)
+    end)
+  end
+
+  test "custody locked during source preparation cannot create document or event", c do
+    context = %{
+      c.context
+      | digest_operation: fn _, _ ->
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              "UPDATE core.vaults SET locked=true WHERE id=$1",
+              [Ecto.UUID.dump!(c.source.vault_id)]
+            )
+          end)
+
+          {:ok, %{sha256: c.source.digest, byte_size: c.source.byte_size}}
+        end
+    }
+
+    grants(fn ->
+      assert {:error, %Error{code: :forbidden}} =
+               DocumentRepository.create_pending(context, c.command)
+
+      assert_counts(c, 0, 0)
+      assert [] = extraction_events(c)
     end)
   end
 
@@ -598,6 +674,27 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       KnowledgeTestGrants.with_grants(["document_versions"], fn ->
         KnowledgeTestGrants.with_receipt_grants(fun)
       end)
+
+  defp grant_asset_read!(source) do
+    Fixtures.with_owner(fn ->
+      # Model the unlocked custody required by the public import path.
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
+    end)
+  end
 
   defp extraction_events(c) do
     Fixtures.with_owner(fn ->

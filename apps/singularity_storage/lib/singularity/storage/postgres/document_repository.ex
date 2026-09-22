@@ -359,22 +359,31 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
     case SafeSQL.query(
            repo,
            """
-           SELECT principal_authorization_epoch, vault_authorization_epoch
+           SELECT principal_authorization_epoch, vault_authorization_epoch,
+                  principal_revoked_at, membership_revoked_at, vault_locked,
+                  capabilities
            FROM core.live_principal_authorization()
            WHERE principal_id = $1 AND vault_id = $2
            """,
            [Ecto.UUID.dump!(command.principal_id), Ecto.UUID.dump!(command.owner_scope_id)]
          ) do
-      {:ok, %{rows: [[principal_epoch, vault_epoch]]}}
+      {:ok, %{rows: [[principal_epoch, vault_epoch, nil, nil, false, capabilities]]}}
       when is_integer(principal_epoch) and principal_epoch >= 0 and
-             is_integer(vault_epoch) and vault_epoch >= 0 ->
-        {:ok,
-         %{
-           principal_authorization_epoch: principal_epoch,
-           vault_authorization_epoch: vault_epoch
-         }}
+             is_integer(vault_epoch) and vault_epoch >= 0 and is_list(capabilities) ->
+        if "asset.read" in capabilities do
+          {:ok,
+           %{
+             principal_authorization_epoch: principal_epoch,
+             vault_authorization_epoch: vault_epoch
+           }}
+        else
+          error(:forbidden)
+        end
 
       {:ok, %{rows: []}} ->
+        error(:forbidden)
+
+      {:ok, %{rows: [[_, _, _, _, _, _]]}} ->
         error(:forbidden)
 
       {:ok, _} ->
