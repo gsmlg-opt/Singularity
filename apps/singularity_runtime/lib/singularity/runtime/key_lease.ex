@@ -24,6 +24,13 @@ defmodule Singularity.Runtime.KeyLease do
     object_generation
   ]
   @metadata_checkpoint_version 3
+  @document_checkpoint_version 4
+  @document_protocol "document_source_v1"
+  @document_checkpoint_keys ~w[
+    version protocol next_chunk_index job_id resource_version_id vault_id principal_id
+    required_capability principal_authorization_epoch vault_authorization_epoch
+    object_id object_generation
+  ]
   @metadata_protocol "asset_metadata_v1"
   @max_bigint 9_223_372_036_854_775_807
   @metadata_checkpoint_keys ~w[
@@ -112,6 +119,45 @@ defmodule Singularity.Runtime.KeyLease do
   end
 
   def validate_checkpoint(_persisted, _binding),
+    do: {:error, Error.new(:integrity_failure)}
+
+  @doc false
+  def document_checkpoint(%{access: :worker} = binding, next_chunk_index)
+      when is_integer(next_chunk_index) and next_chunk_index >= 0 do
+    %{
+      "version" => @document_checkpoint_version,
+      "protocol" => @document_protocol,
+      "next_chunk_index" => next_chunk_index,
+      "job_id" => binding.job_id,
+      "resource_version_id" => binding.resource_version_id,
+      "vault_id" => binding.vault_id,
+      "principal_id" => binding.principal_id,
+      "required_capability" => binding.required_capability,
+      "principal_authorization_epoch" => binding.principal_authorization_epoch,
+      "vault_authorization_epoch" => binding.vault_authorization_epoch,
+      "object_id" => binding.object_id,
+      "object_generation" => binding.object_generation
+    }
+  end
+
+  @doc false
+  def validate_document_checkpoint(
+        %{
+          "version" => @document_checkpoint_version,
+          "protocol" => @document_protocol,
+          "next_chunk_index" => index
+        } = checkpoint,
+        binding
+      )
+      when is_integer(index) and index >= 0 and index <= @max_bigint and
+             is_map(binding) do
+    if Enum.sort(Map.keys(checkpoint)) == Enum.sort(@document_checkpoint_keys) and
+         checkpoint == document_checkpoint(binding, index),
+       do: {:ok, index},
+       else: {:error, Error.new(:conflict)}
+  end
+
+  def validate_document_checkpoint(_checkpoint, _binding),
     do: {:error, Error.new(:integrity_failure)}
 
   @doc false
@@ -865,7 +911,7 @@ defmodule Singularity.Runtime.KeyLease do
              state.binding
            ),
          :active <- lease_status(state),
-         next_checkpoint = checkpoint(state.checkpoint_binding, index + 1),
+         next_checkpoint = read_checkpoint(state.checkpoint_binding, index + 1),
          :ok <-
            state.key_reader.persist_checkpoint(
              state.checkpoint_context,
@@ -967,6 +1013,15 @@ defmodule Singularity.Runtime.KeyLease do
   end
 
   defp validate_initial_checkpoint(
+         %{"version" => @document_checkpoint_version} = checkpoint,
+         binding
+       ) do
+    with {:ok, next_index} <- validate_document_checkpoint(checkpoint, binding) do
+      {:ok, :read, next_index, nil}
+    end
+  end
+
+  defp validate_initial_checkpoint(
          %{"version" => @metadata_checkpoint_version} = checkpoint,
          binding
        ) do
@@ -978,4 +1033,9 @@ defmodule Singularity.Runtime.KeyLease do
 
   defp validate_initial_checkpoint(_checkpoint, _binding),
     do: {:error, Error.new(:integrity_failure)}
+
+  defp read_checkpoint(%{access: :worker, resource_version_id: _} = binding, index),
+    do: document_checkpoint(binding, index)
+
+  defp read_checkpoint(binding, index), do: checkpoint(binding, index)
 end

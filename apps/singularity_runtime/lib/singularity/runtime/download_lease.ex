@@ -36,6 +36,17 @@ defmodule Singularity.Runtime.DownloadLease do
 
   def read(_lease, _range), do: {:error, Error.new(:invalid)}
 
+  @spec read_document_chunk(pid(), non_neg_integer()) ::
+          {:ok, binary()} | {:error, :waiting_for_unlock | Error.t()}
+  def read_document_chunk(lease, index)
+      when is_pid(lease) and is_integer(index) and index >= 0 do
+    GenServer.call(lease, {:read_document_chunk, index}, :infinity)
+  catch
+    :exit, _reason -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  def read_document_chunk(_lease, _index), do: {:error, Error.new(:invalid)}
+
   @spec revoke(pid()) :: :ok
   def revoke(lease) when is_pid(lease),
     do: GenServer.call(lease, :revoke, :infinity)
@@ -68,6 +79,7 @@ defmodule Singularity.Runtime.DownloadLease do
        custodian_monitor: custodian_monitor,
        expires_at: expires_at,
        key_reader: key_reader,
+       next_index: 0,
        pending: nil,
        public_context: Map.delete(context, :key_material),
        reader_context: Map.put(context, :key_material, key_material),
@@ -100,6 +112,13 @@ defmodule Singularity.Runtime.DownloadLease do
     {:reply, {:error, Error.new(:conflict)}, state}
   end
 
+  def handle_call(
+        {:read, _range},
+        _from,
+        %{binding: %{access: :request, resource_version_id: _}} = state
+      ),
+      do: {:reply, {:error, Error.new(:invalid)}, state}
+
   def handle_call({:read, range}, from, state) do
     with :active <- lease_status(state),
          true <- valid_range?(range) do
@@ -116,11 +135,54 @@ defmodule Singularity.Runtime.DownloadLease do
     end
   end
 
+  def handle_call({:read_document_chunk, _index}, _from, %{pending: pending} = state)
+      when not is_nil(pending),
+      do: {:reply, {:error, Error.new(:conflict)}, state}
+
+  def handle_call(
+        {:read_document_chunk, index},
+        from,
+        %{binding: %{access: :request, resource_version_id: _}} = state
+      ) do
+    with :active <- lease_status(state),
+         true <- index == state.next_index do
+      {:noreply, start_read(state, from, {:document_chunk, index})}
+    else
+      :revoked -> {:reply, {:error, :waiting_for_unlock}, state}
+      :expired -> {:reply, {:error, :waiting_for_unlock}, revoke_state(state)}
+      false -> {:reply, {:error, Error.new(:conflict)}, state}
+    end
+  end
+
+  def handle_call({:read_document_chunk, _index}, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
   def handle_call(:revoke, _from, state) do
     {:reply, :ok, revoke_state(state)}
   end
 
   @impl true
+  def handle_info(
+        {:download_read_complete, operation_ref, {:ok, plaintext}},
+        %{pending: %{operation_ref: operation_ref, range: {:document_chunk, index}} = pending} =
+          state
+      )
+      when is_binary(plaintext) do
+    Process.demonitor(pending.monitor, [:flush])
+    state = %{state | pending: nil}
+
+    case lease_status(state) do
+      :active ->
+        send(state.custodian, {:authorized_activity, state.binding.session_id})
+        GenServer.reply(pending.from, {:ok, plaintext})
+        {:noreply, %{state | next_index: index + 1}}
+
+      _expired_or_revoked ->
+        GenServer.reply(pending.from, {:error, :waiting_for_unlock})
+        {:stop, :normal, revoke_state(state)}
+    end
+  end
+
   def handle_info(
         {:download_read_complete, operation_ref, result},
         %{pending: %{operation_ref: operation_ref} = pending} = state
@@ -211,7 +273,8 @@ defmodule Singularity.Runtime.DownloadLease do
           from: from,
           monitor: monitor,
           operation_ref: operation_ref,
-          pid: worker
+          pid: worker,
+          range: range
         }
     }
   end
@@ -222,12 +285,7 @@ defmodule Singularity.Runtime.DownloadLease do
              operation.public_context,
              operation.binding
            ),
-         {:ok, plaintext} <-
-           operation.key_reader.read_range(
-             operation.reader_context,
-             operation.binding,
-             operation.range
-           ),
+         {:ok, plaintext} <- read_operation(operation),
          :ok <-
            operation.authorization.revalidate(
              operation.public_context,
@@ -240,6 +298,17 @@ defmodule Singularity.Runtime.DownloadLease do
   catch
     _kind, _reason -> unavailable()
   end
+
+  defp read_operation(%{range: {:document_chunk, index}} = operation),
+    do: operation.key_reader.read_chunk(operation.reader_context, operation.binding, index)
+
+  defp read_operation(operation),
+    do:
+      operation.key_reader.read_range(
+        operation.reader_context,
+        operation.binding,
+        operation.range
+      )
 
   defp lease_status(%{revoked?: true}), do: :revoked
 

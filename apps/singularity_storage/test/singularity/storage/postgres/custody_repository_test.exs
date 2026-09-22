@@ -6,6 +6,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
   alias Singularity.Core.Error
   alias Singularity.Storage.Crypto.Format
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.ScopedRepo
@@ -15,6 +16,240 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
     outbox = Fixtures.outbox_event!(one)
 
     {:ok, fixture: insert_reader_fixture!(one, outbox), other: load_identity(two)}
+  end
+
+  test "worker resolves an exact Document pin without direct canonical SELECT" do
+    source = KnowledgeFixtures.prepared_source!()
+
+    document =
+      KnowledgeFixtures.document!(%{
+        source
+        | vault_id: Ecto.UUID.dump!(source.vault_id),
+          principal_id: Ecto.UUID.dump!(source.principal_id),
+          asset_id: Ecto.UUID.dump!(source.asset_id),
+          resource_id: Ecto.UUID.dump!(source.resource_id),
+          resource_version_id: Ecto.UUID.dump!(source.resource_version_id),
+          object_id: Ecto.UUID.dump!(source.object_id)
+      })
+
+    event_id = Ecto.UUID.generate()
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id,name) VALUES($1,'asset.read') ON CONFLICT(name) DO NOTHING",
+        [KnowledgeFixtures.uuid()]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.outbox_events
+          (id,event_type,idempotency_key,vault_id,principal_id,required_capability,
+           principal_authorization_epoch,vault_authorization_epoch,classification,
+           correlation_id,expected_entity_revision,envelope_version,payload,occurred_at)
+        VALUES ($1,'document.extraction_requested',$2,$3,$4,'asset.read',0,0,'private',
+                $1,0,1,$5::text::jsonb,CURRENT_TIMESTAMP)
+        """,
+        [
+          Ecto.UUID.dump!(event_id),
+          event_id,
+          Ecto.UUID.dump!(source.vault_id),
+          Ecto.UUID.dump!(source.principal_id),
+          JSON.encode!(%{
+            "resource_id" => Ecto.UUID.load!(document.resource_id),
+            "resource_version_id" => Ecto.UUID.load!(document.resource_version_id)
+          })
+        ]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO jobs.job_submissions
+          (id,vault_id,outbox_event_id,classification,idempotency_key,job_type)
+        VALUES ($1,$2,$1,'private',$3,'document_extract')
+        """,
+        [
+          Ecto.UUID.dump!(event_id),
+          Ecto.UUID.dump!(source.vault_id),
+          "document-extract:#{event_id}"
+        ]
+      )
+    end)
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
+             Ecto.Adapters.SQL.query(
+               WorkerRepo,
+               "SELECT resource_version_id FROM content.document_versions LIMIT 0",
+               [],
+               log: false
+             )
+
+    signature =
+      "content.document_custody_binding(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid,bigint,bigint)"
+
+    assert %{
+             rows: [
+               [
+                 true,
+                 ["search_path=pg_catalog, content, core, identity"],
+                 "singularity_table_owner",
+                 false,
+                 false,
+                 true,
+                 false,
+                 false,
+                 false
+               ]
+             ]
+           } =
+             query!(
+               RequestRepo,
+               """
+               SELECT p.prosecdef,
+                      p.proconfig,
+                      owner.rolname,
+                      has_function_privilege('public',$1,'EXECUTE'),
+                      has_table_privilege('singularity_worker','content.document_versions','SELECT'),
+                      has_function_privilege('singularity_worker',$1,'EXECUTE'),
+                      has_function_privilege('singularity_web',$1,'EXECUTE'),
+                      has_function_privilege('singularity_dispatcher',$1,'EXECUTE'),
+                      has_function_privilege('singularity_pre_auth',$1,'EXECUTE')
+               FROM pg_catalog.pg_proc AS p
+               JOIN pg_catalog.pg_roles AS owner ON owner.oid=p.proowner
+               WHERE p.oid=to_regprocedure($1)
+               """,
+               [signature]
+             )
+
+    binding = %{
+      access: :worker,
+      job_id: event_id,
+      session_id: source.session_id,
+      resource_version_id: Ecto.UUID.load!(document.resource_version_id),
+      vault_id: source.vault_id,
+      principal_id: source.principal_id,
+      required_capability: "asset.read",
+      principal_authorization_epoch: 0,
+      vault_authorization_epoch: 0,
+      object_id: source.object_id,
+      object_generation: 1
+    }
+
+    assert {:ok, %{object_id: object_id}} = document_material(binding)
+
+    assert object_id == source.object_id
+
+    checkpoint_binding = Map.delete(binding, :session_id)
+    assert {:ok, checkpoint} = document_checkpoint(:load, checkpoint_binding)
+    assert checkpoint["protocol"] == "document_source_v1"
+    assert checkpoint["next_chunk_index"] == 0
+    assert checkpoint["resource_version_id"] == checkpoint_binding.resource_version_id
+    next_checkpoint = %{checkpoint | "next_chunk_index" => 1}
+    assert :ok = document_checkpoint({:persist, checkpoint, next_checkpoint}, checkpoint_binding)
+    assert {:ok, ^next_checkpoint} = document_checkpoint(:load, checkpoint_binding)
+
+    assert {:error, %Error{code: :conflict}} =
+             document_checkpoint(
+               :load,
+               %{checkpoint_binding | resource_version_id: Ecto.UUID.generate()}
+             )
+
+    for denied <- [
+          %{binding | resource_version_id: Ecto.UUID.generate()},
+          %{binding | object_id: Ecto.UUID.generate()},
+          %{binding | object_generation: 2},
+          %{binding | vault_id: Ecto.UUID.generate()},
+          %{binding | principal_authorization_epoch: 1},
+          %{binding | vault_authorization_epoch: 1}
+        ] do
+      assert {:error, %Error{code: :forbidden}} = document_material(denied)
+    end
+
+    request_binding =
+      binding
+      |> Map.delete(:job_id)
+      |> Map.put(:access, :request)
+
+    assert {:ok, %{object_id: ^object_id}} = document_material(request_binding)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [Ecto.UUID.dump!(source.resource_id)]
+      )
+    end)
+
+    assert {:ok, %{object_id: ^object_id}} = document_material(binding)
+    assert {:ok, %{object_id: ^object_id}} = document_material(request_binding)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [document.resource_id]
+      )
+    end)
+
+    assert {:error, %Error{code: :forbidden}} = document_material(binding)
+    assert {:error, %Error{code: :forbidden}} = document_material(request_binding)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE content.resources SET deleted_at=NULL WHERE id=$1", [
+        document.resource_id
+      ])
+
+      query!(
+        MigrationRepo,
+        "SELECT set_config('singularity.principal_id',$1,true), set_config('singularity.vault_id',$2,true)",
+        [source.principal_id, source.vault_id]
+      )
+
+      query!(MigrationRepo, "SELECT content.claim_document_extraction($1,0,$2,'plain',1)", [
+        document.resource_version_id,
+        Ecto.UUID.dump!(event_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [document.resource_id]
+      )
+    end)
+
+    assert {:ok, %{object_id: ^object_id}} = document_material(binding)
+    assert {:error, %Error{code: :forbidden}} = document_material(request_binding)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE identity.principals SET authorization_epoch=1 WHERE id=$1", [
+        Ecto.UUID.dump!(source.principal_id)
+      ])
+    end)
+
+    assert {:error, %Error{code: :forbidden}} = document_material(binding)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE identity.principals SET revoked_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [Ecto.UUID.dump!(source.principal_id)]
+      )
+    end)
+
+    assert {:error, %Error{code: :forbidden}} =
+             document_material(%{binding | principal_authorization_epoch: 1})
   end
 
   test "loads only the exact same-vault live envelope and immutable object metadata", %{
@@ -1001,6 +1236,30 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
         vault_id: fixture.vault_id
       },
       callback
+    )
+  end
+
+  defp document_material(binding) do
+    ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: binding.principal_id, vault_id: binding.vault_id},
+      fn repo -> CustodyRepository.load_reader_material(repo, binding) end
+    )
+  end
+
+  defp document_checkpoint(operation, binding) do
+    ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: binding.principal_id, vault_id: binding.vault_id},
+      fn repo ->
+        case operation do
+          :load ->
+            CustodyRepository.load_checkpoint(repo, binding, :private)
+
+          {:persist, expected, next} ->
+            CustodyRepository.persist_checkpoint(repo, binding, :private, expected, next)
+        end
+      end
     )
   end
 

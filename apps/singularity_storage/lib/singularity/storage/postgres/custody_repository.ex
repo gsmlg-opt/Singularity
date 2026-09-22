@@ -12,6 +12,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
   alias Singularity.Storage.Crypto.Format
   alias Singularity.Storage.Postgres.IdentityRepository
   alias Singularity.Storage.Postgres.UUID
+  alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.Schema.Content.AssetKeyEnvelope
   alias Singularity.Storage.Schema.Content.AssetObject
   alias Singularity.Storage.Schema.Core.DomainKeyVersion
@@ -32,6 +33,12 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
     object_generation
   ]
   @metadata_protocol "asset_metadata_v1"
+  @document_protocol "document_source_v1"
+  @document_checkpoint_keys ~w[
+    version protocol next_chunk_index job_id resource_version_id vault_id principal_id
+    required_capability principal_authorization_epoch vault_authorization_epoch
+    object_id object_generation
+  ]
   @max_bigint 9_223_372_036_854_775_807
   @binding_keys [
     :job_id,
@@ -48,7 +55,8 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
   @spec load_reader_material(module(), map()) ::
           {:ok, map()} | {:error, Error.t()}
   def load_reader_material(repo, binding) when is_map(binding) do
-    with :ok <- validate_binding(binding) do
+    with :ok <- validate_binding(binding),
+         :ok <- authorize_document_binding(repo, binding) do
       repo.all(reader_material_query(binding))
       |> one_reader_material()
     end
@@ -160,6 +168,50 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
       {:error, Error.new(:integrity_failure)}
   end
 
+  defp load_checkpoint_version(repo, binding, classification, 4) do
+    case repo.all(checkpoint_row_query(binding, classification)) do
+      [%{checkpoint_version: 4, state: :running, checkpoint: checkpoint}]
+      when is_map(checkpoint) ->
+        with :ok <- validate_checkpoint(checkpoint, binding, 4), do: {:ok, checkpoint}
+
+      [] ->
+        initialize_document_checkpoint(repo, binding, classification)
+
+      _ ->
+        {:error, Error.new(:integrity_failure)}
+    end
+  end
+
+  defp initialize_document_checkpoint(repo, binding, classification) do
+    checkpoint = document_checkpoint(binding, 0)
+
+    changeset =
+      JobProgress.create_changeset(%JobProgress{}, %{
+        id: Ecto.UUID.generate(),
+        vault_id: binding.vault_id,
+        submission_id: binding.job_id,
+        classification: classification,
+        state: :running,
+        processing_revision: 0,
+        checkpoint_version: 4,
+        checkpoint: checkpoint
+      })
+
+    case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:submission_id]) do
+      {:ok, _row} ->
+        case repo.all(checkpoint_row_query(binding, classification)) do
+          [%{checkpoint_version: 4, state: :running, checkpoint: ^checkpoint}] ->
+            {:ok, checkpoint}
+
+          _ ->
+            {:error, Error.new(:conflict)}
+        end
+
+      {:error, _changeset} ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
   @spec persist_checkpoint(module(), map(), atom(), map(), map()) ::
           :ok | {:error, Error.t()}
   def persist_checkpoint(repo, binding, classification, expected, next)
@@ -261,6 +313,26 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
     end
   end
 
+  defp classify_checkpoint_cas_miss(repo, binding, classification, 4, expected) do
+    case repo.all(checkpoint_row_query(binding, classification)) do
+      [%{checkpoint_version: 4, state: :running, checkpoint: checkpoint}]
+      when is_map(checkpoint) ->
+        with :ok <- validate_checkpoint(checkpoint, binding, 4),
+             true <- checkpoint["next_chunk_index"] > expected["next_chunk_index"] do
+          {:error, :checkpoint_advanced}
+        else
+          false -> {:error, Error.new(:conflict)}
+          {:error, %Error{}} = error -> error
+        end
+
+      [] ->
+        {:error, Error.new(:conflict)}
+
+      _ ->
+        {:error, Error.new(:integrity_failure)}
+    end
+  end
+
   defp classify_checkpoint_cas_miss(_repo, _binding, _classification, _version, _expected),
     do: {:error, Error.new(:conflict)}
 
@@ -347,6 +419,37 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
     )
   end
 
+  defp authorize_document_binding(repo, %{resource_version_id: _} = binding) do
+    parameters = [
+      Ecto.UUID.dump!(binding.vault_id),
+      Ecto.UUID.dump!(binding.principal_id),
+      Ecto.UUID.dump!(binding.resource_version_id),
+      Ecto.UUID.dump!(binding.object_id),
+      binding.object_generation,
+      Atom.to_string(binding.access),
+      optional_uuid(binding[:job_id]),
+      optional_uuid(binding[:session_id]),
+      binding.principal_authorization_epoch,
+      binding.vault_authorization_epoch
+    ]
+
+    case SafeSQL.query(
+           repo,
+           "SELECT content.document_custody_binding($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+           parameters,
+           log: false
+         ) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, %{rows: [[false]]}} -> {:error, Error.new(:forbidden)}
+      _ -> unavailable()
+    end
+  end
+
+  defp authorize_document_binding(_repo, _binding), do: :ok
+
+  defp optional_uuid(nil), do: nil
+  defp optional_uuid(value), do: Ecto.UUID.dump!(value)
+
   defp one_reader_material([]), do: {:error, Error.new(:forbidden)}
 
   defp one_reader_material([material]) do
@@ -431,6 +534,44 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
       :ciphertext_byte_size,
       :format_version
     ])
+  end
+
+  defp validate_binding(%{access: access, resource_version_id: version_id} = binding)
+       when access in [:worker, :request] do
+    base_fields = [:access, :resource_version_id | @binding_keys -- [:job_id]]
+
+    fields =
+      case {access, Map.has_key?(binding, :session_id)} do
+        {:worker, true} -> [:job_id, :session_id | base_fields]
+        {:worker, false} -> [:job_id | base_fields]
+        {:request, _} -> [:session_id | base_fields]
+      end
+
+    identifiers =
+      [version_id, binding.vault_id, binding.principal_id, binding.object_id] ++
+        if(access == :worker,
+          do:
+            [binding.job_id] ++
+              if(Map.has_key?(binding, :session_id), do: [binding.session_id], else: []),
+          else: [binding.session_id]
+        )
+
+    with true <- Enum.sort(Map.keys(binding)) == Enum.sort(fields),
+         true <- binding.required_capability == "asset.read",
+         true <-
+           is_integer(binding.principal_authorization_epoch) and
+             binding.principal_authorization_epoch in 0..@max_bigint,
+         true <-
+           is_integer(binding.vault_authorization_epoch) and
+             binding.vault_authorization_epoch in 0..@max_bigint,
+         true <-
+           is_integer(binding.object_generation) and
+             binding.object_generation in 1..@max_bigint,
+         :ok <- UUID.validate(identifiers) do
+      :ok
+    else
+      _ -> {:error, Error.new(:invalid)}
+    end
   end
 
   defp validate_binding(%{
@@ -650,9 +791,13 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
           progress.state == :running
       )
     else
-      query
+      if version == 4,
+        do: where(query, [progress], progress.state == :running),
+        else: query
     end
   end
+
+  defp checkpoint_version(%{access: :worker, resource_version_id: _}), do: {:ok, 4}
 
   defp checkpoint_version(%{session_id: _session_id}), do: {:ok, 2}
 
@@ -671,6 +816,22 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
       do: :ok,
       else: {:error, Error.new(:integrity_failure)}
   end
+
+  defp validate_checkpoint(
+         %{"version" => 4, "protocol" => @document_protocol, "next_chunk_index" => index} =
+           checkpoint,
+         binding,
+         4
+       )
+       when is_integer(index) and index in 0..@max_bigint do
+    if Enum.sort(Map.keys(checkpoint)) == Enum.sort(@document_checkpoint_keys) and
+         checkpoint == document_checkpoint(binding, index),
+       do: :ok,
+       else: {:error, Error.new(:conflict)}
+  end
+
+  defp validate_checkpoint(%{"version" => 4}, _binding, 4),
+    do: {:error, Error.new(:integrity_failure)}
 
   defp validate_checkpoint(
          %{
@@ -726,6 +887,23 @@ defmodule Singularity.Storage.Postgres.CustodyRepository do
 
   defp validate_checkpoint(_checkpoint, _binding, _version),
     do: {:error, Error.new(:integrity_failure)}
+
+  defp document_checkpoint(binding, index) do
+    %{
+      "version" => 4,
+      "protocol" => @document_protocol,
+      "next_chunk_index" => index,
+      "job_id" => binding.job_id,
+      "resource_version_id" => binding.resource_version_id,
+      "vault_id" => binding.vault_id,
+      "principal_id" => binding.principal_id,
+      "required_capability" => binding.required_capability,
+      "principal_authorization_epoch" => binding.principal_authorization_epoch,
+      "vault_authorization_epoch" => binding.vault_authorization_epoch,
+      "object_id" => binding.object_id,
+      "object_generation" => binding.object_generation
+    }
+  end
 
   defp metadata_checkpoint(binding, next_chunk_index, extractor_state) do
     %{

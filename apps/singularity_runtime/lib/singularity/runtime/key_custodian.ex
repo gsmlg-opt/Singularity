@@ -24,6 +24,14 @@ defmodule Singularity.Runtime.KeyCustodian do
     principal_authorization_epoch vault_authorization_epoch object_id
     object_generation processing_revision declared_media_type plaintext_byte_size
   ]a
+  @document_worker_fields ~w[
+    access job_id resource_version_id vault_id principal_id required_capability
+    principal_authorization_epoch vault_authorization_epoch object_id object_generation
+  ]a
+  @document_request_fields ~w[
+    access session_id resource_version_id vault_id principal_id required_capability
+    principal_authorization_epoch vault_authorization_epoch object_id object_generation
+  ]a
   @checkpoint_context_fields [:key_reader, :repo, :repository_adapter, :scope]
   @upload_request_fields ~w[
     grant_id asset_id session_id principal_id vault_id
@@ -840,6 +848,72 @@ defmodule Singularity.Runtime.KeyCustodian do
       {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
     end
   end
+
+  def handle_call({:lease, %{purpose: :document_source, access: :worker} = request}, _from, state) do
+    with :ok <- validate_document_request(request, @document_worker_fields),
+         %{} = session <- metadata_session(state, request),
+         checkpoint_binding = Map.take(request, @document_worker_fields),
+         binding = Map.put(checkpoint_binding, :session_id, session.session_id),
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         reader_context = Map.put(state.context, :object_binding, reader_binding),
+         checkpoint_context = checkpoint_context(state.context, reader_binding),
+         {:ok, checkpoint} <-
+           state.adapters.key_reader.load_checkpoint(checkpoint_context, checkpoint_binding),
+         {:ok, _next_index} <-
+           KeyLease.validate_document_checkpoint(checkpoint, checkpoint_binding),
+         {:ok, lease} <-
+           start_metadata_lease(
+             state,
+             binding,
+             checkpoint_binding,
+             session.session_id,
+             checkpoint,
+             object_dek,
+             reader_context,
+             checkpoint_context,
+             session.expires_at
+           ) do
+      {:reply, {:ok, lease}, register_lease(state, session.session_id, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
+  def handle_call(
+        {:lease, %{purpose: :document_source, access: :request} = request},
+        _from,
+        state
+      ) do
+    with :ok <- validate_document_request(request, @document_request_fields),
+         %{} = session <- Map.get(state.sessions, request.session_id),
+         true <-
+           metadata_session_matches?(
+             state,
+             session,
+             request,
+             state.adapters.clock.utc_now(state.context)
+           ),
+         binding = Map.take(request, @document_request_fields),
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         reader_context = Map.put(state.context, :object_binding, reader_binding),
+         {:ok, lease} <- start_download_lease(state, binding, object_dek, reader_context) do
+      {:reply, {:ok, lease}, register_lease(state, request.session_id, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      false -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
+  def handle_call({:lease, %{purpose: :document_source}}, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
 
   def handle_call({:lease, request}, _from, state) do
     with :ok <- validate_request(request),
@@ -2327,6 +2401,28 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   defp validate_metadata_request(_request), do: {:error, Error.new(:invalid)}
+
+  defp validate_document_request(request, fields) do
+    if Enum.sort(Map.keys(request)) == Enum.sort([:purpose | fields]) and
+         request.required_capability == "asset.read" and
+         Enum.all?(
+           [:resource_version_id, :vault_id, :principal_id, :object_id],
+           &(is_binary(Map.get(request, &1)) and byte_size(Map.get(request, &1)) > 0)
+         ) and
+         is_integer(request.object_generation) and request.object_generation > 0 and
+         is_integer(request.principal_authorization_epoch) and
+         request.principal_authorization_epoch >= 0 and
+         is_integer(request.vault_authorization_epoch) and
+         request.vault_authorization_epoch >= 0 and
+         ((request.access == :worker and is_binary(Map.get(request, :job_id)) and
+             byte_size(request.job_id) > 0) or
+            (request.access == :request and is_binary(Map.get(request, :session_id)) and
+               byte_size(request.session_id) > 0)) do
+      :ok
+    else
+      {:error, Error.new(:invalid)}
+    end
+  end
 
   defp validate_download_request(request) do
     with :ok <- validate_request(request),
