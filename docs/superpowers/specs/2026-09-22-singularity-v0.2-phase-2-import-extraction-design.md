@@ -1,7 +1,8 @@
 # Singularity v0.2 Phase 2 Document Import and Extraction
 
 Date: 2026-09-22
-Status: Approved by the user on 2026-09-22 following review of commit 30ae0b3.
+Status: Approved by the user on 2026-09-22 following review of commit 30ae0b3;
+the narrow Document custody amendment was approved on 2026-09-22.
 
 ## Authority and delivery boundary
 
@@ -29,10 +30,17 @@ bounded Poppler process. Web remains unchanged in this phase. Domain code does
 not depend on Ecto, Phoenix, filesystem, shell, PostgreSQL, or React.
 
 Vault remains frozen compatibility substrate. New knowledge APIs derive
-principal and owner scope from authenticated runtime context, never accept a
-caller-selected scope, and reuse existing key-lease machinery without changing
-keys, capabilities, custody semantics, Vault files, or Vault UX. No version
-bump, push, release, or deployment is authorized by this design.
+principal and owner scope from authenticated runtime context and never accept
+a caller-selected scope. Phase 2 may add a narrowly Document-scoped reader and
+lease purpose to the existing Runtime/Storage custody machinery because the
+current asynchronous lease is tied to a live Asset and cannot read a retained
+Document pin after Asset deletion. This purpose uses the existing `asset.read`
+capability, key material, 60-second lease lifetime, per-chunk authorization
+revalidation, and revocation behavior. It may authorize only a pinned,
+same-owner Document source; it must not fall back to a deleted Asset's live
+read path. It adds no new key derivation, capability, Vault command, unlock
+behavior, policy, telemetry, or Vault UX. No version bump, push, release, or
+deployment is authorized by this design.
 
 ## Import and original-byte retention
 
@@ -102,6 +110,11 @@ custody is locked, the Document remains `pending` and work is deferred until
 access returns. Custody deferral consumes no extraction generation and must
 not turn into a terminal failure through Oban exhaustion. If source access or
 processing fails after claim, only a sanitized, allowlisted outcome is stored.
+A Document-scoped lease applies the same chunk and revocation safeguards as
+the existing lease, while a new Document-pinned storage lookup supplies its
+binding without depending on current Asset liveness. The worker must finish
+reading the bounded 64 MiB plaintext under the lease before the 120-second
+external extraction step; it does not retain key material in the extractor.
 A digest mismatch before claim is an integrity incident: the worker does not
 extract or claim, leaves the version pending, and surfaces only a sanitized
 operator-visible failure for investigation. It must not retry the mismatched
