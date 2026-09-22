@@ -1,7 +1,7 @@
 # Singularity v0.2 Phase 2 Document Import and Extraction
 
 Date: 2026-09-22
-Status: Design approved in conversation; written specification awaiting user review.
+Status: Approved by the user on 2026-09-22 following review of commit 30ae0b3.
 
 ## Authority and delivery boundary
 
