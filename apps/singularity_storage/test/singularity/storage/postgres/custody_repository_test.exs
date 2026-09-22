@@ -10,6 +10,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.CustodyRepository
   alias Singularity.Storage.ScopedRepo
+  alias Singularity.Storage.Schema.Content.AssetObject
 
   setup do
     %{one: one, two: two} = Fixtures.two_vaults!()
@@ -147,9 +148,31 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
       object_generation: 1
     }
 
-    assert {:ok, %{object_id: object_id}} = document_material(binding)
+    assert {:ok, material} = document_material(binding)
+    assert material.object_id == source.object_id
 
-    assert object_id == source.object_id
+    reader_binding =
+      Map.take(material, [
+        :object_id,
+        :object_generation,
+        :vault_id,
+        :key_domain_id,
+        :classification,
+        :lookup_digest,
+        :ciphertext_hash,
+        :plaintext_byte_size,
+        :ciphertext_byte_size,
+        :format_version
+      ])
+
+    transition_object!(source.object_id, :pending_delete)
+    assert {:error, %Error{code: :forbidden}} = document_material(binding)
+
+    assert {:error, %Error{code: :forbidden}} =
+             document_revalidation(binding, reader_binding)
+
+    transition_object!(source.object_id, :available)
+    assert {:ok, %{object_id: object_id}} = document_material(binding)
 
     checkpoint_binding = Map.delete(binding, :session_id)
     assert {:ok, checkpoint} = document_checkpoint(:load, checkpoint_binding)
@@ -1261,6 +1284,27 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
         end
       end
     )
+  end
+
+  defp document_revalidation(binding, reader_binding) do
+    ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: binding.principal_id, vault_id: binding.vault_id},
+      fn repo -> CustodyRepository.revalidate_reader(repo, binding, reader_binding) end
+    )
+  end
+
+  defp transition_object!(object_id, lifecycle) do
+    Fixtures.with_owner(fn ->
+      object = MigrationRepo.get!(AssetObject, object_id)
+
+      object
+      |> AssetObject.lifecycle_changeset(%{
+        lifecycle: lifecycle,
+        lifecycle_revision: object.lifecycle_revision + 1
+      })
+      |> MigrationRepo.update!()
+    end)
   end
 
   defp load_identity(raw) do
