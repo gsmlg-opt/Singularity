@@ -4,7 +4,7 @@ defmodule Singularity.Core.Error do
   @codes ~w[
     unauthenticated vault_locked forbidden not_found conflict invalid
     upload_expired upload_too_large unsupported_media_type integrity_failure
-    storage_unavailable job_failed backup_invalid
+    storage_unavailable job_failed backup_invalid backup_unsupported
   ]a
   @misuse_message "invalid error construction"
 
@@ -25,6 +25,7 @@ defmodule Singularity.Core.Error do
           | :storage_unavailable
           | :job_failed
           | :backup_invalid
+          | :backup_unsupported
 
   @type t :: %__MODULE__{
           code: code(),

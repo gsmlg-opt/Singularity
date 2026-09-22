@@ -71,7 +71,9 @@ Run `git diff --check` and commit this documentation-only change as `docs(knowle
 
 ### Task 2: Refuse unsupported V1/V2 backups before Document writes
 
-**Files:** Modify `apps/singularity_storage/lib/singularity/storage/backup/exporter.ex` and `apps/singularity_core/lib/singularity/core/error.ex`. Test `apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs`, `apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs`, and `apps/singularity_core/test/singularity/core/error_test.exs`. Preserve `apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex` byte-for-byte.
+**Files:** Modify `apps/singularity_storage/lib/singularity/storage/backup/exporter.ex`, `apps/singularity_core/lib/singularity/core/error.ex`, and only the public error allowlist in `apps/singularity_runtime/lib/singularity/runtime/backup_vault.ex`; add forward migration `apps/singularity_storage/priv/repo/migrations/20260922000000_backup_unsupported_guard.exs`. Test `apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs`, `apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs`, and `apps/singularity_core/test/singularity/core/error_test.exs`. Preserve `apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex` byte-for-byte.
+
+**Approved privilege amendment:** The migration adds a backup-only, owner-scoped `SECURITY DEFINER` boolean predicate, owned by `singularity_table_owner`, with a fixed search path. It verifies `core.live_principal_authorization()` for the requested scope, live principal and membership, and `backup.create`; unauthorized callers fail closed. It executes the eight owner-scoped `EXISTS` checks below in the caller's repeatable-read snapshot. Revoke EXECUTE from PUBLIC, web, and other runtime roles; grant only `singularity_worker` EXECUTE. Do not grant worker broad SELECT on new canonical tables. Test with temporary grants only for fixture writes, then remove them before real worker-role checks; prove legacy-only success and unsupported-row refusal without those grants.
 
 - [ ] **Step 1: Add the failing integration test.** In a scoped repeatable-read cut fixture, create one Phase 1 Document with `KnowledgeFixtures.prepared_source!/0` and `DocumentRepository.create_pending/2` under temporary test grants. Assert `Exporter.snapshot_cut/2` returns a sanitized unsupported error for that owner, while an unrelated owner and the existing Notes/Assets fixture still export. Add one test for a non-Document Phase 1 canonical row absent from V2. Add a `BackupVault` test proving the public operation reports the same code and does not publish a bundle. Use the same transaction and grants pattern already in `logical_exporter_test.exs`.
 
@@ -81,7 +83,7 @@ assert {:error, %Singularity.Core.Error{code: :backup_unsupported}} =
 refute inspect(Exporter.snapshot_cut(repo, owner_scope_id)) =~ document.title
 ```
 
-- [ ] **Step 2: Prove red.** Run `devenv shell -- mix test apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs`. Expected: the new unsupported-row assertion fails because V2 currently returns a cut.
+- [ ] **Step 2: Prove red.** Run `devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs`; plain `mix test` excludes this module's `:integration` tag. Expected: the new unsupported-row assertion fails because V2 currently returns a cut.
 
 - [ ] **Step 3: Implement the guard at both cut and record entrypoints.** Add `:backup_unsupported` to the closed `Core.Error` code/type list and assert its constructor returns empty message/details. In `Exporter.snapshot_cut/2`, call a private `reject_unsupported_canonical_rows/2` before object inventory. Repeat the check in `records/2` under the same exported database snapshot. The predicate is vault-scoped and checks every Phase 1 table omitted by `LogicalSchemaV2`; use `EXISTS` rather than streaming content. Do not include legacy V2-represented Note/Asset rows. Return only `Error.new(:backup_unsupported)`, with no row text or SQL detail. Use this complete table inventory from the Phase 1 migrations:
 
@@ -107,10 +109,10 @@ SELECT EXISTS (
 
 Do not alter the V2 wire schema. The guard must run under the backup's repeatable-read snapshot and before any bundle is published.
 
-- [ ] **Step 4: Prove green and commit.** Run `devenv shell -- mix test apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs apps/singularity_core/test/singularity/core/error_test.exs`; expected: new refusal and old successful exports pass. Then:
+- [ ] **Step 4: Prove green and commit.** Run `devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs` and `devenv shell -- mix test apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs apps/singularity_core/test/singularity/core/error_test.exs`; expected: new refusal and old successful exports pass. Then:
 
 ```sh
-git add apps/singularity_core/lib/singularity/core/error.ex apps/singularity_core/test/singularity/core/error_test.exs apps/singularity_storage/lib/singularity/storage/backup/exporter.ex apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs
+git add apps/singularity_core/lib/singularity/core/error.ex apps/singularity_core/test/singularity/core/error_test.exs apps/singularity_runtime/lib/singularity/runtime/backup_vault.ex apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs apps/singularity_storage/lib/singularity/storage/backup/exporter.ex apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/priv/repo/migrations/20260922000000_backup_unsupported_guard.exs docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md
 git commit -m "fix(backup): refuse unsupported canonical document rows"
 ```
 

@@ -661,26 +661,30 @@ defmodule Singularity.Runtime.BackupVaultTest do
     def snapshot_cut(state, :worker_repo, vault_id) do
       State.record(state, {:snapshot_cut, vault_id})
 
-      {:ok,
-       %{
-         database_snapshot: "100:100:",
-         object_inventory: [
-           %{
-             asset_object_id: "00000000-0000-4000-8000-000000000718",
-             ciphertext_byte_size: 30,
-             ciphertext_hash: :binary.copy(<<0x72>>, 32),
-             classification: :private,
-             inventory_position: 0,
-             key_domain_id: "00000000-0000-4000-8000-000000000719",
-             lookup_digest: :binary.copy(<<0x73>>, 32),
-             storage_ref: "objects/object-718",
-             vault_id: vault_id
-           }
-         ],
-         outbox_high_water_mark: 41,
-         snapshot_id: "00000000-0000-4000-8000-000000000717",
-         vault_id: vault_id
-       }}
+      if State.failure(state) == :unsupported_cut do
+        {:error, Error.new(:backup_unsupported)}
+      else
+        {:ok,
+         %{
+           database_snapshot: "100:100:",
+           object_inventory: [
+             %{
+               asset_object_id: "00000000-0000-4000-8000-000000000718",
+               ciphertext_byte_size: 30,
+               ciphertext_hash: :binary.copy(<<0x72>>, 32),
+               classification: :private,
+               inventory_position: 0,
+               key_domain_id: "00000000-0000-4000-8000-000000000719",
+               lookup_digest: :binary.copy(<<0x73>>, 32),
+               storage_ref: "objects/object-718",
+               vault_id: vault_id
+             }
+           ],
+           outbox_high_water_mark: 41,
+           snapshot_id: "00000000-0000-4000-8000-000000000717",
+           vault_id: vault_id
+         }}
+      end
     end
 
     def records(state, :worker_repo, cut) do
@@ -1424,6 +1428,22 @@ defmodule Singularity.Runtime.BackupVaultTest do
 
       assert Enum.any?(snapshot.events, &match?({:bundle_published, _}, &1)) == published?
     end
+  end
+
+  test "unsupported cut reports the public code without publishing a bundle", context do
+    state = context.state
+    State.set_failure(state, :unsupported_cut)
+    pending = %{waiting_manifest() | status: :pending}
+    State.seed_manifest(state, pending)
+    State.activate(state, pending.backup_key_lease_id)
+
+    assert {:error, %Error{code: :backup_unsupported, message: nil, details: %{}}} =
+             api(:run, [worker_context(state), backup_envelope()])
+
+    snapshot = State.get(state)
+    assert {:snapshot_cut, @vault_id} in snapshot.events
+    refute Enum.any?(snapshot.events, &match?({:bundle_stream, _, _, _, _, _}, &1))
+    refute Enum.any?(snapshot.events, &match?({:bundle_published, _}, &1))
   end
 
   test "a live worker composes the storage writer contract without exposing its key", context do

@@ -41,6 +41,7 @@ defmodule Singularity.Storage.Backup.Exporter do
          :ok <- require_repeatable_read(repo),
          {:ok, database_snapshot} <- database_snapshot(repo),
          {:ok, outbox_high_water_mark} <- outbox_high_water_mark(repo, vault_id),
+         :ok <- reject_unsupported_canonical_rows(repo, vault_id),
          {:ok, object_inventory} <- object_inventory(repo, vault_id) do
       {:ok,
        %{
@@ -65,6 +66,7 @@ defmodule Singularity.Storage.Backup.Exporter do
     with :ok <- require_repeatable_read(repo),
          {:ok, cut} <- validate_logical_cut(cut),
          :ok <- require_database_snapshot(repo, cut.database_snapshot),
+         :ok <- reject_unsupported_canonical_rows(repo, cut.vault_id),
          {:ok, identity} <- identity_rows(repo, cut.vault_id),
          {:ok, table_inventory, table_counts} <-
            describe_tables(repo, cut, identity),
@@ -90,6 +92,7 @@ defmodule Singularity.Storage.Backup.Exporter do
        }}
     else
       {:error, %Error{code: :storage_unavailable}} = error -> error
+      {:error, %Error{code: :backup_unsupported}} = error -> error
       _invalid -> invalid()
     end
   rescue
@@ -720,6 +723,19 @@ defmodule Singularity.Storage.Backup.Exporter do
            [Ecto.UUID.dump!(vault_id)]
          ) do
       {:ok, %{rows: [[mark]]}} when is_integer(mark) and mark >= 0 -> {:ok, mark}
+      {:ok, _other} -> storage_unavailable()
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp reject_unsupported_canonical_rows(repo, vault_id) do
+    case query(
+           repo,
+           "SELECT content.backup_has_unsupported_canonical_rows($1)",
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: [[false]]}} -> :ok
+      {:ok, %{rows: [[true]]}} -> {:error, Error.new(:backup_unsupported)}
       {:ok, _other} -> storage_unavailable()
       {:error, %Error{}} = error -> error
     end

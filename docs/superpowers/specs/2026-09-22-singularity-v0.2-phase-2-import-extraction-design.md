@@ -202,6 +202,17 @@ sanitized unsupported-backup result; it cannot create an apparently successful
 bundle that silently omits data. Existing supported V1/V2 Notes and Assets
 fixtures remain valid. Full V3 backup and restore remain Phase 5.
 
+The worker cannot read the eight new canonical tables directly. A new forward
+migration adds a backup-only `SECURITY DEFINER` boolean predicate owned by
+`singularity_table_owner`. It accepts an owner scope only when
+`core.live_principal_authorization()` matches that scope, the principal and
+membership are live, and the principal has `backup.create`; unauthorized
+calls fail closed. Under the caller's repeatable-read snapshot, it checks the
+eight omitted tables with owner-scoped `EXISTS` queries and returns no row
+content. Its search path is fixed, only `singularity_worker` receives EXECUTE,
+and the worker receives no broad SELECT grant on canonical tables. The exporter
+checks the predicate at both cut and record entrypoints before bundle writing.
+
 The guard is an activation prerequisite, not a claim that V2 can back up
 Documents. No Phase 2 production deployment is approved here. If production
 Document writes are separately enabled before V3 exists, operators must

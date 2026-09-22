@@ -664,7 +664,8 @@ defmodule Singularity.Runtime.BackupVault do
               :integrity_failure,
               :storage_unavailable,
               :job_failed,
-              :backup_invalid
+              :backup_invalid,
+              :backup_unsupported
             ] and is_boolean(retryable?),
        do: {:error, Error.new(code, retryable?: retryable?)}
 

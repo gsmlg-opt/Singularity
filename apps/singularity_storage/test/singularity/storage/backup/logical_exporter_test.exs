@@ -9,10 +9,15 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchemaV2
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
+  alias Singularity.Storage.KnowledgeTestGrants
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.NoteFixtures
+  alias Singularity.Storage.Postgres.DocumentRepository
   alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.ScopedRepo
+
+  @unsupported_tables ~w(document_versions document_fragments document_import_receipts note_attachments note_citations tags resource_tags relationships)
 
   @query_event [:singularity, :storage, :worker_repo, :query]
   @wrapper_secret "logical-wrapper-secret-canary"
@@ -41,6 +46,131 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     refute source =~ "SET ROLE"
     refute source =~ "MigrationRepo"
     refute source =~ "FROM content.note_conflicts AS source"
+  end
+
+  test "refuses a Document owner without exposing its title, while other owners export", %{
+    fixture: fixture,
+    seeded: seeded,
+    cut: cut
+  } do
+    source = KnowledgeFixtures.prepared_source!()
+    title = "private-document-title-canary"
+    command = KnowledgeFixtures.document_command(source, %{title: title})
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      KnowledgeTestGrants.with_receipt_grants(fn ->
+        assert {:ok, _document} =
+                 DocumentRepository.create_pending(
+                   KnowledgeFixtures.document_context(source),
+                   command
+                 )
+      end)
+    end)
+
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) VALUES ($1,$2,$3)",
+        [
+          Ecto.UUID.dump!(source.principal_id),
+          Ecto.UUID.dump!(source.vault_id),
+          Ecto.UUID.dump!(seeded.backup_capability_id)
+        ]
+      )
+    end)
+
+    assert {:ok, _export} = run_export(fixture, cut)
+
+    assert {:ok, %{vault_id: vault_id}} =
+             ScopedRepo.transact(
+               WorkerRepo,
+               %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+               [isolation: :repeatable_read],
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+             )
+
+    assert vault_id == fixture.vault_id
+
+    assert {:error, %Error{code: :backup_unsupported, message: nil, details: %{}}} =
+             result =
+             ScopedRepo.transact(
+               WorkerRepo,
+               %{principal_id: source.principal_id, vault_id: source.vault_id},
+               [isolation: :repeatable_read],
+               fn repo ->
+                 for table <- @unsupported_tables do
+                   assert %{rows: [[false]]} =
+                            SafeSQL.query!(
+                              repo,
+                              "SELECT has_table_privilege(current_user,$1,'SELECT')",
+                              ["content.#{table}"]
+                            )
+                 end
+
+                 assert %{rows: [[true, false]]} =
+                          SafeSQL.query!(
+                            repo,
+                            "SELECT has_function_privilege('singularity_worker','content.backup_has_unsupported_canonical_rows(uuid)','EXECUTE'), has_function_privilege('singularity_web','content.backup_has_unsupported_canonical_rows(uuid)','EXECUTE')",
+                            []
+                          )
+
+                 Exporter.snapshot_cut(repo, source.vault_id)
+               end
+             )
+
+    refute inspect(result) =~ title
+  end
+
+  test "refuses a non-Document canonical tag absent from V2 at cut and records", %{
+    fixture: fixture,
+    cut: cut
+  } do
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        "INSERT INTO content.tags (id,vault_id,classification,display_value,normalized_key,created_by_principal_id,inserted_at) VALUES ($1,$2,'private','test tag','test tag',$3,CURRENT_TIMESTAMP)",
+        [uuid_dump(), Ecto.UUID.dump!(fixture.vault_id), Ecto.UUID.dump!(fixture.principal_id)]
+      )
+    end)
+
+    assert {:error, %Error{code: :backup_unsupported}} =
+             ScopedRepo.transact(
+               WorkerRepo,
+               %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+               [isolation: :repeatable_read],
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+             )
+
+    assert {:error, %Error{code: :backup_unsupported}} = run_export(fixture, cut)
+  end
+
+  test "backup predicate fails closed for an unprivileged or cross-owner worker call", %{
+    fixture: fixture
+  } do
+    source = KnowledgeFixtures.prepared_source!()
+
+    for {principal_id, vault_id, requested_vault_id} <- [
+          {source.principal_id, source.vault_id, source.vault_id},
+          {fixture.principal_id, fixture.vault_id, source.vault_id}
+        ] do
+      assert {:ok, :checked} =
+               ScopedRepo.transact(
+                 WorkerRepo,
+                 %{principal_id: principal_id, vault_id: vault_id},
+                 [isolation: :repeatable_read],
+                 fn repo ->
+                   SQL.query!(repo, "SAVEPOINT unauthorized_guard", [])
+
+                   assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
+                            SQL.query(
+                              repo,
+                              "SELECT content.backup_has_unsupported_canonical_rows($1)",
+                              [Ecto.UUID.dump!(requested_vault_id)]
+                            )
+
+                   SQL.query!(repo, "ROLLBACK TO SAVEPOINT unauthorized_guard", [])
+                   {:ok, :checked}
+                 end
+               )
+    end
   end
 
   test "exports deterministic lazy logical records with exact counts, ordering, and descriptors",
