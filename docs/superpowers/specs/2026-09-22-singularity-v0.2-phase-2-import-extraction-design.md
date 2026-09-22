@@ -181,6 +181,16 @@ child is running, and terminate/reap the child on timeout, over-limit output,
 or caller cancellation. The dependency is scoped to Ingest and introduces no
 new extraction formats or persistent plaintext.
 
+The process bridge includes a small bundled native guardian, approved on
+2026-09-23. `ExCmd.Process` manages the guardian as its direct child. The
+guardian starts Poppler directly without a shell, isolates Poppler and any
+descendants in a dedicated process group, forwards termination to the whole
+group, and waits for and reaps descendants before it exits. It retains group
+ownership throughout teardown so descendants cannot escape and a reused
+process-group ID cannot be signalled accidentally. The guardian is built
+reproducibly during normal Mix, release, and container builds and is not
+committed as an opaque binary.
+
 Malformed PDF, encrypted/password-protected PDF, invalid UTF-8, no
 extractable text, and deterministic source/output/page limits become
 `unsupported` with an allowlisted reason. Timeout and transient extractor,
