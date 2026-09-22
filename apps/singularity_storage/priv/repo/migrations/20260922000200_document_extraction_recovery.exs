@@ -107,7 +107,7 @@ defmodule Singularity.Storage.Migrations.DocumentExtractionRecovery do
         gen_random_uuid(), 'document.extraction_requested',
         'document-extraction:' || version_id::text || ':' || new_generation::text,
         owner_id, original_principal, 'asset.read', principal_epoch, owner_epoch,
-        'private', version_id, original_job, 0, 1,
+        'private', version_id, original_job, new_generation, 1,
         jsonb_build_object('resource_id', found_resource, 'resource_version_id', version_id),
         clock_timestamp());
       RETURN recovered.state = 'pending';

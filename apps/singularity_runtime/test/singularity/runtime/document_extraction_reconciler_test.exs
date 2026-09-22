@@ -73,6 +73,15 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
     assert payload =~ Ecto.UUID.load!(document.resource_version_id)
     refute payload =~ "source bytes"
 
+    assert %{rows: [[2]]} =
+             Fixtures.with_owner(fn ->
+               query!(
+                 MigrationRepo,
+                 "SELECT expected_entity_revision FROM core.outbox_events WHERE idempotency_key=$1",
+                 ["document-extraction:#{Ecto.UUID.load!(document.resource_version_id)}:2"]
+               )
+             end)
+
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       for sql <- [
             "SELECT content.fail_document_extraction($1,$2,1,'failed','timeout')",
