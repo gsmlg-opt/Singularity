@@ -203,7 +203,53 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
     end)
   end
 
-  defp event!(c, job_id) do
+  test "pending generation rejects a stale extraction event after recovery", c do
+    stale_job = Ecto.UUID.generate()
+    next_job = Ecto.UUID.generate()
+    version = Ecto.UUID.load!(c.document.resource_version_id)
+    event!(c, stale_job)
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      assert {:ok, _} =
+               DocumentPinnedSource.load_for_job(RequestRepo, c.context, version, stale_job)
+
+      KnowledgeTestGrants.with_lifecycle_grants(fn ->
+        assert {:ok, _} =
+                 Singularity.Storage.Postgres.DocumentRepository.claim(
+                   c.context,
+                   version,
+                   0,
+                   stale_job,
+                   "plain",
+                   1
+                 )
+      end)
+
+      # Model the guarded recovery transition without waiting for its 180-second deadline.
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          """
+          UPDATE content.document_versions SET state='pending', attempt_generation=2,
+            attempt_job_id=NULL, attempt_started_at=NULL, attempt_deadline_at=NULL,
+            extraction_adapter=NULL, extraction_format=NULL
+          WHERE resource_version_id=$1
+          """,
+          [c.document.resource_version_id]
+        )
+      end)
+
+      assert {:error, %Error{code: :not_found}} =
+               DocumentPinnedSource.load_for_job(RequestRepo, c.context, version, stale_job)
+
+      event!(c, next_job, 2)
+
+      assert {:ok, _} =
+               DocumentPinnedSource.load_for_job(RequestRepo, c.context, version, next_job)
+    end)
+  end
+
+  defp event!(c, job_id, revision \\ 0) do
     Fixtures.with_owner(fn ->
       query!(
         MigrationRepo,
@@ -213,7 +259,7 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
            principal_authorization_epoch,vault_authorization_epoch,classification,
            correlation_id,expected_entity_revision,envelope_version,payload,occurred_at)
         VALUES ($1,'document.extraction_requested',$2,$3,$4,'asset.read',0,0,'private',
-                $1,0,1,$5::text::jsonb,CURRENT_TIMESTAMP)
+                $1,$6,1,$5::text::jsonb,CURRENT_TIMESTAMP)
         """,
         [
           Ecto.UUID.dump!(job_id),
@@ -223,7 +269,8 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
           JSON.encode!(%{
             "resource_id" => Ecto.UUID.load!(c.document.resource_id),
             "resource_version_id" => Ecto.UUID.load!(c.document.resource_version_id)
-          })
+          }),
+          revision
         ]
       )
     end)

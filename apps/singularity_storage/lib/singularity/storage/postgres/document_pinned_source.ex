@@ -98,6 +98,7 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
           source_byte_size: d.source_byte_size,
           media_type: d.media_type,
           state: d.state,
+          attempt_generation: d.attempt_generation,
           attempt_job_id: d.attempt_job_id,
           attempt_active: fragment("? > clock_timestamp()", d.attempt_deadline_at),
           deleted_at: r.deleted_at,
@@ -132,6 +133,7 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
             event_type: e.event_type,
             principal_id: e.principal_id,
             required_capability: e.required_capability,
+            expected_entity_revision: e.expected_entity_revision,
             classification: e.classification,
             payload: e.payload
           }
@@ -147,7 +149,8 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
         }
 
     valid_state? =
-      (is_nil(row.deleted_at) and row.state == :pending) or
+      (not is_nil(event) and is_nil(row.deleted_at) and row.state == :pending and
+         event.expected_entity_revision == row.attempt_generation) or
         (row.state == :extracting and row.attempt_job_id == job_id and
            row.attempt_active == true)
 
