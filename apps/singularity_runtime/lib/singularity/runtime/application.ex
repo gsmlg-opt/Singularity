@@ -6,6 +6,7 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.UploadReconciler
+  alias Singularity.Runtime.Documents.ExtractionReconciler
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.BackupKeyLease
   alias Singularity.Runtime.KeyCustodian
@@ -78,6 +79,7 @@ defmodule Singularity.Runtime.Application do
       Singularity.Storage.WorkerRepo,
       AssetEvents.child_spec([]),
       UploadReconciler,
+      ExtractionReconciler,
       upload_recovery_tasks,
       key_lease_supervisor,
       key_custodian,

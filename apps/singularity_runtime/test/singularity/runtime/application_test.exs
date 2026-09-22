@@ -7,6 +7,7 @@ defmodule Singularity.Runtime.ApplicationTest do
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.CustodyReader
+  alias Singularity.Runtime.Documents.ExtractionReconciler
   alias Singularity.Runtime.JobDispatcher
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLeaseSupervisor
@@ -58,6 +59,7 @@ defmodule Singularity.Runtime.ApplicationTest do
              Singularity.Storage.WorkerRepo,
              Singularity.Runtime.AssetEvents.Registry,
              UploadReconciler,
+             ExtractionReconciler,
              Singularity.Runtime.UploadRecoveryTaskSupervisor,
              Singularity.Runtime.KeyLeaseSupervisor,
              Singularity.Runtime.KeyCustodian,

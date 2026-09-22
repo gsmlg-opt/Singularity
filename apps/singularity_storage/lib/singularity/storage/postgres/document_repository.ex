@@ -19,6 +19,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
 
   alias Singularity.Domains.Documents.Command
   alias Singularity.Storage.{SafeSQL, ScopedRepo}
+  alias Singularity.Storage.WorkerRepo
   alias Singularity.Storage.Documents.PrepareSource
 
   alias Singularity.Storage.Postgres.{
@@ -185,6 +186,47 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
     with :ok <- generation(generation),
          do: lifecycle(context, version, "recover_document_extraction", [generation])
   end
+
+  @doc "Enumerates at most 100 expired version/owner ID pairs for the worker reconciler."
+  def list_expired_recovery_ids(%{repo: WorkerRepo}, limit)
+      when is_integer(limit) and limit in 1..100 do
+    case SafeSQL.query(
+           WorkerRepo,
+           "SELECT version_id,owner_id FROM content.expired_document_extraction_ids($1)",
+           [limit]
+         ) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Enum.map(rows, fn [version, owner] ->
+           {Ecto.UUID.load!(version), Ecto.UUID.load!(owner)}
+         end)}
+
+      {:error, reason} ->
+        {:error, KnowledgeError.from(reason)}
+    end
+  end
+
+  def list_expired_recovery_ids(_, _), do: error(:invalid)
+
+  @doc "Atomically resets one expired attempt and writes its successor event."
+  def recover_expired_with_event(%{repo: WorkerRepo}, version, owner) do
+    with :ok <- UUID.validate([version, owner]) do
+      case WorkerRepo.transaction(fn ->
+             SafeSQL.query!(
+               WorkerRepo,
+               "SELECT content.recover_expired_document_with_event($1,$2)",
+               [Ecto.UUID.dump!(version), Ecto.UUID.dump!(owner)]
+             )
+           end) do
+        {:ok, %{rows: [[recovered?]]}} -> {:ok, recovered?}
+        {:error, reason} -> {:error, KnowledgeError.from(reason)}
+      end
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def recover_expired_with_event(_, _, _), do: error(:invalid)
 
   @impl true
   def complete(context, job_id, input) do
