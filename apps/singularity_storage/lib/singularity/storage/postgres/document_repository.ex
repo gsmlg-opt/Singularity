@@ -102,27 +102,44 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
   end
 
   @impl true
-  def claim(context, version, generation, adapter, format) do
+  def claim(context, version, generation, job_id, adapter, format) do
     with :ok <- generation(generation),
+         :ok <- canonical_job(job_id),
          true <-
            is_binary(adapter) and String.valid?(adapter) and String.trim(adapter) != "" and
              byte_size(adapter) <= 255 and not String.contains?(adapter, <<0>>),
          true <- is_integer(format) and format in 1..2_147_483_647 do
-      lifecycle(context, version, "claim_document_extraction", [generation, adapter, format])
+      lifecycle(context, version, "claim_document_extraction", [
+        generation,
+        Ecto.UUID.dump!(job_id),
+        adapter,
+        format
+      ])
     else
       _ -> error(:invalid)
     end
   end
 
   @impl true
-  def reset_failed(context, version, generation) do
+  def reset_failed(context, version, generation, adapter, format) do
     with :ok <- generation(generation),
-         do: lifecycle(context, version, "reset_document_extraction", [generation])
+         true <- valid_adapter?(adapter) and is_integer(format) and format in 1..2_147_483_647 do
+      lifecycle(context, version, "reset_document_extraction", [generation, adapter, format])
+    else
+      _ -> error(:invalid)
+    end
   end
 
   @impl true
-  def complete(context, input) do
+  def recover_expired(context, version, generation) do
+    with :ok <- generation(generation),
+         do: lifecycle(context, version, "recover_document_extraction", [generation])
+  end
+
+  @impl true
+  def complete(context, job_id, input) do
     with {:ok, repo} <- context_repo(context),
+         :ok <- canonical_job(job_id),
          {:ok, completion} <- DocumentCompletion.new(input),
          true <- completion.owner_scope_id == context.owner_scope_id do
       scoped(repo, context, fn transaction_repo ->
@@ -138,7 +155,10 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
                  completion.format_version == current.format_version and
                  completion.media_type == current.source.media_type do
           {function, args} = completion_args(completion)
-          invoke(transaction_repo, context, completion.resource_version_id, function, args)
+
+          invoke(transaction_repo, context, completion.resource_version_id, function, [
+            Ecto.UUID.dump!(job_id) | args
+          ])
         else
           false -> error(:conflict)
           {:error, %Error{}} = result -> result
@@ -164,10 +184,20 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
   defp invoke(repo, context, version, function, args) do
     placeholders =
       case function do
-        "claim_document_extraction" -> "$1::uuid,$2::bigint,$3::text,$4::integer"
-        "reset_document_extraction" -> "$1::uuid,$2::bigint"
-        "fail_document_extraction" -> "$1::uuid,$2::bigint,$3::text,$4::text"
-        "complete_document_extraction" -> "$1::uuid,$2::bigint,$3::jsonb,$4::bytea,$5::text"
+        "claim_document_extraction" ->
+          "$1::uuid,$2::bigint,$3::uuid,$4::text,$5::integer"
+
+        "reset_document_extraction" ->
+          "$1::uuid,$2::bigint,$3::text,$4::integer"
+
+        "recover_document_extraction" ->
+          "$1::uuid,$2::bigint"
+
+        "fail_document_extraction" ->
+          "$1::uuid,$2::uuid,$3::bigint,$4::text,$5::text"
+
+        "complete_document_extraction" ->
+          "$1::uuid,$2::uuid,$3::bigint,$4::jsonb,$5::bytea,$6::text"
       end
 
     %{rows: [[resource]]} =
@@ -322,6 +352,9 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
         inserted_at: row.inserted_at,
         state: row.state,
         generation: row.attempt_generation,
+        attempt_job_id: row.attempt_job_id,
+        attempt_started_at: row.attempt_started_at,
+        attempt_deadline_at: row.attempt_deadline_at,
         adapter_name: row.extraction_adapter,
         format_version: row.extraction_format,
         extracted_text_digest: row.extracted_text_digest,
@@ -381,6 +414,19 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
   defp secret(_), do: error(:storage_unavailable)
   defp generation(value) when is_integer(value) and value in 0..9_223_372_036_854_775_807, do: :ok
   defp generation(_), do: error(:invalid)
+
+  defp canonical_job(value) when is_binary(value) do
+    if Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/, value),
+      do: :ok,
+      else: error(:invalid)
+  end
+
+  defp canonical_job(_), do: error(:invalid)
+
+  defp valid_adapter?(value),
+    do:
+      is_binary(value) and String.valid?(value) and String.trim(value) != "" and
+        byte_size(value) <= 255 and not String.contains?(value, <<0>>)
 
   defp scoped(repo, context, callback),
     do:

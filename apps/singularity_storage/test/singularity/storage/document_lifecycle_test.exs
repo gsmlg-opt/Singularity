@@ -14,10 +14,11 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
   @locator %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
   @max 9_223_372_036_854_775_807
   @signatures [
-    "claim_document_extraction(uuid,bigint,text,integer)",
-    "complete_document_extraction(uuid,bigint,jsonb,bytea,text)",
-    "fail_document_extraction(uuid,bigint,text,text)",
-    "reset_document_extraction(uuid,bigint)"
+    "claim_document_extraction(uuid,bigint,uuid,text,integer)",
+    "complete_document_extraction(uuid,uuid,bigint,jsonb,bytea,text)",
+    "fail_document_extraction(uuid,uuid,bigint,text,text)",
+    "reset_document_extraction(uuid,bigint,text,integer)",
+    "recover_document_extraction(uuid,bigint)"
   ]
 
   test "lifecycle functions are owned by the table owner, hardened and ungranted" do
@@ -70,7 +71,18 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
                "extraction_format" => 1
              } = claim(source, document)
 
-      conflict(fn -> claim(source, document) end)
+      assert state(document) == claim(source, document)
+
+      conflict(fn ->
+        invoke(
+          RequestRepo,
+          source,
+          "claim",
+          [document.resource_version_id, 0, KnowledgeFixtures.uuid(), "plain", 1],
+          "uuid,bigint,uuid,text,integer"
+        )
+      end)
+
       conflict(fn -> complete(source, document, fragments, 0) end)
       ready = complete(source, document, fragments)
       assert ready["state"] == "ready"
@@ -102,16 +114,24 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         assert failed["state"] == outcome
         assert failed["failure_code"] == "timeout"
         assert failed["attempt_finished_at"] != nil
+        assert failed["attempt_job_id"] == Ecto.UUID.load!(document.resource_version_id)
+        assert failed["attempt_started_at"] != nil
+        assert failed["attempt_deadline_at"] != nil
+        assert failed["source_object_id"] == before["source_object_id"]
         assert failed["extracted_text_digest"] == nil
         assert failed["detected_language"] == nil
         assert stored_fragments(document) == []
         conflict(fn -> reset(source, document, 0) end)
-        pending = reset(source, document, 1)
+        if outcome == "unsupported", do: conflict(fn -> reset(source, document, 1) end)
+
+        pending =
+          reset(source, document, 1, if(outcome == "unsupported", do: "new", else: "plain"))
+
         assert pending["state"] == "pending"
         assert pending["attempt_generation"] == 1
 
         for key <-
-              ~w(extraction_adapter extraction_format extracted_text_digest detected_language failure_code attempt_finished_at),
+              ~w(attempt_job_id attempt_started_at attempt_deadline_at extraction_adapter extraction_format extracted_text_digest detected_language failure_code attempt_finished_at),
             do: assert(pending[key] == nil)
 
         for key <-
@@ -122,6 +142,141 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         conflict(fn -> complete(source, document, [fragment(document, 0, "ok")], 1) end)
       end)
     end
+  end
+
+  test "expired attempt is fenced and recovery permits a fresh job" do
+    source = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+    first_job = document.resource_version_id
+    next_job = KnowledgeFixtures.uuid()
+    body = [fragment(document, 0, "fresh")]
+
+    KnowledgeTestGrants.with_lifecycle_grants(fn ->
+      first = claim(source, document)
+      assert first["attempt_job_id"] == Ecto.UUID.load!(first_job)
+
+      assert DateTime.diff(
+               DateTime.from_iso8601(first["attempt_deadline_at"]) |> elem(1),
+               DateTime.from_iso8601(first["attempt_started_at"]) |> elem(1),
+               :microsecond
+             ) == 180_000_000
+
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "SET CONSTRAINTS ALL IMMEDIATE")
+
+        query!(
+          MigrationRepo,
+          "ALTER TABLE content.document_versions DISABLE TRIGGER document_versions_lifecycle_guard"
+        )
+
+        query!(
+          MigrationRepo,
+          "WITH previous AS (SELECT clock_timestamp() - interval '181 seconds' AS started) UPDATE content.document_versions SET attempt_started_at = previous.started, attempt_deadline_at = previous.started + interval '180 seconds' FROM previous WHERE resource_version_id = $1",
+          [document.resource_version_id]
+        )
+
+        query!(
+          MigrationRepo,
+          "ALTER TABLE content.document_versions ENABLE TRIGGER document_versions_lifecycle_guard"
+        )
+      end)
+
+      conflict(fn -> complete(source, document, body) end)
+      conflict(fn -> fail(source, document, 1, "failed", "timeout") end)
+      conflict(fn -> claim(source, document) end)
+
+      recovered =
+        invoke(RequestRepo, source, "recover", [document.resource_version_id, 1], "uuid,bigint")
+
+      assert recovered["state"] == "pending"
+      assert recovered["attempt_generation"] == 2
+      assert recovered["attempt_job_id"] == nil
+      conflict(fn -> complete(source, document, body) end)
+      conflict(fn -> fail(source, document, 1, "failed", "timeout") end)
+
+      claimed =
+        invoke(
+          RequestRepo,
+          source,
+          "claim",
+          [document.resource_version_id, 2, next_job, "plain", 1],
+          "uuid,bigint,uuid,text,integer"
+        )
+
+      assert claimed["attempt_generation"] == 3
+
+      ready =
+        invoke(
+          RequestRepo,
+          source,
+          "complete",
+          [document.resource_version_id, next_job, 3, body, :crypto.hash(:sha256, "fresh"), "en"],
+          "uuid,uuid,bigint,jsonb,bytea,text"
+        )
+
+      assert ready["state"] == "ready"
+      assert ready["attempt_job_id"] == Ecto.UUID.load!(next_job)
+      assert ready["source_object_id"] == first["source_object_id"]
+      assert ready["attempt_started_at"] == claimed["attempt_started_at"]
+      assert ready["attempt_deadline_at"] == claimed["attempt_deadline_at"]
+
+      assert ready ==
+               invoke(
+                 RequestRepo,
+                 source,
+                 "complete",
+                 [
+                   document.resource_version_id,
+                   next_job,
+                   3,
+                   body,
+                   :crypto.hash(:sha256, "fresh"),
+                   "en"
+                 ],
+                 "uuid,uuid,bigint,jsonb,bytea,text"
+               )
+
+      conflict(fn -> complete(source, document, body, 3) end)
+
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "SET CONSTRAINTS ALL IMMEDIATE")
+
+        query!(
+          MigrationRepo,
+          "ALTER TABLE content.document_versions DISABLE TRIGGER document_versions_lifecycle_guard"
+        )
+
+        query!(
+          MigrationRepo,
+          "WITH previous AS (SELECT clock_timestamp() - interval '181 seconds' AS started) UPDATE content.document_versions SET attempt_started_at = previous.started, attempt_deadline_at = previous.started + interval '180 seconds' FROM previous WHERE resource_version_id = $1",
+          [document.resource_version_id]
+        )
+
+        query!(
+          MigrationRepo,
+          "ALTER TABLE content.document_versions ENABLE TRIGGER document_versions_lifecycle_guard"
+        )
+      end)
+
+      sealed = state(document)
+      assert sealed["attempt_deadline_at"] < DateTime.to_iso8601(DateTime.utc_now())
+
+      assert sealed ==
+               invoke(
+                 RequestRepo,
+                 source,
+                 "complete",
+                 [
+                   document.resource_version_id,
+                   next_job,
+                   3,
+                   body,
+                   :crypto.hash(:sha256, "fresh"),
+                   "en"
+                 ],
+                 "uuid,uuid,bigint,jsonb,bytea,text"
+               )
+    end)
   end
 
   test "EXECUTE alone cannot authorize missing, cross-owner or revoked scope for any operation" do
@@ -158,8 +313,8 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
             RequestRepo,
             source,
             "claim",
-            [document.resource_version_id, 0, adapter, 1],
-            "uuid,bigint,text,integer"
+            [document.resource_version_id, 0, document.resource_version_id, adapter, 1],
+            "uuid,bigint,uuid,text,integer"
           )
         end)
       end
@@ -170,8 +325,8 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
             RequestRepo,
             source,
             "claim",
-            [document.resource_version_id, 0, "plain", format],
-            "uuid,bigint,text,integer"
+            [document.resource_version_id, 0, document.resource_version_id, "plain", format],
+            "uuid,bigint,uuid,text,integer"
           )
         end)
       end
@@ -580,11 +735,13 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
     id = document.resource_version_id
 
     [
-      {"claim", [id, 0, "plain", 1], "uuid,bigint,text,integer"},
-      {"complete", [id, 1, [fragment(document, 0, "hello")], :crypto.hash(:sha256, "hello"), nil],
-       "uuid,bigint,jsonb,bytea,text"},
-      {"fail", [id, 1, "failed", "timeout"], "uuid,bigint,text,text"},
-      {"reset", [id, 1], "uuid,bigint"}
+      {"claim", [id, 0, id, "plain", 1], "uuid,bigint,uuid,text,integer"},
+      {"complete",
+       [id, id, 1, [fragment(document, 0, "hello")], :crypto.hash(:sha256, "hello"), nil],
+       "uuid,uuid,bigint,jsonb,bytea,text"},
+      {"fail", [id, id, 1, "failed", "timeout"], "uuid,uuid,bigint,text,text"},
+      {"reset", [id, 1, "plain", 1], "uuid,bigint,text,integer"},
+      {"recover", [id, 1], "uuid,bigint"}
     ]
   end
 
@@ -615,8 +772,8 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         RequestRepo,
         scope,
         "claim",
-        [document.resource_version_id, generation, "plain", 1],
-        "uuid,bigint,text,integer"
+        [document.resource_version_id, generation, document.resource_version_id, "plain", 1],
+        "uuid,bigint,uuid,text,integer"
       )
 
   defp fail(scope, document, generation, outcome, code),
@@ -625,18 +782,18 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         RequestRepo,
         scope,
         "fail",
-        [document.resource_version_id, generation, outcome, code],
-        "uuid,bigint,text,text"
+        [document.resource_version_id, document.resource_version_id, generation, outcome, code],
+        "uuid,uuid,bigint,text,text"
       )
 
-  defp reset(scope, document, generation),
+  defp reset(scope, document, generation, adapter \\ "plain"),
     do:
       invoke(
         RequestRepo,
         scope,
         "reset",
-        [document.resource_version_id, generation],
-        "uuid,bigint"
+        [document.resource_version_id, generation, adapter, 1],
+        "uuid,bigint,text,integer"
       )
 
   defp complete(scope, document, fragments, generation \\ 1, language \\ "en"),
@@ -647,12 +804,13 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         "complete",
         [
           document.resource_version_id,
+          document.resource_version_id,
           generation,
           fragments,
           :crypto.hash(:sha256, Enum.map(fragments, & &1["text"])),
           language
         ],
-        "uuid,bigint,jsonb,bytea,text"
+        "uuid,uuid,bigint,jsonb,bytea,text"
       )
 
   defp complete_raw(scope, document, fragments, digest, language),
@@ -661,8 +819,15 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         RequestRepo,
         scope,
         "complete",
-        [document.resource_version_id, 1, fragments, digest, language],
-        "uuid,bigint,jsonb,bytea,text"
+        [
+          document.resource_version_id,
+          document.resource_version_id,
+          1,
+          fragments,
+          digest,
+          language
+        ],
+        "uuid,uuid,bigint,jsonb,bytea,text"
       )
 
   defp fragment(document, ordinal, text, locator \\ @locator) do

@@ -142,6 +142,9 @@ defmodule Singularity.Core.DocumentValuesTest do
                Map.merge(version_attrs(), %{
                  state: :extracting,
                  generation: 1,
+                 attempt_job_id: @uuid,
+                 attempt_started_at: ~U[2026-09-07 00:00:00.000000Z],
+                 attempt_deadline_at: ~U[2026-09-07 00:03:00.000000Z],
                  adapter_name: "text",
                  format_version: 1
                })
@@ -153,7 +156,13 @@ defmodule Singularity.Core.DocumentValuesTest do
              DocumentVersion.new(
                Map.merge(
                  version_attrs(),
-                 Map.drop(completion_attrs(), [:outcome, :media_type]) |> Map.put(:state, :ready)
+                 Map.drop(completion_attrs(), [:outcome, :media_type])
+                 |> Map.merge(%{
+                   state: :ready,
+                   attempt_job_id: @uuid,
+                   attempt_started_at: ~U[2026-09-07 00:00:00.000000Z],
+                   attempt_deadline_at: ~U[2026-09-07 00:03:00.000000Z]
+                 })
                )
              )
 

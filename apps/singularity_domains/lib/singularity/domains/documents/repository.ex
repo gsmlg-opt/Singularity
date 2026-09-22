@@ -15,10 +15,12 @@ defmodule Singularity.Domains.Documents.Repository do
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
   @callback get_version(context(), Types.id(), Types.id()) ::
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
-  @callback claim(context(), Types.id(), non_neg_integer(), String.t(), pos_integer()) ::
+  @callback claim(context(), Types.id(), non_neg_integer(), Types.id(), String.t(), pos_integer()) ::
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
-  @callback complete(context(), DocumentCompletion.t()) ::
+  @callback complete(context(), Types.id(), DocumentCompletion.t()) ::
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
-  @callback reset_failed(context(), Types.id(), non_neg_integer()) ::
+  @callback recover_expired(context(), Types.id(), non_neg_integer()) ::
+              {:ok, DocumentVersion.t()} | {:error, Error.t()}
+  @callback reset_failed(context(), Types.id(), non_neg_integer(), String.t(), pos_integer()) ::
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
 end

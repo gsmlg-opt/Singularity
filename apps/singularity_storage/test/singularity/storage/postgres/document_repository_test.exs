@@ -70,13 +70,29 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       assert {:ok, ^first} = DocumentRepository.create_pending(c.context, retry)
 
       KnowledgeTestGrants.with_lifecycle_grants(fn ->
+        job = Ecto.UUID.generate()
+
         assert {:ok, %DocumentVersion{state: :extracting, generation: 1} = claimed} =
-                 DocumentRepository.claim(c.context, first.resource_version_id, 0, "plain", 1)
+                 DocumentRepository.claim(
+                   c.context,
+                   first.resource_version_id,
+                   0,
+                   job,
+                   "plain",
+                   1
+                 )
 
         assert {:ok, ^claimed} = DocumentRepository.create_pending(c.context, retry)
 
         assert {:error, %Error{code: :conflict}} =
-                 DocumentRepository.claim(c.context, first.resource_version_id, 0, "plain", 1)
+                 DocumentRepository.claim(
+                   c.context,
+                   first.resource_version_id,
+                   0,
+                   Ecto.UUID.generate(),
+                   "plain",
+                   1
+                 )
       end)
     end)
   end
@@ -192,9 +208,10 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
     grants(fn ->
       KnowledgeTestGrants.with_lifecycle_grants(fn ->
         {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
+        job = Ecto.UUID.generate()
 
         {:ok, _} =
-          DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1)
+          DocumentRepository.claim(c.context, document.resource_version_id, 0, job, "plain", 1)
 
         {:ok, completion} =
           DocumentCompletion.new(%{
@@ -212,16 +229,87 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
           })
 
         assert {:ok, %DocumentVersion{state: :failed, failure_code: "timeout"}} =
-                 DocumentRepository.complete(c.context, completion)
+                 DocumentRepository.complete(c.context, job, completion)
 
         assert {:error, %Error{code: :conflict}} =
-                 DocumentRepository.reset_failed(c.context, document.resource_version_id, 0)
+                 DocumentRepository.reset_failed(
+                   c.context,
+                   document.resource_version_id,
+                   0,
+                   "plain",
+                   1
+                 )
 
         assert {:ok, %DocumentVersion{state: :pending, generation: 1}} =
-                 DocumentRepository.reset_failed(c.context, document.resource_version_id, 1)
+                 DocumentRepository.reset_failed(
+                   c.context,
+                   document.resource_version_id,
+                   1,
+                   "plain",
+                   1
+                 )
 
         assert {:error, %Error{code: :invalid}} =
-                 DocumentRepository.complete(c.context, %{completion | generation: -1})
+                 DocumentRepository.complete(c.context, job, %{completion | generation: -1})
+      end)
+    end)
+  end
+
+  test "attempt claim binds a job and fixed database deadline", c do
+    grants(fn ->
+      KnowledgeTestGrants.with_lifecycle_grants(fn ->
+        {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
+        job_a = Ecto.UUID.generate()
+        job_b = Ecto.UUID.generate()
+
+        assert {:ok,
+                %DocumentVersion{state: :extracting, generation: 1, attempt_job_id: ^job_a} =
+                  claimed} =
+                 DocumentRepository.claim(
+                   c.context,
+                   document.resource_version_id,
+                   0,
+                   job_a,
+                   "plain",
+                   1
+                 )
+
+        assert DateTime.diff(
+                 claimed.attempt_deadline_at,
+                 claimed.attempt_started_at,
+                 :microsecond
+               ) ==
+                 180_000_000
+
+        assert {:ok, ^claimed} =
+                 DocumentRepository.claim(
+                   c.context,
+                   document.resource_version_id,
+                   0,
+                   job_a,
+                   "plain",
+                   1
+                 )
+
+        assert {:error, %Error{code: :conflict}} =
+                 DocumentRepository.claim(
+                   c.context,
+                   document.resource_version_id,
+                   0,
+                   job_b,
+                   "plain",
+                   1
+                 )
+
+        assert {:error, %Error{code: :invalid, message: nil, details: %{}}} =
+                 DocumentRepository.claim(
+                   c.context,
+                   document.resource_version_id,
+                   0,
+                   String.upcase(job_a),
+                   "plain",
+                   1
+                 )
       end)
     end)
   end
@@ -232,9 +320,10 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
       KnowledgeTestGrants.with_lifecycle_grants(fn ->
         KnowledgeTestGrants.with_fragment_read_grants(fn ->
           {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
+          job = Ecto.UUID.generate()
 
           {:ok, _} =
-            DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1)
+            DocumentRepository.claim(c.context, document.resource_version_id, 0, job, "plain", 1)
 
           identity = %{
             resource_id: document.resource_id,
@@ -272,14 +361,14 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
                 %{completion | adapter_name: "other"},
                 %{completion | format_version: 2}
               ] do
-            assert {:error, %Error{}} = DocumentRepository.complete(c.context, forged)
+            assert {:error, %Error{}} = DocumentRepository.complete(c.context, job, forged)
           end
 
           assert {:ok, %DocumentVersion{state: :ready, fragments: [^fragment]} = ready} =
-                   DocumentRepository.complete(c.context, completion)
+                   DocumentRepository.complete(c.context, job, completion)
 
           refute ready.finished_at == completion.finished_at
-          assert {:ok, ^ready} = DocumentRepository.complete(c.context, completion)
+          assert {:ok, ^ready} = DocumentRepository.complete(c.context, job, completion)
           assert {:ok, ^ready} = DocumentRepository.create_pending(c.context, c.command)
         end)
       end)

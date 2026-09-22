@@ -158,10 +158,21 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
 
   test "lifecycle functions are owner-defined with fixed search path and no public or runtime execution" do
     for signature <- [
-          "content.claim_document_extraction(uuid,bigint,text,integer)",
-          "content.complete_document_extraction(uuid,bigint,jsonb,bytea,text)",
-          "content.fail_document_extraction(uuid,bigint,text,text)",
-          "content.reset_document_extraction(uuid,bigint)"
+          "claim_document_extraction(uuid,bigint,text,integer)",
+          "complete_document_extraction(uuid,bigint,jsonb,bytea,text)",
+          "fail_document_extraction(uuid,bigint,text,text)",
+          "reset_document_extraction(uuid,bigint)"
+        ] do
+      assert %{rows: [[nil]]} =
+               query!(RequestRepo, "SELECT to_regprocedure($1)", ["content." <> signature])
+    end
+
+    for signature <- [
+          "content.claim_document_extraction(uuid,bigint,uuid,text,integer)",
+          "content.complete_document_extraction(uuid,uuid,bigint,jsonb,bytea,text)",
+          "content.fail_document_extraction(uuid,uuid,bigint,text,text)",
+          "content.reset_document_extraction(uuid,bigint,text,integer)",
+          "content.recover_document_extraction(uuid,bigint)"
         ] do
       assert %{rows: [[true, "singularity_table_owner", config]]} =
                query!(
@@ -224,7 +235,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
       assert %{rows: [[false]]} =
                query!(
                  RequestRepo,
-                 "SELECT has_function_privilege($1,'content.claim_document_extraction(uuid,bigint,text,integer)','EXECUTE')",
+                 "SELECT has_function_privilege($1,'content.claim_document_extraction(uuid,bigint,uuid,text,integer)','EXECUTE')",
                  [role]
                )
     end

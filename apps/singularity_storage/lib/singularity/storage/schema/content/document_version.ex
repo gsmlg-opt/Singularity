@@ -39,6 +39,9 @@ defmodule Singularity.Storage.Schema.Content.DocumentVersion do
     field :created_by_principal_id, Ecto.UUID
     field :state, Ecto.Enum, values: [:pending, :extracting, :ready, :failed, :unsupported]
     field :attempt_generation, :integer
+    field :attempt_job_id, Ecto.UUID
+    field :attempt_started_at, :utc_datetime_usec
+    field :attempt_deadline_at, :utc_datetime_usec
     field :extraction_adapter, :string
     field :extraction_format, :integer
     field :extracted_text_digest, :binary

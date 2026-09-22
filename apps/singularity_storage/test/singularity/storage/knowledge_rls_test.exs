@@ -224,11 +224,11 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
         [Ecto.UUID.load!(source.principal_id), Ecto.UUID.load!(source.vault_id)]
       )
 
-      query!(MigrationRepo, "SELECT content.claim_document_extraction($1,0,'plain',1)", [
+      query!(MigrationRepo, "SELECT content.claim_document_extraction($1,0,$1,'plain',1)", [
         document.resource_version_id
       ])
 
-      query!(MigrationRepo, "SELECT content.complete_document_extraction($1,1,$2,$3,'en')", [
+      query!(MigrationRepo, "SELECT content.complete_document_extraction($1,$1,1,$2,$3,'en')", [
         document.resource_version_id,
         [fragment],
         digest

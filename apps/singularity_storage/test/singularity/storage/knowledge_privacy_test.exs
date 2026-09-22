@@ -109,6 +109,7 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
           assert_private_error(
             DocumentRepository.complete(
               c.context,
+              completion.resource_version_id,
               %{completion | adapter_name: "other"}
             ),
             :conflict
@@ -271,7 +272,14 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
     assert document.title == @canaries.title
 
     assert {:ok, _} =
-             DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1)
+             DocumentRepository.claim(
+               c.context,
+               document.resource_version_id,
+               0,
+               document.resource_version_id,
+               "plain",
+               1
+             )
 
     identity =
       Map.take(document, [:resource_id, :resource_version_id, :owner_scope_id, :classification])
@@ -305,7 +313,8 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
         })
       )
 
-    assert {:ok, ready} = DocumentRepository.complete(c.context, completion)
+    assert {:ok, ready} =
+             DocumentRepository.complete(c.context, document.resource_version_id, completion)
 
     assert {:ok, ^ready} =
              DocumentRepository.get_version(

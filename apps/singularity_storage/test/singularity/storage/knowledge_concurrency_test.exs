@@ -125,11 +125,20 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
       race(
         c,
         fn repo ->
-          query!(repo, "SELECT content.claim_document_extraction($1,0,'plain',1)", [
+          query!(repo, "SELECT content.claim_document_extraction($1,0,$1,'plain',1)", [
             uuid(document.resource_version_id)
           ])
         end,
-        fn -> DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1) end
+        fn ->
+          DocumentRepository.claim(
+            c.context,
+            document.resource_version_id,
+            0,
+            Ecto.UUID.generate(),
+            "plain",
+            1
+          )
+        end
       )
 
       assert {:ok, %DocumentVersion{state: :extracting, generation: 1, fragments: nil}} =
@@ -150,7 +159,14 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
         {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
 
         {:ok, _} =
-          DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1)
+          DocumentRepository.claim(
+            c.context,
+            document.resource_version_id,
+            0,
+            document.resource_version_id,
+            "plain",
+            1
+          )
 
         ready = completion(document, :ready)
         failed = completion(document, :failed)
@@ -158,7 +174,7 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
         losing = if @winner == :ready, do: failed, else: ready
 
         race(c, &complete_sql(&1, winning), fn ->
-          DocumentRepository.complete(c.context, losing)
+          DocumentRepository.complete(c.context, document.resource_version_id, losing)
         end)
 
         assert {:ok, final} =
@@ -189,18 +205,34 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
   test "reset commits before blocked stale completion and preserves the next generation", c do
     grants(fn ->
       {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
-      {:ok, _} = DocumentRepository.claim(c.context, document.resource_version_id, 0, "plain", 1)
-      {:ok, _} = DocumentRepository.complete(c.context, completion(document, :failed))
+
+      {:ok, _} =
+        DocumentRepository.claim(
+          c.context,
+          document.resource_version_id,
+          0,
+          document.resource_version_id,
+          "plain",
+          1
+        )
+
+      {:ok, _} =
+        DocumentRepository.complete(
+          c.context,
+          document.resource_version_id,
+          completion(document, :failed)
+        )
+
       stale = completion(document, :ready)
 
       race(
         c,
         fn repo ->
-          query!(repo, "SELECT content.reset_document_extraction($1,1)", [
+          query!(repo, "SELECT content.reset_document_extraction($1,1,'plain',1)", [
             uuid(document.resource_version_id)
           ])
         end,
-        fn -> DocumentRepository.complete(c.context, stale) end
+        fn -> DocumentRepository.complete(c.context, document.resource_version_id, stale) end
       )
 
       assert {:ok, %DocumentVersion{state: :pending, generation: 1, fragments: nil}} =
@@ -211,9 +243,17 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
                )
 
       assert {:ok, %DocumentVersion{state: :extracting, generation: 2}} =
-               DocumentRepository.claim(c.context, document.resource_version_id, 1, "plain", 1)
+               DocumentRepository.claim(
+                 c.context,
+                 document.resource_version_id,
+                 1,
+                 Ecto.UUID.generate(),
+                 "plain",
+                 1
+               )
 
-      assert {:error, %Error{code: :conflict}} = DocumentRepository.complete(c.context, stale)
+      assert {:error, %Error{code: :conflict}} =
+               DocumentRepository.complete(c.context, document.resource_version_id, stale)
 
       assert {:ok, %DocumentVersion{state: :extracting, generation: 2, fragments: nil}} =
                DocumentRepository.get_version(
@@ -413,7 +453,7 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
 
   defp complete_sql(repo, %{outcome: :failed} = completion),
     do:
-      query!(repo, "SELECT content.fail_document_extraction($1,1,'failed','timeout')", [
+      query!(repo, "SELECT content.fail_document_extraction($1,$1,1,'failed','timeout')", [
         uuid(completion.resource_version_id)
       ])
 
@@ -429,7 +469,7 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
         }
       end)
 
-    query!(repo, "SELECT content.complete_document_extraction($1,1,$2,$3,NULL)", [
+    query!(repo, "SELECT content.complete_document_extraction($1,$1,1,$2,$3,NULL)", [
       uuid(completion.resource_version_id),
       fragments,
       completion.extracted_text_digest

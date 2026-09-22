@@ -6,10 +6,11 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
   @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations tags resource_tags relationships)
   # Lifecycle execution is a separate scope from all direct table privileges.
   @functions [
-    "claim_document_extraction(uuid,bigint,text,integer)",
-    "complete_document_extraction(uuid,bigint,jsonb,bytea,text)",
-    "fail_document_extraction(uuid,bigint,text,text)",
-    "reset_document_extraction(uuid,bigint)"
+    "claim_document_extraction(uuid,bigint,uuid,text,integer)",
+    "complete_document_extraction(uuid,uuid,bigint,jsonb,bytea,text)",
+    "fail_document_extraction(uuid,uuid,bigint,text,text)",
+    "reset_document_extraction(uuid,bigint,text,integer)",
+    "recover_document_extraction(uuid,bigint)"
   ]
   @roles ~w(singularity_web singularity_worker)
 
