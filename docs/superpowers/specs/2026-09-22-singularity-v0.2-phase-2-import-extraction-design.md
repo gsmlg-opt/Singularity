@@ -2,7 +2,10 @@
 
 Date: 2026-09-22
 Status: Approved by the user on 2026-09-22 following review of commit 30ae0b3;
-the narrow Document custody amendment was approved on 2026-09-22.
+the narrow Document custody amendment was approved on 2026-09-22. Three
+implementation-boundary amendments were approved on 2026-09-23: a bounded
+Poppler process bridge, a worker-only Document binding resolver, and the
+strict Document job envelope case.
 
 ## Authority and delivery boundary
 
@@ -41,6 +44,16 @@ same-owner Document source; it must not fall back to a deleted Asset's live
 read path. It adds no new key derivation, capability, Vault command, unlock
 behavior, policy, telemetry, or Vault UX. No version bump, push, release, or
 deployment is authorized by this design.
+
+The worker role has no direct `SELECT` on canonical Document versions. A new
+forward migration therefore provides only a Document-specific,
+`SECURITY DEFINER` binding predicate for custody reads and per-chunk
+revalidation. It checks the exact owner, version, pinned object/generation,
+live Document or current extraction-event/claim state, and current principal
+authorization; it returns no wrapped key, source bytes, or broad row content.
+Only `singularity_worker` may execute it, its search path is fixed, and the
+worker receives no broad canonical-table `SELECT`. Both worker and
+session-bound request leases still use the existing `asset.read` capability.
 
 ## Import and original-byte retention
 
@@ -161,6 +174,13 @@ The process has the 120-second hard timeout above. Limits are checked before
 the final database transaction; storage independently enforces Phase 1's
 fragment and digest constraints.
 
+The adapter may add `ex_cmd` 0.18 for a demand-driven, non-shell subprocess
+bridge that can close Poppler stdin while continuing to drain bounded stdout.
+It must disable stderr, enforce the output and elapsed-time caps while the
+child is running, and terminate/reap the child on timeout, over-limit output,
+or caller cancellation. The dependency is scoped to Ingest and introduces no
+new extraction formats or persistent plaintext.
+
 Malformed PDF, encrypted/password-protected PDF, invalid UTF-8, no
 extractable text, and deterministic source/output/page limits become
 `unsupported` with an allowlisted reason. Timeout and transient extractor,
@@ -179,6 +199,15 @@ The current adapter/format choice is checked at retry time, not trusted from
 the caller. Oban exhaustion may record `failed` only if the exhausting
 logical job and generation still own the active attempt. It cannot overwrite
 a ready result, a recovery generation, or an unclaimed custody deferral.
+
+The existing durable-job codec admits `document_extract` only for the exact
+IDs-only `resource_id`/`resource_version_id` payload, canonical UUIDs,
+`asset.read`, and private classification. Its idempotency key is
+`document-extraction:<version>` at initial generation zero, or
+`document-extraction:<version>:<generation>` for recovery with a positive
+generation equal to `expected_entity_revision`. No title, digest, text,
+locator, or source bytes enter the envelope. Other job types and the generic
+worker contract remain unchanged.
 
 ## Runtime API and read semantics
 
