@@ -57,6 +57,8 @@ defmodule Singularity.Storage.RolesTest do
     "content.enforce_note_mutation_receipt_resource()" => {"singularity_table_owner", []},
     "content.export_note_conflicts_for_backup(uuid)" =>
       {"singularity_table_owner", ["singularity_worker"]},
+    "content.backup_has_unsupported_canonical_rows(uuid)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
     "identity.complete_authentication_attempt(uuid,bytea,bytea,uuid)" =>
@@ -380,6 +382,60 @@ defmodule Singularity.Storage.RolesTest do
                  has_function_privilege(
                    'public',
                    'content.export_note_conflicts_for_backup(uuid)',
+                   'EXECUTE'
+                 )
+               """
+             )
+  end
+
+  test "backup unsupported canonical rows guard has the exact hardened catalog contract" do
+    assert %{rows: [["singularity_table_owner", "plpgsql", "s", true, settings]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT owner.rolname,
+                      language.lanname,
+                      procedure.provolatile::text,
+                      procedure.prosecdef,
+                      procedure.proconfig
+               FROM pg_catalog.pg_proc AS procedure
+               JOIN pg_catalog.pg_roles AS owner ON owner.oid = procedure.proowner
+               JOIN pg_catalog.pg_language AS language ON language.oid = procedure.prolang
+               WHERE procedure.oid =
+                 'content.backup_has_unsupported_canonical_rows(uuid)'::regprocedure
+               """
+             )
+
+    assert settings == ["search_path=pg_catalog, content, core"]
+
+    assert %{rows: [[true, false, false, false, false]]} =
+             query!(
+               RequestRepo,
+               """
+               SELECT
+                 has_function_privilege(
+                   'singularity_worker',
+                   'content.backup_has_unsupported_canonical_rows(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_web',
+                   'content.backup_has_unsupported_canonical_rows(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_dispatcher',
+                   'content.backup_has_unsupported_canonical_rows(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'singularity_pre_auth',
+                   'content.backup_has_unsupported_canonical_rows(uuid)',
+                   'EXECUTE'
+                 ),
+                 has_function_privilege(
+                   'public',
+                   'content.backup_has_unsupported_canonical_rows(uuid)',
                    'EXECUTE'
                  )
                """
