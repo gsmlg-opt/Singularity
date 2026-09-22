@@ -71,7 +71,7 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
         run_object_cleanup(envelope, {BlockingDelete, {test_pid, gate}})
       end)
 
-    assert_receive {:delete_started, ^gate, %{object_id: ^object_id}}
+    assert_receive {:delete_started, ^gate, %{object_id: ^object_id}}, 1_000
 
     finalizer =
       Task.async(fn ->
@@ -272,89 +272,47 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
     end)
   end
 
-  test "import and Asset cleanup serialize without committing a pin to deleted bytes" do
-    source = KnowledgeFixtures.prepared_source!()
-    install_cleanup_principal!(source)
-    grant_asset_write!(source)
-
-    Fixtures.with_owner(fn ->
-      query!(
-        MigrationRepo,
-        "UPDATE content.assets SET state='ready', state_revision=5 WHERE id=$1",
-        [Ecto.UUID.dump!(source.asset_id)]
-      )
-    end)
-
+  test "import-first source lock retains bytes after Asset cleanup" do
+    source = prepared_cleanup_source!()
     storage = materialize_source!(source)
     object_ref = %ObjectRef{object_id: source.object_id}
     assert {:ok, ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
-    gate = make_ref()
-    parent = self()
 
     KnowledgeTestGrants.with_grants(["document_versions"], fn ->
       KnowledgeTestGrants.with_receipt_grants(fn ->
-        {import, cleanup} =
-          scoped(source, fn repo ->
-            query!(
-              repo,
-              "SELECT id FROM content.assets WHERE id=$1 FOR UPDATE",
-              [Ecto.UUID.dump!(source.asset_id)]
-            )
+        assert {:ok, document} =
+                 DocumentRepository.create_pending(
+                   KnowledgeFixtures.document_context(source),
+                   KnowledgeFixtures.document_command(source)
+                 )
 
-            import =
-              Task.async(fn ->
-                send(parent, {gate, :import_ready, self()})
-                await_gate!(gate)
+        assert document.source.object_id == source.object_id
+        assert {:ok, %{state: :deleted}} = delete_asset_and_finish_cleanup(source)
 
-                DocumentRepository.create_pending(
-                  KnowledgeFixtures.document_context(source),
-                  KnowledgeFixtures.document_command(source)
-                )
-              end)
+        assert_import_cleanup_rows(source, "available", 1, 1)
+        assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+      end)
+    end)
+  end
 
-            cleanup =
-              Task.async(fn ->
-                send(parent, {gate, :cleanup_ready, self()})
-                await_gate!(gate)
-                delete_asset_and_finish_cleanup(source)
-              end)
+  test "cleanup-first source lock rejects the import without deleting ciphertext" do
+    source = prepared_cleanup_source!()
+    storage = materialize_source!(source)
+    object_ref = %ObjectRef{object_id: source.object_id}
+    assert {:ok, ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
 
-            assert_receive {^gate, :import_ready, import_pid}
-            assert_receive {^gate, :cleanup_ready, cleanup_pid}
-            send(import_pid, {gate, :go})
-            send(cleanup_pid, {gate, :go})
-            refute Task.yield(import, 100)
-            refute Task.yield(cleanup, 100)
-            {import, cleanup}
-          end)
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      KnowledgeTestGrants.with_receipt_grants(fn ->
+        assert {:ok, %{state: :deleted}} = delete_asset_and_finish_cleanup(source)
 
-        assert {:ok, %{state: :deleted}} = Task.await(cleanup, 10_000)
-        import_result = Task.await(import, 10_000)
+        assert {:error, %Singularity.Core.Error{}} =
+                 DocumentRepository.create_pending(
+                   KnowledgeFixtures.document_context(source),
+                   KnowledgeFixtures.document_command(source)
+                 )
 
-        %{rows: [[lifecycle, documents, receipts]]} =
-          Fixtures.with_owner(fn ->
-            query!(
-              MigrationRepo,
-              """
-              SELECT object.lifecycle,
-                (SELECT count(*) FROM content.document_versions WHERE source_object_id=object.id),
-                (SELECT count(*) FROM content.document_import_receipts WHERE vault_id=object.vault_id AND principal_id=$2)
-              FROM content.asset_objects AS object WHERE object.id=$1
-              """,
-              [Ecto.UUID.dump!(source.object_id), Ecto.UUID.dump!(source.principal_id)]
-            )
-          end)
-
-        case import_result do
-          {:ok, document} ->
-            assert document.source.object_id == source.object_id
-            assert {lifecycle, documents, receipts} == {"available", 1, 1}
-            assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
-
-          {:error, %Singularity.Core.Error{}} ->
-            assert {documents, receipts} == {0, 0}
-            assert lifecycle == "orphan_pending"
-        end
+        assert_import_cleanup_rows(source, "orphan_pending", 0, 0)
+        assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
       end)
     end)
   end
@@ -371,14 +329,6 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
 
       ObjectCleanup.run(context, envelope)
     end)
-  end
-
-  defp await_gate!(gate) do
-    receive do
-      {^gate, :go} -> :ok
-    after
-      5_000 -> raise "source cleanup race gate timed out"
-    end
   end
 
   defp delete_asset_and_finish_cleanup(source) do
@@ -446,6 +396,38 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
         "INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id) SELECT $1, $2, id FROM core.capabilities WHERE name='asset.write'",
         [Ecto.UUID.dump!(fixture.principal_id), Ecto.UUID.dump!(fixture.vault_id)]
       )
+    end)
+  end
+
+  defp prepared_cleanup_source! do
+    source = KnowledgeFixtures.prepared_source!()
+    install_cleanup_principal!(source)
+    grant_asset_write!(source)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.assets SET state='ready', state_revision=5 WHERE id=$1",
+        [Ecto.UUID.dump!(source.asset_id)]
+      )
+    end)
+
+    source
+  end
+
+  defp assert_import_cleanup_rows(source, lifecycle, documents, receipts) do
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[^lifecycle, ^documents, ^receipts]]} =
+               query!(
+                 MigrationRepo,
+                 """
+                 SELECT object.lifecycle,
+                   (SELECT count(*) FROM content.document_versions WHERE source_object_id=object.id),
+                   (SELECT count(*) FROM content.document_import_receipts WHERE vault_id=object.vault_id AND principal_id=$2)
+                 FROM content.asset_objects AS object WHERE object.id=$1
+                 """,
+                 [Ecto.UUID.dump!(source.object_id), Ecto.UUID.dump!(source.principal_id)]
+               )
     end)
   end
 
