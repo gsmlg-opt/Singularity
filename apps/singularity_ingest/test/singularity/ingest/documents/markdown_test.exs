@@ -41,4 +41,11 @@ defmodule Singularity.Ingest.Documents.MarkdownTest do
     assert {:ok, [%{text: "é"}]} = Markdown.extract("e\u0301")
     assert {:error, {:unsupported, "invalid_utf8"}} = Markdown.extract(<<255>>)
   end
+
+  test "a shallower heading replaces a skipped-level ancestor" do
+    assert {:ok, [deep, up, body]} = Markdown.extract("### Deep\n## Up\ntext")
+    assert deep.locator.heading_path == ["Deep"]
+    assert up.locator.heading_path == ["Up"]
+    assert body.locator.heading_path == ["Up"]
+  end
 end

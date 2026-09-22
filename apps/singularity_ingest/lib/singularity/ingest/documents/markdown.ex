@@ -45,7 +45,11 @@ defmodule Singularity.Ingest.Documents.Markdown do
       heading = heading(line) ->
         {blocks, _} = flush(pending, path, blocks)
         {level, title} = heading
-        path = Enum.take(path, level - 1) ++ [title]
+
+        path =
+          Enum.take_while(path, fn {ancestor_level, _} -> ancestor_level < level end) ++
+            [{level, title}]
+
         block = make_block([{line, number}], path)
         collect(rest, path, [], [block | blocks], nil)
 
@@ -70,7 +74,7 @@ defmodule Singularity.Ingest.Documents.Markdown do
       locator: %{
         version: 1,
         kind: "markdown",
-        heading_path: path,
+        heading_path: Enum.map(path, &elem(&1, 1)),
         start_line: first,
         end_line: last
       }

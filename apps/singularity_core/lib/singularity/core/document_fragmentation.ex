@@ -39,7 +39,7 @@ defmodule Singularity.Core.DocumentFragmentation do
         {:halt, :invalid}
     end)
     |> case do
-      :over_limit -> unsupported("output_limit")
+      :over_limit -> unsupported("output_too_large")
       :invalid -> unsupported("invalid_input")
       _ -> :ok
     end
@@ -52,14 +52,17 @@ defmodule Singularity.Core.DocumentFragmentation do
 
   defp build_blocks([%{text: text, locator: locator} | rest], identity, acc, ordinal)
        when is_binary(text) and is_map(locator) do
-    with true <- String.valid?(text) and text != "",
-         {:ok, chunks} <- chunks(text),
-         true <- ordinal + length(chunks) <= @fragment_count,
-         {:ok, acc, next} <- build_chunks(chunks, locator, identity, acc, ordinal) do
-      build_blocks(rest, identity, acc, next)
+    if String.valid?(text) and text != "" do
+      with {:ok, chunks} <- chunks(text),
+           true <- ordinal + length(chunks) <= @fragment_count,
+           {:ok, acc, next} <- build_chunks(chunks, locator, identity, acc, ordinal) do
+        build_blocks(rest, identity, acc, next)
+      else
+        false -> unsupported("output_too_large")
+        {:error, _} = error -> error
+      end
     else
-      false -> unsupported("fragment_limit")
-      {:error, _} = error -> error
+      unsupported("invalid_input")
     end
   end
 
@@ -84,7 +87,7 @@ defmodule Singularity.Core.DocumentFragmentation do
     end)
     |> case do
       :invalid ->
-        unsupported("output_limit")
+        unsupported("output_too_large")
 
       {previous, current, _} ->
         {:ok, Enum.reverse([IO.iodata_to_binary(Enum.reverse(current)) | previous])}

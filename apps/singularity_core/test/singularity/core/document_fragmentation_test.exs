@@ -40,13 +40,31 @@ defmodule Singularity.Core.DocumentFragmentationTest do
       locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}
     }
 
-    assert {:error, {:unsupported, "output_limit"}} =
+    assert {:error, {:unsupported, "output_too_large"}} =
              DocumentFragmentation.build(identity(), "text/plain", [large])
 
     block = %{text: "x", locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}}
 
-    assert {:error, {:unsupported, "fragment_limit"}} =
+    assert {:error, {:unsupported, "output_too_large"}} =
              DocumentFragmentation.build(identity(), "text/plain", List.duplicate(block, 4097))
+
+    assert {:error, {:unsupported, "invalid_input"}} =
+             DocumentFragmentation.build(identity(), "text/plain", [%{text: 42}])
+
+    assert {:error, {:unsupported, "invalid_input"}} =
+             DocumentFragmentation.build(identity(), "text/plain", [
+               %{text: <<255>>, locator: block.locator}
+             ])
+  end
+
+  test "uses the allowed size code for an indivisible oversized grapheme" do
+    block = %{
+      text: "a" <> String.duplicate("\u0301", 32_768),
+      locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}
+    }
+
+    assert {:error, {:unsupported, "output_too_large"}} =
+             DocumentFragmentation.build(identity(), "text/plain", [block])
   end
 
   defp identity,
