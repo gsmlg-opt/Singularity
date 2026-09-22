@@ -71,6 +71,14 @@ An FK alone is not sufficient retention evidence. Phase 2 performs no
 permanent Document purge, so tombstone does not release the pin. No plaintext
 copy or second binary storage system is introduced.
 
+The pin count is exposed only through a forward, worker-only security-definer
+function, not direct `document_versions` table access. It binds the requested
+owner to the current scoped owner and requires a live same-owner principal on
+one of two existing cleanup paths: `asset_cleanup` with `asset.write`, or the
+named `object_cleanup` system principal resolved by
+`core.object_cleanup_authorization`. Unauthorized calls fail closed; the
+function returns only a count, including tombstoned Document versions.
+
 A live Document's original-byte read resolves its pinned object directly
 through the Document, with authenticated owner authorization and existing
 decryption/authentication. It does not require its source Asset to remain

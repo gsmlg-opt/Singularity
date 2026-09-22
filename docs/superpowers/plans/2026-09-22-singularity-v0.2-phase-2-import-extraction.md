@@ -118,7 +118,7 @@ git commit -m "fix(backup): refuse unsupported canonical document rows"
 
 ### Task 3: Pin original objects across Asset deletion and cleanup
 
-**Files:** Modify `apps/singularity_storage/lib/singularity/storage/postgres/asset_deletion_repository.ex`. Test `apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs` and `apps/singularity_storage/test/singularity/storage/object_cleanup_concurrency_test.exs`.
+**Files:** Modify `apps/singularity_storage/lib/singularity/storage/postgres/asset_deletion_repository.ex`; add forward migration `apps/singularity_storage/priv/repo/migrations/20260922000050_document_source_pin_count.exs`. Test `apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs`, `apps/singularity_storage/test/singularity/storage/object_cleanup_concurrency_test.exs`, and `apps/singularity_storage/test/singularity/storage/roles_test.exs`.
 
 - [ ] **Step 1: Add failing pin and race tests.** Create a Document from an available Asset, delete that Asset, run its cleanup job, and assert the object remains `available` with ciphertext intact. Repeat with the Document tombstoned. Race import against cleanup with two tasks and a barrier around their source/object locks; assert either a committed Document pin and retained object or an atomic import rejection with no receipt. Never accept a committed Document pointing at deleted bytes.
 
@@ -131,7 +131,7 @@ assert original_ciphertext_exists?(document.source.object_id)
 
 The helper names above belong only in the test module and must be implemented there using its existing deletion fixtures; do not add production shortcuts.
 
-- [ ] **Step 2: Prove red.** Run `devenv shell -- mix test apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs apps/singularity_storage/test/singularity/storage/object_cleanup_concurrency_test.exs`. Expected: the new pin/race assertions fail before the retention predicate is changed.
+- [ ] **Step 2: Prove red.** Run `devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/orphan_cleanup_test.exs apps/singularity_storage/test/singularity/storage/object_cleanup_concurrency_test.exs`. Plain `mix test` excludes these `:integration` modules. Expected: the new pin/race assertions fail before the retention predicate is changed.
 
 - [ ] **Step 3: Change one shared retention decision.** Make `live_object_references/2` and the final cleanup recheck count `content.document_versions.source_object_id` for the same object and owner, irrespective of `resources.deleted_at`. Preserve the existing Asset → object lock order and the final object-locked reference check before physical delete. Use the same predicate in retain/schedule, claim, and acknowledgement paths; no fast path may inspect only Assets.
 
@@ -142,7 +142,17 @@ WHERE source_object_id = $1 AND vault_id = $2;
 
 The total reference count is existing live Asset references plus this count. No permanent Document purge or new object store is added.
 
-- [ ] **Step 4: Prove green and commit.** Run the two focused files above and `devenv shell -- mix test apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs`; expected: pass. Commit only the repository and focused tests as `fix(storage): retain document-pinned source objects`.
+The count uses a forward-only `content.document_source_pin_count(uuid,uuid)`
+security-definer function owned by `singularity_table_owner`, with a fixed
+search path and `EXECUTE` granted only to `singularity_worker`. It grants no
+direct Document table read. The function binds the current owner-scope GUC,
+requires a live principal and membership, and accepts only the two existing
+worker cleanup identities: the deleting user's `asset.write` path or the named
+`object_cleanup` principal returned by `core.object_cleanup_authorization`.
+Unauthorized calls raise rather than returning zero. A roles catalog contract
+checks owner, definer settings, and exact worker-only privilege.
+
+- [ ] **Step 4: Prove green and commit.** Run the two focused files above plus `apps/singularity_storage/test/singularity/storage/roles_test.exs` and `apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs` with `devenv shell -- mix singularity.test.integration`; expected: pass. Commit only the Task 3 repository, migration, docs, and focused tests as `fix(storage): retain document-pinned source objects`.
 
 ### Task 4: Add database-owned attempt identity, deadline, and expiry
 

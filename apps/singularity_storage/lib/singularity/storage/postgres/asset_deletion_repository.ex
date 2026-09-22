@@ -873,14 +873,25 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
   end
 
   defp live_object_references(repo, object) do
-    repo.aggregate(
-      from(asset in Asset,
-        where:
-          asset.asset_object_id == ^object.id and
-            asset.vault_id == ^object.vault_id
-      ),
-      :count
-    )
+    asset_count =
+      repo.aggregate(
+        from(asset in Asset,
+          where:
+            asset.asset_object_id == ^object.id and
+              asset.vault_id == ^object.vault_id
+        ),
+        :count
+      )
+
+    %{rows: [[pin_count]]} =
+      SafeSQL.query!(
+        repo,
+        "SELECT content.document_source_pin_count($1, $2)",
+        [Ecto.UUID.dump!(object.id), Ecto.UUID.dump!(object.vault_id)],
+        log: false
+      )
+
+    asset_count + pin_count
   end
 
   defp bind_cleanup_authority(cleanup, envelope) do
@@ -1089,17 +1100,7 @@ defmodule Singularity.Storage.Postgres.AssetDeletionRepository do
     do: {:ok, :none}
 
   defp retain_or_schedule_orphan(repo, envelope, object, now) do
-    live_references =
-      repo.aggregate(
-        from(asset in Asset,
-          where:
-            asset.asset_object_id == ^object.id and
-              asset.vault_id == ^object.vault_id
-        ),
-        :count
-      )
-
-    if live_references == 0 do
+    if live_object_references(repo, object) == 0 do
       schedule_orphan(repo, envelope, object, now)
     else
       {:ok, :retained}

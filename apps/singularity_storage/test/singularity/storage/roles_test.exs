@@ -5,6 +5,7 @@ defmodule Singularity.Storage.RolesTest do
 
   alias Singularity.Storage.Fixtures
   alias Singularity.Storage.RoleVerifier
+  alias Singularity.Storage.ScopedRepo
 
   @unexpected_role "singularity_test_unexpected_bypass"
 
@@ -58,6 +59,8 @@ defmodule Singularity.Storage.RolesTest do
     "content.export_note_conflicts_for_backup(uuid)" =>
       {"singularity_table_owner", ["singularity_worker"]},
     "content.backup_has_unsupported_canonical_rows(uuid)" =>
+      {"singularity_table_owner", ["singularity_worker"]},
+    "content.document_source_pin_count(uuid,uuid)" =>
       {"singularity_table_owner", ["singularity_worker"]},
     "identity.authentication_candidate(text)" =>
       {"singularity_auth_definer", ["singularity_pre_auth"]},
@@ -245,6 +248,76 @@ defmodule Singularity.Storage.RolesTest do
 
         assert can_execute? == role in allowed_roles
       end
+    end
+  end
+
+  test "Document pin count is worker-only and does not grant direct Document reads" do
+    signature = "content.document_source_pin_count(uuid,uuid)"
+
+    assert %{rows: [[true, ["search_path=pg_catalog, content, core"]]]} =
+             query!(
+               RequestRepo,
+               "SELECT p.prosecdef, p.proconfig FROM pg_proc p WHERE p.oid=to_regprocedure($1)",
+               [signature]
+             )
+
+    for role <- @runtime_roles do
+      assert %{rows: [[can_execute?, false]]} =
+               query!(
+                 RequestRepo,
+                 "SELECT has_function_privilege($1,$2,'EXECUTE'), has_table_privilege($1,'content.document_versions','SELECT')",
+                 [role, signature]
+               )
+
+      assert can_execute? == (role == "singularity_worker")
+    end
+  end
+
+  test "Document pin count rejects a worker without cleanup authority or matching owner" do
+    %{one: first, two: second} = Fixtures.two_vaults!()
+    principal_id = Ecto.UUID.load!(first.principal_id)
+    vault_id = Ecto.UUID.load!(first.vault_id)
+
+    assert_raise Postgrex.Error, ~r/Document source pin authorization unavailable/, fn ->
+      ScopedRepo.transact(
+        WorkerRepo,
+        %{principal_id: principal_id, vault_id: vault_id},
+        fn repo ->
+          query!(
+            repo,
+            "SELECT content.document_source_pin_count($1,$2)",
+            [Ecto.UUID.dump!(Ecto.UUID.generate()), first.vault_id]
+          )
+        end
+      )
+    end
+
+    Fixtures.with_owner(fn ->
+      query!(
+        Singularity.Storage.MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.write') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        Singularity.Storage.MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.write'",
+        [first.principal_id, first.vault_id]
+      )
+    end)
+
+    assert_raise Postgrex.Error, ~r/Document source pin authorization unavailable/, fn ->
+      ScopedRepo.transact(
+        WorkerRepo,
+        %{principal_id: principal_id, vault_id: vault_id},
+        fn repo ->
+          query!(
+            repo,
+            "SELECT content.document_source_pin_count($1,$2)",
+            [Ecto.UUID.dump!(Ecto.UUID.generate()), second.vault_id]
+          )
+        end
+      )
     end
   end
 

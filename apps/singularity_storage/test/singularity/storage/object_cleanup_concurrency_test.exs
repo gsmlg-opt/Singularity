@@ -4,13 +4,18 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
   @moduletag :integration
 
   alias Singularity.Core.JobEnvelope
+  alias Singularity.Core.ObjectRef
   alias Singularity.Runtime.Assets.ObjectCleanup
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
+  alias Singularity.Storage.KnowledgeTestGrants
+  alias Singularity.Storage.LocalFilesystemAdapter
   alias Singularity.Storage.Jobs.ObanAdapter
   alias Singularity.Storage.Jobs.WorkerScope
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.ObjectLock
   alias Singularity.Storage.Postgres.AssetDeletionRepository
+  alias Singularity.Storage.Postgres.DocumentRepository
   alias Singularity.Storage.ScopedRepo
 
   defmodule AllowJobAuthorization do
@@ -267,6 +272,93 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
     end)
   end
 
+  test "import and Asset cleanup serialize without committing a pin to deleted bytes" do
+    source = KnowledgeFixtures.prepared_source!()
+    install_cleanup_principal!(source)
+    grant_asset_write!(source)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.assets SET state='ready', state_revision=5 WHERE id=$1",
+        [Ecto.UUID.dump!(source.asset_id)]
+      )
+    end)
+
+    storage = materialize_source!(source)
+    object_ref = %ObjectRef{object_id: source.object_id}
+    assert {:ok, ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+    gate = make_ref()
+    parent = self()
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      KnowledgeTestGrants.with_receipt_grants(fn ->
+        {import, cleanup} =
+          scoped(source, fn repo ->
+            query!(
+              repo,
+              "SELECT id FROM content.assets WHERE id=$1 FOR UPDATE",
+              [Ecto.UUID.dump!(source.asset_id)]
+            )
+
+            import =
+              Task.async(fn ->
+                send(parent, {gate, :import_ready, self()})
+                await_gate!(gate)
+
+                DocumentRepository.create_pending(
+                  KnowledgeFixtures.document_context(source),
+                  KnowledgeFixtures.document_command(source)
+                )
+              end)
+
+            cleanup =
+              Task.async(fn ->
+                send(parent, {gate, :cleanup_ready, self()})
+                await_gate!(gate)
+                delete_asset_and_finish_cleanup(source)
+              end)
+
+            assert_receive {^gate, :import_ready, import_pid}
+            assert_receive {^gate, :cleanup_ready, cleanup_pid}
+            send(import_pid, {gate, :go})
+            send(cleanup_pid, {gate, :go})
+            refute Task.yield(import, 100)
+            refute Task.yield(cleanup, 100)
+            {import, cleanup}
+          end)
+
+        assert {:ok, %{state: :deleted}} = Task.await(cleanup, 10_000)
+        import_result = Task.await(import, 10_000)
+
+        %{rows: [[lifecycle, documents, receipts]]} =
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              """
+              SELECT object.lifecycle,
+                (SELECT count(*) FROM content.document_versions WHERE source_object_id=object.id),
+                (SELECT count(*) FROM content.document_import_receipts WHERE vault_id=object.vault_id AND principal_id=$2)
+              FROM content.asset_objects AS object WHERE object.id=$1
+              """,
+              [Ecto.UUID.dump!(source.object_id), Ecto.UUID.dump!(source.principal_id)]
+            )
+          end)
+
+        case import_result do
+          {:ok, document} ->
+            assert document.source.object_id == source.object_id
+            assert {lifecycle, documents, receipts} == {"available", 1, 1}
+            assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+
+          {:error, %Singularity.Core.Error{}} ->
+            assert {documents, receipts} == {0, 0}
+            assert lifecycle == "orphan_pending"
+        end
+      end)
+    end)
+  end
+
   defp run_object_cleanup(envelope, storage) do
     WorkerScope.run(envelope, fn worker_context ->
       context =
@@ -279,6 +371,110 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
 
       ObjectCleanup.run(context, envelope)
     end)
+  end
+
+  defp await_gate!(gate) do
+    receive do
+      {^gate, :go} -> :ok
+    after
+      5_000 -> raise "source cleanup race gate timed out"
+    end
+  end
+
+  defp delete_asset_and_finish_cleanup(source) do
+    assert {:ok, %{state: :pending_delete}} =
+             scoped(source, fn repo ->
+               AssetDeletionRepository.tombstone_and_release(repo, %{
+                 asset_id: source.asset_id,
+                 vault_id: source.vault_id,
+                 principal_id: source.principal_id,
+                 classification: :private,
+                 expected_state_revision: 5
+               })
+             end)
+
+    envelope =
+      scoped(source, fn repo ->
+        assert %{rows: [[id, idempotency_key, correlation_id, causation_id, payload]]} =
+                 query!(
+                   repo,
+                   "SELECT id, idempotency_key, correlation_id, causation_id, payload FROM core.outbox_events WHERE event_type='asset.cleanup_requested' AND payload ->> 'asset_id'=$1",
+                   [source.asset_id]
+                 )
+
+        {:ok, envelope} =
+          JobEnvelope.new(%{
+            version: 1,
+            job_id: Ecto.UUID.load!(id),
+            job_type: "asset_cleanup",
+            idempotency_key: idempotency_key,
+            vault_id: source.vault_id,
+            principal_id: source.principal_id,
+            required_capability: "asset.write",
+            principal_authorization_epoch: 0,
+            vault_authorization_epoch: 0,
+            classification: :private,
+            correlation_id: Ecto.UUID.load!(correlation_id),
+            causation_id: Ecto.UUID.load!(causation_id),
+            expected_entity_revision: 6,
+            attempt: 0,
+            payload: payload
+          })
+
+        envelope
+      end)
+
+    assert {:ok, _runner_job_id} = ObanAdapter.submit(%{}, envelope)
+
+    ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: source.principal_id, vault_id: source.vault_id},
+      fn repo -> AssetDeletionRepository.complete_logical_delete(repo, envelope) end
+    )
+  end
+
+  defp grant_asset_write!(fixture) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id, name) VALUES ($1, 'asset.write') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id) SELECT $1, $2, id FROM core.capabilities WHERE name='asset.write'",
+        [Ecto.UUID.dump!(fixture.principal_id), Ecto.UUID.dump!(fixture.vault_id)]
+      )
+    end)
+  end
+
+  defp materialize_source!(source) do
+    root = Application.fetch_env!(:singularity_storage, :storage_root)
+
+    %{rows: [[domain_id, lookup_digest]]} =
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "SELECT key_domain_id, lookup_digest FROM content.asset_objects WHERE id=$1",
+          [Ecto.UUID.dump!(source.object_id)]
+        )
+      end)
+
+    context = %{
+      root: root,
+      vault_namespace: source.vault_id,
+      domain_namespace: Ecto.UUID.load!(domain_id),
+      lookup_digest: Base.encode16(lookup_digest, case: :lower)
+    }
+
+    stage = %Singularity.Core.StageRef{stage_id: Ecto.UUID.generate()}
+    object = %ObjectRef{object_id: source.object_id}
+    assert {:ok, ^stage} = LocalFilesystemAdapter.stage(context, %{stage_id: stage.stage_id})
+    assert :ok = LocalFilesystemAdapter.append_encrypted_chunk(context, stage, "race-ciphertext")
+    assert {:ok, %{sealed?: true}} = LocalFilesystemAdapter.seal_stage(context, stage, %{})
+    assert {:ok, ^object} = LocalFilesystemAdapter.finalize(context, stage, object)
+    context
   end
 
   defp scoped(fixture, callback) do

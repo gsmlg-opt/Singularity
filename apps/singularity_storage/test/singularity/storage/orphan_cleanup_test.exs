@@ -5,11 +5,14 @@ defmodule Singularity.Storage.OrphanCleanupTest do
 
   alias Singularity.Core.JobEnvelope
   alias Singularity.Core.Error
+  alias Singularity.Core.ObjectRef
   alias Singularity.Runtime.Api
   alias Singularity.Runtime.Assets.ObjectCleanup
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.JobDispatcher
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
+  alias Singularity.Storage.KnowledgeTestGrants
   alias Singularity.Storage.Jobs.EnvelopeCodec
   alias Singularity.Storage.Jobs.GenericWorker
   alias Singularity.Storage.Jobs.ObanAdapter
@@ -18,6 +21,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetSearchStore
+  alias Singularity.Storage.Postgres.DocumentRepository
   alias Singularity.Storage.ScopedRepo
 
   defmodule AllowJobAuthorization do
@@ -101,6 +105,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
   setup do
     %{one: fixture} = Fixtures.two_vaults!()
     fixture = load_ids(fixture)
+    grant_asset_write!(fixture)
 
     Fixtures.with_owner(fn ->
       query!(
@@ -537,6 +542,78 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       assert load_uuid(retained_object_id) == object_id
       :ok
     end)
+  end
+
+  for tombstoned? <- [false, true] do
+    @tombstoned? tombstoned?
+    test "Document source pin retains original bytes after Asset cleanup (tombstoned=#{tombstoned?})" do
+      source = prepared_deletion_source!()
+      storage_root = Application.fetch_env!(:singularity_storage, :storage_root)
+      storage = materialize_object!(source, source.object_id, storage_root)
+      object_ref = %ObjectRef{object_id: source.object_id}
+      assert {:ok, ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+
+      KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+        KnowledgeTestGrants.with_receipt_grants(fn ->
+          assert {:ok, document} =
+                   DocumentRepository.create_pending(
+                     KnowledgeFixtures.document_context(source),
+                     KnowledgeFixtures.document_command(source)
+                   )
+
+          assert document.source.object_id == source.object_id
+
+          if @tombstoned? do
+            Fixtures.with_owner(fn ->
+              assert %{num_rows: 1} =
+                       query!(
+                         MigrationRepo,
+                         "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+                         [Ecto.UUID.dump!(document.resource_id)]
+                       )
+            end)
+          end
+        end)
+      end)
+
+      assert {:ok, %{state: :pending_delete}} =
+               scoped(source, fn repo ->
+                 AssetDeletionRepository.tombstone_and_release(repo, %{
+                   asset_id: source.asset_id,
+                   vault_id: source.vault_id,
+                   principal_id: source.principal_id,
+                   classification: :private,
+                   expected_state_revision: 5
+                 })
+               end)
+
+      envelope = submitted_cleanup_envelope!(source)
+
+      assert {:ok, %{state: :deleted, asset_object_id: nil}} =
+               scoped_worker(source, fn repo ->
+                 AssetDeletionRepository.complete_logical_delete(repo, envelope)
+               end)
+
+      assert %{rows: [["available", nil]]} =
+               scoped(source, fn repo ->
+                 query!(
+                   repo,
+                   "SELECT lifecycle, deleted_at FROM content.asset_objects WHERE id=$1 AND vault_id=$2",
+                   [Ecto.UUID.dump!(source.object_id), Ecto.UUID.dump!(source.vault_id)]
+                 )
+               end)
+
+      assert {:ok, ^ciphertext_before} = LocalFilesystemAdapter.stat(storage, object_ref)
+
+      assert %{rows: [[0]]} =
+               scoped(source, fn repo ->
+                 query!(
+                   repo,
+                   "SELECT count(*) FROM core.outbox_events WHERE event_type='object.cleanup_requested' AND payload ->> 'object_id'=$1",
+                   [source.object_id]
+                 )
+               end)
+    end
   end
 
   test "an orphan reaches logical deleted before separately scheduled physical cleanup", %{
@@ -1875,6 +1952,39 @@ defmodule Singularity.Storage.OrphanCleanupTest do
       cleanup_principal_id: cleanup_principal_id,
       object_id: object_id
     }
+  end
+
+  defp prepared_deletion_source! do
+    source = KnowledgeFixtures.prepared_source!()
+    grant_asset_write!(source)
+
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "UPDATE content.assets SET state='ready', state_revision=5 WHERE id=$1",
+                 [Ecto.UUID.dump!(source.asset_id)]
+               )
+    end)
+
+    install_cleanup_principal!(source)
+    source
+  end
+
+  defp grant_asset_write!(fixture) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id, name) VALUES ($1, 'asset.write') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id) SELECT $1, $2, id FROM core.capabilities WHERE name='asset.write'",
+        [Ecto.UUID.dump!(fixture.principal_id), Ecto.UUID.dump!(fixture.vault_id)]
+      )
+    end)
   end
 
   defp cleanup_principal_id!(fixture) do
