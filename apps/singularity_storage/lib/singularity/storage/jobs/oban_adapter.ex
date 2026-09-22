@@ -81,6 +81,7 @@ defmodule Singularity.Storage.Jobs.ObanAdapter do
     "asset_cleanup" => :asset_cleanup,
     "object_cleanup" => :object_cleanup,
     "note_projection" => :note_projection,
+    "document_extract" => :document_extract,
     "backup" => :backup
   }
 

@@ -12,7 +12,7 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
     "asset_metadata" => {"asset.read", "asset-metadata"},
     "asset_cleanup" => {"asset.write", "asset-cleanup"}
   }
-  @job_types Map.keys(@asset_jobs) ++ ~w[object_cleanup note_projection backup]
+  @job_types Map.keys(@asset_jobs) ++ ~w[object_cleanup note_projection document_extract backup]
 
   @spec encode(JobEnvelope.t()) :: {:ok, map()} | {:error, Error.t()}
   def encode(%JobEnvelope{} = envelope) do
@@ -167,6 +167,24 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
   end
 
   defp safe_job_contract?(%JobEnvelope{
+         job_type: "document_extract",
+         required_capability: "asset.read",
+         classification: :private,
+         idempotency_key: idempotency_key,
+         expected_entity_revision: revision,
+         payload:
+           %{
+             "resource_id" => resource_id,
+             "resource_version_id" => resource_version_id
+           } = payload
+       })
+       when map_size(payload) == 2 do
+    canonical_uuid?(resource_id) and
+      canonical_uuid?(resource_version_id) and
+      safe_document_extraction_idempotency?(idempotency_key, resource_version_id, revision)
+  end
+
+  defp safe_job_contract?(%JobEnvelope{
          job_type: "backup",
          required_capability: "backup.create",
          idempotency_key: idempotency_key,
@@ -193,6 +211,15 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
         false
     end
   end
+
+  defp safe_document_extraction_idempotency?(key, resource_version_id, 0),
+    do: key == "document-extraction:#{resource_version_id}"
+
+  defp safe_document_extraction_idempotency?(key, resource_version_id, revision)
+       when is_integer(revision) and revision > 0,
+       do: key == "document-extraction:#{resource_version_id}:#{revision}"
+
+  defp safe_document_extraction_idempotency?(_key, _resource_version_id, _revision), do: false
 
   defp safe_asset_idempotency?(job_type, key, prefix, asset_id, revision) do
     key == "#{prefix}:#{asset_id}:#{revision}" or

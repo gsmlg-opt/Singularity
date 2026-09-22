@@ -117,6 +117,8 @@ defmodule Singularity.Storage.OutboxObanTest do
     asset_id = uuid(7)
     object_id = uuid(8)
     manifest_id = uuid(9)
+    resource_id = uuid(10)
+    resource_version_id = uuid(11)
 
     schemas = [
       {"asset_finalize", "asset.write", %{"asset_id" => asset_id},
@@ -128,6 +130,9 @@ defmodule Singularity.Storage.OutboxObanTest do
        "object-cleanup:#{object_id}:7"},
       {"note_projection", "note.write", %{"resource_id" => asset_id},
        "note-current-changed:#{asset_id}:7"},
+      {"document_extract", "asset.read",
+       %{"resource_id" => resource_id, "resource_version_id" => resource_version_id},
+       "document-extraction:#{resource_version_id}"},
       {"backup", "backup.create", %{"pending_manifest_id" => manifest_id},
        "backup:#{manifest_id}"}
     ]
@@ -139,11 +144,78 @@ defmodule Singularity.Storage.OutboxObanTest do
         |> Map.put("required_capability", capability)
         |> Map.put("payload", payload)
         |> Map.put("idempotency_key", idempotency_key)
+        |> Map.put("expected_entity_revision", if(job_type == "document_extract", do: 0, else: 7))
 
       assert {:ok, %JobEnvelope{job_type: ^job_type, payload: ^payload}} =
                EnvelopeCodec.decode(encoded)
 
       assert EnvelopeCodec.known_job_type?(job_type)
+    end
+  end
+
+  test "document extraction accepts exactly its two canonical UUIDs and no content fields" do
+    resource_id = uuid(10)
+    resource_version_id = uuid(11)
+
+    valid =
+      encoded_envelope()
+      |> Map.put("job_type", "document_extract")
+      |> Map.put("required_capability", "asset.read")
+      |> Map.put("expected_entity_revision", 0)
+      |> Map.put("payload", %{
+        "resource_id" => resource_id,
+        "resource_version_id" => resource_version_id
+      })
+      |> Map.put("idempotency_key", "document-extraction:#{resource_version_id}")
+
+    expected_payload = %{
+      "resource_id" => resource_id,
+      "resource_version_id" => resource_version_id
+    }
+
+    assert {:ok, %JobEnvelope{payload: ^expected_payload}} = EnvelopeCodec.decode(valid)
+
+    for invalid <- [
+          put_in(valid, ["payload"], %{
+            "resource_id" => resource_id,
+            "resource_version_id" => resource_version_id,
+            "title" => @secret
+          }),
+          put_in(valid, ["payload"], %{
+            "resource_id" => resource_id,
+            "resource_version_id" => "not-a-uuid"
+          }),
+          Map.put(valid, "required_capability", "asset.write"),
+          Map.put(valid, "idempotency_key", "document-extraction:#{resource_id}")
+        ] do
+      assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
+    end
+  end
+
+  test "document extraction recovery keys bind the positive expected generation" do
+    resource_id = uuid(10)
+    resource_version_id = uuid(11)
+
+    recovered =
+      encoded_envelope()
+      |> Map.put("job_type", "document_extract")
+      |> Map.put("required_capability", "asset.read")
+      |> Map.put("expected_entity_revision", 3)
+      |> Map.put("payload", %{
+        "resource_id" => resource_id,
+        "resource_version_id" => resource_version_id
+      })
+      |> Map.put("idempotency_key", "document-extraction:#{resource_version_id}:3")
+
+    assert {:ok, %JobEnvelope{expected_entity_revision: 3}} = EnvelopeCodec.decode(recovered)
+
+    for invalid <- [
+          Map.put(recovered, "idempotency_key", "document-extraction:#{resource_version_id}"),
+          Map.put(recovered, "idempotency_key", "document-extraction:#{resource_version_id}:2"),
+          Map.put(recovered, "expected_entity_revision", 0),
+          Map.put(recovered, "classification", "sensitive")
+        ] do
+      assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
     end
   end
 

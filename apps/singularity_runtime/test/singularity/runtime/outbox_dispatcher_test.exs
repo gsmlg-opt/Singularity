@@ -280,6 +280,112 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
              "must-not-enter-envelope"
   end
 
+  test "routes document extraction as one exact IDs-only job and reuses its submission", %{
+    runner: runner
+  } do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+    resource_id = load_uuid(fixture.resource_id)
+    resource_version_id = load_uuid(fixture.resource_version_id)
+
+    owner_query(
+      """
+      UPDATE core.outbox_events
+      SET event_type = 'document.extraction_requested',
+          idempotency_key = $1,
+          required_capability = 'asset.read',
+          expected_entity_revision = 0,
+          payload = $2::text::jsonb
+      WHERE id = $3
+      """,
+      [
+        "document-extraction:#{resource_version_id}",
+        JSON.encode!(%{
+          "resource_id" => resource_id,
+          "resource_version_id" => resource_version_id
+        }),
+        event.id
+      ]
+    )
+
+    crashing_options =
+      runner
+      |> dispatcher_options()
+      |> Map.put(:after_submit, fn _envelope, _runner_id ->
+        raise "injected dispatcher crash"
+      end)
+
+    assert_raise RuntimeError, "injected dispatcher crash", fn ->
+      OutboxDispatcher.dispatch_once(crashing_options)
+    end
+
+    assert_receive {:runner_submit, envelope, runner_id}
+    assert envelope.job_id == load_uuid(event.id)
+    assert envelope.job_type == "document_extract"
+
+    assert envelope.payload == %{
+             "resource_id" => resource_id,
+             "resource_version_id" => resource_version_id
+           }
+
+    refute inspect(envelope, limit: :infinity, printable_limit: :infinity) =~ "title"
+    refute inspect(envelope, limit: :infinity, printable_limit: :infinity) =~ "digest"
+    refute inspect(envelope, limit: :infinity, printable_limit: :infinity) =~ "locator"
+
+    expire_claim!(event.id)
+
+    assert {:ok, %{submitted: 1, skipped: 0, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    assert_receive {:runner_submit, %{job_id: job_id}, ^runner_id}
+    assert job_id == load_uuid(event.id)
+    assert FakeRunner.submission_count(runner) == 1
+    assert [%{job_id: ^job_id}, %{job_id: ^job_id}] = FakeRunner.calls(runner)
+  end
+
+  test "rejects malformed document extraction payloads without submitting", %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+
+    for {payload, index} <-
+          [
+            %{"resource_id" => load_uuid(fixture.resource_id)},
+            %{
+              "resource_id" => load_uuid(fixture.resource_id),
+              "resource_version_id" => "not-a-uuid"
+            },
+            %{
+              "resource_id" => load_uuid(fixture.resource_id),
+              "resource_version_id" => load_uuid(fixture.resource_version_id),
+              "title" => "must-not-enter-envelope"
+            }
+          ]
+          |> Enum.with_index(1) do
+      event = Fixtures.outbox_event!(fixture)
+
+      owner_query(
+        """
+        UPDATE core.outbox_events
+        SET event_type = 'document.extraction_requested',
+            idempotency_key = $1,
+            required_capability = 'asset.read',
+            expected_entity_revision = 0,
+            payload = $2::text::jsonb
+        WHERE id = $3
+        """,
+        [
+          "document-extraction:#{load_uuid(fixture.resource_version_id)}:#{index}",
+          JSON.encode!(payload),
+          event.id
+        ]
+      )
+    end
+
+    assert {:ok, %{submitted: 0, skipped: 0, failed: 3}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    refute_receive {:runner_submit, _envelope, _runner_id}
+  end
+
   test "does not advertise an unimplemented maintenance job", %{runner: runner} do
     fixture = Fixtures.two_vaults!().one
     event = Fixtures.outbox_event!(fixture)

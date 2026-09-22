@@ -20,6 +20,7 @@ defmodule Singularity.Runtime.OutboxDispatcher do
     "note.conflict_resolved" => "note_projection",
     "note.deleted" => "note_projection",
     "note.restored" => "note_projection",
+    "document.extraction_requested" => "document_extract",
     "backup.requested" => "backup"
   }
 
@@ -143,6 +144,24 @@ defmodule Singularity.Runtime.OutboxDispatcher do
        do: {:ok, %{"resource_id" => resource_id}}
 
   defp envelope_payload("note_projection", _payload), do: {:error, Error.new(:job_failed)}
+
+  defp envelope_payload(
+         "document_extract",
+         %{
+           "resource_id" => resource_id,
+           "resource_version_id" => resource_version_id
+         } = payload
+       )
+       when map_size(payload) == 2 and is_binary(resource_id) and is_binary(resource_version_id) do
+    with {:ok, ^resource_id} <- Ecto.UUID.cast(resource_id),
+         {:ok, ^resource_version_id} <- Ecto.UUID.cast(resource_version_id) do
+      {:ok, payload}
+    else
+      :error -> {:error, Error.new(:job_failed)}
+    end
+  end
+
+  defp envelope_payload("document_extract", _payload), do: {:error, Error.new(:job_failed)}
   defp envelope_payload(_job_type, payload) when is_map(payload), do: {:ok, payload}
   defp envelope_payload(_job_type, _payload), do: {:error, Error.new(:job_failed)}
 
@@ -250,5 +269,6 @@ defmodule Singularity.Runtime.OutboxDispatcher do
        do: :note_projection
 
   defp job_type_label("backup.requested"), do: :backup
+  defp job_type_label("document.extraction_requested"), do: :document_extract
   defp job_type_label(_event_type), do: :unknown
 end
