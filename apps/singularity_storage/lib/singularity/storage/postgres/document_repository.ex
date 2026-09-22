@@ -94,6 +94,54 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
     exception -> {:error, KnowledgeError.from(exception)}
   end
 
+  @doc "Looks up a completed import in an already authenticated scoped transaction."
+  @spec find_import_receipt_scoped(module(), map(), String.t()) ::
+          {:ok, DocumentVersion.t()} | {:error, Error.t()}
+  def find_import_receipt_scoped(
+        repo,
+        %{principal_id: principal, vault_id: owner},
+        mutation_id
+      )
+      when is_atom(repo) do
+    with true <- repo.in_transaction?(),
+         :ok <- UUID.validate([principal, owner, mutation_id]),
+         %{rows: [[^principal, ^owner]]} <-
+           SafeSQL.query!(
+             repo,
+             "SELECT current_setting('singularity.principal_id',true), current_setting('singularity.vault_id',true)",
+             []
+           ) do
+      case SafeSQL.query!(
+             repo,
+             "SELECT state,resource_id,version_id FROM content.document_import_receipts WHERE vault_id=$1 AND principal_id=$2 AND mutation_id=$3",
+             [Ecto.UUID.dump!(owner), Ecto.UUID.dump!(principal), Ecto.UUID.dump!(mutation_id)]
+           ) do
+        %{rows: []} ->
+          error(:not_found)
+
+        %{rows: [["completed", resource, version]]}
+        when not is_nil(resource) and not is_nil(version) ->
+          load(
+            repo,
+            %{owner_scope_id: owner},
+            Ecto.UUID.load!(resource),
+            Ecto.UUID.load!(version)
+          )
+
+        _ ->
+          error(:conflict)
+      end
+    else
+      false -> error(:invalid)
+      {:error, %Error{}} = result -> result
+      _ -> error(:forbidden)
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def find_import_receipt_scoped(_, _, _), do: error(:invalid)
+
   @impl true
   def get_version(context, resource, version) do
     with {:ok, repo} <- context_repo(context), :ok <- UUID.validate([resource, version]) do

@@ -97,6 +97,35 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
     end)
   end
 
+  test "scoped receipt returns the established Document after its Asset binding is released", c do
+    grants(fn ->
+      assert {:ok, first} = DocumentRepository.create_pending(c.context, c.command)
+
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE content.resource_assets SET released_at=CURRENT_TIMESTAMP WHERE asset_id=$1",
+          [Ecto.UUID.dump!(c.source.asset_id)]
+        )
+      end)
+
+      assert {:ok, ^first} =
+               ScopedRepo.transact(
+                 RequestRepo,
+                 %{principal_id: c.context.principal_id, vault_id: c.context.owner_scope_id},
+                 fn repo ->
+                   DocumentRepository.find_import_receipt_scoped(
+                     repo,
+                     %{principal_id: c.context.principal_id, vault_id: c.context.owner_scope_id},
+                     c.command.mutation_id
+                   )
+                 end
+               )
+
+      assert [_event] = extraction_events(c)
+    end)
+  end
+
   test "replay ignores candidate IDs and time but preserves current lifecycle", c do
     grants(fn ->
       assert {:ok, first} = DocumentRepository.create_pending(c.context, c.command)

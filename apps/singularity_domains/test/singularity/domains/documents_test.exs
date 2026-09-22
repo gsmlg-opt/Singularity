@@ -154,6 +154,9 @@ defmodule Singularity.Domains.DocumentsTest do
       version(command)
       | state: :extracting,
         generation: 1,
+        attempt_job_id: id(32),
+        attempt_started_at: ~U[2026-09-01 00:00:00Z],
+        attempt_deadline_at: ~U[2026-09-01 00:05:00Z],
         adapter_name: "plain-text",
         format_version: 1,
         inserted_at: ~U[2026-08-31 00:00:00Z]

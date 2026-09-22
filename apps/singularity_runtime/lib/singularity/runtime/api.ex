@@ -43,6 +43,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.DTO.SearchPage
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.DTO.UploadGrant
+  alias Singularity.Runtime.Documents.Import, as: DocumentImport
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.Login
   alias Singularity.Runtime.Logout
@@ -419,6 +420,27 @@ defmodule Singularity.Runtime.Api do
   end
 
   def create_note(_config, _session, _attrs), do: {:error, :invalid}
+
+  @spec import_document(Session.t(), map()) ::
+          {:ok, Singularity.Core.DocumentVersion.t()} | {:error, atom()}
+  def import_document(session, attrs),
+    do: with_production(&import_document(&1, session, attrs))
+
+  @doc false
+  def import_document(config, %Session{} = session, attrs) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, document} <- invoke(config, :import_document, [context, attrs]),
+         {:ok, ^document} <- Singularity.Core.DocumentVersion.new(document),
+         true <- document.owner_scope_id == context.vault_id,
+         true <- document.created_by_principal_id == context.principal_id do
+      {:ok, document}
+    else
+      false -> {:error, :integrity_failure}
+      result -> normalize_error(result)
+    end
+  end
+
+  def import_document(_config, _session, _attrs), do: {:error, :invalid}
 
   @spec save_note(Session.t(), String.t(), map() | keyword()) ::
           {:ok, Singularity.Runtime.DTO.NoteSaveResult.t()} | {:error, atom()}
@@ -865,6 +887,9 @@ defmodule Singularity.Runtime.Api do
       end,
       get_note_version: fn session, resource_id, version_id ->
         NoteGet.version(runtime, session, resource_id, version_id)
+      end,
+      import_document: fn session, attrs ->
+        DocumentImport.run(runtime, session, attrs)
       end,
       list_assets: fn session, params ->
         Search.run(runtime, session, params)
