@@ -29,7 +29,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
     UUID
   }
 
-  alias Singularity.Storage.Schema.Content.{Resource, ResourceVersion}
+  alias Singularity.Storage.Schema.Content.{AssetKeyEnvelope, Resource, ResourceVersion}
   alias Singularity.Storage.Schema.Content.DocumentVersion, as: StoredDocument
   alias Singularity.Storage.Schema.Content.DocumentFragment, as: StoredFragment
   alias Singularity.Storage.Schema.Core.OutboxEvent
@@ -271,6 +271,185 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
     exception -> {:error, KnowledgeError.from(exception)}
   end
 
+  @impl true
+  def get_live_scoped(repo, context, resource_id) when is_atom(repo) and is_map(context) do
+    with :ok <- scoped_context(repo, context),
+         :ok <- UUID.validate(resource_id),
+         {:ok, row, revision} <- live_row(repo, context.owner_scope_id, resource_id) do
+      hydrate(repo, row, revision)
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def get_live_scoped(_, _, _), do: error(:invalid)
+
+  @impl true
+  def list_live_scoped(repo, context, %{limit: limit, cursor: cursor})
+      when is_atom(repo) and is_map(context) and is_integer(limit) and limit in 1..100 do
+    with :ok <- scoped_context(repo, context),
+         {:ok, cursor} <- list_cursor(cursor) do
+      base =
+        from d in StoredDocument,
+          join: v in ResourceVersion,
+          on: v.id == d.resource_version_id and v.resource_id == d.resource_id,
+          join: r in Resource,
+          on:
+            r.id == d.resource_id and r.vault_id == d.vault_id and
+              r.current_version_id == d.resource_version_id,
+          where:
+            d.vault_id == ^context.owner_scope_id and d.classification == :private and
+              r.kind == :document and is_nil(r.deleted_at),
+          order_by: [desc: d.inserted_at, desc: d.resource_id],
+          limit: ^(limit + 1),
+          select: {d, v.revision}
+
+      query =
+        case cursor do
+          nil ->
+            base
+
+          {inserted_at, resource_id} ->
+            from [d, _v, _r] in base,
+              where:
+                d.inserted_at < ^inserted_at or
+                  (d.inserted_at == ^inserted_at and d.resource_id < ^resource_id)
+        end
+
+      rows = repo.all(query, log: false)
+      {page_rows, overflow} = Enum.split(rows, limit)
+
+      with {:ok, items} <- hydrate_rows(repo, page_rows) do
+        next =
+          case {page_rows, overflow} do
+            {[], _} ->
+              nil
+
+            {_, []} ->
+              nil
+
+            {rows, [_ | _]} ->
+              {last, _revision} = List.last(rows)
+              {last.inserted_at, last.resource_id}
+          end
+
+        {:ok, %{items: items, next_cursor: next}}
+      end
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def list_live_scoped(_, _, _), do: error(:invalid)
+
+  @impl true
+  def fragments_live_scoped(repo, context, resource_id) do
+    with {:ok, %DocumentVersion{state: :ready, fragments: fragments}} <-
+           get_live_scoped(repo, context, resource_id),
+         true <- is_list(fragments) do
+      {:ok, fragments}
+    else
+      {:ok, %DocumentVersion{}} -> error(:conflict)
+      false -> error(:integrity_failure)
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  @impl true
+  def source_live_scoped(repo, context, resource_id) when is_atom(repo) and is_map(context) do
+    with :ok <- scoped_context(repo, context),
+         :ok <- UUID.validate(resource_id),
+         {:ok, row, _revision} <- live_row(repo, context.owner_scope_id, resource_id),
+         generation when is_integer(generation) and generation > 0 <-
+           repo.one(
+             from e in AssetKeyEnvelope,
+               where:
+                 e.asset_object_id == ^row.source_object_id and
+                   e.vault_id == ^context.owner_scope_id and e.classification == :private,
+               select: max(e.key_generation)
+           ) do
+      {:ok,
+       %{
+         resource_id: row.resource_id,
+         resource_version_id: row.resource_version_id,
+         object_id: row.source_object_id,
+         object_generation: generation,
+         source_digest: row.source_digest,
+         source_byte_size: row.source_byte_size
+       }}
+    else
+      nil -> error(:integrity_failure)
+      {:error, %Error{}} = error -> error
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def source_live_scoped(_, _, _), do: error(:invalid)
+
+  def retry_live_scoped(repo, context, resource_id, versions),
+    do: runtime_mutation(repo, context, resource_id, versions, "retry_document_runtime")
+
+  def delete_live_scoped(repo, context, resource_id, _versions) do
+    with :ok <- scoped_context(repo, context),
+         :ok <- UUID.validate(resource_id),
+         %{rows: [[returned_resource]]} when not is_nil(returned_resource) <-
+           SafeSQL.query!(repo, "SELECT content.delete_document_runtime($1)", [
+             Ecto.UUID.dump!(resource_id)
+           ]) do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _ -> error(:not_found)
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def restore_live_scoped(repo, context, resource_id, versions),
+    do: runtime_mutation(repo, context, resource_id, versions, "restore_document_runtime")
+
+  defp runtime_mutation(repo, context, resource_id, versions, function) do
+    with :ok <- scoped_context(repo, context),
+         :ok <- UUID.validate(resource_id),
+         {:ok, adapter, format} <- runtime_adapter(repo, context, resource_id, versions),
+         %{rows: [[returned_resource]]} when not is_nil(returned_resource) <-
+           SafeSQL.query!(repo, "SELECT content.#{function}($1,$2,$3)", [
+             Ecto.UUID.dump!(resource_id),
+             adapter,
+             format
+           ]),
+         returned_resource = Ecto.UUID.load!(returned_resource),
+         true <- returned_resource == resource_id,
+         {:ok, row, revision} <- live_row(repo, context.owner_scope_id, returned_resource) do
+      hydrate(repo, row, revision)
+    else
+      false -> error(:integrity_failure)
+      {:error, %Error{}} = error -> error
+      _ -> error(:not_found)
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  defp runtime_adapter(repo, context, resource_id, versions) when is_map(versions) do
+    query =
+      from d in StoredDocument,
+        where: d.resource_id == ^resource_id and d.vault_id == ^context.owner_scope_id,
+        select: d.media_type,
+        limit: 1
+
+    with media_type when is_binary(media_type) <- repo.one(query, log: false),
+         %{adapter_name: adapter, format_version: format} <- Map.get(versions, media_type),
+         true <- valid_adapter?(adapter) and is_integer(format) and format > 0 do
+      {:ok, adapter, format}
+    else
+      _ -> error(:conflict)
+    end
+  end
+
+  defp runtime_adapter(_, _, _, _), do: error(:invalid)
+
   defp lifecycle(context, version, function, args) do
     with {:ok, repo} <- context_repo(context), :ok <- UUID.validate(version) do
       scoped(repo, context, &invoke(&1, context, version, function, args))
@@ -502,6 +681,66 @@ defmodule Singularity.Storage.Postgres.DocumentRepository do
       {row, revision} -> hydrate(repo, row, revision)
     end
   end
+
+  defp live_row(repo, owner, resource_id) do
+    query =
+      from d in StoredDocument,
+        join: v in ResourceVersion,
+        on: v.id == d.resource_version_id and v.resource_id == d.resource_id,
+        join: r in Resource,
+        on:
+          r.id == d.resource_id and r.vault_id == d.vault_id and
+            r.current_version_id == d.resource_version_id,
+        where:
+          d.resource_id == ^resource_id and d.vault_id == ^owner and
+            d.classification == :private and r.kind == :document and is_nil(r.deleted_at),
+        select: {d, v.revision}
+
+    case repo.one(query, log: false) do
+      nil -> error(:not_found)
+      {row, revision} -> {:ok, row, revision}
+    end
+  end
+
+  defp hydrate_rows(repo, rows) do
+    Enum.reduce_while(rows, {:ok, []}, fn {row, revision}, {:ok, acc} ->
+      case hydrate(repo, row, revision) do
+        {:ok, document} -> {:cont, {:ok, [document | acc]}}
+        {:error, %Error{}} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
+  end
+
+  defp list_cursor(nil), do: {:ok, nil}
+
+  defp list_cursor({%DateTime{} = inserted_at, resource_id}) do
+    with :ok <- UUID.validate(resource_id), do: {:ok, {inserted_at, resource_id}}
+  end
+
+  defp list_cursor(_), do: error(:invalid)
+
+  defp scoped_context(repo, %{principal_id: principal, owner_scope_id: owner}) do
+    with true <- repo.in_transaction?(),
+         :ok <- UUID.validate([principal, owner]),
+         %{rows: [[^principal, ^owner]]} <-
+           SafeSQL.query!(
+             repo,
+             "SELECT current_setting('singularity.principal_id',true), current_setting('singularity.vault_id',true)",
+             []
+           ) do
+      :ok
+    else
+      false -> error(:invalid)
+      {:error, %Error{}} = error -> error
+      _ -> error(:forbidden)
+    end
+  end
+
+  defp scoped_context(_, _), do: error(:invalid)
 
   defp load_for_attempt(repo, context, resource, version, job_id, generation) do
     query =

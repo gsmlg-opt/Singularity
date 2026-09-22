@@ -23,4 +23,13 @@ defmodule Singularity.Domains.Documents.Repository do
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
   @callback reset_failed(context(), Types.id(), non_neg_integer(), String.t(), pos_integer()) ::
               {:ok, DocumentVersion.t()} | {:error, Error.t()}
+  @callback get_live_scoped(module(), map(), Types.id()) ::
+              {:ok, DocumentVersion.t()} | {:error, Error.t()}
+  @callback list_live_scoped(module(), map(), map()) ::
+              {:ok, %{items: [DocumentVersion.t()], next_cursor: String.t() | nil}}
+              | {:error, Error.t()}
+  @callback fragments_live_scoped(module(), map(), Types.id()) ::
+              {:ok, [Singularity.Core.DocumentFragment.t()]} | {:error, Error.t()}
+  @callback source_live_scoped(module(), map(), Types.id()) ::
+              {:ok, map()} | {:error, Error.t()}
 end

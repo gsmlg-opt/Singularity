@@ -49,7 +49,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
                )
     end)
 
-    assert %{rows: [[false, false]]} =
+    assert %{rows: [[true, false]]} =
              query!(
                RequestRepo,
                "SELECT has_table_privilege(current_user,'content.document_versions','SELECT'), has_table_privilege(current_user,'content.document_import_receipts','UPDATE')"
@@ -408,7 +408,7 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
                    1
                  )
 
-        assert {:ok, %DocumentVersion{state: :pending, generation: 1}} =
+        assert {:ok, %DocumentVersion{state: :pending, generation: 2}} =
                  DocumentRepository.reset_failed(
                    c.context,
                    document.resource_version_id,
@@ -416,6 +416,19 @@ defmodule Singularity.Storage.Postgres.DocumentRepositoryTest do
                    "plain",
                    1
                  )
+
+        assert {:error, %Error{code: :conflict}} =
+                 DocumentRepository.claim(
+                   c.context,
+                   document.resource_version_id,
+                   1,
+                   Ecto.UUID.generate(),
+                   "plain",
+                   1
+                 )
+
+        assert {:error, %Error{code: :conflict}} =
+                 DocumentRepository.complete(c.context, job, completion)
 
         assert {:error, %Error{code: :invalid}} =
                  DocumentRepository.complete(c.context, job, %{completion | generation: -1})

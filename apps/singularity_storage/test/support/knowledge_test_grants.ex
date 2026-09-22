@@ -1,6 +1,6 @@
 defmodule Singularity.Storage.KnowledgeTestGrants do
   @moduledoc false
-  import Singularity.Storage.DataCase, only: [query!: 2]
+  import Singularity.Storage.DataCase, only: [query!: 2, query!: 3]
   alias Singularity.Storage.{Fixtures, MigrationRepo}
 
   @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations tags resource_tags relationships)
@@ -19,43 +19,21 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
       raise ArgumentError, "knowledge grants require explicit allowlisted tables"
     end
 
-    Fixtures.with_owner(fn ->
-      assert_isolated_database!()
-
-      for table <- tables, role <- @roles do
-        query!(MigrationRepo, "GRANT SELECT, INSERT ON content.#{table} TO #{role}")
-      end
-
-      if "document_versions" in tables do
-        for role <- @roles do
-          query!(
-            MigrationRepo,
-            "GRANT EXECUTE ON FUNCTION content.document_trim_name(text) TO #{role}"
-          )
-        end
-      end
-    end)
-
-    try do
-      fun.()
-    after
-      Fixtures.with_owner(fn ->
-        assert_isolated_database!()
-
-        for table <- tables, role <- @roles do
-          query!(MigrationRepo, "REVOKE SELECT, INSERT ON content.#{table} FROM #{role}")
-        end
-
+    permissions =
+      for(
+        table <- tables,
+        role <- @roles,
+        privilege <- ~w(SELECT INSERT),
+        do: {"TABLE content.#{table}", role, privilege}
+      ) ++
         if "document_versions" in tables do
-          for role <- @roles do
-            query!(
-              MigrationRepo,
-              "REVOKE EXECUTE ON FUNCTION content.document_trim_name(text) FROM #{role}"
-            )
-          end
+          for role <- @roles,
+              do: {"FUNCTION content.document_trim_name(text)", role, "EXECUTE"}
+        else
+          []
         end
-      end)
-    end
+
+    with_preserved_permissions(permissions, fun)
   end
 
   def with_lifecycle_grants(fun) when is_function(fun, 0) do
@@ -80,8 +58,8 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
   end
 
   def with_fragment_read_grants(fun) when is_function(fun, 0) do
-    with_permissions(
-      for(role <- @roles, do: {"SELECT ON content.document_fragments", role}),
+    with_preserved_permissions(
+      for(role <- @roles, do: {"TABLE content.document_fragments", role, "SELECT"}),
       fun
     )
   end
@@ -125,6 +103,45 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
 
         for {permission, role} <- permissions do
           query!(MigrationRepo, "REVOKE #{permission} FROM #{role}")
+        end
+      end)
+    end
+  end
+
+  defp with_preserved_permissions(permissions, fun) do
+    existing =
+      Fixtures.with_owner(fn ->
+        assert_isolated_database!()
+
+        Map.new(permissions, fn {object, role, privilege} = permission ->
+          [kind, object_name] = String.split(object, " ", parts: 2)
+
+          function =
+            case kind do
+              "TABLE" -> "has_table_privilege"
+              "FUNCTION" -> "has_function_privilege"
+            end
+
+          %{rows: [[allowed?]]} =
+            query!(MigrationRepo, "SELECT pg_catalog.#{function}($1,$2,$3)", [
+              role,
+              object_name,
+              privilege
+            ])
+
+          query!(MigrationRepo, "GRANT #{privilege} ON #{object} TO #{role}")
+          {permission, allowed?}
+        end)
+      end)
+
+    try do
+      fun.()
+    after
+      Fixtures.with_owner(fn ->
+        assert_isolated_database!()
+
+        for {{object, role, privilege}, false} <- existing do
+          query!(MigrationRepo, "REVOKE #{privilege} ON #{object} FROM #{role}")
         end
       end)
     end

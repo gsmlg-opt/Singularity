@@ -44,6 +44,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.DTO.UploadGrant
   alias Singularity.Runtime.Documents.Import, as: DocumentImport
+  alias Singularity.Runtime.Documents.Mutate, as: DocumentMutate
+  alias Singularity.Runtime.Documents.Read, as: DocumentRead
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.Login
   alias Singularity.Runtime.Logout
@@ -441,6 +443,114 @@ defmodule Singularity.Runtime.Api do
   end
 
   def import_document(_config, _session, _attrs), do: {:error, :invalid}
+
+  @spec get_document(Session.t(), String.t()) ::
+          {:ok, Singularity.Core.DocumentVersion.t()} | {:error, atom()}
+  def get_document(session, resource_id),
+    do: with_production(&get_document(&1, session, resource_id))
+
+  @doc false
+  def get_document(config, %Session{} = session, resource_id) when is_map(config) do
+    document_call(config, session, resource_id, :get_document)
+  end
+
+  def get_document(_config, _session, _resource_id), do: {:error, :invalid}
+
+  @spec list_documents(Session.t(), map()) :: {:ok, map()} | {:error, atom()}
+  def list_documents(session, params),
+    do: with_production(&list_documents(&1, session, params))
+
+  @doc false
+  def list_documents(config, %Session{} = session, params) when is_map(config) do
+    with {:ok, params} <- DocumentRead.validate_list_params(params),
+         {:ok, context} <- session_context(session),
+         {:ok, %{items: items, next_cursor: cursor} = page} <-
+           invoke(config, :list_documents, [context, params]),
+         true <- is_list(items) and (is_nil(cursor) or is_binary(cursor)),
+         true <- Enum.all?(items, &document_in_scope?(&1, context)) do
+      {:ok, page}
+    else
+      false -> {:error, :integrity_failure}
+      result -> normalize_error(result)
+    end
+  end
+
+  def list_documents(_config, _session, _params), do: {:error, :invalid}
+
+  @spec document_status(Session.t(), String.t()) :: {:ok, map()} | {:error, atom()}
+  def document_status(session, resource_id),
+    do: with_production(&document_status(&1, session, resource_id))
+
+  @doc false
+  def document_status(config, %Session{} = session, resource_id) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, %{resource_id: ^resource_id} = status} <-
+           invoke(config, :document_status, [context, resource_id]) do
+      {:ok, status}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def document_status(_config, _session, _resource_id), do: {:error, :invalid}
+
+  @spec document_fragments(Session.t(), String.t()) :: {:ok, list()} | {:error, atom()}
+  def document_fragments(session, resource_id),
+    do: with_production(&document_fragments(&1, session, resource_id))
+
+  @doc false
+  def document_fragments(config, %Session{} = session, resource_id) when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, fragments} <- invoke(config, :document_fragments, [context, resource_id]),
+         true <- is_list(fragments) do
+      {:ok, fragments}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def document_fragments(_config, _session, _resource_id), do: {:error, :invalid}
+
+  @spec download_document_original(Session.t(), String.t()) ::
+          {:ok, map()} | {:error, atom()}
+  def download_document_original(session, resource_id),
+    do: with_production(&download_document_original(&1, session, resource_id))
+
+  @doc false
+  def download_document_original(config, %Session{} = session, resource_id)
+      when is_map(config) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, original} <-
+           invoke(config, :download_document_original, [context, resource_id]) do
+      {:ok, original}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def download_document_original(_config, _session, _resource_id), do: {:error, :invalid}
+
+  for action <- [:retry_document, :delete_document, :restore_document] do
+    @spec unquote(action)(Session.t(), String.t()) :: term()
+    def unquote(action)(session, resource_id),
+      do: with_production(&apply(__MODULE__, unquote(action), [&1, session, resource_id]))
+
+    @doc false
+    def unquote(action)(config, %Session{} = session, resource_id) when is_map(config) do
+      document_mutation_call(config, session, resource_id, unquote(action))
+    end
+
+    def unquote(action)(_config, _session, _resource_id), do: {:error, :invalid}
+
+    @doc false
+    def unquote(action)(_config, _session, _resource_id, _attrs), do: {:error, :invalid}
+  end
 
   @spec save_note(Session.t(), String.t(), map() | keyword()) ::
           {:ok, Singularity.Runtime.DTO.NoteSaveResult.t()} | {:error, atom()}
@@ -891,6 +1001,14 @@ defmodule Singularity.Runtime.Api do
       import_document: fn session, attrs ->
         DocumentImport.run(runtime, session, attrs)
       end,
+      get_document: &DocumentRead.get(runtime, &1, &2),
+      list_documents: &DocumentRead.list(runtime, &1, &2),
+      document_status: &DocumentRead.status(runtime, &1, &2),
+      document_fragments: &DocumentRead.fragments(runtime, &1, &2),
+      download_document_original: &DocumentRead.download_original(runtime, &1, &2),
+      retry_document: &DocumentMutate.retry(runtime, &1, &2),
+      delete_document: &DocumentMutate.delete(runtime, &1, &2),
+      restore_document: &DocumentMutate.restore(runtime, &1, &2),
       list_assets: fn session, params ->
         Search.run(runtime, session, params)
       end,
@@ -1669,6 +1787,46 @@ defmodule Singularity.Runtime.Api do
     do: {:error, :integrity_failure}
 
   defp normalize_upload_error(result), do: normalize_error(result)
+
+  defp document_call(config, %Session{} = session, resource_id, operation) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session),
+         {:ok, document} <- invoke(config, operation, [context, resource_id]),
+         true <- document_in_scope?(document, context) do
+      {:ok, document}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  defp document_mutation_call(config, %Session{} = session, resource_id, operation) do
+    with true <- valid_uuid?(resource_id),
+         {:ok, context} <- session_context(session) do
+      case invoke(config, operation, [context, resource_id]) do
+        :ok ->
+          :ok
+
+        {:ok, document} ->
+          if document_in_scope?(document, context),
+            do: {:ok, document},
+            else: {:error, :integrity_failure}
+
+        result ->
+          normalize_error(result)
+      end
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  defp document_in_scope?(%Singularity.Core.DocumentVersion{} = document, context),
+    do:
+      document.owner_scope_id == context.vault_id and document.classification == :private and
+        match?({:ok, ^document}, Singularity.Core.DocumentVersion.new(document))
+
+  defp document_in_scope?(_, _), do: false
 
   defp invoke(config, key, arguments) do
     case Map.get(config, key) do

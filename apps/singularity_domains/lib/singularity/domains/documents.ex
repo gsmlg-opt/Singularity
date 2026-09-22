@@ -15,6 +15,13 @@ defmodule Singularity.Domains.Documents do
 
   def create(_, _), do: Types.invalid()
 
+  @spec get(map(), Types.id()) :: {:ok, DocumentVersion.t()} | {:error, Error.t()}
+  def get(%{repository: repository, repository_context: {repo, context}}, resource_id)
+      when is_atom(repository) and is_atom(repo),
+      do: repository.get_live_scoped(repo, context, resource_id)
+
+  def get(_, _), do: Types.invalid()
+
   defp repository(%{repository: repository, repository_context: context})
        when is_atom(repository) do
     if Code.ensure_loaded?(repository) and function_exported?(repository, :create_pending, 2),

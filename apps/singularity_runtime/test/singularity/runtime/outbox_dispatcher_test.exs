@@ -343,6 +343,67 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert [%{job_id: ^job_id}, %{job_id: ^job_id}] = FakeRunner.calls(runner)
   end
 
+  test "retry and restore extraction generations encode and submit with stable dedupe", %{
+    runner: runner
+  } do
+    fixture = Fixtures.two_vaults!().one
+    resource_id = load_uuid(fixture.resource_id)
+    resource_version_id = load_uuid(fixture.resource_version_id)
+
+    events =
+      for generation <- [1, 2] do
+        event = Fixtures.outbox_event!(fixture)
+
+        owner_query(
+          """
+          UPDATE core.outbox_events
+          SET event_type = 'document.extraction_requested',
+              idempotency_key = $1,
+              required_capability = 'asset.read',
+              expected_entity_revision = $2,
+              payload = $3::text::jsonb
+          WHERE id = $4
+          """,
+          [
+            "document-extraction:#{resource_version_id}:#{generation}",
+            generation,
+            JSON.encode!(%{
+              "resource_id" => resource_id,
+              "resource_version_id" => resource_version_id
+            }),
+            event.id
+          ]
+        )
+
+        event
+      end
+
+    assert {:ok, %{submitted: 2, skipped: 0, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    for generation <- [1, 2] do
+      assert_receive {:runner_submit, envelope, _runner_id}
+      assert envelope.expected_entity_revision == generation
+
+      assert envelope.idempotency_key ==
+               "document-extraction:#{resource_version_id}:#{generation}"
+
+      assert {:ok, _encoded} = EnvelopeCodec.encode(envelope)
+    end
+
+    Enum.each(events, fn event ->
+      owner_query(
+        "UPDATE core.outbox_events SET delivered_at=NULL,claim_token=NULL,claimed_until=NULL WHERE id=$1",
+        [event.id]
+      )
+    end)
+
+    assert {:ok, %{submitted: 2, skipped: 0, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    assert FakeRunner.submission_count(runner) == 2
+  end
+
   test "rejects malformed document extraction payloads without submitting", %{runner: runner} do
     fixture = Fixtures.two_vaults!().one
 
