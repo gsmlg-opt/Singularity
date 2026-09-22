@@ -19,13 +19,78 @@ defmodule Singularity.Runtime.DocumentImportTest do
       send(owner, {:import_scope, session, requirement})
 
       case callback.(:scoped_repo) do
-        {:after_commit, after_commit} -> after_commit.()
-        result -> result
+        {:after_commit, after_commit} ->
+          after_commit.()
+
+        {:after_commit_scoped, after_commit} ->
+          after_commit.(fn scoped -> scoped.(:scoped_repo) end)
+
+        result ->
+          result
       end
     end
 
     def with_read_request(_owner, _runtime, _session, _requirement, callback),
       do: callback.(:scoped_repo)
+  end
+
+  defmodule RaceScope do
+    def with_shared_request(owner, _runtime, _session, _requirement, callback) do
+      case callback.(:scoped_repo) do
+        {:after_commit, after_commit} ->
+          await_source_phase(owner, after_commit)
+
+        {:after_commit_scoped, after_commit} ->
+          await_source_phase(owner, fn ->
+            after_commit.(fn scoped -> scoped.(:scoped_repo) end)
+          end)
+
+        result ->
+          result
+      end
+    end
+
+    def with_read_request(_owner, _runtime, _session, _requirement, callback),
+      do: callback.(:scoped_repo)
+
+    defp await_source_phase(owner, callback) do
+      send(owner, {:race_ready, self()})
+
+      receive do
+        {:resume_race, deleted?} ->
+          Process.put(:asset_deleted, deleted?)
+          callback.()
+      end
+    end
+  end
+
+  defmodule RaceRepository do
+    def find_import_receipt_scoped(:scoped_repo, _session, _mutation_id) do
+      count = Process.get(:race_lookup_count, 0) + 1
+      Process.put(:race_lookup_count, count)
+      document = Agent.get(Process.get(:race_agent), & &1)
+
+      if count == 2 and Process.get(:race_pause_after_recheck) do
+        send(Process.get(:race_owner), {:race_rechecked, self()})
+
+        receive do
+          {:resume_recheck, deleted?} -> Process.put(:asset_deleted, deleted?)
+        end
+      end
+
+      case document do
+        nil -> {:error, Error.new(:not_found)}
+        document -> {:ok, document}
+      end
+    end
+
+    def create_pending(context, command) do
+      with {:ok, document} <-
+             Singularity.Runtime.DocumentImportTest.Repository.create_pending(context, command) do
+        Agent.update(Process.get(:race_agent), fn _ -> document end)
+        {:ok, document}
+      end
+    end
   end
 
   defmodule Repository do
@@ -184,6 +249,69 @@ defmodule Singularity.Runtime.DocumentImportTest do
     refute_received :read_source
   end
 
+  test "concurrent identical import replays a committed receipt after Asset deletion" do
+    {:ok, receipt} = Agent.start_link(fn -> nil end)
+    owner = self()
+    config = race_config(owner)
+
+    run = fn ->
+      Process.put(:race_agent, receipt)
+      Api.import_document(config, session(), attrs())
+    end
+
+    first = Task.async(run)
+    assert_receive {:race_ready, first_pid}, 2_000
+    assert first_pid == first.pid
+
+    second = Task.async(run)
+    assert_receive {:race_ready, second_pid}, 2_000
+    assert second_pid == second.pid
+
+    send(first.pid, {:resume_race, false})
+    assert {:ok, first_document} = Task.await(first)
+    assert_receive :read_source
+
+    send(second.pid, {:resume_race, true})
+    assert {:ok, ^first_document} = Task.await(second)
+    refute_received :read_source
+  end
+
+  test "source deletion after a fresh miss still returns the concurrent completed receipt" do
+    {:ok, receipt} = Agent.start_link(fn -> nil end)
+    owner = self()
+    config = race_config(owner)
+
+    first =
+      Task.async(fn ->
+        Process.put(:race_agent, receipt)
+        Api.import_document(config, session(), attrs())
+      end)
+
+    assert_receive {:race_ready, first_pid}, 2_000
+    assert first_pid == first.pid
+
+    second =
+      Task.async(fn ->
+        Process.put(:race_agent, receipt)
+        Process.put(:race_owner, owner)
+        Process.put(:race_pause_after_recheck, true)
+        Api.import_document(config, session(), attrs())
+      end)
+
+    assert_receive {:race_ready, second_pid}, 2_000
+    assert second_pid == second.pid
+    send(second.pid, {:resume_race, false})
+    assert_receive {:race_rechecked, ^second_pid}, 2_000
+
+    send(first.pid, {:resume_race, false})
+    assert {:ok, first_document} = Task.await(first)
+    assert_receive :read_source
+
+    send(second.pid, {:resume_recheck, true})
+    assert {:ok, ^first_document} = Task.await(second)
+    refute_received :read_source
+  end
+
   test "rejects unsupported media, locked session and forged fields" do
     Process.put(:import_media, "image/png")
     assert {:error, :unsupported_media_type} = Api.import_document(config(), session(), attrs())
@@ -222,26 +350,41 @@ defmodule Singularity.Runtime.DocumentImportTest do
              })
   end
 
-  defp config,
+  defp config(overrides \\ %{}),
     do: %{
       import_document: fn session, attrs ->
         Singularity.Runtime.Documents.Import.run(
-          %{
-            operation_scope: {Scope, self()},
-            document_repository: Repository,
-            prepare_source: {Prepare, self()},
-            assets: {Assets, self()},
-            custodian: {Custodian, self()},
-            authenticated_reader: {Reader, self()},
-            audit: {Audit, self()},
-            request_repo: :test_repo,
-            fingerprint_secret: :binary.copy("x", 32)
-          },
+          Map.merge(
+            %{
+              operation_scope: {Scope, self()},
+              document_repository: Repository,
+              prepare_source: {Prepare, self()},
+              assets: {Assets, self()},
+              custodian: {Custodian, self()},
+              authenticated_reader: {Reader, self()},
+              audit: {Audit, self()},
+              request_repo: :test_repo,
+              fingerprint_secret: :binary.copy("x", 32)
+            },
+            overrides
+          ),
           session,
           attrs
         )
       end
     }
+
+  defp race_config(owner) do
+    config(%{
+      operation_scope: {RaceScope, owner},
+      document_repository: RaceRepository,
+      prepare_source: {Prepare, owner},
+      assets: {Assets, owner},
+      custodian: {Custodian, owner},
+      authenticated_reader: {Reader, owner},
+      audit: {Audit, owner}
+    })
+  end
 
   defp session,
     do: %Session{

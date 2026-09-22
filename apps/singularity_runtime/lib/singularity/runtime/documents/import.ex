@@ -36,8 +36,17 @@ defmodule Singularity.Runtime.Documents.Import do
               compare_replay(document, session, asset_id, title)
 
             {:error, %Error{code: :not_found}} ->
-              {:after_commit,
-               fn -> create_from_live_source(runtime, session, asset_id, title, mutation_id) end}
+              {:after_commit_scoped,
+               fn run_scoped ->
+                 resolve_or_create(
+                   run_scoped,
+                   runtime,
+                   session,
+                   asset_id,
+                   title,
+                   mutation_id
+                 )
+               end}
 
             {:error, %Error{}} = error ->
               error
@@ -91,6 +100,36 @@ defmodule Singularity.Runtime.Documents.Import do
   end
 
   defp compare_replay(_, _, _, _), do: {:error, Error.new(:integrity_failure)}
+
+  defp resolve_or_create(run_scoped, runtime, session, asset_id, title, mutation_id) do
+    case find_replay(run_scoped, runtime, session, asset_id, title, mutation_id) do
+      {:error, %Error{code: :not_found}} ->
+        case create_from_live_source(runtime, session, asset_id, title, mutation_id) do
+          {:error, %Error{code: :not_found}} = source_error ->
+            case find_replay(run_scoped, runtime, session, asset_id, title, mutation_id) do
+              {:error, %Error{code: :not_found}} -> source_error
+              result -> result
+            end
+
+          result ->
+            result
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp find_replay(run_scoped, runtime, session, asset_id, title, mutation_id) do
+    repository = Map.get(runtime, :document_repository, DocumentRepository)
+
+    run_scoped.(fn repo ->
+      case call(repository, :find_import_receipt_scoped, [repo, session, mutation_id]) do
+        {:ok, document} -> compare_replay(document, session, asset_id, title)
+        result -> result
+      end
+    end)
+  end
 
   defp create_from_live_source(runtime, session, asset_id, title, mutation_id) do
     repo = Map.get(runtime, :request_repo, RequestRepo)
