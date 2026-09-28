@@ -183,13 +183,25 @@ new extraction formats or persistent plaintext.
 
 The process bridge includes a small bundled native guardian, approved on
 2026-09-23. `ExCmd.Process` manages the guardian as its direct child. The
-guardian starts Poppler directly without a shell, isolates Poppler and any
-descendants in a dedicated process group, forwards termination to the whole
-group, and waits for and reaps descendants before it exits. It retains group
-ownership throughout teardown so descendants cannot escape and a reused
-process-group ID cannot be signalled accidentally. The guardian is built
-reproducibly during normal Mix, release, and container builds and is not
-committed as an opaque binary.
+guardian starts Poppler directly without a shell and isolates Poppler and any
+descendants in a dedicated process group. Because ExCmd 0.18 may force-stop
+its direct child with `SIGKILL`, guardian cleanup does not depend on receiving
+or forwarding an ExCmd termination signal.
+
+The explicit guardian control protocol approved on 2026-09-28 uses one
+versioned, magic, fixed-width big-endian length frame with a maximum 64 MiB
+payload. The guardian rejects malformed, short, or oversized frames, proxies
+exactly the declared bytes through its own pipe to Poppler, closes Poppler's
+stdin after the payload, and keeps the outer ExCmd stdin open as a cancellation
+channel. The Elixir writer owns that outer stdin after frame delivery and
+stays alive until instructed to close it. Premature outer-stdin EOF requests
+cancellation: the guardian terminates the whole owned target process group,
+waits for and reaps all descendants, and exits before the ExCmd owner invokes
+bounded teardown. Normal target exit makes the guardian reap and exit without
+waiting for control EOF. This retains group ownership throughout teardown so
+descendants cannot escape and a reused process-group ID cannot be signalled
+accidentally. The guardian is built reproducibly during normal Mix, release,
+and container builds and is not committed as an opaque binary.
 
 Malformed PDF, encrypted/password-protected PDF, invalid UTF-8, no
 extractable text, and deterministic source/output/page limits become
