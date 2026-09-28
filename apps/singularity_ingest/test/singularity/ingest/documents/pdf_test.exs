@@ -1,6 +1,8 @@
 defmodule Singularity.Ingest.Documents.PDFTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
   alias Singularity.Ingest.Documents.{PDF, Poppler}
 
   @fixtures Path.expand("../../../fixtures/documents", __DIR__)
@@ -35,9 +37,17 @@ defmodule Singularity.Ingest.Documents.PDFTest do
     assert second.text =~ "Second page"
   end
 
-  test "real Poppler rejects encrypted and malformed files without exposing their contents" do
-    assert {:error, {:unsupported, "encrypted_document"}} =
-             PDF.extract(fixture("encrypted.pdf"), runner: Poppler)
+  test "real Poppler classifies encrypted PDF variants without exposing diagnostics" do
+    for name <- ["encrypted.pdf", "encrypted_pdf20_xref_stream.pdf"] do
+      parent = self()
+
+      assert "" ==
+               capture_io(:stderr, fn ->
+                 send(parent, {:extraction_result, PDF.extract(fixture(name), runner: Poppler)})
+               end)
+
+      assert_receive {:extraction_result, {:error, {:unsupported, "encrypted_document"}}}
+    end
 
     assert {:error, {:unsupported, "malformed_document"}} =
              PDF.extract(fixture("malformed.pdf"), runner: Poppler)
@@ -48,11 +58,42 @@ defmodule Singularity.Ingest.Documents.PDFTest do
           "%PDF-1.7\nthis is malformed /Encrypt 2 0 R\n%%EOF\n",
           "%PDF-1.7\ntrailer << /Root 1 0 R /Metadata [ /Encrypt 2 0 R ] >>\nstartxref\n0\n%%EOF\n",
           "%PDF-1.7\ntrailer << /Size 2 /Root 1 0 R /Encrypt 1 0 R >>\nstartxref\n0\n%%EOF\n",
-          "%PDF-1.7\n" <> :binary.copy("trailer ", 1_000_000) <> "/Encrypt 1 0 R\n%%EOF\n"
+          "%PDF-1.7\nCommand Line Error: Incorrect password\n/Encrypt 1 0 R\n%%EOF\n"
         ] do
       assert {:error, {:unsupported, "malformed_document"}} =
-               PDF.extract(bytes, runner: ClassificationRunner, result: {:exit, 1})
+               PDF.extract(bytes, runner: Poppler)
     end
+  end
+
+  test "bounds pdfinfo diagnostics with the requested output limit" do
+    assert {:error, {:unsupported, "output_too_large"}} =
+             PDF.extract(fixture("encrypted.pdf"), runner: Poppler, output_limit: 38)
+  end
+
+  @tag :tmp_dir
+  test "does not classify guardian internal failure as encrypted", %{tmp_dir: tmp_dir} do
+    executable = Path.join(tmp_dir, "pdfinfo-internal-error")
+
+    File.write!(
+      executable,
+      "#!/bin/sh\ncat >/dev/null\nprintf 'Command Line Error: Incorrect password\\n'\nexit 125\n"
+    )
+
+    File.chmod!(executable, 0o700)
+    key = {Poppler, "pdfinfo"}
+    previous = :persistent_term.get(key, :missing)
+
+    on_exit(fn ->
+      case previous do
+        :missing -> :persistent_term.erase(key)
+        value -> :persistent_term.put(key, value)
+      end
+    end)
+
+    :persistent_term.put(key, {:ok, executable})
+
+    assert {:error, {:failed, "extractor_failed"}} =
+             PDF.extract("small", runner: Poppler)
   end
 
   test "real Poppler rejects a scanned or empty document" do
@@ -133,6 +174,9 @@ defmodule Singularity.Ingest.Documents.PDFTest do
       assert {:error, {:failed, "extractor_failed"}} =
                PDF.extract("small", runner: ClassificationRunner, result: fault)
     end
+
+    assert {:error, {:unsupported, "malformed_document"}} =
+             PDF.extract("small", runner: ClassificationRunner, result: {:exit, 1})
   end
 
   @tag :tmp_dir

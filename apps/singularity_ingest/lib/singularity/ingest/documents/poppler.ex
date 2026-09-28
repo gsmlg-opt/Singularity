@@ -5,6 +5,7 @@ defmodule Singularity.Ingest.Documents.Poppler do
 
   @source_limit 67_108_864
   @text_limit 16_777_216
+  @info_output_limit 65_536
   @timeout_ms 120_000
   @read_size 65_531
   @cleanup_reserve_ms 750
@@ -12,33 +13,73 @@ defmodule Singularity.Ingest.Documents.Poppler do
   @minimum_timeout_ms @cleanup_reserve_ms + @await_minimum_ms
   @writer_close_grace_ms 50
   @frame_prefix <<"SGP", 1>>
+  @password_required_diagnostic "Command Line Error: Incorrect password\n"
 
   @spec run(:info | :text, binary(), keyword()) ::
-          {:ok, binary()} | :timeout | {:exit, non_neg_integer()} | {:error, :unavailable}
+          {:ok, binary()}
+          | :timeout
+          | {:exit, non_neg_integer()}
+          | {:error, atom() | {:unsupported, String.t()}}
   def run(kind, bytes, opts \\ []) when kind in [:info, :text] and is_binary(bytes) do
     with {:ok, executable} <- executable(kind) do
-      args =
-        case kind do
-          :info -> ["-"]
-          :text -> ["-enc", "UTF-8", "-eol", "unix", "-q", "-", "-"]
-        end
-
-      run_guarded(executable, args, bytes, opts)
+      run_command(kind, executable, bytes, opts)
     end
   end
+
+  defp run_command(:info, executable, bytes, opts) do
+    with {:ok, requested_limit} <- limit(opts, :output_limit, @text_limit, @text_limit) do
+      opts = Keyword.put(opts, :output_limit, min(requested_limit, @info_output_limit))
+
+      executable
+      |> run_guarded_with_options(["-"], bytes, opts,
+        env: [{"LC_ALL", "C"}],
+        stderr: :redirect_to_stdout,
+        include_exit_output?: true
+      )
+      |> classify_information()
+    else
+      :error -> {:error, :process_failed}
+    end
+  end
+
+  defp run_command(:text, executable, bytes, opts) do
+    run_guarded_with_options(
+      executable,
+      ["-enc", "UTF-8", "-eol", "unix", "-q", "-", "-"],
+      bytes,
+      opts,
+      stderr: :disable
+    )
+  end
+
+  defp classify_information({:exit, 1, @password_required_diagnostic}),
+    do: {:error, {:unsupported, "encrypted_document"}}
+
+  defp classify_information({:exit, 125, _diagnostic}),
+    do: {:error, :process_failed}
+
+  defp classify_information({:exit, _status, _diagnostic}),
+    do: {:error, {:unsupported, "malformed_document"}}
+
+  defp classify_information(result), do: result
 
   @doc false
   @spec run_guarded(binary(), [binary()], binary(), keyword()) ::
           {:ok, binary()} | :timeout | {:exit, non_neg_integer()} | {:error, atom()}
   def run_guarded(executable, args, input, opts \\ [])
       when is_binary(executable) and is_list(args) and is_binary(input) do
+    run_guarded_with_options(executable, args, input, opts, stderr: :disable)
+  end
+
+  defp run_guarded_with_options(executable, args, input, opts, process_opts)
+       when is_binary(executable) and is_list(args) and is_binary(input) do
     with {:ok, timeout_ms} <-
            limit(opts, :timeout_ms, @timeout_ms, @timeout_ms, @minimum_timeout_ms),
          {:ok, output_limit} <- limit(opts, :output_limit, @text_limit, @text_limit) do
       if byte_size(input) > @source_limit do
         {:error, :source_limit}
       else
-        start_controller(executable, args, input, output_limit, timeout_ms)
+        start_controller(executable, args, input, output_limit, timeout_ms, process_opts)
       end
     else
       :error -> {:error, :process_failed}
@@ -52,14 +93,14 @@ defmodule Singularity.Ingest.Documents.Poppler do
     end
   end
 
-  defp start_controller(executable, args, input, output_limit, timeout_ms) do
+  defp start_controller(executable, args, input, output_limit, timeout_ms, process_opts) do
     if Path.type(executable) == :absolute and File.regular?(executable) do
       caller = self()
       ref = make_ref()
 
       {controller, controller_monitor} =
         spawn_monitor(fn ->
-          control(caller, ref, executable, args, input, output_limit, timeout_ms)
+          control(caller, ref, executable, args, input, output_limit, timeout_ms, process_opts)
         end)
 
       receive do
@@ -75,14 +116,18 @@ defmodule Singularity.Ingest.Documents.Poppler do
     end
   end
 
-  defp control(caller, ref, executable, args, input, output_limit, timeout_ms) do
+  defp control(caller, ref, executable, args, input, output_limit, timeout_ms, process_opts) do
     caller_monitor = Process.monitor(caller)
     guardian = Application.app_dir(:singularity_ingest, "priv/poppler_guardian")
     final_deadline = System.monotonic_time(:millisecond) + timeout_ms
     execution_deadline = final_deadline - @cleanup_reserve_ms
 
     with true <- Path.type(guardian) == :absolute and File.regular?(guardian),
-         {:ok, process} <- ExProcess.start_link([guardian, executable | args], stderr: :disable) do
+         {:ok, process} <-
+           ExProcess.start_link(
+             [guardian, executable | args],
+             Keyword.take(process_opts, [:env, :stderr])
+           ) do
       transfer_pipes(
         caller,
         caller_monitor,
@@ -91,7 +136,8 @@ defmodule Singularity.Ingest.Documents.Poppler do
         input,
         output_limit,
         execution_deadline,
-        final_deadline
+        final_deadline,
+        Keyword.get(process_opts, :include_exit_output?, false)
       )
     else
       _ -> send(caller, {ref, :result, {:error, :process_failed}})
@@ -106,7 +152,8 @@ defmodule Singularity.Ingest.Documents.Poppler do
          input,
          output_limit,
          execution_deadline,
-         final_deadline
+         final_deadline,
+         include_exit_output?
        ) do
     controller = self()
     writer = spawn(fn -> pipe_writer(controller, process, input) end)
@@ -127,6 +174,7 @@ defmodule Singularity.Ingest.Documents.Poppler do
         process: process,
         execution_deadline: execution_deadline,
         final_deadline: final_deadline,
+        include_exit_output?: include_exit_output?,
         mode: :running,
         writer: writer,
         writer_monitor: writer_monitor,
@@ -305,8 +353,11 @@ defmodule Singularity.Ingest.Documents.Poppler do
   defp finish(state, requested_result) do
     result =
       case bounded_await(state.process, state.final_deadline) do
-        {:ok, status} -> completed_result(requested_result, status)
-        {:error, _reason} -> {:error, :process_failed}
+        {:ok, status} ->
+          completed_result(requested_result, status, state.include_exit_output?)
+
+        {:error, _reason} ->
+          {:error, :process_failed}
       end
 
     stop_pipe_owner(state.writer)
@@ -314,10 +365,16 @@ defmodule Singularity.Ingest.Documents.Poppler do
     notify(state, result)
   end
 
-  defp completed_result({:normal, output}, 0), do: {:ok, output}
-  defp completed_result({:normal, _output}, status), do: {:exit, status}
-  defp completed_result(:timeout, _status), do: :timeout
-  defp completed_result({:error, reason}, _status), do: {:error, reason}
+  defp completed_result({:normal, output}, 0, _include_exit_output?), do: {:ok, output}
+
+  defp completed_result({:normal, output}, status, true),
+    do: {:exit, status, output}
+
+  defp completed_result({:normal, _output}, status, false), do: {:exit, status}
+  defp completed_result(:timeout, _status, _include_exit_output?), do: :timeout
+
+  defp completed_result({:error, reason}, _status, _include_exit_output?),
+    do: {:error, reason}
 
   defp cleanup_failed(state) do
     stop_pipe_owner(state.writer)
