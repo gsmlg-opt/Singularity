@@ -180,10 +180,11 @@ It enforces output and elapsed-time caps while the child is running and
 terminates/reaps the child on timeout, over-limit output, or caller
 cancellation. `pdftotext` stderr is disabled. For `pdfinfo` only, run with
 `LC_ALL=C` and redirect stderr into its demand-read output, capped at 64 KiB
-in memory. On a nonzero exit, only the exact C-locale diagnostic
-`Command Line Error: Incorrect password\n` maps to `encrypted_document`;
-every other bounded nonzero result
-maps to `malformed_document`. Output overflow has its own sanitized
+in memory. Only Poppler exit status `1` with the complete, exact C-locale
+diagnostic `Command Line Error: Incorrect password\n` maps to
+`encrypted_document`; other bounded nonzero Poppler exits map to
+`malformed_document`, while a guardian internal failure remains `failed`.
+Output overflow has its own sanitized
 `output_too_large` result. The diagnostic bytes are never returned, logged,
 persisted, or included in metadata. Do not parse partial PDF structure to
 infer encryption; this rule also covers PDF 2.0 and cross-reference streams.
