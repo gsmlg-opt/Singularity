@@ -176,10 +176,19 @@ fragment and digest constraints.
 
 The adapter may add `ex_cmd` 0.18 for a demand-driven, non-shell subprocess
 bridge that can close Poppler stdin while continuing to drain bounded stdout.
-It must disable stderr, enforce the output and elapsed-time caps while the
-child is running, and terminate/reap the child on timeout, over-limit output,
-or caller cancellation. The dependency is scoped to Ingest and introduces no
-new extraction formats or persistent plaintext.
+It enforces output and elapsed-time caps while the child is running and
+terminates/reaps the child on timeout, over-limit output, or caller
+cancellation. `pdftotext` stderr is disabled. For `pdfinfo` only, run with
+`LC_ALL=C` and redirect stderr into its demand-read output, capped at 64 KiB
+in memory. On a nonzero exit, only the exact C-locale diagnostic
+`Command Line Error: Incorrect password\n` maps to `encrypted_document`;
+every other bounded nonzero result
+maps to `malformed_document`. Output overflow has its own sanitized
+`output_too_large` result. The diagnostic bytes are never returned, logged,
+persisted, or included in metadata. Do not parse partial PDF structure to
+infer encryption; this rule also covers PDF 2.0 and cross-reference streams.
+The dependency is scoped to Ingest and introduces no new extraction formats
+or persistent plaintext.
 
 The process bridge includes a small bundled native guardian, approved on
 2026-09-23. `ExCmd.Process` manages the guardian as its direct child. The
@@ -198,9 +207,11 @@ stays alive until instructed to close it. Premature outer-stdin EOF requests
 cancellation: the guardian terminates the whole owned target process group,
 waits for and reaps all descendants, and exits before the ExCmd owner invokes
 bounded teardown. Normal target exit makes the guardian reap and exit without
-waiting for control EOF. This retains group ownership throughout teardown so
-descendants cannot escape and a reused process-group ID cannot be signalled
-accidentally. The guardian is built reproducibly during normal Mix, release,
+waiting for control EOF. The guardian keeps the group leader unreaped while
+signalling its group and reaps adopted descendants, including those that call
+`setsid`, through stable process identities within a bounded cleanup window.
+This prevents a reused process-group ID from being signalled accidentally.
+The guardian is built reproducibly during normal Mix, release,
 and container builds and is not committed as an opaque binary.
 
 Malformed PDF, encrypted/password-protected PDF, invalid UTF-8, no
