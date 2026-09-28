@@ -9,6 +9,7 @@ in
     beam28Packages.elixir-ls
     nodejs_24
     chromium
+    poppler-utils
   ];
 
   languages.elixir.enable = true;

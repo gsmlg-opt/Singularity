@@ -27,6 +27,8 @@ COPY config/config.exs config/config.exs
 COPY apps/singularity_core/mix.exs apps/singularity_core/
 COPY apps/singularity_domains/mix.exs apps/singularity_domains/
 COPY apps/singularity_ingest/mix.exs apps/singularity_ingest/
+COPY apps/singularity_ingest/Makefile apps/singularity_ingest/
+COPY apps/singularity_ingest/c_src apps/singularity_ingest/c_src
 COPY apps/singularity_retrieval/mix.exs apps/singularity_retrieval/
 COPY apps/singularity_runtime/mix.exs apps/singularity_runtime/
 COPY apps/singularity_storage/mix.exs apps/singularity_storage/
@@ -76,7 +78,7 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
       'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian-security/20260610T000000Z trixie-security main' \
       > /etc/apt/sources.list \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates libstdc++6 libncurses6 libssl3t64 \
+    && apt-get install --yes --no-install-recommends ca-certificates libstdc++6 libncurses6 libssl3t64 poppler-utils \
     && rm -f /usr/bin/openssl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 singularity \
