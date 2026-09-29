@@ -460,6 +460,7 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
     source = KnowledgeFixtures.prepared_source!()
     install_cleanup_principal!(source)
     grant_asset_write!(source)
+    grant_asset_read!(source)
 
     Fixtures.with_owner(fn ->
       query!(
@@ -470,6 +471,26 @@ defmodule Singularity.Storage.ObjectCleanupConcurrencyTest do
     end)
 
     source
+  end
+
+  defp grant_asset_read!(source) do
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
+    end)
   end
 
   defp assert_import_cleanup_rows(source, lifecycle, documents, receipts) do

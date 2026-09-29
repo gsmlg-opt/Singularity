@@ -13,6 +13,8 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
     Resource
   }
 
+  alias Singularity.Storage.Schema.Core.{DomainKeyVersion, KeyDomain}
+
   alias Singularity.Storage.Schema.Core.OutboxEvent
 
   def load_live(repo, context, resource_id), do: load(repo, context, resource_id, nil)
@@ -87,7 +89,12 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
         where: d.vault_id == ^owner and d.classification == :private and r.kind == :document,
         where:
           ^if(job_id == nil,
-            do: dynamic([d, r], d.resource_id == ^id and is_nil(r.deleted_at)),
+            do:
+              dynamic(
+                [d, r],
+                d.resource_id == ^id and d.resource_version_id == r.current_version_id and
+                  is_nil(r.deleted_at)
+              ),
             else: dynamic([d], d.resource_version_id == ^id)
           ),
         select: %{
@@ -158,16 +165,33 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSource do
   end
 
   defp generation(repo, owner, row) do
-    generation =
-      repo.one(
+    generations =
+      repo.all(
         from e in AssetKeyEnvelope,
+          join: o in AssetObject,
+          on:
+            o.id == e.asset_object_id and o.vault_id == e.vault_id and
+              o.key_domain_id == e.key_domain_id,
+          join: version in DomainKeyVersion,
+          on:
+            version.id == e.domain_key_version_id and version.vault_id == e.vault_id and
+              version.key_domain_id == e.key_domain_id,
+          join: domain in KeyDomain,
+          on:
+            domain.id == e.key_domain_id and domain.vault_id == e.vault_id and
+              domain.classification == o.classification,
           where: e.asset_object_id == ^row.source_object_id and e.vault_id == ^owner,
           where: e.classification == :private,
-          select: max(e.key_generation)
+          where: o.lifecycle == :available,
+          where: version.state == :active and domain.state == :active,
+          where: domain.kind == "content",
+          order_by: [asc: e.id],
+          limit: 2,
+          select: e.key_generation
       )
 
-    case generation do
-      value when is_integer(value) and value > 0 -> {:ok, value}
+    case generations do
+      [value] when is_integer(value) and value > 0 -> {:ok, value}
       _ -> error(:integrity_failure)
     end
   end

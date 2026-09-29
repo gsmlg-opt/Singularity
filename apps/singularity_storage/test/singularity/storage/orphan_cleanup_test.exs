@@ -1957,6 +1957,7 @@ defmodule Singularity.Storage.OrphanCleanupTest do
   defp prepared_deletion_source! do
     source = KnowledgeFixtures.prepared_source!()
     grant_asset_write!(source)
+    grant_asset_read!(source)
 
     Fixtures.with_owner(fn ->
       assert %{num_rows: 1} =
@@ -1983,6 +1984,26 @@ defmodule Singularity.Storage.OrphanCleanupTest do
         MigrationRepo,
         "INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id) SELECT $1, $2, id FROM core.capabilities WHERE name='asset.write'",
         [Ecto.UUID.dump!(fixture.principal_id), Ecto.UUID.dump!(fixture.vault_id)]
+      )
+    end)
+  end
+
+  defp grant_asset_read!(source) do
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
       )
     end)
   end

@@ -90,6 +90,48 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
     end)
   end
 
+  test "live lookup reads only the current Document version", c do
+    next_version = Ecto.UUID.generate()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_versions (id, resource_id, vault_id, classification, revision) VALUES ($1,$2,$3,'private',1)",
+        [Ecto.UUID.dump!(next_version), c.document.resource_id, c.document.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.document_versions
+          (resource_version_id, resource_id, vault_id, classification, source_asset_id,
+           source_resource_id, source_resource_version_id, source_object_id, source_digest,
+           source_byte_size, media_type, title, created_by_principal_id, inserted_at)
+        SELECT $1, resource_id, vault_id, classification, source_asset_id,
+               source_resource_id, source_resource_version_id, source_object_id, source_digest,
+               source_byte_size, media_type, title, created_by_principal_id, CURRENT_TIMESTAMP
+        FROM content.document_versions WHERE resource_version_id=$2
+        """,
+        [Ecto.UUID.dump!(next_version), c.document.resource_version_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET current_version_id=$1 WHERE id=$2",
+        [Ecto.UUID.dump!(next_version), c.document.resource_id]
+      )
+    end)
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      assert {:ok, %{resource_version_id: ^next_version}} =
+               DocumentPinnedSource.load_live(
+                 RequestRepo,
+                 c.context,
+                 Ecto.UUID.load!(c.document.resource_id)
+               )
+    end)
+  end
+
   test "job lookup requires its extraction event and permits only its active tombstone claim",
        c do
     job_id = Ecto.UUID.generate()
@@ -152,6 +194,57 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
         [Ecto.UUID.dump!(c.source.object_id)]
       )
     end)
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      assert {:error, %Error{code: :integrity_failure}} =
+               DocumentPinnedSource.load_live(
+                 RequestRepo,
+                 c.context,
+                 Ecto.UUID.load!(c.document.resource_id)
+               )
+    end)
+  end
+
+  test "sensitive key domain cannot back a private pinned source", c do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE core.key_domains SET classification='sensitive' WHERE id=(SELECT key_domain_id FROM content.asset_objects WHERE id=$1)",
+        [Ecto.UUID.dump!(c.source.object_id)]
+      )
+    end)
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      assert {:error, %Error{code: :integrity_failure}} =
+               DocumentPinnedSource.load_live(
+                 RequestRepo,
+                 c.context,
+                 Ecto.UUID.load!(c.document.resource_id)
+               )
+    end)
+  end
+
+  test "retired higher envelope generation does not override the active reader", c do
+    domain_version = second_envelope!(c)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.domain_key_versions SET state='retired' WHERE id=$1", [
+        domain_version
+      ])
+    end)
+
+    KnowledgeTestGrants.with_grants(["document_versions"], fn ->
+      assert {:ok, %{object_generation: 1}} =
+               DocumentPinnedSource.load_live(
+                 RequestRepo,
+                 c.context,
+                 Ecto.UUID.load!(c.document.resource_id)
+               )
+    end)
+  end
+
+  test "multiple active reader envelopes fail closed", c do
+    second_envelope!(c)
 
     KnowledgeTestGrants.with_grants(["document_versions"], fn ->
       assert {:error, %Error{code: :integrity_failure}} =
@@ -246,6 +339,39 @@ defmodule Singularity.Storage.Postgres.DocumentPinnedSourceTest do
 
       assert {:ok, _} =
                DocumentPinnedSource.load_for_job(RequestRepo, c.context, version, next_job)
+    end)
+  end
+
+  defp second_envelope!(c) do
+    Fixtures.with_owner(fn ->
+      %{rows: [[domain_id, vault_version]]} =
+        query!(
+          MigrationRepo,
+          "SELECT o.key_domain_id, v.vault_key_version_id FROM content.asset_objects o JOIN content.asset_key_envelopes e ON e.asset_object_id=o.id JOIN core.domain_key_versions v ON v.id=e.domain_key_version_id WHERE o.id=$1",
+          [Ecto.UUID.dump!(c.source.object_id)]
+        )
+
+      domain_version = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.domain_key_versions (id,vault_id,key_domain_id,vault_key_version_id,generation,state,algorithm,wrapped_key) VALUES ($1,$2,$3,$4,2,'active','aes_256_gcm',decode(repeat('03',60),'hex'))",
+        [domain_version, Ecto.UUID.dump!(c.source.vault_id), domain_id, vault_version]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.asset_key_envelopes (id,vault_id,asset_object_id,domain_key_version_id,key_domain_id,classification,algorithm,key_generation,wrapped_dek) VALUES ($1,$2,$3,$4,$5,'private','aes_256_gcm',2,decode(repeat('04',60),'hex'))",
+        [
+          Ecto.UUID.dump!(Ecto.UUID.generate()),
+          Ecto.UUID.dump!(c.source.vault_id),
+          Ecto.UUID.dump!(c.source.object_id),
+          domain_version,
+          domain_id
+        ]
+      )
+
+      domain_version
     end)
   end
 
