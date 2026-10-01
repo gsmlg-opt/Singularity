@@ -46,7 +46,7 @@ COPY rel ./rel
 
 RUN NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen \
     && mix npm.verify \
-    && mix compile \
+    && mix compile --warnings-as-errors \
     && MIX_ENV=prod mix assets.deploy \
     && MIX_ENV=prod mix release singularity \
     && rm -f _build/prod/rel/singularity/releases/COOKIE
@@ -89,6 +89,13 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 WORKDIR /app
 
 COPY --from=build /app/_build/prod/rel/singularity ./
+
+RUN test -x /app/bin/singularity \
+    && test -x /app/lib/singularity_ingest-*/priv/poppler_guardian \
+    && test -s /app/lib/singularity_web-*/priv/static/cache_manifest.json \
+    && command -v pdfinfo \
+    && command -v pdftotext \
+    && test ! -e /app/releases/COOKIE
 
 USER 10001:10001
 

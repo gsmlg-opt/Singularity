@@ -58,6 +58,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
              "debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
     assert dockerfile =~ "MIX_ENV=prod mix assets.deploy"
+    assert dockerfile =~ "mix compile --warnings-as-errors"
     assert dockerfile =~ "MIX_ENV=prod mix release singularity"
     assert dockerfile =~ "COPY --from=build"
     assert dockerfile =~ "_build/prod/rel/singularity"
@@ -65,6 +66,17 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert dockerfile =~ ~s(EXPOSE 4000)
     assert dockerfile =~ ~s(ENTRYPOINT ["/app/bin/singularity"])
     assert dockerfile =~ ~s(CMD ["start"])
+
+    for check <- [
+          "test -x /app/bin/singularity",
+          "test -x /app/lib/singularity_ingest-*/priv/poppler_guardian",
+          "test -s /app/lib/singularity_web-*/priv/static/cache_manifest.json",
+          "command -v pdfinfo",
+          "command -v pdftotext",
+          "test ! -e /app/releases/COOKIE"
+        ] do
+      assert dockerfile =~ check
+    end
 
     refute dockerfile =~ "SECRET_KEY_BASE="
     refute dockerfile =~ "SINGULARITY_DATABASE_URL="
@@ -222,7 +234,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
 
     assert ["build-essential", "ca-certificates"] = apt_packages(build_stage)
 
-    assert ["ca-certificates", "libstdc++6", "libncurses6", "libssl3t64"] =
+    assert ["ca-certificates", "libstdc++6", "libncurses6", "libssl3t64", "poppler-utils"] =
              apt_packages(runtime_stage)
 
     assert runtime_stage =~ "rm -f /usr/bin/openssl"

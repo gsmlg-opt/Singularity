@@ -67,6 +67,10 @@ govern `0.2.0`.
 
 ## Development
 
+For image builds and operator setup, see the
+[Docker deployment guide](docs/deployment/docker.md). Building an image does
+not accept the active release or authorize production activation.
+
 Run the complete local verification sequence from one shell so its cleanup trap
 remains active for the entire run:
 
