@@ -2,7 +2,8 @@
 
 Date: 2026-10-04
 
-Status: approach approved; written specification awaiting user review.
+Status: written specification approved by the user on 2026-10-05; implementation
+plan preparation authorized. Publishing and deployment remain separately gated.
 
 ## Goal and boundary
 
