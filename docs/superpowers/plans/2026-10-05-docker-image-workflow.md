@@ -43,7 +43,7 @@ and commits so independent workers do not race on the shared Git index.
 
 ## Task 0: Set up the existing isolated checkout
 
-- [ ] Confirm the worktree/branch and preserve any unrelated changes:
+- [x] Confirm the worktree/branch and preserve any unrelated changes:
 
 ```bash
 git branch --show-current
@@ -54,7 +54,7 @@ git worktree list
 Expected branch: `codex/docker-image-workflow`; no unexpected modifications.
 Do not create another worktree or copy/symlink another checkout's build cache.
 
-- [ ] Fetch locked dependencies in this worktree:
+- [x] Fetch locked dependencies in this worktree:
 
 ```bash
 devenv shell -- mix deps.get
@@ -65,7 +65,7 @@ Expected: existing locked versions retained, no lockfile diff. Dependency setup
 is not an upstream defect. Do not install Node packages or start database services
 for these architecture-only checks.
 
-- [ ] Run the existing focused baseline:
+- [x] Run the existing focused baseline:
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
@@ -78,7 +78,7 @@ not repair unrelated production behavior. No complete product gate is authorized
 
 **Create:** `apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs`.
 
-- [ ] Add this complete test module. Its fixture executables accept only the
+- [x] Add this complete test module. Its fixture executables accept only the
   calls exercised by the workflow; all other calls fail. Real Git is used only
   for read-only `check-ref-format`, and no network-capable command is delegated.
 
@@ -389,7 +389,7 @@ defmodule Singularity.Architecture.DockerImageWorkflowContractTest do
 end
 ```
 
-- [ ] Run the new focused module before adding the workflow:
+- [x] Run the new focused module before adding the workflow:
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
@@ -404,7 +404,7 @@ The two-filename green suite later should contain 28 tests (18 existing + 10 new
 **Create:** `.github/workflows/docker-image.yml`.
 **Test:** `apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs`.
 
-- [ ] Add the complete workflow below. Reuse the approved pins; do not update
+- [x] Add the complete workflow below. Reuse the approved pins; do not update
   dependency/action versions or the existing release workflow as part of this
   task. `github.sha` for release events is the event's tagged commit, whereas
   manual source identity comes from the selected `git_ref` checkout.
@@ -657,7 +657,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 ```
 
-- [ ] Run the new contract module. Expected: 10 tests, 0 failures; real Bash
+- [x] Run the new contract module. Expected: 10 tests, 0 failures; real Bash
   accepts valid requests and rejects invalid inputs, source identity mismatches,
   digest disagreements, and unsafe latest eligibility.
 
@@ -665,7 +665,7 @@ jobs:
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
 ```
 
-- [ ] Format the new module and check both focused contracts:
+- [x] Format the new module and check both focused contracts:
 
 ```bash
 devenv shell -- mix format apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
@@ -676,7 +676,7 @@ Expected: 28 tests, 0 failures. If Task 3 is editing the enumeration concurrentl
 wait until its three files are synchronized before treating a gate failure as a
 workflow defect. Never weaken the existing release contract.
 
-- [ ] Commit only this task's files after green checks:
+- [x] Commit only this task's files after green checks:
 
 ```bash
 git add .github/workflows/docker-image.yml apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
@@ -691,7 +691,7 @@ git commit -m "ci(docker): add verified manual and release image publishing"
 `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`,
 and `docs/deployment/docker.md`.
 
-- [ ] Update only the expected command string in the existing contract first:
+- [x] Update only the expected command string in the existing contract first:
 
 ```elixir
     "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml .github/workflows/docker-image.yml",
@@ -700,7 +700,7 @@ and `docs/deployment/docker.md`.
 This replaces its current actionlint string, not the rest of
 `@canonical_verification_commands`. Preserve every required assertion and command.
 
-- [ ] Run the existing focused contract before editing the Markdown lists:
+- [x] Run the existing focused contract before editing the Markdown lists:
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
@@ -710,7 +710,7 @@ Expected red: the explicit command oracle includes the new workflow, but README
 and the canonical plan still have the old file list. Record that mismatch; do
 not change the parser, wrapper requirements, E2E command, or any release assertion.
 
-- [ ] Replace the actionlint block in each of `README.md` and
+- [x] Replace the actionlint block in each of `README.md` and
   `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md` with this exact
   block, keeping the surrounding verification sequence unchanged:
 
@@ -722,7 +722,7 @@ nix run nixpkgs#actionlint -- \
   .github/workflows/docker-image.yml
 ```
 
-- [ ] Append the following complete section to `docs/deployment/docker.md`.
+- [x] Append the following complete section to `docs/deployment/docker.md`.
   The nested examples are documentation only: do not dispatch them during this
   task. The existing deployment instructions remain unchanged.
 
@@ -791,7 +791,7 @@ build or publication. Running this workflow publishes an image but does not
 accept an unfinished `0.2.0` phase or authorize production activation.
 ````
 
-- [ ] Format the changed existing test and run the existing contract after both
+- [x] Format the changed existing test and run the existing contract after both
   Markdown lists are synchronized. Wait for Task 2 before running actionlint on
   a workflow that has not yet been added.
 
@@ -803,7 +803,7 @@ devenv shell -- mix test apps/singularity_web/test/singularity/architecture/rele
 Expected: 18 tests, 0 failures. Only the actionlint enumeration changes in the
 canonical release plan and its contract; the product gate remains mandatory.
 
-- [ ] Commit only this task's files after the workflow exists and checks pass:
+- [x] Commit only this task's files after the workflow exists and checks pass:
 
 ```bash
 git add README.md docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs docs/deployment/docker.md
@@ -815,7 +815,7 @@ git commit -m "docs(docker): document image workflow and extend lint gate"
 
 **Modify:** this plan's execution record, after actual checks.
 
-- [ ] Verify the complete changed-test suite and formatting:
+- [x] Verify the complete changed-test suite and formatting:
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
@@ -827,7 +827,7 @@ Expected: 28 tests, 0 failures; formatting exit 0. The new module also executes
 assertion fails, stop the affected step, record evidence, and repair only an
 in-scope defect without weakening the assertion.
 
-- [ ] Lint all four workflow files without running them:
+- [x] Lint all four workflow files without running them:
 
 ```bash
 nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml .github/workflows/docker-image.yml
@@ -835,7 +835,7 @@ nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.ym
 
 Expected: exit 0. Do not dispatch the workflow or publish to obtain evidence.
 
-- [ ] Confirm zero application source cycles and that the existing release,
+- [x] Confirm zero application source cycles and that the existing release,
   Dockerfile, dependencies, and application source are unchanged:
 
 ```bash
@@ -849,7 +849,7 @@ git log --oneline -n 5
 Expected: `No cycles found`; no diff for excluded production files; no whitespace
 errors. Review the complete changed-file list against this plan's scope.
 
-- [ ] Append an `Execution record` section to this plan containing the actual
+- [x] Append an `Execution record` section to this plan containing the actual
   source commits, changed files, red failures, green counts, exact commands and
   exit results, remaining platform/registry risks, and an explicit statement
   that no Vault work, migrations, E2E tests, push, dispatch, publication, release,
@@ -868,14 +868,14 @@ Record any checks not run and preserve the separately gated operations.
 The sentences above are instructions for writing an evidence record, not claimed
 results. Replace them with the actual chronological evidence during execution.
 
-- [ ] Commit the evidence record using `git add` for this plan only, followed by
+- [x] Commit the evidence record using `git add` for this plan only, followed by
   `git diff --cached --check` and:
 
 ```bash
 git commit -m "docs(ci): record Docker image workflow verification"
 ```
 
-- [ ] Stop after scoped verification. Hand off the branch, commits, workflow and
+- [x] Stop after scoped verification. Hand off the branch, commits, workflow and
   operator-guide paths, tests, and limitations. Ask for separate authority before
   merging, pushing, dispatching, publishing, or deploying.
 
@@ -894,8 +894,8 @@ git commit -m "docs(ci): record Docker image workflow verification"
 
 The main agent reviewed this plan against the approved spec, checked placeholder
 absence and file ownership, and validated the embedded examples without adding
-the actual workflow or test module to the repository. Execution checkboxes above
-remain unchecked. The spec status was updated to record the user's approval.
+the actual workflow or test module to the repository. At planning time, execution
+checkboxes above remained unchecked. The spec status recorded the user's approval.
 
 The following command was run from the unchanged main checkout. It parses the
 plan's YAML and substitutes that map into the planned test module **in memory**,
@@ -939,3 +939,151 @@ test module, application code, migration, dependency lock, or Vault feature was
 modified. No E2E test, hosted build, registry publication, Git push, dispatch,
 release, merge, or deployment occurred. Real GitHub permissions, registry access,
 and an actual amd64/arm64 build remain unverified and separately gated.
+
+## Execution record — 2026-10-05
+
+Implementation was authorized by the user's selection of subagent-driven
+execution. All commands below ran in
+`/home/gao/Workspace/gsmlg-opt/Singularity/.trees/docker-image-workflow`,
+on `codex/docker-image-workflow`, unless explicitly described as review only.
+The existing main checkout was not modified by this execution.
+
+### Source and local commits
+
+- Application baseline: `6cf9744bbcf75e6fa9ce93775c52a94c11169fe2`.
+- Approved design: `00f391dc0baf128ff26668b6d10cdaea3e3604ff`.
+- Starting plan: `89251e0b10ad8dd6fb163931965549193966da48`.
+- Workflow and focused contracts:
+  `c19c246a97f6a5980d7d4f2f20c8bb14b7d7619a`
+  (`ci(docker): add verified manual and release image publishing`).
+- Operator documentation and synchronized lint gate:
+  `253fcbba28e1596e04b94ae997ba19613a0e0a4f`
+  (`docs(docker): document image workflow and extend lint gate`).
+
+The evidence record is committed separately; its resulting SHA is reported in
+the final handoff rather than embedded in its own contents.
+
+### Setup and red evidence
+
+```bash
+git branch --show-current
+git status --short
+git worktree list
+devenv shell -- mix deps.get
+git diff --exit-code -- mix.lock
+devenv shell -- mix test apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+```
+
+All exited 0. The initial worktree was clean on the expected branch at the
+starting plan commit. Locked dependencies were fetched without a lockfile diff.
+The baseline contained **18 tests, 0 failures**, seed `423786`. No Node install
+or database service was required. Devenv warned that the installed CLI is newer
+than the locked devenv input; no environment or dependency version was changed.
+
+Before adding the workflow:
+
+```bash
+devenv shell -- mix test apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
+```
+
+Exit 2: **10 tests, 10 failures**, seed `87369`. Each failure was
+`YamlElixir.FileNotFoundError` for the absent `docker-image.yml`, not a fixture
+syntax or dependency error. After review strengthened the assertions, the same
+command again exited 2 with **10 tests, 10 failures**, seed `705890`, for that
+same missing workflow. No assertion was removed, skipped, or weakened.
+
+After changing only the existing contract's expected actionlint enumeration,
+the existing focused command above exited 2: **18 tests, 1 failure**, seed
+`195634`. The failure was
+`canonical release plan complete verification commands differ from the explicit canonical order`.
+README and the canonical release plan still contained the original three-file
+list at this point. Synchronizing their lists restored **18 tests, 0 failures**,
+exit 0, seed `726106`.
+
+### Formatting and green evidence
+
+```bash
+devenv shell -- mix format apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
+devenv shell -- mix format apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+devenv shell -- mix format --check-formatted apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+```
+
+Both scoped formatting commands and the final two-file formatting check exited
+0. A preliminary one-file `--check-formatted` invocation exited 1 while the
+copied example was still unformatted; formatting corrected that without changing
+its assertions. Subsequent one-file checks also exited 0.
+
+After implementing the actual workflow, the new focused command above exited 0:
+**10 tests, 0 failures**. Both the implementer and the main agent then ran:
+
+```bash
+devenv shell -- mix test apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs
+```
+
+Exit 0: **28 tests, 0 failures**. Main-agent runs used seeds `725940` and
+`982877`; the latter ran after the implementation and documentation commits.
+The suite executes the actual five workflow Bash snippets against local stubs
+and runs `bash -n` on each. Valid requests succeeded; invalid tags, unresolved or
+mismatched source identity, digest disagreements, malformed OCI indexes,
+prereleases, older stable releases, and API failures followed their required
+fail-closed or no-latest paths without network publication.
+
+```bash
+nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml .github/workflows/docker-image.yml
+devenv shell -- env MIX_ENV=test mix xref graph --format cycles --fail-above 0
+git diff --exit-code 6cf9744bbcf75e6fa9ce93775c52a94c11169fe2 -- .github/workflows/release.yml Dockerfile mix.exs mix.lock apps/singularity_core apps/singularity_domains apps/singularity_storage apps/singularity_ingest apps/singularity_retrieval apps/singularity_runtime apps/singularity_web/lib
+git diff --check 6cf9744bbcf75e6fa9ce93775c52a94c11169fe2
+```
+
+All exited 0. Actionlint produced no diagnostics; xref reported `No cycles found`.
+Excluded production files had no diff, and no whitespace errors were found.
+All four checks and the two-file formatting check were repeated after the
+implementation/documentation commits with the same successful results. Parallel
+Mix commands briefly waited for normal build-directory locks and all completed.
+`git diff --cached --check` exited 0 before each implementation commit. Explicit
+file staging kept the workflow/test and documentation commits separate from
+this record.
+
+### Reviews and changed files
+
+Independent specification review followed by code-quality review approved each
+task. Review identified two weaknesses in the planned test example: successful
+promotion asserted only a digest prefix, and the fixture's preseeded values could
+mask missing producer IDs or expression wiring. The same ten tests now assert
+the complete expected digest, verifier and promotion outputs, producer IDs, and
+all consumed environment bindings. All original assertions remain. Both review
+stages approved the bounded additions before the workflow was implemented.
+
+The operator guide also clarifies fail-closed release-state API checks and that
+the ordinary GitHub token serves read-only checkout and release-state checks;
+registry publication uses `GHCR_TOKEN`. Documentation re-review approved that
+accuracy correction. The actual workflow matches the approved YAML.
+The independent final overall review found no critical, important, or minor
+issues and confirmed the eight-file branch scope, Bash syntax, unchanged
+production paths, and execution-record consistency.
+
+This execution changed only:
+
+- `.github/workflows/docker-image.yml`
+- `apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs`
+- `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`
+- `README.md`
+- `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md`
+- `docs/deployment/docker.md`
+- This plan's tracking and evidence record.
+
+The branch additionally contains the previously approved design document. No
+released migration, dependency, Dockerfile, existing release workflow,
+application source, product phase status, or Vault feature changed. The complete
+README product gate remains intact; only its actionlint enumeration changed.
+
+### Limitations and retained gates
+
+This is local workflow policy, syntax, and architecture evidence, not a hosted
+multi-platform image build, registry publication, deployment, or product
+acceptance. Actual GitHub secret permissions, cross-organization package access,
+runner emulation, registry behavior, and real amd64/arm64 builds remain
+unverified. No E2E/browser test, complete product verification gate, Vault work,
+migration, Git push, merge, tag, workflow dispatch, image publication, GitHub
+release, deployment, or worktree deletion occurred. The branch and worktree are
+retained; integration and publication require separate authorization.
