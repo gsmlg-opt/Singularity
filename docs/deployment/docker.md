@@ -291,3 +291,67 @@ authorized operations.
 
 See the [local container verification record](2026-10-01-docker-verification.md)
 for the platform and checks exercised when this guide was added.
+
+## GitHub Actions image builds
+
+The `Docker Image` workflow is image-only. It builds `linux/amd64,linux/arm64`
+from an exact resolved source commit and publishes to
+`ghcr.io/gsmlg-dev/singularity`. It does not bump the application version, create
+a Git tag or GitHub Release, generate a release OCI archive, or deploy anything.
+
+After the workflow is separately pushed/merged to the default branch, authorized
+operators can open Actions → Docker Image → Run workflow. Inputs are:
+
+| Input | Purpose |
+| --- | --- |
+| `tag_name` | Exact named Docker tag, such as `preview-6cf9744`. Required; `latest` is reserved. |
+| `git_ref` | Source branch, Git tag, or commit SHA. Defaults to `main`. |
+| `generate_latest` | Also update the `latest` image alias. Defaults to `true`; disable for development snapshots. |
+
+With separate authorization to publish, the equivalent CLI invocation is:
+
+```bash
+gh workflow run docker-image.yml --repo gsmlg-opt/Singularity --ref main \
+  -f tag_name=preview-6cf9744 \
+  -f git_ref=6cf9744bbcf75e6fa9ce93775c52a94c11169fe2 \
+  -f generate_latest=false
+```
+
+`--ref main` selects the workflow definition; the `git_ref` input selects the
+application source to build. The resolved full commit SHA is stored in the image
+revision label and the `REVISION` build argument. `tag_name` supplies image
+metadata through `VERSION`; it does not override Mix's application version.
+Invalid tags or unavailable refs fail before the Docker build. Credentials are
+never passed to the build as arguments.
+
+For automatic `release: published` runs, the GitHub Release tag supplies both
+the named Docker tag and source Git tag. The tag must still resolve to the event's
+commit, so a moved tag cannot silently replace the published source. Prereleases
+publish only the named tag. A stable release updates `latest` only if its release
+ID is still the designated latest stable release when promotion occurs. Older
+releases that are not the designated latest stable release retain their named
+image tag without changing `latest`. Release-state API checks fail closed; an
+unavailable or invalid response cannot authorize `latest` promotion.
+
+The existing `Release` workflow remains unchanged: it already verifies and
+publishes images, including its minor-version aliases, before creating a GitHub
+Release using `GITHUB_TOKEN`. Those token-created release events do not trigger a
+second downstream image workflow. Human-, GitHub App-, or PAT-published releases
+can trigger the new workflow. See [GitHub's trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+The repository must retain the existing `GHCR_TOKEN` secret with write access to
+the `gsmlg-dev/singularity` package namespace. `GITHUB_TOKEN` supplies read-only
+repository access and release-state checks in this workflow; registry publication
+uses `GHCR_TOKEN`. Do not assume `GITHUB_TOKEN` can publish to another organization's
+package namespace. The workflow does not create or modify secrets.
+
+Builds push immutable content by digest, validate the registry manifest, then
+promote the named tag and eligible `latest` alias from that verified digest.
+Both workflows share the `Release` concurrency group without cancelling an
+in-flight publication. The run summary records source SHA, named image tag,
+immutable digest, platforms, and whether `latest` was updated. Deployment should
+use the recorded immutable digest, not assume a mutable alias remains unchanged.
+
+Local workflow-contract tests and actionlint do not prove a hosted multi-platform
+build or publication. Running this workflow publishes an image but does not
+accept an unfinished `0.2.0` phase or authorize production activation.

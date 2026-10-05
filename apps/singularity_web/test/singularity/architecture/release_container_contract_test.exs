@@ -32,7 +32,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     "devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind",
     "devenv shell -- mix npm.run test:e2e",
     "devenv shell -- mix xref graph --format cycles --fail-above 0",
-    "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml",
+    "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml .github/workflows/docker-image.yml",
     "git diff --check",
     "git status --short",
     ~S<test -z "$(git status --porcelain)">
