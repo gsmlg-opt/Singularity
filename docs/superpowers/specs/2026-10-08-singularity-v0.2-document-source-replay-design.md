@@ -8,7 +8,10 @@ and resolved by the separately authorized
 [lifecycle repair](../../verification/2026-10-08-document-lifecycle-generation-repair.md).
 The bounded Runtime lease component is now locally implemented and independently
 reviewed; see [its focused evidence](../../verification/2026-10-08-document-fresh-source-lease.md).
-Progress/wake and full worker composition remain unimplemented/unaccepted.
+The bounded storage progress/wake component is also locally implemented and
+independently reviewed; see [its focused evidence](../../verification/2026-10-08-document-progress.md).
+Runtime progress/snooze/resume and full worker composition remain unimplemented
+and unaccepted.
 This document does not authorize silently repairing unrelated
 outside-scope assertions. E2E remains prohibited.
 
@@ -203,8 +206,11 @@ Required red/green contracts before implementation acceptance:
 
 The original architecture inspection was read-only. The complete-code
 [lease slice plan](../plans/2026-10-08-singularity-v0.2-document-fresh-lease-slice.md)
-and focused evidence establish only the bounded Runtime lease component, not
-full worker composition or phase/release acceptance. Expand the remaining Runtime
+and focused evidence establish the bounded Runtime lease component. The separate
+[progress slice plan](../plans/2026-10-08-singularity-v0.2-document-progress-slice.md)
+and its evidence cover only storage progress preservation and existing wake
+integration. Neither establishes full worker composition or phase/release
+acceptance. Expand the remaining Runtime
 implementation plan with exact executable contracts before coding those slices.
 Full phase/release gates remain required.
 
