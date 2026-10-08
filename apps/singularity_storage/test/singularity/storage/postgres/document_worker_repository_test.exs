@@ -3,9 +3,10 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
   @moduletag :integration
   import ExUnit.CaptureLog
 
-  alias Singularity.Core.SourceLocator
+  alias Singularity.Core.{DocumentCompletion, Error, JobEnvelope, SourceLocator}
+  alias Singularity.Storage.Jobs.WorkerScope
   alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, SafeSQL, ScopedRepo}
-  alias Singularity.Storage.Postgres.KnowledgeError
+  alias Singularity.Storage.Postgres.{DocumentWorkerRepository, KnowledgeError}
 
   @base "uuid,uuid,uuid,bigint,bigint,bigint"
   @signatures [
@@ -95,6 +96,487 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
         owner_epoch
       ]
     }
+  end
+
+  test "adapter describes the durable job through actual WorkerScope with a closed source map",
+       c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert context.repo_handle === WorkerRepo
+      assert WorkerRepo.checked_out?()
+      refute WorkerRepo.in_transaction?()
+
+      assert {:ok, {:source, source}} = DocumentWorkerRepository.describe(context, envelope)
+
+      assert source == %{
+               resource_id: envelope.payload["resource_id"],
+               resource_version_id: envelope.payload["resource_version_id"],
+               job_id: envelope.job_id,
+               generation: 0,
+               state: :pending,
+               object_id: Ecto.UUID.load!(c.source.object_id),
+               object_generation: 1,
+               source_digest: c.source.digest,
+               source_byte_size: 12,
+               media_type: "text/plain",
+               adapter_name: nil,
+               format_version: nil,
+               started_at: nil,
+               deadline_at: nil
+             }
+
+      assert_scope_absent()
+    end)
+  end
+
+  test "adapter claims once and returns only a typed ready receipt on completion and replay", c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert {:ok, {:source, source}} = DocumentWorkerRepository.describe(context, envelope)
+      assert {:ok, attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+
+      assert Map.keys(attempt) |> Enum.sort() ==
+               Enum.sort(
+                 ~w(resource_id resource_version_id job_id generation state adapter_name format_version started_at deadline_at)a
+               )
+
+      assert %{
+               generation: 1,
+               state: :extracting,
+               adapter_name: "plain",
+               format_version: 1,
+               started_at: %DateTime{},
+               deadline_at: %DateTime{}
+             } = attempt
+
+      assert {:ok, ^attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+      completion = worker_completion(c, attempt, :ready)
+
+      receipt = %{
+        resource_id: source.resource_id,
+        resource_version_id: source.resource_version_id,
+        job_id: envelope.job_id,
+        generation: 1,
+        state: :ready
+      }
+
+      assert {:ok, ^receipt} =
+               DocumentWorkerRepository.complete(context, envelope, source, attempt, completion)
+
+      assert {:ok, ^receipt} =
+               DocumentWorkerRepository.complete(context, envelope, source, attempt, completion)
+
+      assert {:ok, {:terminal, ^receipt}} = DocumentWorkerRepository.describe(context, envelope)
+
+      assert {:ok, :unchanged} =
+               DocumentWorkerRepository.record_exhaustion(
+                 context,
+                 envelope,
+                 Error.new(:job_failed),
+                 %{attempt: 37, max_attempts: 1}
+               )
+
+      assert_scope_absent()
+    end)
+  end
+
+  test "adapter rejects absent or substituted context and nested transactions before mutation",
+       c do
+    envelope = worker_envelope(c)
+    assert {:error, %Error{code: :invalid}} = DocumentWorkerRepository.describe(%{}, envelope)
+
+    WorkerScope.run(envelope, fn context ->
+      for invalid <- [
+            Map.delete(context, :transact),
+            %{context | repo_handle: RequestRepo},
+            %{context | transact: nil},
+            %{context | transact: fn _, phase -> phase.(WorkerRepo) end},
+            %{context | transact: fn _, phase -> phase.(RequestRepo) end}
+          ] do
+        assert {:error, %Error{code: :invalid}} =
+                 DocumentWorkerRepository.describe(invalid, envelope)
+      end
+
+      assert {:error, %Error{code: :invalid}} =
+               context.transact.([], fn _repo ->
+                 DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+               end)
+
+      for invalid <- [
+            %{envelope | payload: Map.put(envelope.payload, "repo_handle", "injected")},
+            %{envelope | classification: :sensitive},
+            %{envelope | expected_entity_revision: 9_223_372_036_854_775_807},
+            %{envelope | principal_authorization_epoch: 9_223_372_036_854_775_808}
+          ] do
+        assert {:error, %Error{}} = DocumentWorkerRepository.describe(context, invalid)
+      end
+
+      assert_scope_absent()
+    end)
+
+    assert state(c) == ["pending", 0, nil]
+  end
+
+  test "adapter rejects completion identity and metadata mismatches without partial writes", c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert {:ok, {:source, source}} = DocumentWorkerRepository.describe(context, envelope)
+      assert {:ok, attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+      completion = worker_completion(c, attempt, :failed)
+
+      for {key, value} <- [
+            resource_id: Ecto.UUID.generate(),
+            resource_version_id: Ecto.UUID.generate(),
+            owner_scope_id: Ecto.UUID.generate(),
+            classification: :sensitive,
+            generation: 2,
+            adapter_name: "other",
+            format_version: 2,
+            media_type: "application/pdf",
+            failure_code: "private-tool-output-canary"
+          ] do
+        assert {:error, %Error{code: :invalid, message: nil, details: %{}}} =
+                 DocumentWorkerRepository.complete(
+                   context,
+                   envelope,
+                   source,
+                   attempt,
+                   Map.put(completion, key, value)
+                 )
+      end
+
+      assert_scope_absent()
+    end)
+
+    assert state(c) == ["extracting", 1, c.job]
+    assert no_fragments(c)
+  end
+
+  test "adapter rejects nonclosed or malformed source and attempt values", c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert {:ok, {:source, source}} = DocumentWorkerRepository.describe(context, envelope)
+      assert {:ok, attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+      completion = worker_completion(c, attempt, :failed)
+
+      for invalid <- [
+            Map.put(source, :title, "private-title-canary"),
+            %{source | object_id: "invalid"},
+            %{source | object_generation: 0},
+            %{source | source_digest: <<0>>},
+            %{source | source_byte_size: 67_108_865},
+            %{source | state: :ready},
+            %{source | media_type: "image/png"},
+            %{source | resource_id: Ecto.UUID.generate()}
+          ] do
+        assert {:error, %Error{code: :invalid}} =
+                 DocumentWorkerRepository.complete(
+                   context,
+                   envelope,
+                   invalid,
+                   attempt,
+                   completion
+                 )
+      end
+
+      for invalid <- [
+            Map.put(attempt, :title, "private-title-canary"),
+            %{attempt | job_id: Ecto.UUID.generate()},
+            %{attempt | generation: 37},
+            %{attempt | state: :pending},
+            %{attempt | adapter_name: " plain "},
+            %{attempt | format_version: 2_147_483_648},
+            %{attempt | started_at: nil},
+            %{attempt | deadline_at: attempt.started_at}
+          ] do
+        assert {:error, %Error{code: :invalid}} =
+                 DocumentWorkerRepository.complete(context, envelope, source, invalid, completion)
+      end
+    end)
+
+    assert state(c) == ["extracting", 1, c.job]
+    assert no_fragments(c)
+  end
+
+  test "adapter rollback cleans the reused WorkerRepo connection", c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert {:ok, _} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+
+      assert {:error, %Error{code: :conflict, message: nil, details: %{}}} =
+               DocumentWorkerRepository.claim(context, envelope, "other", 1)
+
+      assert_scope_absent()
+
+      assert {:ok, {:source, %{state: :extracting, generation: 1}}} =
+               DocumentWorkerRepository.describe(context, envelope)
+
+      assert_scope_absent()
+    end)
+  end
+
+  test "adapter failed and unsupported outcomes return closed receipts", c do
+    envelope = worker_envelope(c)
+
+    WorkerScope.run(envelope, fn context ->
+      assert {:ok, {:source, source}} = DocumentWorkerRepository.describe(context, envelope)
+      assert {:ok, attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+
+      receipt = %{
+        resource_id: source.resource_id,
+        resource_version_id: source.resource_version_id,
+        job_id: envelope.job_id,
+        generation: 1,
+        state: :unsupported
+      }
+
+      assert {:ok, ^receipt} =
+               DocumentWorkerRepository.complete(
+                 context,
+                 envelope,
+                 source,
+                 attempt,
+                 worker_completion(c, attempt, :unsupported)
+               )
+
+      assert {:ok, {:terminal, ^receipt}} = DocumentWorkerRepository.describe(context, envelope)
+    end)
+
+    assert no_fragments(c)
+  end
+
+  test "exhaustion leaves an unclaimed pending document unchanged", c do
+    envelope = worker_envelope(c)
+
+    assert {:ok, :unchanged} =
+             WorkerScope.run(envelope, fn context ->
+               DocumentWorkerRepository.record_exhaustion(
+                 context,
+                 envelope,
+                 Error.new(:job_failed, message: "private-tool-output-canary"),
+                 %{attempt: 37, max_attempts: 1}
+               )
+             end)
+
+    assert state(c) == ["pending", 0, nil]
+    assert no_fragments(c)
+  end
+
+  test "exhaustion fails only the active same-job attempt with fixed sanitized outcome", c do
+    envelope = worker_envelope(c)
+    reference = make_ref()
+    handler = {__MODULE__, reference}
+    query_event = WorkerRepo.config()[:telemetry_prefix] ++ [:query]
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        query_event,
+        &__MODULE__.handle_private_event/4,
+        {self(), reference}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    logs =
+      capture_log(fn ->
+        WorkerScope.run(envelope, fn context ->
+          assert {:ok, attempt} = DocumentWorkerRepository.claim(context, envelope, "plain", 1)
+
+          receipt = %{
+            resource_id: attempt.resource_id,
+            resource_version_id: attempt.resource_version_id,
+            job_id: envelope.job_id,
+            generation: 1,
+            state: :failed
+          }
+
+          assert {:ok, ^receipt} =
+                   DocumentWorkerRepository.record_exhaustion(
+                     context,
+                     envelope,
+                     Error.new(:job_failed,
+                       message: "private-tool-output-canary",
+                       details: %{text: "private-title-canary"}
+                     ),
+                     %{attempt: 0, max_attempts: 0, job_id: "forged-runner-id"}
+                   )
+
+          assert {:ok, {:terminal, ^receipt}} =
+                   DocumentWorkerRepository.describe(context, envelope)
+
+          assert {:ok, :unchanged} =
+                   DocumentWorkerRepository.record_exhaustion(
+                     context,
+                     envelope,
+                     Error.new(:job_failed),
+                     %{attempt: 100, max_attempts: 1}
+                   )
+
+          assert_scope_absent()
+          send(self(), {reference, attempt})
+        end)
+      end)
+
+    assert_receive {^reference, attempt}
+
+    assert Fixtures.with_owner(fn ->
+             query!(
+               MigrationRepo,
+               "SELECT state,failure_code,attempt_generation,attempt_started_at,attempt_deadline_at FROM content.document_versions WHERE resource_version_id=$1",
+               [c.document.resource_version_id]
+             ).rows
+           end) == [["failed", "extractor_failed", 1, attempt.started_at, attempt.deadline_at]]
+
+    refute logs =~ "private-tool-output-canary"
+    refute logs =~ "private-title-canary"
+    refute_receive {^reference, ^query_event, _, _}
+    assert no_fragments(c)
+  end
+
+  test "exhaustion leaves an expired attempt unchanged", c do
+    assert {:ok, _} = call(c, :claim, ["plain", 1])
+    expire(c)
+    envelope = worker_envelope(c)
+
+    assert {:ok, :unchanged} =
+             WorkerScope.run(envelope, fn context ->
+               DocumentWorkerRepository.record_exhaustion(
+                 context,
+                 envelope,
+                 Error.new(:job_failed),
+                 %{}
+               )
+             end)
+
+    assert state(c) == ["extracting", 1, c.job]
+    assert no_fragments(c)
+  end
+
+  for transition <- [:recovery, :retry, :restore] do
+    test "exhaustion cannot change pending or newly claimed successor after #{transition}", c do
+      assert {:ok, _} = call(c, :claim, ["plain", 1])
+      envelope = worker_envelope(c)
+      transition(c, unquote(transition))
+
+      assert {:ok, :unchanged} =
+               WorkerScope.run(envelope, fn context ->
+                 DocumentWorkerRepository.record_exhaustion(
+                   context,
+                   envelope,
+                   Error.new(:job_failed),
+                   %{}
+                 )
+               end)
+
+      assert state(c) == ["pending", 2, nil]
+
+      successor =
+        Fixtures.with_owner(fn ->
+          %{rows: [[job]]} =
+            query!(
+              MigrationRepo,
+              "SELECT id FROM core.outbox_events WHERE vault_id=$1 AND payload->>'resource_version_id'=$2 AND expected_entity_revision=2",
+              [c.source.vault_id, Ecto.UUID.load!(c.document.resource_version_id)]
+            )
+
+          %{c | job: job, args: c.args |> List.replace_at(2, job) |> List.replace_at(3, 2)}
+        end)
+
+      assert {:ok, _} = call(successor, :claim, ["plain", 1])
+
+      assert {:ok, :unchanged} =
+               WorkerScope.run(envelope, fn context ->
+                 DocumentWorkerRepository.record_exhaustion(
+                   context,
+                   envelope,
+                   Error.new(:job_failed),
+                   %{}
+                 )
+               end)
+
+      assert state(c) == ["extracting", 3, successor.job]
+      assert no_fragments(c)
+    end
+  end
+
+  test "exhaustion propagates live authorization failures", c do
+    assert {:ok, _} = call(c, :claim, ["plain", 1])
+    envelope = worker_envelope(c)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE core.principal_capabilities SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+        [c.source.principal_id, c.source.vault_id]
+      )
+    end)
+
+    assert {:error, %Error{code: :forbidden, message: nil, details: %{}}} =
+             WorkerScope.run(envelope, fn context ->
+               DocumentWorkerRepository.record_exhaustion(
+                 context,
+                 envelope,
+                 Error.new(:job_failed),
+                 %{}
+               )
+             end)
+
+    assert state(c) == ["extracting", 1, c.job]
+    assert no_fragments(c)
+  end
+
+  test "adapter and exhaustion sanitize storage exceptions and propagate storage errors", c do
+    envelope = worker_envelope(c)
+
+    logs =
+      capture_log(fn ->
+        WorkerScope.run(envelope, fn context ->
+          for transact <- [
+                fn _, _ -> raise DBConnection.ConnectionError, "private-storage-canary" end,
+                fn _, _ -> raise RuntimeError, "private-storage-canary" end,
+                fn _, _ ->
+                  {:error, %DBConnection.ConnectionError{message: "private-storage-canary"}}
+                end
+              ] do
+            invalid = %{context | transact: transact}
+
+            assert {:error,
+                    %Error{
+                      code: :storage_unavailable,
+                      retryable?: true,
+                      message: nil,
+                      details: %{}
+                    }} =
+                     DocumentWorkerRepository.describe(invalid, envelope)
+
+            assert {:error,
+                    %Error{
+                      code: :storage_unavailable,
+                      retryable?: true,
+                      message: nil,
+                      details: %{}
+                    }} =
+                     DocumentWorkerRepository.record_exhaustion(
+                       invalid,
+                       envelope,
+                       Error.new(:job_failed),
+                       %{}
+                     )
+          end
+
+          assert_scope_absent()
+        end)
+      end)
+
+    refute logs =~ "private-storage-canary"
+    assert state(c) == ["pending", 0, nil]
+    assert no_fragments(c)
   end
 
   test "worker reads only the explicit pending source descriptor without canonical grants", c do
@@ -935,6 +1417,101 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
 
   def handle_private_event(event, measurements, metadata, {pid, reference}) do
     if self() == pid, do: send(pid, {reference, event, measurements, metadata})
+  end
+
+  defp worker_envelope(c) do
+    Fixtures.with_owner(fn ->
+      %{
+        rows: [
+          [
+            job,
+            key,
+            owner,
+            principal,
+            principal_epoch,
+            owner_epoch,
+            correlation,
+            revision,
+            version,
+            payload
+          ]
+        ]
+      } =
+        query!(
+          MigrationRepo,
+          "SELECT id,idempotency_key,vault_id,principal_id,principal_authorization_epoch,vault_authorization_epoch,correlation_id,expected_entity_revision,envelope_version,payload FROM core.outbox_events WHERE id=$1",
+          [c.job]
+        )
+
+      {:ok, envelope} =
+        JobEnvelope.new(%{
+          version: version,
+          job_id: Ecto.UUID.load!(job),
+          job_type: "document_extract",
+          idempotency_key: key,
+          vault_id: Ecto.UUID.load!(owner),
+          principal_id: Ecto.UUID.load!(principal),
+          required_capability: "asset.read",
+          principal_authorization_epoch: principal_epoch,
+          vault_authorization_epoch: owner_epoch,
+          classification: :private,
+          correlation_id: Ecto.UUID.load!(correlation),
+          causation_id: Ecto.UUID.load!(job),
+          expected_entity_revision: revision,
+          attempt: 37,
+          payload: payload
+        })
+
+      envelope
+    end)
+  end
+
+  defp worker_completion(c, attempt, outcome) do
+    [_, _, _, _, [fragment], digest, language] = completion(c)
+
+    {:ok, value} =
+      DocumentCompletion.new(%{
+        resource_id: Ecto.UUID.load!(c.document.resource_id),
+        resource_version_id: Ecto.UUID.load!(c.document.resource_version_id),
+        owner_scope_id: c.scope.vault_id,
+        classification: :private,
+        generation: attempt.generation,
+        outcome: outcome,
+        adapter_name: attempt.adapter_name,
+        format_version: attempt.format_version,
+        finished_at: DateTime.utc_now(),
+        media_type: "text/plain",
+        fragments:
+          if(outcome == :ready,
+            do: [
+              %{
+                resource_id: Ecto.UUID.load!(c.document.resource_id),
+                resource_version_id: Ecto.UUID.load!(c.document.resource_version_id),
+                owner_scope_id: c.scope.vault_id,
+                classification: :private,
+                ordinal: fragment["ordinal"],
+                text: fragment["text"],
+                locator: fragment["locator"]
+              }
+            ]
+          ),
+        extracted_text_digest: if(outcome == :ready, do: digest),
+        detected_language: if(outcome == :ready, do: language),
+        failure_code: if(outcome != :ready, do: "extractor_failed")
+      })
+
+    value
+  end
+
+  defp assert_scope_absent do
+    assert %{rows: [[principal, owner]]} =
+             SafeSQL.query!(
+               WorkerRepo,
+               "SELECT current_setting('singularity.principal_id',true),current_setting('singularity.vault_id',true)"
+             )
+
+    assert principal in [nil, ""]
+    assert owner in [nil, ""]
   end
 
   defp transition(c, :recovery) do

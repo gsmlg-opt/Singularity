@@ -9,9 +9,11 @@
 **Tech Stack:** Elixir/OTP 28, Ecto/Postgrex, PostgreSQL 17, Oban 2.24, existing Text/Markdown/PDF extraction and Poppler guardian, ExUnit, devenv.
 
 **Readiness:** Reviewed bounded planning draft, not an execution-ready code plan.
-The SQL-only implementation now has a separate execution-ready
+The SQL-only implementation has a separate execution-ready
 [complete-code slice plan](2026-10-08-singularity-v0.2-worker-sql-slice.md).
-This does not lift readiness requirements for adapter or Runtime work below.
+The adapter and exhaustion portions of Tasks 4–6 now also have a separately
+self-reviewed [complete-code slice plan](2026-10-08-singularity-v0.2-worker-adapter-slice.md).
+This does not lift readiness requirements for Runtime work below.
 The SQL slice is implemented and accepted locally at
 `b8db6d562d072c2de5dc77635d29159080d1401a`; see its
 [review and verification record](../../verification/2026-10-08-document-worker-sql-bridge.md).
