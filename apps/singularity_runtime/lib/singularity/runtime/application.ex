@@ -3,6 +3,7 @@ defmodule Singularity.Runtime.Application do
 
   use Application
 
+  alias Singularity.Ingest.Documents.{Markdown, PDF, Text}
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.UploadReconciler
@@ -23,6 +24,7 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Storage.Postgres.AssetDeletionRepository
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.BackupRepository
+  alias Singularity.Storage.Postgres.DocumentWorkerRepository
   alias Singularity.Storage.Postgres.NoteProjectionReconciler
   alias Singularity.Storage.Postgres.NoteRepository
 
@@ -114,6 +116,12 @@ defmodule Singularity.Runtime.Application do
       destination:
         {LocalDestination,
          %{backup_root: Application.fetch_env!(:singularity_storage, :backup_root)}},
+      document_worker: DocumentWorkerRepository,
+      document_extractors: %{
+        "text/plain" => {Text, "plain_text", 1},
+        "text/markdown" => {Markdown, "markdown", 1},
+        "application/pdf" => {PDF, "poppler_text", 1}
+      },
       exporter: Exporter,
       note_projection: NoteProjectionReconciler,
       note_repository: NoteRepository,

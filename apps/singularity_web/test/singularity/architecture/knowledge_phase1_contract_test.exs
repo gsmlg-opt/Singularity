@@ -8,6 +8,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   @baseline "6c3e8d5afb2cc9dbf264d276796070e16aa49e55"
   @api "apps/singularity_runtime/lib/singularity/runtime/api.ex"
   @application "apps/singularity_runtime/lib/singularity/runtime/application.ex"
+  @dispatcher "apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex"
   @runtime_baselines %{
     @api => "eded245a1bd95410b323192de836c9b1de8cec14de4b26cb8e41263d66ebf3c4",
     "apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex" =>
@@ -41,7 +42,13 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           :document_in_scope?,
           :document_mutation_call
         ],
-    @application => [:Documents],
+    @application => [
+      :Documents,
+      :DocumentWorkerRepository,
+      :document_worker,
+      :document_extractors
+    ],
+    @dispatcher => [:Documents, :document_source_lease, "document_extract"],
     "config/config.exs" => [:document_extract]
   }
 
@@ -250,6 +257,34 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end
   end
 
+  test "every approved worker block rejects mutation, removal, duplication and relocation" do
+    for {path, preceding, addition, following, destination} <- worker_additions() do
+      source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      assert [before, rest] = String.split(source, addition)
+
+      for replacement <- ["", addition <> addition, addition <> "  # unapproved worker change\n"] do
+        changed = before <> replacement <> rest
+
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+        end
+      end
+
+      assert [_, _] = String.split(source, preceding <> addition <> following)
+
+      relocated =
+        String.replace(before <> rest, destination, destination <> addition, global: false)
+
+      refute relocated == source
+      assert_document_registration!(path, relocated)
+
+      assert_raise ExUnit.AssertionError, fn ->
+        assert_runtime_baseline!(path, relocated, @runtime_baselines[path])
+      end
+    end
+  end
+
   test "documentation attributes remain outside the registration scan" do
     assert {:ok, ast} =
              Code.string_to_quoted("""
@@ -323,6 +358,15 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           source
       end
 
+    legacy =
+      Enum.reduce(worker_additions(), legacy, fn
+        {^path, preceding, addition, following, _destination}, remaining ->
+          strip_in_context!(remaining, preceding, addition, following)
+
+        _other, remaining ->
+          remaining
+      end)
+
     assert_digest!(path, legacy, expected)
   end
 
@@ -349,6 +393,50 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp read_source(path), do: @repo_root |> Path.join(path) |> File.read!()
+
+  defp worker_additions do
+    [
+      {@application, "  use Application\n\n",
+       "  alias Singularity.Ingest.Documents.{Markdown, PDF, Text}\n",
+       "  alias Singularity.Runtime.AuthorizationDependencies\n",
+       "  alias Singularity.Runtime.BackupKeyLease\n"},
+      {@application, "  alias Singularity.Storage.Postgres.BackupRepository\n",
+       "  alias Singularity.Storage.Postgres.DocumentWorkerRepository\n",
+       "  alias Singularity.Storage.Postgres.NoteProjectionReconciler\n",
+       "  alias Singularity.Runtime.BackupKeyLease\n"},
+      {@application,
+       "        {LocalDestination,\n         %{backup_root: Application.fetch_env!(:singularity_storage, :backup_root)}},\n",
+       "      document_worker: DocumentWorkerRepository,\n" <>
+         "      document_extractors: %{\n" <>
+         "        \"text/plain\" => {Text, \"plain_text\", 1},\n" <>
+         "        \"text/markdown\" => {Markdown, \"markdown\", 1},\n" <>
+         "        \"application/pdf\" => {PDF, \"poppler_text\", 1}\n" <>
+         "      },\n", "      exporter: Exporter,\n", "      assets: AssetRepository,\n"},
+      {@dispatcher, "  alias Singularity.Runtime.BackupVault\n",
+       "  alias Singularity.Runtime.Documents.Extract\n" <>
+         "  alias Singularity.Runtime.DownloadLease\n",
+       "  alias Singularity.Runtime.KeyCustodian\n", "  alias Singularity.Runtime.AssetEvents\n"},
+      {@dispatcher, "      custodian: custody_adapter(dependencies.authorization.custodian),\n",
+       "      document_source_lease: DownloadLease,\n", "      job_progress: Progress,\n",
+       "      job_progress: Progress,\n"},
+      {@dispatcher,
+       "  def handle(context, %{job_type: \"note_projection\"} = envelope),\n    do: Projection.run(context, envelope)\n\n",
+       "  def handle(context, %{job_type: \"document_extract\"} = envelope),\n    do: Extract.run(context, envelope)\n\n",
+       "  def handle(_context, _envelope), do: {:error, Error.new(:job_failed)}\n",
+       "  @impl true\n  def handle(context, %{job_type: \"asset_verify\"} = envelope),\n    do: run_asset_job(context, envelope, Verify)\n\n"},
+      {@dispatcher, "  def wake_waiting(_command), do: {:error, Error.new(:invalid)}\n\n",
+       "  @impl true\n  def handle_failure(\n" <>
+         "        context,\n" <>
+         "        %JobEnvelope{job_type: \"document_extract\"} = envelope,\n" <>
+         "        %Error{} = failure,\n" <>
+         "        attempt\n" <>
+         "      )\n" <>
+         "      when is_map(context),\n" <>
+         "      do: Extract.record_exhaustion(context, envelope, failure, attempt)\n\n",
+       "  @impl true\n  def handle_failure(\n        context,\n        %JobEnvelope{job_type: \"asset_metadata\"} = envelope,\n",
+       "  @impl true\n  def handle(context, %{job_type: \"asset_verify\"} = envelope),\n    do: run_asset_job(context, envelope, Verify)\n\n"}
+    ]
+  end
 
   # Freeze each approved addition independently before removing it from the
   # original legacy-byte contract. A changed or duplicated addition must fail.
