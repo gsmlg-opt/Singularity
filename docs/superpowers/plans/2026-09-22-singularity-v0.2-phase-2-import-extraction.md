@@ -457,12 +457,15 @@ Also validate each UUID with `Ecto.UUID.cast/1` in this Runtime boundary; the gu
 
 **Approved 2026-10-08 amendment:** Follow
 `docs/superpowers/specs/2026-10-08-singularity-v0.2-phase-2-worker-bridge-proposal.md`
-and its detailed worker-bridge plan. Actual WorkerRepo privileges cannot use the
+and the [bounded worker-bridge plan](2026-10-08-singularity-v0.2-phase-2-worker-bridge.md).
+Actual WorkerRepo privileges cannot use the
 public full-model repository for this job. The separate DocumentWorkerRepository
 owns four bounded SQL entrypoints and `record_exhaustion/4`; public repository
 callbacks and canonical grants remain unchanged. The worker returns a typed
 receipt, not a partial DocumentVersion. Existing lease and GenericWorker behavior
-remain unchanged. This amendment supersedes only the storage composition and
+remain unchanged; the [source replay amendment](../specs/2026-10-08-singularity-v0.2-document-source-replay-design.md)
+separately selects a fresh sequential-only extraction purpose without resetting
+old checkpoints. The bridge amendment supersedes only the storage composition and
 success/exhaustion types below; all other Task 12 requirements remain mandatory.
 
 **Files:** Create `apps/singularity_runtime/lib/singularity/runtime/documents/extract.ex`, `apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`, `apps/singularity_storage/lib/singularity/storage/postgres/document_worker_repository.ex`, its focused tests, and a new forward worker-bridge migration. Modify `apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex` and `application.ex`. Do not add exhaustion handling to public DocumentRepository.

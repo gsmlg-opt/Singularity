@@ -16,6 +16,10 @@ as proposal commit `e6397e7e940a9ff6bf6b96764dafd010059fc6a3` before approval.
 This is the approved narrow amendment to Task 12 of the
 [approved Phase 2 plan](../plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md)
 and its [design](2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md).
+The subsequent [Document source replay amendment](2026-10-08-singularity-v0.2-document-source-replay-design.md)
+adds a fresh sequential-only extraction purpose while preserving the existing
+Document/Asset leases and storage custody bindings. It supersedes this document's
+unchanged-custody boundary only for its explicitly listed shared Runtime files.
 The [contract-repair record](../../verification/2026-10-08-phase-2-contract-alignment.md)
 records the prerequisite repair, not worker or phase acceptance.
 

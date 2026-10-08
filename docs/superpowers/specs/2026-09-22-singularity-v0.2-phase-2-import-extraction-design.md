@@ -14,6 +14,10 @@ boolean custody predicate without changing that predicate, public repository
 types, canonical grants, or existing lease semantics. Its detailed plan governs
 Task 12's implementation. Standing repository approval removes routine approval
 prompts, not phase verification or the existing restriction on running E2E.
+The [source replay amendment](2026-10-08-singularity-v0.2-document-source-replay-design.md)
+selects a fresh sequential-only Document extraction purpose to recover whole
+source reads after process death, without resetting the old v4 checkpoint or
+changing Asset, Vault, key, capability, unlock or storage binding semantics.
 
 ## Authority and delivery boundary
 
