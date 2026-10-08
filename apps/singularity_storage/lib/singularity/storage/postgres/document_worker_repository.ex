@@ -62,6 +62,35 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepository do
           {:ok, {:source, source()} | {:terminal, receipt()}} | {:error, Error.t()}
   def describe(context, envelope), do: describe(context, envelope, :error)
 
+  @spec put_progress_state(map(), JobEnvelope.t(), :running | :waiting_for_unlock) ::
+          {:ok, :saved} | {:error, Error.t()}
+  def put_progress_state(context, envelope, state)
+      when state in [:running, :waiting_for_unlock] do
+    with :ok <- valid_envelope(envelope),
+         %{repo_handle: WorkerRepo, transact: transact} when is_function(transact, 2) <- context,
+         true <- WorkerRepo.checked_out?(),
+         false <- WorkerRepo.in_transaction?() do
+      case transact.([], fn repo ->
+             if repo === WorkerRepo and WorkerRepo.checked_out?() and
+                  WorkerRepo.in_transaction?() do
+               save_progress_state(repo, envelope, state)
+             else
+               invalid()
+             end
+           end) do
+        {:ok, :saved} = saved -> saved
+        {:error, error} -> {:error, KnowledgeError.from(error)}
+        _ -> invalid()
+      end
+    else
+      _ -> invalid()
+    end
+  rescue
+    error -> {:error, KnowledgeError.from(error)}
+  end
+
+  def put_progress_state(_context, _envelope, _state), do: invalid()
+
   @spec claim(map(), JobEnvelope.t(), String.t(), pos_integer()) ::
           {:ok, attempt()} | {:error, Error.t()}
   def claim(context, envelope, adapter, format) do
@@ -206,6 +235,138 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepository do
     end
   rescue
     error -> {:error, KnowledgeError.from(error)}
+  end
+
+  defp save_progress_state(repo, envelope, state) do
+    with :ok <- validate_progress_scope(repo, envelope),
+         :ok <- lock_progress_submission(repo, envelope),
+         {:ok, described} <-
+           SafeSQL.query(
+             repo,
+             "SELECT * FROM content.describe_document_worker($1,$2,$3,$4,$5,$6)",
+             parameters(envelope),
+             log: false
+           ),
+         {:ok, {:source, _source}} <- decode_source(described, envelope),
+         {:ok, _inserted} <-
+           SafeSQL.query(
+             repo,
+             """
+             INSERT INTO jobs.job_progress
+               (id,vault_id,submission_id,classification,state,
+                processing_revision,checkpoint_version,checkpoint)
+             VALUES ($1,$2,$3,'private',$4,0,1,'{}'::jsonb)
+             ON CONFLICT (submission_id) DO NOTHING
+             """,
+             [
+               Ecto.UUID.dump!(Ecto.UUID.generate()),
+               Ecto.UUID.dump!(envelope.vault_id),
+               Ecto.UUID.dump!(envelope.job_id),
+               Atom.to_string(state)
+             ],
+             log: false
+           ),
+         :ok <- lock_progress_row(repo, envelope),
+         {:ok, %Postgrex.Result{num_rows: 1}} <-
+           SafeSQL.query(
+             repo,
+             """
+             UPDATE jobs.job_progress SET state=$4,updated_at=clock_timestamp()
+             WHERE submission_id=$1 AND vault_id=$2 AND classification=$3
+             """,
+             [
+               Ecto.UUID.dump!(envelope.job_id),
+               Ecto.UUID.dump!(envelope.vault_id),
+               "private",
+               Atom.to_string(state)
+             ],
+             log: false
+           ) do
+      {:ok, :saved}
+    else
+      {:error, error} -> {:error, KnowledgeError.from(error)}
+      _ -> {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp validate_progress_scope(repo, envelope) do
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT current_setting('singularity.principal_id',true),
+                  current_setting('singularity.vault_id',true)
+           """,
+           [],
+           log: false
+         ) do
+      {:ok, %Postgrex.Result{rows: [[principal, owner]]}}
+      when principal == envelope.principal_id and owner == envelope.vault_id ->
+        :ok
+
+      {:error, error} ->
+        {:error, KnowledgeError.from(error)}
+
+      _ ->
+        {:error, Error.new(:forbidden)}
+    end
+  end
+
+  defp lock_progress_submission(repo, envelope) do
+    owner = Ecto.UUID.dump!(envelope.vault_id)
+    job = Ecto.UUID.dump!(envelope.job_id)
+
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT id,vault_id,outbox_event_id,classification,idempotency_key,job_type
+           FROM jobs.job_submissions WHERE id=$1 FOR UPDATE
+           """,
+           [job],
+           log: false
+         ) do
+      {:ok,
+       %Postgrex.Result{
+         num_rows: 1,
+         rows: [[^job, ^owner, ^job, "private", key, "document_extract"]]
+       }}
+      when key == envelope.idempotency_key ->
+        :ok
+
+      {:error, error} ->
+        {:error, KnowledgeError.from(error)}
+
+      _ ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
+  defp lock_progress_row(repo, envelope) do
+    owner = Ecto.UUID.dump!(envelope.vault_id)
+    job = Ecto.UUID.dump!(envelope.job_id)
+
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT submission_id,vault_id,classification,state
+           FROM jobs.job_progress WHERE submission_id=$1 FOR UPDATE
+           """,
+           [job],
+           log: false
+         ) do
+      {:ok,
+       %Postgrex.Result{
+         num_rows: 1,
+         rows: [[^job, ^owner, "private", current_state]]
+       }}
+      when current_state in ["pending", "running", "waiting_for_unlock"] ->
+        :ok
+
+      {:error, error} ->
+        {:error, KnowledgeError.from(error)}
+
+      _ ->
+        {:error, Error.new(:conflict)}
+    end
   end
 
   defp parameters(envelope) do
