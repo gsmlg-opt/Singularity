@@ -9,8 +9,8 @@
 **Tech Stack:** Elixir/OTP 28, Ecto/Postgrex, PostgreSQL 17, Oban 2.24, existing Text/Markdown/PDF extraction and Poppler guardian, ExUnit, devenv.
 
 **Readiness:** Reviewed bounded planning draft, not an execution-ready code plan.
-The outside-scope integration failure stops affected work. Before production
-implementation, code steps require complete focused contracts and SQL/Elixir
+The historical lifecycle failure is resolved by a separate authorized repair.
+Before production implementation, code steps require complete focused contracts and SQL/Elixir
 bodies under the writing-plans self-review gate. No unchecked item is accepted
 or waived by this document.
 
@@ -20,7 +20,7 @@ or waived by this document.
 
 Follow the [approved amendment](../specs/2026-10-08-singularity-v0.2-phase-2-worker-bridge-proposal.md) and existing Phase 2 Task 12. Execute only in `/home/gao/Workspace/gsmlg-opt/Singularity/.trees/v0.2-phase-2-import-extraction`, branch `codex/v0.2-phase-2-import-extraction`. Source was inspected at `e6397e7e940a9ff6bf6b96764dafd010059fc6a3`; coordinating-agent HEAD is now `2b037f1`. Recheck current diff before editing; other workers own approval/status and Notes contract changes.
 
-The [worker baseline](../../verification/2026-10-08-phase-2-worker-baseline.md), committed at `9cf809b`, records the outside-scope lifecycle failure: `apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs:206` expects pending generation 1 and observes 2; 19 tests, 1 failure. The full unit suites passed, seed 710289. The corrected focused integration command failed; an earlier command used an incorrect `postgres/` path and its zero exit is not passing evidence. Do not repair/reclassify this baseline in bridge scope. Affected acceptance remains stopped; independent additive bridge planning/work must not evade this prerequisite.
+The [worker baseline](../../verification/2026-10-08-phase-2-worker-baseline.md), committed at `9cf809b`, records the historical outside-scope lifecycle failure: `apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs:206` expected pending generation 1 and observed 2; 19 tests, 1 failure. The full unit suites passed, seed 710289. The corrected focused integration command failed; an earlier command used an incorrect `postgres/` path and its zero exit is not passing evidence. The owner subsequently authorized a separate [lifecycle repair](../../verification/2026-10-08-document-lifecycle-generation-repair.md), committed at `cf87c7e`, which corrects the stale contract and passes the focused checks. Preserve the original failure evidence; that repair does not establish bridge or Phase 2 acceptance.
 
 Standing owner approval authorizes this amendment and bounded design resolution without routine approval prompts. E2E remains prohibited. No release, push, publication, deployment, production activation, Vault change, Asset lease change, public repository type change, GenericWorker change, historical migration edit, or canonical/lifecycle grant expansion is authorized by this plan.
 
@@ -136,7 +136,7 @@ end
 - [ ] Race deletion/read/claim and claimed tombstone completion; expire start+deadline consistently, run existing reconciler, and assert stale claim/complete/fail/exhaustion cannot affect successor. Exercise existing retry/restore guarded operations only as admin fixture setup, without worker grants. Same-job metadata resume retains its original deadline.
 - [ ] Reach SQL fragment validation directly: malformed/duplicate ordinals, wrong IDs/digests/locator/media, 4097 fragments, oversized fragment/aggregate, empty content and conflicting replay; assert atomic rollback/no partial fragments/no Document-version search rows. Adapter validation alone does not prove SQL validation.
 - [ ] Capture logs, configured Repo telemetry, bounded RLS-denial telemetry and public errors across canary content/tool-output/SQL failures; assert no title/fragments/bytes/keys/SQL parameters escape. Detach handlers and finish test-owned tasks in cleanup. Keep source Asset's pre-existing projection distinct from Document projection counts.
-- [ ] Run scoped bridge/custody integration tests; record evidence and independent security review before Runtime wiring. Known baseline acceptance failure remains separate and unresolved.
+- [ ] Run scoped bridge/custody integration tests; record evidence and independent security review before Runtime wiring. The separate lifecycle repair resolves the historical baseline mismatch, not these new bridge requirements.
 
 ### Task 7: Runtime pipeline with the selected fresh-read extension
 
@@ -164,7 +164,7 @@ git status --short
 ```
 
 - [ ] Run `mix format --check-formatted` with the exact changed Elixir paths from the ownership table, then scoped tests above; do not run nonexistent files before their task creates them. Record actual failures/exclusions, commands, source SHA, migration timestamp, changed files, review findings/repairs, zero xref cycles/seven-app graph, no temporary grants, no Vault feature or Asset behavior changes, the explicit Document-only shared custody file extension, and finished commands/test-owned cleanup.
-- [ ] Full Task 12 acceptance is blocked by unresolved real source replay or failing required scoped gates. Full Phase 2 acceptance separately needs corrected lifecycle baseline and complete README gate; E2E is unrun under owner restriction. Do not imply release readiness, silently repair outside scope, or continue to later phases. Hand off reviewable small diffs; commits require coordinator authorization, and this documentation-only assignment performs no staging/commits.
+- [ ] Full Task 12 acceptance is blocked by unresolved real source replay or failing required scoped gates. The historical lifecycle baseline is repaired; full Phase 2 acceptance separately needs the complete README gate. E2E is unrun under owner restriction. Do not imply release readiness, silently repair outside scope, or continue to later phases. Hand off reviewable small diffs; commits require coordinator authorization, and this documentation-only assignment performs no staging/commits.
 
 ## Coordinator self-review
 

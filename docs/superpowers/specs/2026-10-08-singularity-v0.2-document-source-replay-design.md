@@ -2,10 +2,13 @@
 
 Status: selected architecture under the owner's 2026-10-08 standing repository
 approval. This is a bounded Task 8/12 amendment, not implementation evidence or
-phase acceptance. The existing lifecycle integration failure remains recorded in
-[the worker baseline](../../verification/2026-10-08-phase-2-worker-baseline.md).
-Affected implementation/acceptance is stopped; this document does not authorize
-silently repairing an outside-scope assertion. E2E remains prohibited.
+phase acceptance. The historical lifecycle integration failure is preserved in
+[the worker baseline](../../verification/2026-10-08-phase-2-worker-baseline.md)
+and resolved by the separately authorized
+[lifecycle repair](../../verification/2026-10-08-document-lifecycle-generation-repair.md).
+This new source-replay behavior remains unimplemented and requires its own
+focused evidence; this document does not authorize silently repairing unrelated
+outside-scope assertions. E2E remains prohibited.
 
 ## Problem and decision
 

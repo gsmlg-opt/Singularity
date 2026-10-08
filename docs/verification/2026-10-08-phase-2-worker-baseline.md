@@ -1,5 +1,10 @@
 # Phase 2 worker baseline — 2026-10-08
 
+Historical failure record. The owner subsequently authorized the narrow lifecycle
+test repair; [its verification record](2026-10-08-document-lifecycle-generation-repair.md)
+resolves this specific failure. The original observations below are preserved,
+not reclassified as passing evidence. Phase 2 acceptance remains outstanding.
+
 Source: `cbdd909` on `codex/v0.2-phase-2-import-extraction`, before worker-bridge
 production changes. Approval and planning documentation had uncommitted changes.
 This record is not phase acceptance or release readiness.
