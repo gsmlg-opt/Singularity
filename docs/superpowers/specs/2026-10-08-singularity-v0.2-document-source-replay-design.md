@@ -6,8 +6,10 @@ phase acceptance. The historical lifecycle integration failure is preserved in
 [the worker baseline](../../verification/2026-10-08-phase-2-worker-baseline.md)
 and resolved by the separately authorized
 [lifecycle repair](../../verification/2026-10-08-document-lifecycle-generation-repair.md).
-This new source-replay behavior remains unimplemented and requires its own
-focused evidence; this document does not authorize silently repairing unrelated
+The bounded Runtime lease component is now locally implemented and independently
+reviewed; see [its focused evidence](../../verification/2026-10-08-document-fresh-source-lease.md).
+Progress/wake and full worker composition remain unimplemented/unaccepted.
+This document does not authorize silently repairing unrelated
 outside-scope assertions. E2E remains prohibited.
 
 ## Problem and decision
@@ -199,9 +201,12 @@ Required red/green contracts before implementation acceptance:
 6. Waiting/running transitions preserve v4 fields byte-for-byte, reject terminal
    reopening and integrate with existing unlock wake; no content leaks.
 
-Architecture inspection was read-only; no implementation or tests establish these
-new behaviors yet. Expand the Runtime implementation plan with exact executable
-contracts before coding this extension. Full phase/release gates remain required.
+The original architecture inspection was read-only. The complete-code
+[lease slice plan](../plans/2026-10-08-singularity-v0.2-document-fresh-lease-slice.md)
+and focused evidence establish only the bounded Runtime lease component, not
+full worker composition or phase/release acceptance. Expand the remaining Runtime
+implementation plan with exact executable contracts before coding those slices.
+Full phase/release gates remain required.
 
 Independent read-only design review found the original zero-chunk shortcut
 unsafe. Source inspection confirmed the finding; the empty-source operation and

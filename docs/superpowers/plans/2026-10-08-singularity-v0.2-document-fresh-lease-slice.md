@@ -919,6 +919,16 @@ index 9354ce9..58f5708 100644
 
 - [x] Observe missing-feature RED before production changes.
 
+The four blank context lines in the embedded test diff are represented as
+equivalent empty-line delete/add pairs so this Markdown has no trailing spaces.
+When reconstructing or checking this patch with Git, use `--unidiff-zero` to
+permit its shortened leading context. The coordinating agent checked the
+embedded diff against the committed tests with this read-only command:
+
+```sh
+awk '/^diff --git i\/apps\/singularity_runtime\/test/{capture=1} capture && /^```$/{exit} capture{print}' docs/superpowers/plans/2026-10-08-singularity-v0.2-document-fresh-lease-slice.md | git apply --reverse --check --unidiff-zero -
+```
+
 Initial unit RED seed 236044: 1.6 seconds, 21 reported, 1 excluded, 20 executed, 16 new failures and 4 existing passes.
 Current expanded unit RED seed 640789: 3.2 seconds, 31 reported, 9 excluded, 22 executed, 18 new failures and 4 existing passes.
 Failures demonstrate missing purpose, missing empty API, permitted public full reads and generic fallback loading a checkpoint for injected session. The test double deliberately raises if a fresh path reaches checkpoint loading.
