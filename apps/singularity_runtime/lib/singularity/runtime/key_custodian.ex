@@ -773,6 +773,44 @@ defmodule Singularity.Runtime.KeyCustodian do
     end
   end
 
+  def handle_call({:lease, %{"purpose" => purpose}}, _from, state)
+      when purpose in [:document_extraction_source, "document_extraction_source"],
+      do: {:reply, {:error, Error.new(:invalid)}, state}
+
+  def handle_call({:lease, %{purpose: "document_extraction_source"}}, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
+  def handle_call(
+        {:lease, %{purpose: :document_extraction_source, access: :worker} = request},
+        {consumer, _tag},
+        state
+      ) do
+    with :ok <- validate_document_extraction_request(request),
+         %{} = session <- metadata_session(state, request),
+         binding =
+           request
+           |> Map.take(@document_worker_fields)
+           |> Map.put(:session_id, session.session_id),
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         reader_context = Map.put(state.context, :object_binding, reader_binding),
+         {:ok, lease} <-
+           start_download_lease(state, binding, object_dek, reader_context, %{
+             mode: :document_worker_source,
+             consumer_pid: consumer
+           }) do
+      {:reply, {:ok, lease}, register_lease(state, session.session_id, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
+  def handle_call({:lease, %{purpose: :document_extraction_source}}, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
   def handle_call({:lease, %{purpose: :download} = request}, _from, state) do
     with :ok <- validate_download_request(request),
          binding = Map.take(request, @request_fields),
@@ -1431,9 +1469,10 @@ defmodule Singularity.Runtime.KeyCustodian do
          state,
          request,
          object_dek,
-         reader_context
+         reader_context,
+         private_options \\ %{}
        ) do
-    KeyLeaseSupervisor.start_download_lease(state.lease_supervisor, %{
+    options = %{
       authorization: state.adapters.authorization,
       binding: request,
       clock: state.adapters.clock,
@@ -1441,7 +1480,12 @@ defmodule Singularity.Runtime.KeyCustodian do
       custodian: self(),
       key_material: object_dek,
       key_reader: state.adapters.key_reader
-    })
+    }
+
+    KeyLeaseSupervisor.start_download_lease(
+      state.lease_supervisor,
+      Map.merge(options, private_options)
+    )
   end
 
   defp validate_vault_rotation_request(request) when is_map(request) do
@@ -2401,6 +2445,29 @@ defmodule Singularity.Runtime.KeyCustodian do
   end
 
   defp validate_metadata_request(_request), do: {:error, Error.new(:invalid)}
+
+  defp validate_document_extraction_request(request) do
+    maximum = 9_223_372_036_854_775_807
+
+    with :ok <- validate_document_request(request, @document_worker_fields),
+         true <-
+           Enum.all?(
+             [:job_id, :resource_version_id, :vault_id, :principal_id, :object_id],
+             fn field ->
+               value = Map.fetch!(request, field)
+
+               is_binary(value) and byte_size(value) == 36 and
+                 match?({:ok, ^value}, Ecto.UUID.cast(value))
+             end
+           ),
+         true <- request.principal_authorization_epoch <= maximum,
+         true <- request.vault_authorization_epoch <= maximum,
+         true <- request.object_generation <= maximum do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:invalid)}
+    end
+  end
 
   defp validate_document_request(request, fields) do
     if Enum.sort(Map.keys(request)) == Enum.sort([:purpose | fields]) and

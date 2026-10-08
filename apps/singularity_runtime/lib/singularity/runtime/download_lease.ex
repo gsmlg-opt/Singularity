@@ -47,21 +47,42 @@ defmodule Singularity.Runtime.DownloadLease do
 
   def read_document_chunk(_lease, _index), do: {:error, Error.new(:invalid)}
 
+  @spec authenticate_empty_document_source(pid()) ::
+          :ok | {:error, :waiting_for_unlock | Error.t()}
+  def authenticate_empty_document_source(lease) when is_pid(lease) do
+    GenServer.call(lease, :authenticate_empty_document_source, :infinity)
+  catch
+    :exit, _reason -> unavailable()
+  end
+
+  def authenticate_empty_document_source(_lease), do: {:error, Error.new(:invalid)}
+
   @spec revoke(pid()) :: :ok
   def revoke(lease) when is_pid(lease),
     do: GenServer.call(lease, :revoke, :infinity)
 
   @impl true
-  def init(%{
-        authorization: authorization,
-        binding: binding,
-        clock: clock,
-        context: context,
-        custodian: custodian,
-        key_material: <<_::binary-size(32)>> = key_material,
-        key_reader: key_reader
-      })
+  def init(
+        %{
+          authorization: authorization,
+          binding: binding,
+          clock: clock,
+          context: context,
+          custodian: custodian,
+          key_material: <<_::binary-size(32)>> = key_material,
+          key_reader: key_reader
+        } = options
+      )
       when is_map(binding) and is_pid(custodian) do
+    mode = Map.get(options, :mode)
+    consumer = Map.get(options, :consumer_pid)
+
+    consumer_monitor =
+      if mode == :document_worker_source do
+        Process.flag(:trap_exit, true)
+        Process.monitor(consumer)
+      end
+
     expires_at =
       context
       |> clock.utc_now()
@@ -79,6 +100,9 @@ defmodule Singularity.Runtime.DownloadLease do
        custodian_monitor: custodian_monitor,
        expires_at: expires_at,
        key_reader: key_reader,
+       mode: mode,
+       consumer_pid: consumer,
+       consumer_monitor: consumer_monitor,
        next_index: 0,
        pending: nil,
        public_context: Map.delete(context, :key_material),
@@ -107,6 +131,9 @@ defmodule Singularity.Runtime.DownloadLease do
   end
 
   @impl true
+  def handle_call({:read, _range}, _from, %{mode: :document_worker_source} = state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
   def handle_call({:read, _range}, _from, %{pending: pending} = state)
       when not is_nil(pending) do
     {:reply, {:error, Error.new(:conflict)}, state}
@@ -135,9 +162,32 @@ defmodule Singularity.Runtime.DownloadLease do
     end
   end
 
+  def handle_call(
+        {:read_document_chunk, _index},
+        {caller, _tag},
+        %{mode: :document_worker_source, consumer_pid: consumer} = state
+      )
+      when caller != consumer,
+      do: {:reply, {:error, Error.new(:forbidden)}, state}
+
   def handle_call({:read_document_chunk, _index}, _from, %{pending: pending} = state)
       when not is_nil(pending),
       do: {:reply, {:error, Error.new(:conflict)}, state}
+
+  def handle_call(
+        {:read_document_chunk, index},
+        from,
+        %{mode: :document_worker_source} = state
+      ) do
+    with :active <- lease_status(state),
+         true <- is_integer(index) and index >= 0 and index == state.next_index do
+      {:noreply, start_read(state, from, {:document_chunk, index})}
+    else
+      :revoked -> {:stop, :normal, {:error, :waiting_for_unlock}, revoke_state(state)}
+      :expired -> {:stop, :normal, {:error, :waiting_for_unlock}, revoke_state(state)}
+      false -> {:reply, {:error, Error.new(:conflict)}, state}
+    end
+  end
 
   def handle_call(
         {:read_document_chunk, index},
@@ -157,18 +207,89 @@ defmodule Singularity.Runtime.DownloadLease do
   def handle_call({:read_document_chunk, _index}, _from, state),
     do: {:reply, {:error, Error.new(:invalid)}, state}
 
+  def handle_call(
+        :authenticate_empty_document_source,
+        {caller, _tag},
+        %{mode: :document_worker_source, consumer_pid: consumer} = state
+      )
+      when caller != consumer,
+      do: {:reply, {:error, Error.new(:forbidden)}, state}
+
+  def handle_call(
+        :authenticate_empty_document_source,
+        _from,
+        %{mode: :document_worker_source, pending: pending} = state
+      )
+      when not is_nil(pending),
+      do: {:reply, {:error, Error.new(:conflict)}, state}
+
+  def handle_call(
+        :authenticate_empty_document_source,
+        from,
+        %{
+          mode: :document_worker_source,
+          next_index: 0,
+          reader_context: %{object_binding: %{plaintext_byte_size: 0}}
+        } = state
+      ) do
+    case lease_status(state) do
+      :active -> {:noreply, start_read(state, from, :empty_document_source)}
+      _inactive -> {:stop, :normal, {:error, :waiting_for_unlock}, revoke_state(state)}
+    end
+  end
+
+  def handle_call(:authenticate_empty_document_source, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
+  def handle_call(:revoke, _from, %{mode: :document_worker_source} = state),
+    do: {:stop, :normal, :ok, revoke_state(state)}
+
   def handle_call(:revoke, _from, state) do
     {:reply, :ok, revoke_state(state)}
   end
 
   @impl true
   def handle_info(
+        {:download_read_complete, operation_ref, result},
+        %{
+          mode: :document_worker_source,
+          pending: %{operation_ref: operation_ref, range: :empty_document_source} = pending
+        } = state
+      ) do
+    finish_reader(state, pending)
+    state = %{state | pending: nil}
+
+    reply =
+      case {lease_status(state), result} do
+        {:active, {:ok, ""}} ->
+          send(state.custodian, {:authorized_activity, state.binding.session_id})
+          :ok
+
+        {:active, {:error, :waiting_for_unlock}} ->
+          {:error, :waiting_for_unlock}
+
+        {:active, {:error, %Error{} = error}} ->
+          {:error, public_error(error)}
+
+        {:active, _invalid} ->
+          {:error, Error.new(:integrity_failure)}
+
+        {_inactive, _result} ->
+          {:error, :waiting_for_unlock}
+      end
+
+    state = revoke_state(state)
+    GenServer.reply(pending.from, reply)
+    {:stop, :normal, state}
+  end
+
+  def handle_info(
         {:download_read_complete, operation_ref, {:ok, plaintext}},
         %{pending: %{operation_ref: operation_ref, range: {:document_chunk, index}} = pending} =
           state
       )
       when is_binary(plaintext) do
-    Process.demonitor(pending.monitor, [:flush])
+    finish_reader(state, pending)
     state = %{state | pending: nil}
 
     case lease_status(state) do
@@ -187,7 +308,7 @@ defmodule Singularity.Runtime.DownloadLease do
         {:download_read_complete, operation_ref, result},
         %{pending: %{operation_ref: operation_ref} = pending} = state
       ) do
-    Process.demonitor(pending.monitor, [:flush])
+    finish_reader(state, pending)
     state = %{state | pending: nil}
 
     case {lease_status(state), result} do
@@ -231,11 +352,30 @@ defmodule Singularity.Runtime.DownloadLease do
   end
 
   def handle_info(
+        {:DOWN, monitor, :process, consumer, _reason},
+        %{
+          mode: :document_worker_source,
+          consumer_pid: consumer,
+          consumer_monitor: monitor
+        } = state
+      ),
+      do: {:stop, :normal, revoke_state(state)}
+
+  def handle_info(
         {:DOWN, monitor, :process, custodian, _reason},
         %{custodian: custodian, custodian_monitor: monitor} = state
       ) do
     {:stop, :normal, revoke_state(state)}
   end
+
+  def handle_info(:expire, %{mode: :document_worker_source} = state),
+    do: {:stop, :normal, revoke_state(state)}
+
+  def handle_info(
+        {:EXIT, reader, _reason},
+        %{mode: :document_worker_source, pending: %{pid: reader}} = state
+      ),
+      do: {:noreply, state}
 
   def handle_info(:expire, state),
     do: {:noreply, revoke_state(state)}
@@ -261,11 +401,15 @@ defmodule Singularity.Runtime.DownloadLease do
       reader_context: state.reader_context
     }
 
+    reader = fn ->
+      result = perform_read(operation)
+      send(lease, {:download_read_complete, operation_ref, result})
+    end
+
     {worker, monitor} =
-      spawn_monitor(fn ->
-        result = perform_read(operation)
-        send(lease, {:download_read_complete, operation_ref, result})
-      end)
+      if state.mode == :document_worker_source,
+        do: :erlang.spawn_opt(reader, [:link, :monitor]),
+        else: spawn_monitor(reader)
 
     %{
       state
@@ -302,6 +446,9 @@ defmodule Singularity.Runtime.DownloadLease do
   defp read_operation(%{range: {:document_chunk, index}} = operation),
     do: operation.key_reader.read_chunk(operation.reader_context, operation.binding, index)
 
+  defp read_operation(%{range: :empty_document_source} = operation),
+    do: operation.key_reader.read_range(operation.reader_context, operation.binding, :all)
+
   defp read_operation(operation),
     do:
       operation.key_reader.read_range(
@@ -334,6 +481,18 @@ defmodule Singularity.Runtime.DownloadLease do
         revoked?: true
     }
   end
+
+  defp finish_reader(%{mode: :document_worker_source}, pending) do
+    Process.exit(pending.pid, :kill)
+
+    receive do
+      {:DOWN, monitor, :process, reader, _reason}
+      when monitor == pending.monitor and reader == pending.pid ->
+        :ok
+    end
+  end
+
+  defp finish_reader(_state, pending), do: Process.demonitor(pending.monitor, [:flush])
 
   defp cancel_pending(%{pending: nil} = state), do: state
 
