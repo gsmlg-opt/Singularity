@@ -203,7 +203,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
           reset(source, document, 1, if(outcome == "unsupported", do: "new", else: "plain"))
 
         assert pending["state"] == "pending"
-        assert pending["attempt_generation"] == 1
+        assert pending["attempt_generation"] == 2
 
         for key <-
               ~w(attempt_job_id attempt_started_at attempt_deadline_at extraction_adapter extraction_format extracted_text_digest detected_language failure_code attempt_finished_at),
@@ -213,8 +213,17 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
               ~w(resource_id resource_version_id vault_id source_asset_id source_digest title inserted_at),
             do: assert(pending[key] == before[key])
 
-        assert %{"attempt_generation" => 2} = claim(source, document, 1)
+        conflict(fn -> claim(source, document, 1) end)
         conflict(fn -> complete(source, document, [fragment(document, 0, "ok")], 1) end)
+        conflict(fn -> fail(source, document, 1, outcome, "timeout") end)
+        assert state(document) == pending
+
+        assert %{"state" => "extracting", "attempt_generation" => 3} =
+                 claimed = claim(source, document, 2)
+
+        conflict(fn -> complete(source, document, [fragment(document, 0, "ok")], 1) end)
+        conflict(fn -> fail(source, document, 1, outcome, "timeout") end)
+        assert state(document) == claimed
       end)
     end
   end
