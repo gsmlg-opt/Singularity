@@ -33,8 +33,19 @@ tests, zero failures, seed `789533`, exit 0. Parent repetition: six domain and
 26 web tests, zero failures, seed `225257`, exit 0. Formatting and whitespace
 checks passed. Independent specification and quality reviews both approved.
 
-No assertion was skipped, weakened, deleted, or reclassified. No full unit
-suite, integration, restore, frontend, browser E2E, container, release, or
+No assertion was skipped, weakened, deleted, or reclassified. A subsequent
+parent full unit run completed successfully with seed `710289`:
+
+```sh
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps devenv shell -- mix test
+```
+
+All seven application suites reported zero failures: core 10 properties and
+111 tests; domains 38 tests; storage 831 tests (570 integration tests excluded);
+retrieval 26 tests; ingest 54 tests; runtime 576 tests (95 integration tests
+excluded); and web 182 tests. Exit status was 0. Existing Fake.Authorization,
+Fake.Clock, and Fake.KeyReader module-redefinition warnings remain outside this
+repair. No integration, restore, frontend, browser E2E, container, release, or
 deployment check ran in this repair. Hosted verification of a future pushed
 repair revision remains required. The worker bridge has separate approved
 scope and still needs implementation and actual-role evidence. No Vault feature
