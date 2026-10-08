@@ -317,12 +317,21 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert File.regular?(@vault_adr), "ADR 0003 link target does not resolve"
 
     assert normalize_markdown(readme_scope) =~
-             "Phase 0 is accepted at `6c3e8d5afb2cc9dbf264d276796070e16aa49e55`."
+             "Phase 1 is accepted locally at `a80957da41582de40bdf586a0cba1e14644acf0a`."
 
-    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 1"
+    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 2"
+
+    assert readme_scope =~
+             "[approved import/extraction design](docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md)"
+
+    assert readme_scope =~
+             "[detailed implementation plan](docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md)"
 
     assert normalize_markdown(readme_scope) =~
-             "Later phases require their own approved design and detailed implementation plan after their predecessors are accepted."
+             "Later phases still require separate approved designs and detailed plans."
+
+    assert normalize_markdown(readme_scope) =~
+             "Version bumps, tags, releases, pushes, and deployments remain separately gated."
 
     refute normalize_markdown(readme_scope) =~ "Qdrant is required"
 
