@@ -312,7 +312,14 @@ fixture creation may use a separate administrative connection, but never grant
 the worker temporary access or use that connection for the verified calls.
 
 - Verify owner, fixed search path, VOLATILE category, exact ACLs, denied raw
-  lifecycle execution, and denied canonical SELECT/INSERT/UPDATE/DELETE.
+  lifecycle execution, and denied Document-table SELECT/INSERT/UPDATE/DELETE.
+  Preserve the existing legacy resource-table ACLs: the historical mutable-table
+  migration grants worker CRUD on `content.resources` and
+  `content.resource_versions`, subject to their existing RLS. This SQL slice
+  neither adds nor revokes those grants and must characterize them separately.
+  The 2026-10-08 initial new test incorrectly assumed they were denied; source
+  inspection and an actual-role characterization corrected that assumption
+  before production implementation. No Document-table denial is waived.
 - Reject malformed scope, cross-owner/resource/version, revoked or inactive
   identity, insufficient clearance/capability, stale epochs, forged event fields,
   extra payload keys, wrong version/key/revision, and bigint overflow.

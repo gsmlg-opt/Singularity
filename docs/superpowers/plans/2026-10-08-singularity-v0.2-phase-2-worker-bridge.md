@@ -9,6 +9,9 @@
 **Tech Stack:** Elixir/OTP 28, Ecto/Postgrex, PostgreSQL 17, Oban 2.24, existing Text/Markdown/PDF extraction and Poppler guardian, ExUnit, devenv.
 
 **Readiness:** Reviewed bounded planning draft, not an execution-ready code plan.
+The SQL-only implementation now has a separate execution-ready
+[complete-code slice plan](2026-10-08-singularity-v0.2-worker-sql-slice.md).
+This does not lift readiness requirements for adapter or Runtime work below.
 The historical lifecycle failure is resolved by a separate authorized repair.
 Before production implementation, code steps require complete focused contracts and SQL/Elixir
 bodies under the writing-plans self-review gate. No unchecked item is accepted
@@ -98,7 +101,7 @@ PERFORM pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended(
 - [ ] For same-job resume use `lock_document_terminal_extraction(version,job,n+1)` from `20260922000110_document_terminal_tombstone.exs`, then require matching adapter/format and future DB deadline. Return unchanged start/deadline; do not delegate resume to the live-only claim function.
 - [ ] Complete/fail return exactly resource/version/job/generation/state. Require claimed generation n+1 and exact adapter/format/media under terminal lock. Delegate to existing complete/fail internals from `20260922000100_document_extraction_attempts.exs`; preserve canonical fragment validation, atomicity, deadline fences and exact ready replay. A conflicting ready replay fails; different/recovered attempts cannot write outcomes.
 - [ ] Apply ACLs to exact signatures, including all type arguments. Each exposed wrapper is owned by table owner, EXECUTE revoked from PUBLIC/web/dispatcher/pre-auth and granted only to worker. Revoke all runtime execution of the private helper. Existing table/RLS/raw lifecycle ACLs and definitions remain unchanged.
-- [ ] Add red→green SQL tests: exact columns/terminal NULLs; catalog owner/search path/volatility/security-definer; exact ACLs including PUBLIC via `aclexplode`; worker denied SELECT/INSERT/UPDATE/DELETE and raw lifecycle/helper calls; claim once/resume unchanged; resume/complete/fail after tombstone; first-claim deletion; ready replay/conflict. Verified calls use WorkerRepo, never MigrationRepo.
+- [ ] Add red→green SQL tests: exact columns/terminal NULLs; catalog owner/search path/volatility/security-definer; exact ACLs including PUBLIC via `aclexplode`; worker denied Document-table SELECT/INSERT/UPDATE/DELETE and raw lifecycle/helper calls; preserve and characterize existing legacy resource-table ACLs; claim once/resume unchanged; resume/complete/fail after tombstone; first-claim deletion; ready replay/conflict. Verified calls use WorkerRepo, never MigrationRepo.
 
 ### Task 4: Implement bounded adapter types and short trusted transactions
 
