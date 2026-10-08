@@ -1,10 +1,7 @@
-name: Tests
+name: Manual Acceptance
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  acceptance:
     runs-on: ubuntu-latest
 
     steps:
@@ -42,7 +39,7 @@ jobs:
             ~/.hex
             ~/.mix
             ~/.cache/rustler_precompiled
-          key: test-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}
+          key: acceptance-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}
 
       - name: Start services
         run: devenv up -d
@@ -61,6 +58,12 @@ jobs:
       - name: Run tests
         run: devenv shell -- mix test
 
+      - name: Run isolated PostgreSQL integration tests
+        run: devenv shell -- mix singularity.test.integration
+
+      - name: Run isolated restore acceptance
+        run: devenv shell -- mix singularity.test.restore
+
       - name: Install JavaScript dependencies
         # TODO(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
         # WORKAROUND(upstream): duskmoon-dev/phoenix-duskmoon-ui#129
@@ -71,6 +74,12 @@ jobs:
 
       - name: Run JavaScript tests
         run: devenv shell -- mix npm.run test:js
+
+      - name: Build browser assets
+        run: devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind
+
+      - name: Run Chromium acceptance tests
+        run: devenv shell -- mix npm.run test:e2e
 
       - name: Stop services
         if: always()

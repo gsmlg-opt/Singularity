@@ -71,6 +71,12 @@ For image builds and operator setup, see the
 [Docker deployment guide](docs/deployment/docker.md). Building an image does
 not accept the active release or authorize production activation.
 
+GitHub Actions runs ExUnit and JavaScript unit tests automatically on pushes to
+`main` and pull requests targeting `main`. Integration, restore, and Chromium
+acceptance run only through Actions → Manual Acceptance → Run workflow; select
+the branch or tag to test. Static CI checks remain automatic. Unit CI does not
+replace the complete phase/release verification gate below.
+
 Run the complete local verification sequence from one shell so its cleanup trap
 remains active for the entire run:
 
@@ -104,6 +110,7 @@ devenv shell -- mix xref graph --format cycles --fail-above 0
 nix run nixpkgs#actionlint -- \
   .github/workflows/ci.yml \
   .github/workflows/test.yml \
+  .github/workflows/e2e.yml \
   .github/workflows/release.yml \
   .github/workflows/docker-image.yml
 

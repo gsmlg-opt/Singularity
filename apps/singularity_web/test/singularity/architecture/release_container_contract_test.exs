@@ -32,7 +32,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     "devenv shell -- mix duskmoon_bundler.build singularity_web --tailwind",
     "devenv shell -- mix npm.run test:e2e",
     "devenv shell -- mix xref graph --format cycles --fail-above 0",
-    "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/release.yml .github/workflows/docker-image.yml",
+    "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/e2e.yml .github/workflows/release.yml .github/workflows/docker-image.yml",
     "git diff --check",
     "git status --short",
     ~S<test -z "$(git status --porcelain)">
@@ -304,7 +304,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert_upstream_comments!("ci.yml")
   end
 
-  test "test workflow preserves every exact acceptance gate" do
+  test "test workflow automatically runs only unit tests" do
     workflow = workflow!("test.yml")
 
     assert workflow["on"] == %{
@@ -317,6 +317,74 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert workflow["jobs"] |> Map.keys() |> Enum.sort() == ["test"]
 
     test_job = job!(workflow, "test")
+    assert_exact_keys!(test_job, ["runs-on", "steps"])
+    assert test_job["runs-on"] == "ubuntu-latest"
+
+    steps = Map.fetch!(test_job, "steps")
+
+    assert Enum.map(steps, &Map.fetch!(&1, "name")) == [
+             "Check out repository",
+             "Install Nix",
+             "Configure Cachix",
+             "Install devenv",
+             "Restore test caches",
+             "Start services",
+             "Wait for PostgreSQL",
+             "Provision PostgreSQL roles",
+             "Fetch dependencies",
+             "Run tests",
+             "Install JavaScript dependencies",
+             "Verify JavaScript dependencies",
+             "Run JavaScript tests",
+             "Stop services"
+           ]
+
+    assert_action_steps!(steps, "Restore test caches")
+
+    assert_run_steps!(steps, [
+      {"Install devenv", "nix profile add nixpkgs#devenv"},
+      {"Start services", "devenv up -d"},
+      {"Wait for PostgreSQL", "devenv processes wait --timeout 120"},
+      {"Provision PostgreSQL roles",
+       "devenv shell -- bash apps/singularity_storage/priv/repo/bootstrap_roles.sh"},
+      {"Fetch dependencies", "devenv shell -- mix deps.get"},
+      {"Run tests", "devenv shell -- mix test"},
+      {"Install JavaScript dependencies",
+       "devenv shell -- env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen"},
+      {"Verify JavaScript dependencies", "devenv shell -- mix npm.verify"},
+      {"Run JavaScript tests", "devenv shell -- mix npm.run test:js"}
+    ])
+
+    cache_key = step!(steps, "Restore test caches") |> get_in(["with", "key"])
+
+    assert cache_key ==
+             "test-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}"
+
+    forbidden =
+      ~r/(?:mix singularity\.test\.|mix npm\.run test:e2e|--include\s+integration|--only\s+integration)/
+
+    refute Enum.any?(steps, &Regex.match?(forbidden, Map.get(&1, "run", "")))
+
+    assert List.last(steps) == %{
+             "name" => "Stop services",
+             "if" => "always()",
+             "run" => "devenv processes down"
+           }
+
+    assert_upstream_comments!("test.yml")
+  end
+
+  test "manual workflow preserves every exact acceptance gate" do
+    workflow = workflow!("e2e.yml")
+
+    assert workflow["name"] == "Manual Acceptance"
+    assert workflow["on"] == %{"workflow_dispatch" => nil}
+
+    assert workflow["permissions"] == %{"contents" => "read"}
+    assert workflow["concurrency"] == @concurrency
+    assert workflow["jobs"] |> Map.keys() |> Enum.sort() == ["acceptance"]
+
+    test_job = job!(workflow, "acceptance")
     assert_exact_keys!(test_job, ["runs-on", "steps"])
     assert test_job["runs-on"] == "ubuntu-latest"
 
@@ -368,7 +436,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     cache_key = step!(steps, "Restore test caches") |> get_in(["with", "key"])
 
     assert cache_key ==
-             "test-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}"
+             "acceptance-${{ runner.os }}-${{ hashFiles('mix.lock', 'package-lock.json', 'build/project.exs') }}"
 
     asset_index = Enum.find_index(steps, &(&1["name"] == "Build browser assets"))
     e2e_index = Enum.find_index(steps, &(&1["name"] == "Run Chromium acceptance tests"))
@@ -380,10 +448,10 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
              "run" => "devenv processes down"
            }
 
-    assert_upstream_comments!("test.yml")
+    assert_upstream_comments!("e2e.yml")
   end
 
-  test "documented complete verification sequence exactly covers CI and Tests" do
+  test "documented complete verification sequence exactly covers CI, Tests and Manual Acceptance" do
     readme_block = complete_verification_block!("README.md")
 
     plan_block =
@@ -411,6 +479,11 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
 
     assert ordered_subsequence?(test_commands, plan_commands),
            "Tests workflow commands are not an ordered subsequence of the canonical release plan\nTests: #{inspect(test_commands, pretty: true)}\nplan: #{inspect(plan_commands, pretty: true)}"
+
+    acceptance_commands = workflow_verification_commands("e2e.yml", "acceptance")
+
+    assert ordered_subsequence?(acceptance_commands, plan_commands),
+           "Manual Acceptance workflow commands are not an ordered subsequence of the canonical release plan"
   end
 
   test "complete verification scanner ignores inline and nested fenced block lookalikes" do
@@ -754,6 +827,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
 
     promote_run = step!(steps, "Promote immutable image digest")["run"]
     assert promote_run =~ ~S<"$IMAGE_NAME@$IMAGE_DIGEST">
+    assert promote_run =~ ~S<--tag "$IMAGE_NAME:$RELEASE_TAG">
     assert promote_run =~ ~S<--tag "$IMAGE_NAME:$VERSION">
     assert promote_run =~ ~S<--tag "$IMAGE_NAME:$MINOR_VERSION">
     assert promote_run =~ ~S<--tag "$IMAGE_NAME:latest">
@@ -762,7 +836,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     |> Enum.take(promote_index)
     |> Enum.each(fn step ->
       refute inspect(step, limit: :infinity) =~
-               ~r/\$IMAGE_NAME:(?:\$VERSION|\$MINOR_VERSION|latest)/
+               ~r/\$IMAGE_NAME:(?:\$RELEASE_TAG|\$VERSION|\$MINOR_VERSION|latest)/
     end)
 
     release_run = step!(steps, "Create GitHub Release")["run"]
@@ -779,7 +853,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
     assert release_run =~ ~S<gh release create "$RELEASE_TAG">
     assert release_run =~ "--generate-notes"
 
-    refute File.exists?(Path.join([@repo_root, ".github", "workflows", "e2e.yml"]))
+    assert workflow!("e2e.yml")["on"] == %{"workflow_dispatch" => nil}
   end
 
   test "release verification executes the parsed runnable descriptor classifier" do
@@ -1378,6 +1452,7 @@ defmodule Singularity.Architecture.ReleaseContainerContractTest do
       exit 1
     fi
     docker buildx imagetools create \
+      --tag "$IMAGE_NAME:$RELEASE_TAG" \
       --tag "$IMAGE_NAME:$VERSION" \
       --tag "$IMAGE_NAME:$MINOR_VERSION" \
       --tag "$IMAGE_NAME:latest" \

@@ -486,6 +486,7 @@ jobs:
             exit 1
           fi
           docker buildx imagetools create \
+            --tag "$IMAGE_NAME:$RELEASE_TAG" \
             --tag "$IMAGE_NAME:$VERSION" \
             --tag "$IMAGE_NAME:$MINOR_VERSION" \
             --tag "$IMAGE_NAME:latest" \

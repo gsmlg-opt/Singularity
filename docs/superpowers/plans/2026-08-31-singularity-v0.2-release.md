@@ -1040,6 +1040,7 @@ devenv shell -- mix xref graph --format cycles --fail-above 0
 nix run nixpkgs#actionlint -- \
   .github/workflows/ci.yml \
   .github/workflows/test.yml \
+  .github/workflows/e2e.yml \
   .github/workflows/release.yml \
   .github/workflows/docker-image.yml
 

@@ -333,11 +333,15 @@ releases that are not the designated latest stable release retain their named
 image tag without changing `latest`. Release-state API checks fail closed; an
 unavailable or invalid response cannot authorize `latest` promotion.
 
-The existing `Release` workflow remains unchanged: it already verifies and
-publishes images, including its minor-version aliases, before creating a GitHub
-Release using `GITHUB_TOKEN`. Those token-created release events do not trigger a
-second downstream image workflow. Human-, GitHub App-, or PAT-published releases
-can trigger the new workflow. See [GitHub's trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+The existing `Release` workflow verifies and publishes images before creating
+the GitHub Release. It promotes the exact release tag (for example, `v0.2.0`),
+the existing numeric version (`0.2.0`), minor-version alias (`0.2`), and
+`latest` from the same verified digest under its existing stable-release guards.
+It creates the release using `GITHUB_TOKEN`; those token-created release events
+do not trigger a second downstream image workflow. Human-, GitHub App-, or
+PAT-published releases can trigger Docker Image, which publishes their exact
+release tag and updates `latest` only when eligible.
+See [GitHub's trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
 
 The repository must retain the existing `GHCR_TOKEN` secret with write access to
 the `gsmlg-dev/singularity` package namespace. `GITHUB_TOKEN` supplies read-only
