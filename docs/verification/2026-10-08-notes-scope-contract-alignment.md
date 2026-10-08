@@ -32,6 +32,9 @@ Red: 12 tests, one expected failure, seed `518595`, exit 2. Worker green: 32
 tests, zero failures, seed `789533`, exit 0. Parent repetition: six domain and
 26 web tests, zero failures, seed `225257`, exit 0. Formatting and whitespace
 checks passed. Independent specification and quality reviews both approved.
+After committing the approval documentation at `2b037f1`, the parent repeated
+the same four-file focused command: 32 tests, zero failures, seed `536492`,
+exit 0.
 
 No assertion was skipped, weakened, deleted, or reclassified. A subsequent
 parent full unit run completed successfully with seed `710289`:
