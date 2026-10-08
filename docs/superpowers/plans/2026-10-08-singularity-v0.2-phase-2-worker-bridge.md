@@ -18,6 +18,10 @@ The SQL slice is implemented and accepted locally at
 `b8db6d562d072c2de5dc77635d29159080d1401a`; see its
 [review and verification record](../../verification/2026-10-08-document-worker-sql-bridge.md).
 Task 12 and Phase 2 remain incomplete.
+The bounded adapter/exhaustion slice is implemented and accepted locally at
+`0cc65c0cfa6c98144c0842ac01c8326248fa6674`; see its
+[review and exact-source verification record](../../verification/2026-10-08-document-worker-adapter.md).
+This does not accept Runtime extraction or source-replay composition.
 The historical lifecycle failure is resolved by a separate authorized repair.
 Before production implementation, code steps require complete focused contracts and SQL/Elixir
 bodies under the writing-plans self-review gate. No unchecked item is accepted
