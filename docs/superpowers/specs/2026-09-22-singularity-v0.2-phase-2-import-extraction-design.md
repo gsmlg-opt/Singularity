@@ -7,6 +7,14 @@ implementation-boundary amendments were approved on 2026-09-23: a bounded
 Poppler process bridge, a worker-only Document binding resolver, and the
 strict Document job envelope case.
 
+The owner approved the [worker bridge amendment](2026-10-08-singularity-v0.2-phase-2-worker-bridge-proposal.md)
+on 2026-10-08: four worker-only metadata/lifecycle SQL entrypoints, a separate
+bounded storage adapter, and typed worker receipts. This extends the earlier
+boolean custody predicate without changing that predicate, public repository
+types, canonical grants, or existing lease semantics. Its detailed plan governs
+Task 12's implementation. Standing repository approval removes routine approval
+prompts, not phase verification or the existing restriction on running E2E.
+
 ## Authority and delivery boundary
 
 This design covers Phase 2 of

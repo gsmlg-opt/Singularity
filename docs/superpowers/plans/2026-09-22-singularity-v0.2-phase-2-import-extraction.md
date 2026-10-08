@@ -455,7 +455,17 @@ Also validate each UUID with `Ecto.UUID.cast/1` in this Runtime boundary; the gu
 
 ### Task 12: Worker extraction, custody deferral, and terminal failure fencing
 
-**Files:** Create `apps/singularity_runtime/lib/singularity/runtime/documents/extract.ex` and `apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`. Modify `apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex` and `application.ex`, and `apps/singularity_storage/lib/singularity/storage/postgres/document_repository.ex` for `record_exhaustion/4`.
+**Approved 2026-10-08 amendment:** Follow
+`docs/superpowers/specs/2026-10-08-singularity-v0.2-phase-2-worker-bridge-proposal.md`
+and its detailed worker-bridge plan. Actual WorkerRepo privileges cannot use the
+public full-model repository for this job. The separate DocumentWorkerRepository
+owns four bounded SQL entrypoints and `record_exhaustion/4`; public repository
+callbacks and canonical grants remain unchanged. The worker returns a typed
+receipt, not a partial DocumentVersion. Existing lease and GenericWorker behavior
+remain unchanged. This amendment supersedes only the storage composition and
+success/exhaustion types below; all other Task 12 requirements remain mandatory.
+
+**Files:** Create `apps/singularity_runtime/lib/singularity/runtime/documents/extract.ex`, `apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`, `apps/singularity_storage/lib/singularity/storage/postgres/document_worker_repository.ex`, its focused tests, and a new forward worker-bridge migration. Modify `apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex` and `application.ex`. Do not add exhaustion handling to public DocumentRepository.
 
 - [ ] **Step 1: Add failing worker tests with fakes and real storage.** Cover text/Markdown/PDF ready result, duplicate logical job resume, custody unavailable before claim → `{:snooze, 60}` and `pending`, digest mismatch before claim → sanitized incident with no attempt, transient post-claim failure → `failed`/`timeout` or `extractor_failed`, deterministic unsupported outcomes, worker kill after claim, and an already-claimed worker finishing after deletion. A stale logical job/generation cannot write ready or failure. On final Oban exhaustion, only the current claimed job/generation records `failed`; an unclaimed locked job, recovered generation, or ready result is unchanged. Assert no search rows appear on a failed attempt.
 
@@ -463,7 +473,7 @@ Also validate each UUID with `Ecto.UUID.cast/1` in this Runtime boundary; the gu
 assert {:snooze, 60} = Extract.run(context, envelope)
 assert {:ok, %{state: :pending, generation: 0}} =
          DocumentRepository.get_version(repository_context, resource_id, version_id)
-assert {:ok, %{state: :ready, fragments: [_ | _]}} =
+assert {:ok, %{state: :ready, generation: 1}} =
          run_after_unlock(context, envelope)
 ```
 
@@ -481,9 +491,9 @@ case custodian.lease(custodian_context, request) do
 end
 ```
 
-`read_verify_claim_extract_complete/3` is private in the new worker. It returns `{:ok, DocumentVersion.t()}`, `{:snooze, 1 | 60}`, or a sanitized `{:error, %Error{}}`. Map internal extraction reasons only to Phase 1's allowlisted `failure_code` and `failed`/`unsupported`; never pass Poppler output or stderr through `Error.message`/`details`.
+`read_verify_claim_extract_complete/3` is private in the new worker. It returns `{:ok, DocumentWorkerRepository.receipt()}`, `{:snooze, 1 | 60}`, or a sanitized `{:error, %Error{}}`. Map internal extraction reasons only to Phase 1's allowlisted `failure_code` and `failed`/`unsupported`; never pass Poppler output or stderr through `Error.message`/`details`.
 
-- [ ] **Step 4: Wire terminal handling.** Add `document_extract` to `JobDispatcher.handle/2` and the job dependency map. Add a `handle_failure/4` clause that calls `DocumentRepository.record_exhaustion/4` only for a terminal Oban failure and only if `attempt_job_id == envelope.job_id`, state is `extracting`, and generation matches. `GenericWorker` already invokes the terminal handler; do not modify its normalization. A custody snooze is not an error and cannot mark `failed`.
+- [ ] **Step 4: Wire terminal handling.** Add `document_extract` to `JobDispatcher.handle/2` and the job dependency map. Add a `handle_failure/4` clause that calls `DocumentWorkerRepository.record_exhaustion/4` only for a terminal Oban failure and only if `attempt_job_id == envelope.job_id`, state is `extracting`, and generation matches. `GenericWorker` already invokes the terminal handler; do not modify its normalization. A custody snooze is not an error and cannot mark `failed`.
 
 - [ ] **Step 5: Prove green and commit.** Run `devenv shell -- mix test apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs apps/singularity_runtime/test/singularity/runtime/metadata_job_test.exs apps/singularity_runtime/test/singularity/runtime/metadata_unlock_resume_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_asset_events_test.exs`. Expected: pass, unchanged Asset behavior. Commit as `feat(runtime): extract document jobs with fenced outcomes`.
 

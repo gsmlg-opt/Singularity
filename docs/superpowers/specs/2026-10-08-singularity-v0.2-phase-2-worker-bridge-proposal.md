@@ -1,14 +1,19 @@
 # Phase 2 Document worker bridge proposal
 
-**Status: proposed, not approved.** This document grants no implementation,
-migration, production activation, merge, push, tag, release, or deployment authority.
+**Status: approved amendment, 2026-10-08.** The owner explicitly approved the
+requested contract repair, forward migration, four worker-only SQL entrypoints,
+bounded adapter, and receipt/exhaustion amendments, with standing approval to
+continue repository work without routine approval prompts. Production activation
+and publication still require their verification gates. E2E remains prohibited
+until the owner's existing restriction is lifted.
 
 Date: 2026-10-08. Source inspected at
 `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b` on
 `codex/v0.2-phase-2-import-extraction`. The reviewed contract repair is now on
-main and origin/main at that same revision; this unapproved proposal is separate.
+main and origin/main at that same revision. This amendment was reviewed and saved
+as proposal commit `e6397e7e940a9ff6bf6b96764dafd010059fc6a3` before approval.
 
-This is a proposed narrow amendment to Task 12 of the
+This is the approved narrow amendment to Task 12 of the
 [approved Phase 2 plan](../plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md)
 and its [design](2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md).
 The [contract-repair record](../../verification/2026-10-08-phase-2-contract-alignment.md)
@@ -38,9 +43,9 @@ and direct grants on existing lifecycle functions are not acceptable alternative
 
 ## 2. Scope and unchanged boundaries
 
-The amendment would authorize only a forward migration, the worker adapter and
+The amendment authorizes only a forward migration, the worker adapter and
 its focused storage tests, and Task 12's already-planned Runtime worker/wiring/tests.
-It would change Task 12's success type to a typed worker receipt and move its
+It changes Task 12's success type to a typed worker receipt and moves its
 planned `record_exhaustion/4` method to the worker adapter.
 
 Public `Documents.Repository` callbacks, public DocumentVersion reads,
@@ -278,9 +283,9 @@ Database errors use existing sanitized mappings, never raw diagnostic/parameter
 text. No failed attempt leaves fragments or search rows. GenericWorker remains
 unchanged; its existing success normalization accepts `{:ok, receipt}`.
 
-## 9. Proposed file boundary
+## 9. Approved file boundary
 
-After approval and a detailed implementation plan, the narrow additions are:
+Under this approval and a detailed implementation plan, the narrow additions are:
 
 - New forward migration `20261008000000_document_worker_bridge.exs`; recheck
   timestamp uniqueness before creation. No migration with this timestamp was
@@ -333,10 +338,12 @@ and file ownership. Full Phase 2 acceptance still requires the complete README
 gate. E2E remains unrun under the user's restriction; that restriction does not
 waive the acceptance requirement. No release readiness is implied.
 
-## 11. Approval requested
+## 11. Approval record
 
-Approve together: the four worker-only SQL entrypoints and forward migration,
-the separate bounded adapter, and Task 12's receipt-return/exhaustion-placement
-amendments. This proposal is not approval of a migration or implementation.
-Until explicit approval, retain the current permissions and stop affected
-production implementation; independent already-approved work may continue.
+The owner's 2026-10-08 instruction, "approve, do not ask again, approve all works
+in this repo", approves together the four worker-only SQL entrypoints and forward
+migration, the separate bounded adapter, Task 12's receipt-return/exhaustion
+placement amendments, and the additional stale Notes scope-contract repair.
+Proceed with the detailed plan, TDD, scoped verification and independent review.
+This approval does not establish phase acceptance, waive a failing gate, authorize
+Vault feature work, or lift the existing restriction on running E2E.
