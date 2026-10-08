@@ -2,8 +2,10 @@
 
 Date: 2026-10-08
 
-Status: written specification approved by the user on 2026-10-08; implementation
-explicitly authorized. Publication and deployment remain separately gated.
+Status: written specification approved and implementation explicitly authorized
+by the user on 2026-10-08. Implemented locally at
+`ac4497ef733be18f2ac985ab188af64c7b98e90b`; focused/static checks and independent
+spec/quality reviews passed. Publication and deployment remain separately gated.
 
 ## Goal and approved boundary
 
@@ -124,10 +126,13 @@ inspection confirmed origin `https://github.com/gsmlg-opt/Singularity.git` and
 remote `main` at `a80957da41582de40bdf586a0cba1e14644acf0a`; it does not yet contain
 the locally merged Docker Image workflow.
 
-After written-spec approval, prepare the detailed implementation plan. Execute
-in `.trees/workflow-test-policy` on `codex/workflow-test-policy`, using focused
+Written-spec approval and local implementation are complete. The implementation
+plan is `docs/superpowers/plans/2026-10-08-workflow-test-policy.md`; execution used
+`.trees/workflow-test-policy` on `codex/workflow-test-policy`, with focused
 red/green architecture contracts, formatting for changed tests, actionlint for
 all five workflows, shell syntax checks, zero-cycle xref, and `git diff --check`.
-Record exact source commits, commands/results, changed files, and remaining
-hosted-run risks. No E2E execution, GitHub dispatch, image build/publication,
-push, merge, or product acceptance is included in these local checks.
+Exact source commits, commands/results, changed files, and remaining hosted-run
+risks are recorded in
+`docs/deployment/2026-10-08-workflow-test-policy-verification.md`. No E2E execution,
+GitHub dispatch, image build/publication, push, merge, or product acceptance
+occurred in these local checks.

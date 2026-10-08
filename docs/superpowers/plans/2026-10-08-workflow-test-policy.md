@@ -28,7 +28,7 @@ Do not revert another contributor's edits. Use `apply_patch` for all local edits
 - Modify: `.github/workflows/release.yml` (promotion only)
 - Modify: `apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs`
 
-- [ ] **Step 1: Characterize clean baseline**
+- [x] **Step 1: Characterize clean baseline**
 
 ```bash
 devenv shell -- mix deps.get
@@ -37,7 +37,7 @@ devenv shell -- mix test apps/singularity_web/test/singularity/architecture/rele
 
 Expected: 28 tests, 0 failures on unchanged source. Dependency lock must stay unchanged.
 
-- [ ] **Step 2: Add failing contracts before workflow changes**
+- [x] **Step 2: Add failing contracts before workflow changes**
 
 Replace the old combined automatic acceptance test with these two complete tests.
 Keep every original manual acceptance assertion; no scanner/helper relaxation.
@@ -228,7 +228,7 @@ Finally, the canonical actionlint command constant becomes:
 "nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/e2e.yml .github/workflows/release.yml .github/workflows/docker-image.yml"
 ```
 
-- [ ] **Step 3: Run RED and report exact failures before implementation**
+- [x] **Step 3: Run RED and report exact failures before implementation**
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
@@ -238,7 +238,7 @@ Expected failures: Tests still contains acceptance steps; e2e.yml missing;
 literal release tag missing; documented lint enumeration still old.
 Main can update documentation after RED evidence is recorded.
 
-- [ ] **Step 4: Implement the minimal approved workflows**
+- [x] **Step 4: Implement the minimal approved workflows**
 
 Complete replacement `test.yml`:
 
@@ -424,7 +424,7 @@ In release.yml replace only the promotion invocation with:
             "$IMAGE_NAME@$IMAGE_DIGEST"
 ```
 
-- [ ] **Step 5: Verify GREEN, format, lint, and review**
+- [x] **Step 5: Verify GREEN, format, lint, and review**
 
 After Task 2 documentation lands:
 
@@ -451,7 +451,7 @@ Owner: main agent. Start documentation edits only after Task 1 RED is recorded.
 - Modify: this plan and approved spec status
 - Create: `docs/deployment/2026-10-08-workflow-test-policy-verification.md`
 
-- [ ] **Step 1: Synchronize lint commands without removing product gates**
+- [x] **Step 1: Synchronize lint commands without removing product gates**
 
 Insert `.github/workflows/e2e.yml` immediately after test.yml in README and the
 canonical release plan's existing actionlint command. Keep every other command.
@@ -490,7 +490,7 @@ release tag and updates `latest` only when eligible.
 See [GitHub's trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
 ```
 
-- [ ] **Step 2: Run integrated focused checks independently**
+- [x] **Step 2: Run integrated focused checks independently**
 
 ```bash
 devenv shell -- mix test apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs apps/singularity_web/test/singularity/architecture/docker_image_workflow_contract_test.exs
@@ -500,11 +500,27 @@ devenv shell -- mix xref graph --format cycles --fail-above 0
 git diff --check
 ```
 
-Actionlint checks embedded shell syntax; additionally parse changed workflow run
-blocks via the existing YamlElixir dependency and run `bash -n` on their shell
-content without executing it. Full acceptance/E2E remains unrun.
+Actionlint checks embedded shell syntax. Additionally check the changed workflow
+run blocks without executing them:
 
-- [ ] **Step 3: Commit reviewed workflow/documentation changes**
+```bash
+devenv shell -- env MIX_ENV=test mix run --no-start -e '
+for name <- ["test.yml", "e2e.yml", "release.yml"] do
+  workflow = YamlElixir.read_from_file!(".github/workflows/" <> name)
+  for {_job_name, job} <- workflow["jobs"], step <- job["steps"], is_binary(step["run"]) do
+    source = Regex.replace(~r/\$\{\{.*?\}\}/s, step["run"], "checked-expression")
+    {output, status} = System.cmd("bash", ["-n", "-c", source], stderr_to_stdout: true)
+    if status != 0, do: raise("#{name}/#{step["name"]}: #{output}")
+    IO.puts("syntax OK: #{name}/#{step["name"]}")
+  end
+end
+'
+```
+
+GitHub expression placeholders are substituted only for syntax checking.
+Full acceptance/E2E remains unrun.
+
+- [x] **Step 3: Commit reviewed workflow/documentation changes**
 
 ```bash
 git add .github/workflows/test.yml .github/workflows/e2e.yml .github/workflows/release.yml apps/singularity_web/test/singularity/architecture/release_container_contract_test.exs README.md docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md docs/deployment/docker.md
@@ -512,7 +528,7 @@ git diff --cached --check
 git commit -m "ci(github): update github actions workflows"
 ```
 
-- [ ] **Step 4: Record evidence and hand off without publication**
+- [x] **Step 4: Record evidence and hand off without publication**
 
 Record actual test/lint/xref/syntax commands, exit codes/counts/seeds, reviewed
 source commit, seven changed implementation files, no migrations or Vault
