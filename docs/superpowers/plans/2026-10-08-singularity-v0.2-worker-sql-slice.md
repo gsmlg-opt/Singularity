@@ -8,7 +8,7 @@
 
 **Tech Stack:** PostgreSQL 17, Ecto migrations, Postgrex, ExUnit integration alias, devenv.
 
-**Readiness:** Execution-ready for this SQL slice only. The coordinator has reviewed the complete migration below against the approved amendment and initial actual-role contracts. Adapter and Runtime implementation remain governed by their separate detailed steps. Missing functions in the initial red run are the intended failure, not a failed repair attempt.
+**Readiness:** Implemented and accepted locally for this SQL slice only at `b8db6d562d072c2de5dc77635d29159080d1401a`, with independent spec/quality approval and post-commit scoped verification. Adapter and Runtime implementation remain governed by their separate detailed steps. Missing functions in the initial red run are the intended failure, not a failed repair attempt.
 
 ---
 
@@ -53,7 +53,7 @@ MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps devenv shell -- mix
 MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs
 ```
 - [x] Extend focused tests for post-wait revocation, all four isolation guards, denied raw/helper execution, complete durable-event/live-authority matrices, source binding and stale successor fences, fragment validation, and privacy. Write each contract before changing enforced behavior; record initial-slice gaps instead of claiming full bridge acceptance.
-- [ ] Obtain spec review, repair findings, then code-quality review. Coordinator reruns the exact focused command and the selected lifecycle/custody regression command in the execution record. Commit only reviewed, passing owned files and evidence.
+- [x] Obtain spec review, repair findings, then code-quality review. Coordinator reruns the exact focused command and the selected lifecycle/custody regression command in the execution record. Commit only reviewed, passing owned files and evidence.
 
 ## Migration implementation
 

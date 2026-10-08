@@ -12,6 +12,10 @@
 The SQL-only implementation now has a separate execution-ready
 [complete-code slice plan](2026-10-08-singularity-v0.2-worker-sql-slice.md).
 This does not lift readiness requirements for adapter or Runtime work below.
+The SQL slice is implemented and accepted locally at
+`b8db6d562d072c2de5dc77635d29159080d1401a`; see its
+[review and verification record](../../verification/2026-10-08-document-worker-sql-bridge.md).
+Task 12 and Phase 2 remain incomplete.
 The historical lifecycle failure is resolved by a separate authorized repair.
 Before production implementation, code steps require complete focused contracts and SQL/Elixir
 bodies under the writing-plans self-review gate. No unchecked item is accepted
