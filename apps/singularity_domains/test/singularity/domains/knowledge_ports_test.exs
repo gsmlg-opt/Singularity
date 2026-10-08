@@ -4,7 +4,18 @@ defmodule Singularity.Domains.KnowledgePortsTest do
   test "canonical repository boundaries expose only approved typed operations" do
     for {module, expected} <- [
           {Singularity.Domains.Documents.Repository,
-           [create_pending: 2, get_version: 3, claim: 5, complete: 2, reset_failed: 3]},
+           [
+             create_pending: 2,
+             get_version: 3,
+             claim: 6,
+             complete: 3,
+             reset_failed: 5,
+             recover_expired: 3,
+             get_live_scoped: 3,
+             list_live_scoped: 3,
+             fragments_live_scoped: 3,
+             source_live_scoped: 3
+           ]},
           {Singularity.Domains.KnowledgeLinks.Repository, [insert_set: 2, list_set: 3]},
           {Singularity.Domains.Tags.Repository, [resolve: 2, attach: 3, detach: 3, list: 2]},
           {Singularity.Domains.Relationships.Repository,
@@ -26,8 +37,30 @@ defmodule Singularity.Domains.KnowledgePortsTest do
         assert rendered =~ "Singularity.Core.Error.t()"
 
         case {module, name} do
-          {Singularity.Domains.Documents.Repository, _} ->
-            assert rendered =~ "Singularity.Core.DocumentVersion.t()"
+          {Singularity.Domains.Documents.Repository, operation} ->
+            success =
+              case operation do
+                :fragments_live_scoped ->
+                  "{:ok, [Singularity.Core.DocumentFragment.t()]}"
+
+                :source_live_scoped ->
+                  "{:ok, map()}"
+
+                :list_live_scoped ->
+                  "{:ok, %{items: [Singularity.Core.DocumentVersion.t()], next_cursor: String.t() | nil}}"
+
+                _ ->
+                  "{:ok, Singularity.Core.DocumentVersion.t()}"
+              end
+
+            expected_return =
+              Code.string_to_quoted!(success <> " | {:error, Singularity.Core.Error.t()}")
+              |> Macro.to_string()
+
+            for specification <- specifications do
+              assert {:"::", _, [_, return]} = Code.Typespec.spec_to_quoted(name, specification)
+              assert Macro.to_string(return) == expected_return
+            end
 
           {Singularity.Domains.KnowledgeLinks.Repository, _} ->
             assert rendered =~ "Singularity.Core.NoteSourceSet.t()"

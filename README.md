@@ -16,17 +16,16 @@ The Elixir umbrella is split into seven applications with a fixed dependency gra
 
 ## Active `0.2.0` scope
 
-Phase 0 is accepted at `6c3e8d5afb2cc9dbf264d276796070e16aa49e55`.
-The active implementation slice is Phase 1 under the
-[approved canonical-model design](docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md)
-and [detailed implementation plan](docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md).
-Later phases require their own approved design and detailed implementation plan
-after their predecessors are accepted.
+Phase 1 is accepted locally at `a80957da41582de40bdf586a0cba1e14644acf0a`.
+The active implementation slice is Phase 2 under the
+[approved import/extraction design](docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md)
+and [detailed implementation plan](docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md).
+Later phases still require separate approved designs and detailed plans.
+Version bumps, tags, releases, pushes, and deployments remain separately gated.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
 and browser behavior remain in their designated later phases.
-Version bumps, tags, releases, pushes, and deployments require separate authorization.
 
 Phase 2 must provide original-byte retention and abandoned extraction recovery
 before public import. Phase 4 must seal Note source-set membership before enabling
