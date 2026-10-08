@@ -289,6 +289,11 @@ Final cumulative counters: failed Sol production repair rounds 0; Astra attempts
 A accessor 1, B source-size fixture 1. No failed production repair is hidden or
 counter reset by moving to C.
 
+### Historical preparation-only approval
+
+The following records the pre-implementation checkpoint, superseded by the
+completed exact-commit verification above; it is not the current B status.
+
 Main personally read all 1,209 lines of the final complete-code B plan, including
 all six code blocks and mandatory B/C ledgers. The plan proposes 31 contracts
 (7 ready/replay, 15 authentication/authority, 3 progress, 4 restart, 2 tombstone).
@@ -304,8 +309,8 @@ lease to manufacture cleanup success. Existing A test bytes stay frozen.
 Main gives B TEST GO for the plan's scoped test-only append and serial focused
 verification. The shared Mix slot is assigned to the B worker until released.
 No production GO is given. An unexpected contract failure must be retained and
-reported before a production edit. No B tests, source edits, independent review
-approval or integration acceptance are yet claimed.
+reported before a production edit. At that checkpoint, no B tests, source edits,
+independent review approval or integration acceptance were yet claimed.
 
 No E2E, external publication, push, merge,
 tag, release, deployment, schema/migration, Vault feature/compatibility patch,
