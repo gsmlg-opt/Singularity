@@ -2,9 +2,8 @@
 
 Date: 2026-10-08
 
-Status: proposed split approved in conversation; written specification awaiting
-user review before implementation-plan preparation. No implementation or
-publication is authorized by this document alone.
+Status: written specification approved by the user on 2026-10-08; implementation
+explicitly authorized. Publication and deployment remain separately gated.
 
 ## Goal and approved boundary
 
