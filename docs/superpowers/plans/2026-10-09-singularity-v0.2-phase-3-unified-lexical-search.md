@@ -890,6 +890,83 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 ## Task 6: Narrow Document projection worker and dispatch
 
+Task 5 is committed locally at
+`5e5917212d4ead14d4de35f5bdc7c440bb2cf75e`. Task 6 baseline characterization
+passed before edits: the existing codec/Oban unit suite had **16 tests, zero
+failures**, and the existing Note projection dispatcher had **3 tests, zero
+failures**, seed `328616`; the existing Outbox dispatcher integration suite
+had **13 tests, zero failures**, seed `587992`, in 5.9 seconds. The integration
+database was cleaned and the owned PostgreSQL instance stopped. A fresh Sol
+worker is writing focused contracts before production changes.
+
+Initial unit RED: **17 Storage tests, one expected failure**, and **8 Runtime
+tests, three expected failures**, seed `756377`. The codec rejects the new
+valid job and the dispatcher lacks its handler; existing tests remain green.
+Malformed-envelope negative contracts already fail closed. No production file
+had changed during this RED run.
+The initial Outbox integration RED then reported **15 tests, one expected
+failure**, seed `754681`, in 5.3 seconds: the three new lifecycle events were
+not mapped to jobs. All existing 13 Outbox contracts passed, as did rejection
+of malformed new event payloads. The owned database was cleaned and PostgreSQL
+stopped. A subsequent contract uses the actual Oban reservation and queue;
+the earlier fake-runner replay check alone is not durable-reservation evidence.
+After adding the real reservation, historical-event/current-head, scoped
+adapter identity, shared authorization lock, and bigint-bound contracts,
+the repeated unit RED remained **17/1 Storage and 8/3 Runtime**, seed `414453`.
+The combined integration RED reported **20 new worker tests, 20 expected
+failures**, plus **16 Outbox tests, two expected failures**, seed `372771`,
+5.5 seconds per application. Missing worker SQL/adapter/ACL and event mappings
+caused the failures, not fixture setup. No production files had changed;
+the owned database was cleaned and PostgreSQL stopped.
+
+The final pre-implementation non-owner-principal contract was included in a
+focused authority RED: **21 tests, seven expected failures, 14 excluded**
+(seven executed), seed `610444`, in 2.4 seconds. All seven reached the absent
+worker SQL function; no fixture failed. Only after this run completed and
+owned PostgreSQL stopped was Task 6 production implementation authorized.
+
+First GREEN: **17 Storage unit tests and 19 Runtime unit tests, zero
+failures**, seed `162980`, including the unchanged Note dispatcher and Runtime
+application composition. The first integration GREEN passed **21 worker
+tests and 16 Outbox tests, zero failures**, seed `721670`, in 7.5 and 5.5
+seconds respectively. The latter includes real Oban reservation identity,
+queue selection and replay. Both commands exited zero; the integration
+database was cleaned and owned PostgreSQL stopped. No failed production
+repair round or Astra escalation was needed.
+
+The combined Task 4/5/6 and unchanged Document extraction regression passed
+**181 Storage tests plus 16 Runtime Outbox tests, zero failures**, seed
+`784820`, in 69.6 and 10.0 seconds respectively (197 total). It exited zero,
+cleaned the isolated database and stopped owned PostgreSQL. Independent
+specification review passed, followed by a separate independent quality
+review with no actionable findings. No E2E or full
+phase acceptance gate has run, and no publication or Vault feature work
+occurred.
+Scoped formatting of all 13 changed Elixir/config/test files, compilation
+with warnings as errors, and `git diff --check` passed. Xref reported zero
+cycles; the seven-application graph remains unchanged.
+
+The existing durable-job authority snapshot has no expiry timestamp or session
+binding. This task tests its actual invalidation rules (revoked principal,
+membership or capability, disabled account, and stale checked epochs), without
+adding a new session/expiry policy. Session expiry belongs to the authenticated
+API checks in Task 8. The worker calls the existing ungranted
+`reconcile_search_resource_internal(owner, resource)` only with owner derived
+from validated scoped context; no public owner argument is added.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/outbox_oban_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_note_projection_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/outbox_dispatcher_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/outbox_oban_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_document_projection_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_note_projection_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs apps/singularity_runtime/test/singularity/runtime/outbox_dispatcher_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs:254
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/outbox_oban_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_document_projection_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_note_projection_test.exs apps/singularity_runtime/test/singularity/runtime/application_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs apps/singularity_runtime/test/singularity/runtime/outbox_dispatcher_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format --check-formatted apps/singularity_storage/priv/repo/migrations/20261009000400_document_projection_worker.exs apps/singularity_runtime/lib/singularity/runtime/documents/projection.ex apps/singularity_storage/lib/singularity/storage/jobs/envelope_codec.ex apps/singularity_storage/lib/singularity/storage/jobs/oban_adapter.ex apps/singularity_storage/lib/singularity/storage/postgres/search_projection_reconciler.ex apps/singularity_runtime/lib/singularity/runtime/outbox_dispatcher.ex apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex apps/singularity_runtime/lib/singularity/runtime/application.ex config/config.exs apps/singularity_storage/test/singularity/storage/outbox_oban_test.exs apps/singularity_runtime/test/singularity/runtime/outbox_dispatcher_test.exs apps/singularity_runtime/test/singularity/runtime/job_dispatcher_document_projection_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix compile --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix xref graph --format cycles
+```
+
 **Files:** Create the `20261009000400` migration,
 `apps/singularity_runtime/lib/singularity/runtime/documents/projection.ex`,
 `apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs`,
@@ -899,10 +976,10 @@ reconciler adapter, Runtime `outbox_dispatcher.ex`, `job_dispatcher.ex`,
 `application.ex`, and existing owning codec/outbox tests; add only the required
 queue entry in `config/config.exs` if the established queue mapping needs one.
 
-- [ ] RED: reject an otherwise valid `document_projection` envelope before
+- [x] RED: reject an otherwise valid `document_projection` envelope before
   adding it to the closed codec/dispatcher mappings; test malformed keys,
   content-bearing payloads, wrong capability/classification, and key/job mismatch.
-- [ ] Add a worker-only definer with the accepted bridge prefix:
+- [x] Add a worker-only definer with the accepted bridge prefix:
 
 ```sql
 (requested_resource uuid, requested_version uuid, requested_job uuid,
@@ -915,12 +992,12 @@ queue entry in `config/config.exs` if the established queue mapping needs one.
   outbox type/key/payload/revision/identity. Dispatch acknowledgment is not
   retirement. It invokes the private current-state builder and returns count
   metadata only. Worker canonical/projection SELECT and direct DML stay denied.
-- [ ] Add `document_projection` JSON codec validation with `asset.read`,
+- [x] Add `document_projection` JSON codec validation with `asset.read`,
   private classification, exact two-ID payload, and event-UUID idempotency key.
   Map the three events to that job; keep durable reservations keyed by existing
   outbox identity. Runtime handler validates the closed envelope before DB work
   and routes sanitized errors through existing retry/terminal behavior.
-- [ ] Test duplicate/out-of-order events; ready-after-delete and
+- [x] Test duplicate/out-of-order events; ready-after-delete and
   delete-after-restore must reconcile current state. Cover revoked/expired
   authority, wrong creator/owner, substituted IDs/epochs, absent/retired events,
   no source content in job metadata, and preserved extraction envelopes.
@@ -930,7 +1007,7 @@ devenv shell -- mix test apps/singularity_runtime/test/singularity/runtime/job_d
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/document_projection_worker_test.exs
 ```
 
-- [ ] Review and commit `feat(runtime): dispatch authorized document projection jobs`.
+- [x] Review and commit `feat(runtime): dispatch authorized document projection jobs`.
 
 ## Task 7: PostgreSQL search, literal fallback, and signed keysets
 

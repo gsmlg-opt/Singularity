@@ -27,6 +27,7 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Storage.Postgres.DocumentWorkerRepository
   alias Singularity.Storage.Postgres.NoteProjectionReconciler
   alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.Postgres.SearchProjectionReconciler
 
   @impl true
   def start(_type, _args) do
@@ -117,6 +118,7 @@ defmodule Singularity.Runtime.Application do
         {LocalDestination,
          %{backup_root: Application.fetch_env!(:singularity_storage, :backup_root)}},
       document_worker: DocumentWorkerRepository,
+      document_projection: SearchProjectionReconciler,
       document_extractors: %{
         "text/plain" => {Text, "plain_text", 1},
         "text/markdown" => {Markdown, "markdown", 1},

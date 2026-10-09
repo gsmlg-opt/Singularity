@@ -14,6 +14,7 @@ defmodule Singularity.Runtime.JobDispatcher do
   alias Singularity.Runtime.Assets.Verify
   alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.Documents.Extract
+  alias Singularity.Runtime.Documents.Projection, as: DocumentProjection
   alias Singularity.Runtime.DownloadLease
   alias Singularity.Runtime.KeyCustodian
   alias Singularity.Runtime.KeyLease
@@ -58,6 +59,9 @@ defmodule Singularity.Runtime.JobDispatcher do
   def handle(context, %{job_type: "document_extract"} = envelope),
     do: Extract.run(context, envelope)
 
+  def handle(context, %{job_type: "document_projection"} = envelope),
+    do: DocumentProjection.run(context, envelope)
+
   def handle(_context, _envelope), do: {:error, Error.new(:job_failed)}
 
   @doc false
@@ -68,6 +72,15 @@ defmodule Singularity.Runtime.JobDispatcher do
   end
 
   def wake_waiting(_command), do: {:error, Error.new(:invalid)}
+
+  @impl true
+  def handle_failure(
+        _context,
+        %JobEnvelope{job_type: "document_projection"},
+        %Error{} = failure,
+        _attempt
+      ),
+      do: {:error, Error.new(failure.code, retryable?: failure.retryable?)}
 
   @impl true
   def handle_failure(

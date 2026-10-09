@@ -192,6 +192,52 @@ defmodule Singularity.Storage.OutboxObanTest do
     end
   end
 
+  test "document projection binds an exact IDs-only private read envelope to its event UUID" do
+    valid =
+      encoded_envelope()
+      |> Map.put("job_type", "document_projection")
+      |> Map.put("required_capability", "asset.read")
+      |> Map.put("idempotency_key", "document-projection:#{uuid(1)}")
+      |> Map.put("payload", %{
+        "resource_id" => uuid(10),
+        "resource_version_id" => uuid(11)
+      })
+
+    assert {:ok, %JobEnvelope{job_type: "document_projection"} = envelope} =
+             EnvelopeCodec.decode(valid)
+
+    assert {:ok, ^valid} = EnvelopeCodec.encode(envelope)
+    assert EnvelopeCodec.known_job_type?("document_projection")
+
+    for field <-
+          ~w(expected_entity_revision principal_authorization_epoch vault_authorization_epoch) do
+      assert {:ok, _} = EnvelopeCodec.decode(Map.put(valid, field, 9_223_372_036_854_775_807))
+
+      assert {:error, %{code: :job_failed}} =
+               EnvelopeCodec.decode(Map.put(valid, field, 9_223_372_036_854_775_808))
+    end
+
+    for invalid <-
+          [
+            Map.put(valid, "idempotency_key", "document-projection:#{uuid(2)}"),
+            Map.put(valid, "idempotency_key", "document-projection:#{uuid(1)}:7"),
+            Map.put(valid, "required_capability", "asset.write"),
+            Map.put(valid, "classification", "sensitive"),
+            Map.put(valid, "unexpected", @secret),
+            Map.delete(valid, "principal_authorization_epoch"),
+            Map.put(valid, "payload", %{resource_id: uuid(10), resource_version_id: uuid(11)}),
+            put_in(valid, ["payload", "resource_version_id"], "invalid"),
+            Map.put(valid, "payload", %{"resource_id" => uuid(10)})
+          ] ++
+            for(
+              field <- ~w(title body snippet locator tag_labels query digest),
+              do: put_in(valid, ["payload", field], @secret)
+            ) do
+      assert {:error, %{code: :job_failed}} = EnvelopeCodec.decode(invalid)
+      refute inspect(EnvelopeCodec.decode(invalid)) =~ @secret
+    end
+  end
+
   test "document extraction recovery keys bind the positive expected generation" do
     resource_id = uuid(10)
     resource_version_id = uuid(11)

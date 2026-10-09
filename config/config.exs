@@ -155,6 +155,7 @@ config :singularity_storage, Oban,
     object_cleanup: 1,
     note_projection: 2,
     document_extract: 2,
+    document_projection: 2,
     backup: 1,
     maintenance: 1
   ]

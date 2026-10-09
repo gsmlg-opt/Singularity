@@ -343,6 +343,161 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert [%{job_id: ^job_id}, %{job_id: ^job_id}] = FakeRunner.calls(runner)
   end
 
+  test "document lifecycle transitions keep distinct event jobs across repeated dispatch",
+       %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+
+    payload = %{
+      "resource_id" => load_uuid(fixture.resource_id),
+      "resource_version_id" => load_uuid(fixture.resource_version_id)
+    }
+
+    events =
+      for type <- ~w(document.ready document.deleted document.restored) do
+        event = Fixtures.outbox_event!(fixture)
+
+        owner_query(
+          """
+          UPDATE core.outbox_events SET event_type=$1, idempotency_key=$2,
+            required_capability='asset.read', expected_entity_revision=0,
+            payload=$3::text::jsonb WHERE id=$4
+          """,
+          [type, "document-projection:#{load_uuid(event.id)}", JSON.encode!(payload), event.id]
+        )
+
+        event
+      end
+
+    assert {:ok, %{submitted: 3, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    envelopes =
+      for _ <- events do
+        assert_receive {:runner_submit, envelope, _runner_id}
+        assert envelope.job_type == "document_projection"
+        assert envelope.required_capability == "asset.read"
+        assert envelope.classification == :private
+        assert envelope.expected_entity_revision == 0
+        assert envelope.payload == payload
+        assert envelope.idempotency_key == "document-projection:#{envelope.job_id}"
+        assert {:ok, _} = EnvelopeCodec.encode(envelope)
+        envelope
+      end
+
+    assert Enum.sort(Enum.map(envelopes, & &1.job_id)) ==
+             Enum.sort(Enum.map(events, &load_uuid(&1.id)))
+
+    Enum.each(events, fn event ->
+      owner_query(
+        "UPDATE core.outbox_events SET delivered_at=NULL,claim_token=NULL,claimed_until=NULL WHERE id=$1",
+        [event.id]
+      )
+    end)
+
+    assert {:ok, %{submitted: 3, failed: 0}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    assert FakeRunner.submission_count(runner) == 3
+  end
+
+  test "document projection rejects substituted event keys and content payloads before submit", %{
+    runner: runner
+  } do
+    fixture = Fixtures.two_vaults!().one
+
+    payload = %{
+      "resource_id" => load_uuid(fixture.resource_id),
+      "resource_version_id" => load_uuid(fixture.resource_version_id)
+    }
+
+    for {field, value} <- [
+          {"body", "DOCUMENT_PROJECTION_CONTENT_CANARY"},
+          {"locator", %{"heading_path" => ["DOCUMENT_PROJECTION_CONTENT_CANARY"]}},
+          {"resource_version_id", "invalid"},
+          {:key, Ecto.UUID.generate()}
+        ] do
+      event = Fixtures.outbox_event!(fixture)
+      key_id = if field == :key, do: value, else: load_uuid(event.id)
+      event_payload = if field == :key, do: payload, else: Map.put(payload, field, value)
+
+      owner_query(
+        """
+        UPDATE core.outbox_events SET event_type='document.ready', idempotency_key=$1,
+          required_capability='asset.read', payload=$2::text::jsonb WHERE id=$3
+        """,
+        ["document-projection:#{key_id}", JSON.encode!(event_payload), event.id]
+      )
+    end
+
+    assert {:ok, %{submitted: 0, failed: 4}} =
+             OutboxDispatcher.dispatch_once(dispatcher_options(runner))
+
+    refute_receive {:runner_submit, _, _}
+    assert FakeRunner.calls(runner) == []
+  end
+
+  test "document projection uses a real durable Oban reservation keyed by retained event identity",
+       %{runner: runner} do
+    fixture = Fixtures.two_vaults!().one
+    event = Fixtures.outbox_event!(fixture)
+    job_id = load_uuid(event.id)
+
+    owner_query(
+      """
+      UPDATE core.outbox_events SET event_type='document.ready', idempotency_key=$1,
+        required_capability='asset.read', payload=$2::text::jsonb WHERE id=$3
+      """,
+      [
+        "document-projection:#{job_id}",
+        JSON.encode!(%{
+          "resource_id" => load_uuid(fixture.resource_id),
+          "resource_version_id" => load_uuid(fixture.resource_version_id)
+        }),
+        event.id
+      ]
+    )
+
+    options =
+      dispatcher_options(runner)
+      |> Map.merge(%{job_runner: CountingRunner, job_runner_context: %{observer: self()}})
+
+    assert {:ok, %{submitted: 1, failed: 0}} = OutboxDispatcher.dispatch_once(options)
+    assert_receive {:counting_runner_submit, ^job_id}
+
+    assert %{rows: [[runner_id, "document_projection", args]]} =
+             owner_query(
+               """
+               SELECT submission.runner_job_id,job.queue,job.args FROM jobs.job_submissions submission
+               JOIN jobs.oban_jobs job ON job.id=submission.runner_job_id::bigint
+               WHERE submission.outbox_event_id=$1
+               """,
+               [event.id]
+             )
+
+    assert args["job_id"] == job_id
+    assert args["idempotency_key"] == "document-projection:#{job_id}"
+    assert {:ok, _} = EnvelopeCodec.decode(args)
+
+    owner_query(
+      "UPDATE core.outbox_events SET delivered_at=NULL,claim_token=NULL,claimed_until=NULL WHERE id=$1",
+      [event.id]
+    )
+
+    assert {:ok, %{submitted: 1, failed: 0}} = OutboxDispatcher.dispatch_once(options)
+
+    assert %{rows: [[^runner_id]]} =
+             owner_query(
+               "SELECT runner_job_id FROM jobs.job_submissions WHERE outbox_event_id=$1",
+               [event.id]
+             )
+
+    assert %{rows: [[1]]} =
+             owner_query(
+               "SELECT count(*) FROM jobs.oban_jobs WHERE args->>'job_id'=$1",
+               [job_id]
+             )
+  end
+
   test "retry and restore extraction generations encode and submit with stable dedupe", %{
     runner: runner
   } do

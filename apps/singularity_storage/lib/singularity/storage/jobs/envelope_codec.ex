@@ -12,7 +12,8 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
     "asset_metadata" => {"asset.read", "asset-metadata"},
     "asset_cleanup" => {"asset.write", "asset-cleanup"}
   }
-  @job_types Map.keys(@asset_jobs) ++ ~w[object_cleanup note_projection document_extract backup]
+  @job_types Map.keys(@asset_jobs) ++
+               ~w[object_cleanup note_projection document_extract document_projection backup]
 
   @spec encode(JobEnvelope.t()) :: {:ok, map()} | {:error, Error.t()}
   def encode(%JobEnvelope{} = envelope) do
@@ -185,6 +186,23 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
   end
 
   defp safe_job_contract?(%JobEnvelope{
+         job_type: "document_projection",
+         job_id: job_id,
+         required_capability: "asset.read",
+         classification: :private,
+         idempotency_key: idempotency_key,
+         expected_entity_revision: revision,
+         principal_authorization_epoch: principal_epoch,
+         vault_authorization_epoch: owner_epoch,
+         payload: %{"resource_id" => resource_id, "resource_version_id" => version_id} = payload
+       })
+       when map_size(payload) == 2 do
+    canonical_uuid?(resource_id) and canonical_uuid?(version_id) and
+      idempotency_key == "document-projection:#{job_id}" and
+      Enum.all?([revision, principal_epoch, owner_epoch], &bigint?/1)
+  end
+
+  defp safe_job_contract?(%JobEnvelope{
          job_type: "backup",
          required_capability: "backup.create",
          idempotency_key: idempotency_key,
@@ -196,6 +214,9 @@ defmodule Singularity.Storage.Jobs.EnvelopeCodec do
   end
 
   defp safe_job_contract?(_envelope), do: false
+
+  defp bigint?(value),
+    do: is_integer(value) and value >= 0 and value <= 9_223_372_036_854_775_807
 
   defp safe_note_idempotency?(key, resource_id, revision) do
     case String.split(key, ":") do
