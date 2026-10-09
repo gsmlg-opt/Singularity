@@ -1,7 +1,7 @@
 # Singularity v0.2 Live Import Qualification Design
 
 Date: 2026-10-09
-Status: Independently reviewed; parent Test GO under standing approval.
+Status: Bounded local qualification passed; independent Astra reviews clear.
 This document authorizes no production
 change. Baseline inspected: `52d9df11bd943ab7808896be3d0c49e9c7c7808a` in
 `.trees/v0.2-phase-2-import-extraction`.
@@ -163,17 +163,23 @@ integrity failure. Do not broaden its accepted result list to obtain green.
 An unexpected result is a diagnostic stop, not
 permission to amend production or weaken the contract.
 
-Privacy capture starts after fixture construction and ends before observation
-SQL. Attach to the repos' actual `telemetry_prefix ++ [:query]` events and
-existing relevant runtime telemetry; detach reliably. After temporary grants
-unwind, perform one explicit denied `SafeSQL` read through WorkerRepo as a
-capture control and require its real
+Privacy capture surrounds only each actual public import call, after grant
+setup and before observation SQL or fresh-checkout assertions. Attach to the
+repos' actual `telemetry_prefix ++ [:query]` events and existing relevant
+runtime telemetry; drain and detach reliably before test-owned SQL resumes.
+After temporary grants unwind, capture one explicit denied `SafeSQL` read
+through WorkerRepo in a separate window using the same listener mechanism;
+require its real
 `[:singularity, :authorization, :rls_denial]` event with bounded metadata.
 Keep this control distinguishable from events produced by import itself.
-RequestRepo's established `default_options/1` and SafeSQL disable query
-telemetry; empty query capture is therefore expected and must be reported as
+Runtime Repo operations' established `default_options/1` and SafeSQL disable
+query telemetry. Test-only raw `DataCase.query!` does not inherit that option,
+so setup and observation SQL must stay outside these windows. Empty actual
+query capture is expected and must be reported as
 query metadata not produced, not positive capture of real query metadata.
-Do not enable query telemetry for the test. Inspect entire terms
+Report actual query-event counts; do not reject safe emitted metadata merely
+because a query event exists. Do not enable query telemetry for the test.
+Inspect entire terms
 with unlimited printable/collection limits, including raw and inspected
 representations of the binary canaries. Authorized successful Document
 results intentionally contain title and digest; only errors and side-channel

@@ -21,7 +21,12 @@ KeyCustodian/DownloadLease, ChunkedAEAD, local Asset storage.
 `docs/superpowers/specs/2026-10-09-singularity-v0.2-live-import-qualification-design.md`.
 
 **Status:** Test-only GO at `52d9df11bd943ab7808896be3d0c49e9c7c7808a` after
-parent and independent Astra review; no new qualification tests run yet.
+parent and independent Astra review. All bounded tasks passed: final focused
+gate 35 executions, 0 failures; corrected test source SHA-256
+`9f361db0524d89856ea1b9dbbef8610e33253a4b1193c58d816bff89bebcb31c`.
+Independent Astra SPEC and QUALITY reviews are clear. Exact commands,
+diagnostic corrections, cleanup, and boundaries are recorded in
+`docs/verification/2026-10-09-phase-2-task-15-matrix.md`.
 This is a Task 15 Step 1 supplement. Full Task 15, E2E,
 and complete Phase 2 acceptance remain incomplete; E2E is NOT RUN.
 
@@ -61,7 +66,7 @@ fallbacks, broader grants, or migrations to make the test pass.
 - `apps/singularity_runtime/lib/singularity/runtime/documents/import.ex` and
   `operation_scope.ex`.
 
-- [ ] **Step 1: Add the owning module and exact real runtime map.**
+- [x] **Step 1: Add the owning module and exact real runtime map.**
 
 Use `Singularity.Runtime.DocumentImportLiveTest`,
 `use Singularity.Storage.DataCase, async: false`, `@moduletag :integration`,
@@ -101,7 +106,7 @@ config = %{
 }
 ```
 
-- [ ] **Step 2: Build the private nonempty encrypted-Asset fixture.**
+- [x] **Step 2: Build the private nonempty encrypted-Asset fixture.**
 
 Copy only `install_live_object!/5`'s existing implementation into this new
 module. Adapt `empty_original_fixture!/2` into `live_fixture!/2` taking the
@@ -126,7 +131,7 @@ The fixture must assert its initial owner has zero Document resources,
 Document versions, receipts, and extraction events before invoking import.
 This catches accidental reuse of the precreated-Document reference fixture.
 
-- [ ] **Step 3: Add SQL observation helpers with owner-filtered results.**
+- [x] **Step 3: Add SQL observation helpers with owner-filtered results.**
 
 Implement private `import_rows/1` using `Fixtures.with_owner/1`, returning
 the actual rows from `content.resources` with `kind='document'`,
@@ -179,7 +184,7 @@ and new jobs remain absent. In a fresh `RequestRepo.checkout/1`, assert
 `refute RequestRepo.in_transaction?()` and that current owner/principal
 settings are nil or empty, as required by `ScopedRepo`.
 
-- [ ] **Step 4: Run the first characterization contract.**
+- [x] **Step 4: Run the first characterization contract.**
 
 Parent runs from the Phase 2 worktree:
 
@@ -197,7 +202,7 @@ mistakes inside this file; do not change production behavior.
 
 **Modify:** only the new live import test file.
 
-- [ ] **Step 1: Add exact and changed replay assertions.**
+- [x] **Step 1: Add exact and changed replay assertions.**
 
 Within the grant wrapper, import with `title: "  " <> f.title <> "  "`, then
 replay using canonical `f.title` and string request keys. Assert identical
@@ -217,7 +222,7 @@ assert {:error, :conflict} =
   Api.import_document(f.config, f.session, %{attrs | asset_id: Ecto.UUID.generate()})
 ```
 
-- [ ] **Step 2: Add real cross-owner refusal.**
+- [x] **Step 2: Add real cross-owner refusal.**
 
 Build a second independently valid live fixture under another child of the
 test directory, with its own session/custodian and owner. Call its real API
@@ -225,7 +230,7 @@ config using the first fixture's Asset ID and a fresh mutation. Require
 `{:error, :not_found}`; both owners' import effects remain zero. Do not merely
 replace the owner ID inside the first session.
 
-- [ ] **Step 3: Add locked custody and revoked session refusal.**
+- [x] **Step 3: Add locked custody and revoked session refusal.**
 
 For locked custody, build `live_fixture!(tmp_dir, activate?: false)` but keep
 the DTO `unlocked?: true`, then require `{:error, :vault_locked}`. For a
@@ -245,7 +250,7 @@ Both cases require zero canonical/receipt/extraction-event writes and no
 fragments/search/job effects. Audit denial rows may be added and are subject
 to privacy assertions; do not incorrectly require zero audit activity.
 
-- [ ] **Step 4: Add real ciphertext authentication refusal.**
+- [x] **Step 4: Add real ciphertext authentication refusal.**
 
 After the fixture is ready, flip one ciphertext byte in its exact
 `object_path` using the following test-only action. Finalization makes this
@@ -263,7 +268,7 @@ Keep expected ciphertext hash and size metadata unchanged. Require zero
 import effects. An unexpected code, success, exception, or partial write is
 RED; do not broaden the accepted error list to obtain green.
 
-- [ ] **Step 5: Run only the new file again with seed 41123.**
+- [x] **Step 5: Run only the new file again with seed 41123.**
 
 Use Task 1 Step 4's command. Expected: every added case executes and passes.
 Stop on a valid behavioral failure; keep ordinary fixture repair separate
@@ -273,7 +278,7 @@ from any proposed production repair.
 
 **Modify:** only the new live import test file.
 
-- [ ] **Step 1: Add a real deletion case with its existing capability.**
+- [x] **Step 1: Add a real deletion case with its existing capability.**
 
 Grant `asset.write` only to this fixture principal using the established
 capability-assignment SQL pattern. After successful import, read the Asset's
@@ -295,7 +300,7 @@ new download audit after deletion. Filter import effects separately from
 legitimate Asset deletion audit/outbox effects. Do not run cleanup workers;
 cleanup collision and retained-original read tests remain separate owners.
 
-- [ ] **Step 2: Run the new file with seed 41123.**
+- [x] **Step 2: Run the new file with seed 41123.**
 
 Expected: replay succeeds despite the persisted Asset deletion, with no new
 import effects. A valid failure is handed back as RED without altering the
@@ -305,14 +310,18 @@ deletion, receipt, or custody implementations.
 
 **Modify:** only the new test file and these qualification documents.
 
-- [ ] **Step 1: Capture side channels around actual import calls.**
+- [x] **Step 1: Capture side channels around actual import calls.**
 
 Use `ExUnit.CaptureLog.capture_log/1`. Attach a uniquely named telemetry
 handler to actual query event names from RequestRepo, WorkerRepo,
 MigrationRepo, and DispatcherRepo plus existing authorization-denial runtime
 events. Record complete metadata with a test-owned token; detach with
-`on_exit/1` and after normal completion. Attach after fixture SQL. Once the
-grant wrappers unwind, run this explicit real denial as a capture control:
+`on_exit/1` and after normal completion. Attach only for each actual API call,
+after grant setup; drain and detach before observation or fresh-scope SQL.
+Test-only raw `DataCase.query!` does not inherit Repo `default_options`, so
+capturing grant/observation queries would test the harness instead of import.
+Once grant wrappers unwind, attach a separate window using the same capture
+mechanism and run this explicit real denial as a capture control:
 
 ```elixir
 assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
@@ -327,7 +336,9 @@ Require the actual `[:singularity, :authorization, :rls_denial]` event with
 `%{count: 1}` and `%{repo: :worker}` from this control. Drain before observation
 SQL. Do not attribute the control event to import. RequestRepo's existing
 `default_options/1` and SafeSQL set `telemetry_event: nil`; query capture can
-legitimately be empty. Report that as query metadata not produced, while
+legitimately be empty. Report actual query-event counts and scan all emitted
+metadata; do not add a blanket rejection of safe query telemetry. Report an
+empty actual window as query metadata not produced, while
 the real denial proves the listener was active. Do not enable query telemetry
 or claim positive query-metadata coverage from an empty capture.
 Follow the established capture pattern in
@@ -349,7 +360,7 @@ this test does not execute a dispatcher or prove newly produced Oban args;
 those remain owning dispatch/worker matrix assertions. Do not fabricate a
 job row or synthetic metadata value to claim live privacy evidence.
 
-- [ ] **Step 2: Run focused verification and one deterministic repeat.**
+- [x] **Step 2: Run focused verification and one deterministic repeat.**
 
 Parent runs these commands serially from the worktree:
 
@@ -367,7 +378,7 @@ is used because the approved local environment does not provide it. Record
 actual test/exclusion counts rather than predicting them. A failure in an
 existing regression is reported and stops this slice; do not repair it here.
 
-- [ ] **Step 3: Record and hand back the exact result.**
+- [x] **Step 3: Record and hand back the exact result.**
 
 Record baseline/final SHA, changed files, commands, seeds, executed counts,
 sanitized failures if any, and grant restoration evidence. Mark only the
