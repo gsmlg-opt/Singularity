@@ -125,7 +125,7 @@ classification, entry identity, and ordinal from search summaries.
 **Files:** Create `apps/singularity_core/lib/singularity/core/search_source.ex`
 and `apps/singularity_core/test/singularity/core/search_source_test.exs`.
 
-- [ ] Add a failing real-constructor contract before adding the module. Use
+- [x] Add a failing real-constructor contract before adding the module. Use
   UUIDs `00000000-0000-4000-8000-000000000a01` and
   `00000000-0000-4000-8000-000000000a02` for resource/version:
 
@@ -143,9 +143,9 @@ assert {:ok, "note:00000000-0000-4000-8000-000000000a02"} =
          apply(Singularity.Core.SearchSource, :entry_id, [source])
 ```
 
-- [ ] Run `devenv shell -- mix do --app singularity_core test test/singularity/core/search_source_test.exs`.
+- [x] Run `devenv shell -- mix do --app singularity_core test test/singularity/core/search_source_test.exs`.
   Expected RED: the missing source constructor, not a database or fixture error.
-- [ ] Implement a four-field enforced struct and `new/1`, using
+- [x] Implement a four-field enforced struct and `new/1`, using
   `KnowledgeValidation.attrs/2` and `Types.canonical_uuid/2`. Require all four
   keys after normalization. Revalidate only this module's structs via
   `Map.from_struct/1`; reject other structs. Accept `:note`/`"note"` and
@@ -163,15 +163,24 @@ def entry_id(input) do
 end
 ```
 
-- [ ] Add one failing case at a time for string keys, matching/conflicting
+- [x] Add focused cases for string keys, matching/conflicting
   aliases, missing keys, extra owner/locator/text fields, unknown kind, malformed
   UUIDs, invalid fragment bytes/length/case, wrong-kind fragments, keyword
   duplicate conflicts, other structs, and handcrafted invalid/extra-field
   structs. Every public entrypoint returns the existing sanitized
   `{:error, %Error{code: :invalid}}`, without input content.
-- [ ] Run the owning file and the baseline locator/link files, format those
+- [x] Run the owning file and the baseline locator/link files, format those
   files, review spec then quality, and commit
   `feat(core): add exact search source selectors`.
+
+Task 1 execution: missing-module RED was 1/1 failing (seed 507621), followed
+by 1/1 passing (971676). The expanded identity/invalid-input group produced
+3/11 failures (372617), exposing Document support and extra-alias forged
+struct acceptance. After correction, the owning 11 tests plus baseline
+21 tests and 2 properties passed (429003), then passed again after formatting
+(745052). Scoped formatting passed. Separate
+read-only spec and quality reviewers both passed these two files; neither
+claimed runtime or phase acceptance. No database, grant, API, or Vault change.
 
 ## Task 2: Typed query, result, page, and shared policy
 
