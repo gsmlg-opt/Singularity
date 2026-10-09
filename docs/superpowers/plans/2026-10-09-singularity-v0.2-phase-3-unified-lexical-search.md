@@ -800,22 +800,69 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 ## Task 5: Transactional Document lifecycle events
 
+Task 4 is committed locally at
+`cb60599670db25bb852cdff454c5400f8f7e139b`. Before any Task 5 source changes,
+the unchanged Document repository and worker-repository suites passed:
+**91 tests, zero failures**, seed `145960`, in 73.8 seconds. The isolated
+database was cleaned up and the owned PostgreSQL instance stopped. New
+lifecycle-event contracts were written before the forward migration;
+existing extraction, custody, and released migration files remained unchanged.
+The new event module then reported **RED, 13 tests, 9 expected failures**,
+seed `665218`, in 10.8 seconds. The absent events, uncalled faulting event
+inserts, stale rows after deletion, and Document-before-Resource row lock
+were all observed against the unchanged producers. Four existing
+retry/recovery/authority/isolation contracts passed. The owned database was
+cleaned up and PostgreSQL stopped before authorizing the new forward migration.
+The Runtime lifecycle already holds its compatibility and shared authorization
+locks through `OperationScope.with_shared_request/4`; the worker bridge also
+holds the established authorization lock. The migration changes the target's
+row locks to explicit Resource then Document order, preserving those callers
+and their existing authority/isolation rules rather than inventing a new
+web-isolation or custody policy.
+
+The forward migration's first GREEN run passed **13 tests, zero failures**,
+seed `649804`, in 9.5 seconds. The combined lifecycle, existing Document
+repository/worker, and all four Task 4 reconciliation/search suites then passed
+**160 tests, zero failures**, seed `447737`, in 62.9 seconds. Both commands
+exited zero, cleaned their isolated databases, and stopped the owned PostgreSQL
+instance. Retention assertions cover canonical source pins and unchanged
+stored-object metadata, not live decryption or new custody qualification.
+Scoped formatting, warnings-as-errors compilation, and `git diff --check`
+passed; xref reported zero cycles. Specification review passed, followed by
+quality review with no actionable findings. No existing extraction tests or
+released migrations were edited, and no Vault feature/custody change, E2E,
+full phase gate, merge, push, release, deployment, or activation occurred.
+Three attempts to dispatch a fresh quality-review agent failed with the
+runner's `agent thread limit reached` error. A separate quality stage was
+therefore assigned to the existing reviewer, who did not author the code;
+this is not evidence of two different reviewers or a substitute for the
+later full-phase review.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format --check-formatted apps/singularity_storage/priv/repo/migrations/20261009000300_document_projection_events.exs apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix compile --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix xref graph --format cycles
+```
+
 **Files:** Create the `20261009000300` migration and
 `apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs`.
 Read, but never modify, the existing extraction-attempt, terminal-tombstone,
 runtime-mutations, and worker-bridge migrations.
 
-- [ ] Add failing integration tests around actual `complete`, `delete`, and
+- [x] Add failing integration tests around actual `complete`, `delete`, and
   `restore` paths. Assert exactly one identifier-only event on each real
   transition, none for terminal/no-op replay, and distinct keys across two
   complete delete→restore cycles on the same immutable version/generation.
-- [ ] Forward-replace the current definitions of
+- [x] Forward-replace the current definitions of
   `content.complete_document_extraction`, `content.delete_document_runtime`,
   and `content.restore_document_runtime`, preserving all existing checks and
   signatures. Add event insertion only after the successful real state change,
   in the same transaction. Keep the exact-ready replay early return event-free.
   Deletion also deletes the resource's unified rows synchronously.
-- [ ] Event types are `document.ready`, `document.deleted`,
+- [x] Event types are `document.ready`, `document.deleted`,
   `document.restored`; payload is exactly the two IDs:
 
 ```elixir
@@ -827,11 +874,11 @@ runtime-mutations, and worker-bridge migrations.
   checked authorization epochs, `asset.read`, private classification, and the
   current immutable revision snapshot using the existing outbox shape. Never
   substitute creator identity for the actual actor or use generation as the key.
-- [ ] Express Resource-before-Document row locking explicitly in the forward
+- [x] Express Resource-before-Document row locking explicitly in the forward
   definition of `document_runtime_target`; preserve existing outer locks and
   every creator/capability/isolation check. A completion after tombstone still
   persists valid canonical extraction, but its projection remains hidden.
-- [ ] Assert event-insertion failure rolls back the canonical transition,
+- [x] Assert event-insertion failure rolls back the canonical transition,
   source pin/bytes remain retained, and old extraction retry/recovery events
   keep their unchanged contract. No extractor or custody changes are allowed.
 
@@ -839,7 +886,7 @@ runtime-mutations, and worker-bridge migrations.
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs
 ```
 
-- [ ] Review and commit `feat(storage): emit durable document projection events`.
+- [x] Review and commit `feat(storage): emit durable document projection events`.
 
 ## Task 6: Narrow Document projection worker and dispatch
 
