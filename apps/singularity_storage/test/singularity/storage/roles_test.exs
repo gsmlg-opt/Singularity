@@ -251,7 +251,7 @@ defmodule Singularity.Storage.RolesTest do
     end
   end
 
-  test "Document pin count is worker-only and does not grant direct Document reads" do
+  test "Document pin count is worker-only and direct Document reads are web-only" do
     signature = "content.document_source_pin_count(uuid,uuid)"
 
     assert %{rows: [[true, ["search_path=pg_catalog, content, core"]]]} =
@@ -262,7 +262,7 @@ defmodule Singularity.Storage.RolesTest do
              )
 
     for role <- @runtime_roles do
-      assert %{rows: [[can_execute?, false]]} =
+      assert %{rows: [[can_execute?, can_read?]]} =
                query!(
                  RequestRepo,
                  "SELECT has_function_privilege($1,$2,'EXECUTE'), has_table_privilege($1,'content.document_versions','SELECT')",
@@ -270,6 +270,7 @@ defmodule Singularity.Storage.RolesTest do
                )
 
       assert can_execute? == (role == "singularity_worker")
+      assert can_read? == (role == "singularity_web")
     end
   end
 

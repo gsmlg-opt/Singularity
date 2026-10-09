@@ -23,6 +23,7 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
 
   setup do
     source = KnowledgeFixtures.prepared_source!()
+    grant_asset_read!(source)
 
     %{
       source: source,
@@ -206,15 +207,15 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
     grants(fn ->
       {:ok, document} = DocumentRepository.create_pending(c.context, c.command)
 
-      {:ok, _} =
-        DocumentRepository.claim(
-          c.context,
-          document.resource_version_id,
-          0,
-          document.resource_version_id,
-          "plain",
-          1
-        )
+      assert {:ok, %DocumentVersion{generation: 1} = claimed} =
+               DocumentRepository.claim(
+                 c.context,
+                 document.resource_version_id,
+                 0,
+                 document.resource_version_id,
+                 "plain",
+                 1
+               )
 
       {:ok, _} =
         DocumentRepository.complete(
@@ -224,6 +225,8 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
         )
 
       stale = completion(document, :ready)
+      reset_generation = claimed.generation + 1
+      next_generation = reset_generation + 1
 
       race(
         c,
@@ -235,18 +238,19 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
         fn -> DocumentRepository.complete(c.context, document.resource_version_id, stale) end
       )
 
-      assert {:ok, %DocumentVersion{state: :pending, generation: 1, fragments: nil}} =
+      assert {:ok,
+              %DocumentVersion{state: :pending, generation: ^reset_generation, fragments: nil}} =
                DocumentRepository.get_version(
                  c.context,
                  document.resource_id,
                  document.resource_version_id
                )
 
-      assert {:ok, %DocumentVersion{state: :extracting, generation: 2}} =
+      assert {:ok, %DocumentVersion{state: :extracting, generation: ^next_generation}} =
                DocumentRepository.claim(
                  c.context,
                  document.resource_version_id,
-                 1,
+                 reset_generation,
                  Ecto.UUID.generate(),
                  "plain",
                  1
@@ -255,7 +259,8 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
       assert {:error, %Error{code: :conflict}} =
                DocumentRepository.complete(c.context, document.resource_version_id, stale)
 
-      assert {:ok, %DocumentVersion{state: :extracting, generation: 2, fragments: nil}} =
+      assert {:ok,
+              %DocumentVersion{state: :extracting, generation: ^next_generation, fragments: nil}} =
                DocumentRepository.get_version(
                  c.context,
                  document.resource_id,
@@ -523,6 +528,27 @@ defmodule Singularity.Storage.KnowledgeConcurrencyTest do
                  "SELECT count(*) FROM content.document_fragments WHERE resource_version_id=$1",
                  [uuid(document.resource_version_id)]
                )
+    end)
+  end
+
+  defp grant_asset_read!(source) do
+    Fixtures.with_owner(fn ->
+      # Model the unlocked custody required by the Document import path.
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
     end)
   end
 

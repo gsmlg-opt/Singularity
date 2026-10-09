@@ -41,6 +41,7 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
 
   setup do
     source = KnowledgeFixtures.prepared_source!()
+    grant_asset_read!(source)
 
     binary_source =
       Map.new(source, fn {key, value} ->
@@ -338,6 +339,27 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
     }
 
     if kind == :document, do: Map.put(value, :state, :ready), else: value
+  end
+
+  defp grant_asset_read!(source) do
+    Fixtures.with_owner(fn ->
+      # Model the unlocked custody required by the Document import path.
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
+    end)
   end
 
   defp grants(fun) do

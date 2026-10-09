@@ -546,6 +546,16 @@ defmodule Singularity.Storage.BackupConcurrencyTest do
          raw_fixture: raw_fixture,
          raw_other: raw_other
        } do
+    owner_query!(
+      "INSERT INTO core.capabilities (id, name) VALUES ($1, 'backup.create') ON CONFLICT (name) DO NOTHING",
+      [Ecto.UUID.dump!(Ecto.UUID.generate())]
+    )
+
+    owner_query!(
+      "INSERT INTO core.principal_capabilities (principal_id, vault_id, capability_id) SELECT $1, $2, id FROM core.capabilities WHERE name = 'backup.create'",
+      [raw_fixture.principal_id, raw_fixture.vault_id]
+    )
+
     expected_inventory = seed_inventory_fixture!(fixture, other)
     same_vault_event = Fixtures.outbox_event!(raw_fixture)
     _other_vault_event = Fixtures.outbox_event!(raw_other)

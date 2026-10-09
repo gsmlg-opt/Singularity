@@ -76,11 +76,12 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
   end
 
   def with_direct_mutation_grants(fun) when is_function(fun, 0) do
-    with_permissions(
+    with_preserved_permissions(
       for(
         table <- ~w(document_versions document_fragments),
         role <- @roles,
-        do: {"SELECT, INSERT, UPDATE, DELETE ON content.#{table}", role}
+        privilege <- ~w(SELECT INSERT UPDATE DELETE),
+        do: {"TABLE content.#{table}", role, privilege}
       ),
       fun
     )

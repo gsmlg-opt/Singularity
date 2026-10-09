@@ -265,6 +265,17 @@ resource/version IDs internally and derives owner scope from the session.
 Application-facing input cannot select a different owner, source version,
 object, digest, or attempt generation.
 
+The read-grant amendment approved on 2026-10-09 permits `singularity_web`
+to SELECT exactly `content.document_versions` and
+`content.document_fragments` under their existing forced RLS policies.
+Runtime reads continue to require the authenticated `asset.read` context.
+The worker, pre-authentication and dispatcher roles retain their direct
+SELECT denials on these tables; all runtime roles retain direct write
+denials. Historical grant assertions must express this exact exception,
+including cross-owner and missing-scope denial, rather than a blanket
+denial of web reads. Temporary test grants must restore the preceding
+privileges on both success and failure.
+
 Status is canonical PostgreSQL state, not Oban state. Fragment reads return a
 complete ordered set only for a live, ready version. Original reads are
 authorized by the live Document rather than by current visibility of the

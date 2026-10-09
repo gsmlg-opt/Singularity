@@ -1409,3 +1409,94 @@ Its two wording corrections were applied: worker denials concern direct SELECT,
 not approved guarded reads; cleanup followed a failed gate attempt, not completed
 acceptance. The reviewer ran no tests or services. Parent checked the final diff;
 this documentation-only record does not change the exact tested code SHA above.
+
+## Approved Document-read contract reconciliation
+
+On 2026-10-09 the user approved the recommended amendment and requested continued
+implementation. This resolves the authority blocker recorded above. The Phase 2
+spec and plan now state the exact web-only SELECT exception for Document versions
+and fragments, preserve all other role/direct-write denials, and authorize the
+corresponding schema inventory and local fixture repairs. Two Astra workers own
+the grant/schema and authorization-fixture changes separately. Parent owns all
+Mix, database, review, commit and gate execution. E2E remains excluded by the
+earlier user instruction; no complete Phase 2 acceptance is inferred from that
+exclusion.
+
+Fresh regression RED evidence on the unchanged grant helper: success cleanup
+session `10706` (one executed failure, eight excluded) and exception cleanup
+session `45431` (one executed failure, nine excluded), both seed `458307`, exited
+2. Both passed their initial baseline and temporary-grant checks, then observed
+web SELECT false instead of true after cleanup. Separate isolated databases were
+used: `59ba15899e70d14ded03505b` and `f95f780d5fbf39bbc7e10261`. The second
+invocation also compiled the additional baseline web isolation contract, hence
+the different excluded count. The helper repair reuses existing per-privilege
+preservation and does not alter production grants.
+
+The backup failure was separately classified by Astra as a direct Phase 2
+compatibility issue: `snapshot_cut/2` now calls the approved unsupported-row
+guard, which requires `backup.create`. The legacy test's local owner had no
+capability assignment. The guard raises SQLSTATE `42501`, normalized by the
+exporter to `:storage_unavailable`; it has no unlocked-owner prerequisite.
+Parent reproduced the existing failure in session `90432`, exit 2, one executed
+failure and nine excluded, seed `458307`, database
+`singularity_test_912c47e026c81bc73884d1c2`. The correction is confined to the
+single production-cut test fixture, matching the existing owning exporter
+fixture. No backup assertion, global fixture, lock, key, capability policy or
+Vault behavior changes.
+
+The first combined repaired run (`31748`, seed `458307`) executed 88 cases,
+with two failures. One was a parent invocation error: overriding `PGHOST`
+after entering the implementation shell left
+`SINGULARITY_ROLE_PROVISIONER_DATABASE_URL` pointing to the borrowed cluster.
+The role-administration test created/granted its temporary
+`singularity_test_unexpected_bypass` role there, while the assertion queried
+the owned cluster. Its exit cleanup removed the temporary role; read-only
+catalog queries confirmed zero matching roles in both clusters and the borrowed
+cluster remained ready. No role bootstrap ran in the failing test because it
+stopped at the earlier assertion. Subsequent focused commands explicitly bind
+both PGHOST and the provisioner URL to the owned verification socket.
+
+The other failure was the now-reachable reset/stale-completion race: its old
+generation-1 expectation observed generation 2 after a claim and reset. This
+requires comparison with the approved Phase 2 generation contract before
+changing the assertion. The grant-preservation regressions, role/schema
+reconciliation and privacy fixture checks passed within this failed run; no
+whole-run PASS is claimed.
+
+Astra confirmed the existing Phase 2 reset contract in the runtime-mutations
+migration and `DocumentLifecycleTest`: claim generation 1, reset to pending
+generation 2, then claim generation 3. The older concurrency test now explicitly
+asserts the first claim and derives/pins the two subsequent generations, retaining
+the blocked stale-completion conflict, exact final state and zero fragments.
+
+Backup-focused session `74047`, seed `458307`, exit 0: both complete owning
+`backup_concurrency_test.exs` and `backup/logical_exporter_test.exs` ran, reporting
+31 tests, one excluded, **30 executed cases, zero failures**, 22.3 seconds.
+The allocated database was `singularity_test_6f5cf8b2afb87805a2273749`. This
+includes the existing unsupported-row guard authorization/refusal checks and
+legacy backup success checks; it is focused evidence, not the complete gate.
+
+Corrected combined session `13175`, seed `458307`, exit 0: Storage **88 tests,
+zero failures**, 46.9 seconds; Runtime **22 reported, eight excluded, 14 executed,
+zero failures**, 9.1 seconds. Total **102 executed cases, zero failures**.
+The command used the explicit owned socket for both PGHOST and the provisioner
+URL, shared `MIX_DEPS_PATH`, and `mix singularity.test.integration` with these
+complete files:
+
+- Storage `roles_test.exs`, `knowledge_grants_test.exs`, `document_schema_test.exs`,
+  `knowledge_concurrency_test.exs`, `knowledge_privacy_test.exs`,
+  `postgres/document_repository_test.exs`, and `document_lifecycle_test.exs`.
+- Runtime `document_api_test.exs`.
+
+The primary database was `singularity_test_3823abffab3bc90e32e9edf1`. The
+post-run owned-cluster catalog query returned no `singularity_test_%` databases.
+Expected negative constraint tests emitted their existing sanitized PostgreSQL
+constraint errors; no assertions were suppressed. Independent fresh Astra SPEC
+and QUALITY reviews both passed the complete repair diff, including exact
+privilege boundaries, owner isolation, attempt generations and local fixture
+scope. These are source reviews; parent commands provide execution evidence.
+
+The complete selected non-E2E README sequence will restart on the committed
+candidate in the clean verification worktree. The original untracked C plan
+remains untouched; root `main` remains unchanged. No production code, migration,
+Vault feature work, external publication or deployment is part of this repair.

@@ -18,6 +18,25 @@ Phase 2 is one dependent vertical slice, not independent products: retention, ba
 
 Run each command from the Phase 2 worktree. Use `devenv shell --` for Mix and Poppler checks. A focused test is evidence for its task only; complete acceptance is Task 15.
 
+The acceptance repair approved on 2026-10-09 reconciles the existing Task 14
+web-only SELECT grants on Document versions/fragments with the older blanket
+grant assertions. It permits updates to `roles_test.exs`,
+`knowledge_grants_test.exs`, `document_schema_test.exs`,
+`knowledge_concurrency_test.exs`, `knowledge_privacy_test.exs` and the
+`KnowledgeTestGrants` support helper. Keep all other role and direct-write
+denials, include the three existing extraction-attempt columns in the exact
+schema inventory, and supply authorization prerequisites only in the affected
+local fixtures. Add a regression proving temporary mutation grants preserve
+baseline privileges after success and exception. This amendment changes no
+production grant, released migration, capability policy or global fixture.
+
+The remaining `BackupConcurrencyTest` snapshot-cut failure was traced to this
+phase's new backup guard: its local owner lacks the existing `backup.create`
+capability. Reconcile only that production-cut test's fixture by assigning the
+capability to its owner, as the owning exporter tests already do. Preserve all
+snapshot, inventory and concurrency assertions; no lock, key, Vault behavior,
+global setup or production change is needed.
+
 ## File and responsibility map
 
 | Unit | Files | Responsibility |

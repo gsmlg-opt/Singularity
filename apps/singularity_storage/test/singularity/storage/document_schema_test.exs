@@ -118,7 +118,10 @@ defmodule Singularity.Storage.DocumentSchemaTest do
                  ["detected_language", "text", false],
                  ["failure_code", "text", false],
                  ["attempt_finished_at", "timestamp(6) with time zone", false],
-                 ["inserted_at", "timestamp(6) with time zone", true]
+                 ["inserted_at", "timestamp(6) with time zone", true],
+                 ["attempt_job_id", "uuid", false],
+                 ["attempt_started_at", "timestamp(6) with time zone", false],
+                 ["attempt_deadline_at", "timestamp(6) with time zone", false]
                ]
 
     for name <-
