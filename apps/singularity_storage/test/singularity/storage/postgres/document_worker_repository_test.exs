@@ -1812,13 +1812,20 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
 
     try do
       assert_receive {^reference, :locked}, 5_000
+      assert_receive {^reference, :authority_blocker, blocker_backend}, 5_000
       task = progress_task(envelope, :waiting_for_unlock, parent, reference)
 
       try do
-        assert_receive {^reference, :backend, backend}, 5_000
+        assert {:ok, backend} =
+                 await_progress_blocked_backend(
+                   blocker_backend,
+                   System.monotonic_time(:millisecond) + 4_000
+                 )
+
         assert await_progress_lock_wait(backend, System.monotonic_time(:millisecond) + 4_000)
         send(blocker.pid, {reference, :commit})
         assert :ok = Task.await(blocker, 5_000)
+        assert_receive {^reference, :backend, ^backend}, 5_000
         assert {:error, %Error{code: :forbidden}} = Task.await(task, 5_000)
       after
         Task.shutdown(task, :brutal_kill)
@@ -1967,13 +1974,10 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
 
   defp progress_task(envelope, state, parent, reference) do
     Task.async(fn ->
-      WorkerRepo.checkout(fn ->
+      WorkerScope.run(envelope, fn context ->
         %{rows: [[backend]]} = SafeSQL.query!(WorkerRepo, "SELECT pg_backend_pid()")
         send(parent, {reference, :backend, backend})
-
-        WorkerScope.run(envelope, fn context ->
-          put_progress_state(context, envelope, state)
-        end)
+        put_progress_state(context, envelope, state)
       end)
     end)
   end
@@ -2006,6 +2010,9 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
               "UPDATE core.principal_capabilities SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
               [c.source.principal_id, c.source.vault_id]
             )
+
+            %{rows: [[backend]]} = query!(MigrationRepo, "SELECT pg_backend_pid()")
+            send(parent, {reference, :authority_blocker, backend})
         end
 
         send(parent, {reference, :locked})
@@ -2017,6 +2024,39 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
         end
       end)
     end)
+  end
+
+  defp await_progress_blocked_backend(blocker_backend, deadline) do
+    %{rows: rows} =
+      SafeSQL.query!(
+        MigrationRepo,
+        """
+        SELECT a.pid
+        FROM pg_catalog.pg_stat_activity AS a
+        WHERE a.usename = 'singularity_worker'
+          AND a.datname = current_database()
+          AND $1::integer = ANY(pg_catalog.pg_blocking_pids(a.pid))
+        """,
+        [blocker_backend]
+      )
+
+    case rows do
+      [[backend]] ->
+        {:ok, backend}
+
+      [] ->
+        remaining = deadline - System.monotonic_time(:millisecond)
+
+        if remaining > 0 do
+          Process.sleep(min(10, remaining))
+          await_progress_blocked_backend(blocker_backend, deadline)
+        else
+          :timeout
+        end
+
+      _ ->
+        flunk("authority blocker has more than one matching worker waiter")
+    end
   end
 
   defp await_progress_lock_wait(backend, deadline) do
