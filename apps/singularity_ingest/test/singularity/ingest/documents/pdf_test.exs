@@ -2,7 +2,9 @@ defmodule Singularity.Ingest.Documents.PDFTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
+  alias Singularity.Core.{DocumentCompletion, DocumentFragmentation, SourceLocator}
   alias Singularity.Ingest.Documents.{PDF, Poppler}
 
   @fixtures Path.expand("../../../fixtures/documents", __DIR__)
@@ -35,6 +37,160 @@ defmodule Singularity.Ingest.Documents.PDFTest do
     assert first_end > 0 and second_end > 0
     assert first.text =~ "First page"
     assert second.text =~ "Second page"
+  end
+
+  test "real Poppler rejects an image-only scanned page without extractable text" do
+    bytes = fixture("scanned_image_only.pdf")
+    assert bytes =~ "/Subtype /Image"
+    assert bytes =~ "/Width 23 /Height 7"
+    assert bytes =~ "/ColorSpace /DeviceGray"
+    assert bytes =~ "/XObject << /Scan 5 0 R >>"
+    assert bytes =~ "/Scan Do"
+    refute bytes =~ "/Font"
+    refute Regex.match?(~r/\b(?:BT|ET|Tj|TJ)\b/, bytes)
+
+    assert {:error, {:unsupported, "no_extractable_text"}} =
+             PDF.extract(bytes, runner: Poppler)
+  end
+
+  test "real PDF extraction produces repeatable fragments and a ready completion" do
+    identity = %{
+      resource_id: "00000000-0000-4000-8000-000000000001",
+      resource_version_id: "00000000-0000-4000-8000-000000000002",
+      owner_scope_id: "00000000-0000-4000-8000-000000000003",
+      classification: :private
+    }
+
+    expected_blocks = [
+      %{
+        text: "First page",
+        locator: %{version: 1, kind: "pdf", page: 1, start_char: 0, end_char: 10}
+      },
+      %{
+        text: "Second page",
+        locator: %{version: 1, kind: "pdf", page: 2, start_char: 0, end_char: 11}
+      }
+    ]
+
+    results =
+      for _ <- 1..2 do
+        assert {:ok, blocks} = PDF.extract(fixture("two_pages.pdf"), runner: Poppler)
+        assert blocks == expected_blocks
+
+        assert {:ok, [first, second] = fragments} =
+                 DocumentFragmentation.build(identity, "application/pdf", blocks)
+
+        assert {first.ordinal, second.ordinal} == {0, 1}
+        assert first.fragment_id != second.fragment_id
+
+        for {fragment, block} <- Enum.zip(fragments, expected_blocks) do
+          assert Map.take(fragment, Map.keys(identity)) == identity
+          assert fragment.text == block.text
+          assert fragment.digest == :crypto.hash(:sha256, block.text)
+          assert is_binary(fragment.fragment_id)
+          assert byte_size(fragment.fragment_id) == 64
+
+          assert SourceLocator.to_map(fragment.locator) == %{
+                   "version" => 1,
+                   "kind" => "pdf",
+                   "page" => block.locator.page,
+                   "start_char" => 0,
+                   "end_char" => block.locator.end_char
+                 }
+        end
+
+        digest = :crypto.hash(:sha256, Enum.map(fragments, & &1.text))
+
+        attrs =
+          Map.merge(identity, %{
+            generation: 1,
+            outcome: :ready,
+            adapter_name: "pdf",
+            format_version: 1,
+            finished_at: ~U[2026-10-09 00:00:00Z],
+            media_type: "application/pdf",
+            fragments: fragments,
+            extracted_text_digest: digest
+          })
+
+        assert {:ok, completion} = DocumentCompletion.new(attrs)
+
+        assert Map.from_struct(completion) ==
+                 Map.merge(attrs, %{failure_code: nil, detected_language: nil})
+
+        {blocks, fragments, completion}
+      end
+
+    assert [first_result, second_result] = results
+    assert first_result == second_result
+  end
+
+  test "PDF outcomes keep content and diagnostics out of Logger and BEAM IO" do
+    parent = self()
+    capture_ref = make_ref()
+    previous_level = :logger.get_primary_config().level
+    :ok = :logger.set_primary_config(:level, :debug)
+
+    try do
+      logs =
+        capture_log([level: :debug, metadata: :all], fn ->
+          stdout =
+            capture_io(fn ->
+              stderr =
+                capture_io(:stderr, fn ->
+                  for {name, code} <- [
+                        {"encrypted.pdf", "encrypted_document"},
+                        {"encrypted_pdf20_xref_stream.pdf", "encrypted_document"},
+                        {"malformed.pdf", "malformed_document"},
+                        {"empty.pdf", "no_extractable_text"},
+                        {"scanned_image_only.pdf", "no_extractable_text"}
+                      ] do
+                    assert {:error, {:unsupported, ^code}} =
+                             PDF.extract(fixture(name), runner: Poppler)
+                  end
+
+                  assert {:ok, [first, second]} =
+                           PDF.extract(fixture("two_pages.pdf"), runner: Poppler)
+
+                  assert [first.text, second.text] == ["First page", "Second page"]
+
+                  sentinel = "PRIVATE_PDF_DIAGNOSTIC_7A94"
+
+                  for fault <- [
+                        {:error, {:unsupported, sentinel}},
+                        {:error, {:failed, sentinel}},
+                        {:error, {:failed, %{diagnostic: sentinel}}}
+                      ] do
+                    assert {:error, {:failed, "extractor_failed"}} =
+                             PDF.extract("small", runner: ClassificationRunner, result: fault)
+                  end
+
+                  for {fault, code} <- [
+                        {{:error, sentinel}, "extractor_failed"},
+                        {:timeout, "extractor_timeout"},
+                        {{:exit, 42}, "extractor_failed"}
+                      ] do
+                    assert {:error, {:failed, ^code}} =
+                             PDF.extract("small",
+                               runner: FaultRunner,
+                               info: "Pages: 1\n",
+                               text: fault
+                             )
+                  end
+                end)
+
+              send(parent, {capture_ref, :stderr, stderr})
+            end)
+
+          send(parent, {capture_ref, :stdout, stdout})
+        end)
+
+      assert logs == ""
+      assert_receive {^capture_ref, :stdout, ""}
+      assert_receive {^capture_ref, :stderr, ""}
+    after
+      :ok = :logger.set_primary_config(:level, previous_level)
+    end
   end
 
   test "real Poppler classifies encrypted PDF variants without exposing diagnostics" do

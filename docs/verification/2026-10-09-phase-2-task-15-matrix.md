@@ -870,3 +870,163 @@ and production acceptance. **Task 15 and Phase 2 remain open and unaccepted.**
 This bounded plan stops here. Recommended next separately designed slice: real
 image-only scanned PDF, blocked-stdin/output-overflow descendant cleanup, repeated
 real PDF-to-fragment digest, and adapter log privacy.
+
+## Real extractor qualification: source audits and unchanged baseline
+
+Source: `d39ad93f257df3a6e01a87a420c7a034c888192b` in the existing Phase 2
+worktree. Two parallel read-only Astra audits examined PDF/fragment/completion
+and Logger/IO contracts, and the full native guardian/controller lifetime.
+Parent read the complete guardian source and relevant pure/adapter contracts.
+The existing empty PDF is not an image-only scanned fixture; native timeout
+and cancellation cases use empty payloads, and the new exact-cap native case
+has no descendant tree. These gaps are not established production defects.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix test \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs \
+  --seed 1208 --trace
+```
+
+Session `73785`, exit 0: 19 tests, zero failures (18.9 seconds), no test exclusions,
+no integration database or service operation. Existing real encrypted/malformed/
+empty/multipage, inclusive/over-limit, and native cleanup assertions passed.
+Owning-test hash remains
+`38302505e1266731e081141eef2d6565199349be08f446ed7efc2de49f843d0d`.
+Guardian C source hash:
+`c9232d53efa3280fb1d53fe7badcd317138e4ffe10425d4637d4d0f6af66d607`.
+
+Recommended architecture: add three real PDF/determinism/privacy cases and one
+image-only fixture; put the two additional native lifecycle cases in a dedicated
+companion test, preserving all established native helpers and assertions.
+The parent awaits complete written design/plan plus fresh independent review
+before implementation GO. No production repair, new dependency, support edit,
+migration, activation, or Vault feature is authorized.
+
+Audit boundaries: the guardian buffers the entire frame before target fork;
+large-input readiness therefore establishes guardian-to-target backpressure,
+not a blocked BEAM frame writer. Exact timeout/overflow results alone do not
+prove cleanup; record and verify the live target, ordinary descendant, TERM-
+ignoring session escapee, and guardian, then establish their disappearance.
+Native test control uses a separately owned FIFO, not target stdin.
+
+Logger capture alone cannot lower its globally configured warning threshold;
+the test must restore any temporary debug-level change in try/after and capture
+metadata. BEAM stdout/stderr and Logger capture do not prove direct native OS
+fd2, runtime telemetry, audit, job arguments, or outbox privacy. Those evidence
+boundaries remain explicit. E2E/full acceptance NOT RUN; Task 15 and Phase 2 open.
+
+Parent restored the existing isolated worktree at `d39ad93` and verified protected
+hashes and main's unchanged clean `e866990` state. Complete design and plan were
+read and self-reviewed; a fresh independent Astra architecture review cleared
+the test-only scope after requiring exact normalized page texts. Parent verified
+installed `pdftotext -layout` output as `First page\n\fSecond page\n\f`, exit 0.
+Test-only GO issued under standing approval; two Astra workers own disjoint PDF
+and native-test paths. Parent retains exclusive execution and evidence ownership.
+
+Fixture authoring repair round 1: apply_patch normalized six intended CRLF classic
+xref records to LF (997 instead of 1,003 bytes). Qualification stopped before
+executing that fixture. Astra proposed and independent Astra review verified a
+strict PDF 1.5 ASCIIHexDecode xref stream, preserving the image-only content,
+object offsets, and ordinary whitespace checks. Parent approved this same-file
+encoding repair and restored omitted image-structure assertions. Final fixture
+is 1,070 ASCII/LF bytes; three stream lengths 33/324/100, object offsets
+9/58/115/245/327/820, seven decoded xref entries, startxref 820. No production
+behavioral failure or repair occurred; no assertion was weakened.
+
+Native first execution: parent format session `20683`, exit 0, followed by
+`MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps devenv shell -- mix test apps/singularity_ingest/test/singularity/ingest/documents/poppler_lifecycle_test.exs --seed 1208 --trace`.
+Session `74502`, exit 0: 2 tests, zero failures (6.7 seconds), integration-tag
+exclusion only; both native cases executed. No integration database/service
+operation. Native candidate SHA-256:
+`b322474226508d338a4af62925a87675221356aaba8e5a473528ba2be1cf24e3`.
+
+## Real extractor qualification: final source verification
+
+Six-file scope: existing PDF test, new native lifecycle companion, image-only
+fixture, bounded design/plan, and this existing matrix. Exactly three PDF tests
+and two lifecycle tests added; the original 19 tests/helpers remain unchanged.
+Parent read complete patches and fixture before execution. Both owning modules
+are `async: false`; no test assertion, exclusion, deadline, or process limit was
+weakened. Ordinary integration exclusion applies; all 24 selected cases ran.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix test \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs \
+  apps/singularity_ingest/test/singularity/ingest/documents/poppler_lifecycle_test.exs \
+  --seed 1208 --trace
+# Same complete owning files, changed-order seed:
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix test \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs \
+  apps/singularity_ingest/test/singularity/ingest/documents/poppler_lifecycle_test.exs \
+  --seed 90731 --trace
+```
+
+Session `89873`, exit 0: 24 tests, zero failures, 25.2 seconds. Changed-order
+session `15393`, exit 0: 24 tests, zero failures, 25.3 seconds. Both use identical
+final source hashes below. Together these provide 48 test-case executions across
+two complete owning-file runs; the earlier two native cases use the same final
+native hash, for 50 test-case executions, zero failures. New behavioral assertions passed on their first
+execution; fixture-authoring repair round 1 was resolved before execution.
+
+Final SHA-256:
+
+| Path | SHA-256 |
+| --- | --- |
+| `pdf_test.exs` | `c6c83e6c0f3e7c0d0bf2235c6e0b8d41f65668b2a0ff1872effa969da1df3eb6` |
+| `poppler_lifecycle_test.exs` | `b322474226508d338a4af62925a87675221356aaba8e5a473528ba2be1cf24e3` |
+| `scanned_image_only.pdf` | `b4032a9dc96aae0f63499620ab96176265e8bfd576a6dbaaa89a47b1417310a7` |
+
+Fixture checks: actual-byte JavaScript validation confirmed size, ASCII/LF,
+all stream lengths/offsets/xref entries/startxref. `devenv shell -- pdfinfo` exit 0
+reported one unencrypted PDF 1.5 page, no metadata/JavaScript, 1,070 bytes.
+`devenv shell -- pdfimages -list` exit 0 found the painted 23x7 gray image object
+5. The real adapter tests returned exact `no_extractable_text`, independently
+of the preserved empty-PDF assertion.
+
+Formatting sessions `20683` (native) and `53879` (PDF), exit 0. Final
+`mix format --check-formatted` for both modules: session `6201`, exit 0. Final
+`mix xref graph --format cycles --fail-above 0`: session `93254`, exit 0,
+`No cycles found`. Every Mix command used `MIX_ENV=test`, the shared dependency
+path, and `devenv shell`; the known devenv-version advisory is not a test error.
+Whitespace checks pass without exemptions or Git-attribute/configuration changes.
+
+PASS: real painted image-only scan rejection without OCR; exact two-page source
+locators, fragment identities/digests/ordinals and repeated real Core completion;
+sanitized real fixture/fault outcomes with empty Logger/debug-metadata and BEAM
+IO captures, restoring the primary threshold; guardian-to-target stdin
+backpressure timeout; output-overflow cleanup; observed live target, normal
+grandchild, TERM-ignoring setsid escapee, and guardian identities, all absent
+before fallback cleanup; formatting, zero cycles, and protected hashes.
+
+Evidence limits: repeatability applies to installed Poppler, not upgrades. BEAM
+captures do not inspect arbitrary OS fd2 or prove telemetry/audit/job/outbox
+privacy. Large-input readiness proves target-pipe backpressure, not a blocked
+BEAM frame writer. Failure artifacts preserve observed identities but incomplete
+readiness cannot prove absence of unobserved descendants. No failures occurred.
+
+Protected Runtime extraction/restart tests, V2 backup schema, original untracked
+C plan, and production Core/PDF/Poppler/guardian retain their earlier exact
+hashes. No production, support, dependency, configuration, migration, Vault
+feature, custody, or activation change; no database/service operation, push,
+merge, tag, release, or deployment. Optional separate Core-file execution was
+not selected; real Core values are directly exercised in the composition test.
+
+Fresh independent Astra SPEC review cleared exact final source, mechanically
+confirmed byte-for-byte preservation of all old PDF tests/helpers, and decoded
+the image/xref independently. It did not execute tests; parent sessions above
+supply execution evidence. Distinct fresh Astra QUALITY review also cleared the
+exact three final source hashes without actionable findings, independently
+inspecting lifecycle cleanup, privacy, fixture and existing production contracts.
+Both reviews are source inspection, not independent test runs. Final independent
+documentation closure also cleared after correcting execution-count units to
+test cases; no actionable findings remain. Only a six-file local commit is
+authorized. The next useful move is the existing non-E2E README/Task 15 gates on
+this exact source, not another qualification design. A clean verification worktree
+must preserve the original untracked C plan; required E2E remains NOT RUN and
+cannot be replaced by partial acceptance.
+
+NOT RUN: E2E, complete README gate, complete Task 15/Phase 2 acceptance,
+deployment and production acceptance. **Task 15 and Phase 2 remain open.**
