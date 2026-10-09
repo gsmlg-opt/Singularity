@@ -563,6 +563,21 @@ the installation-authority amendment above.
 files in the map, and `apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs`.
 Modify Runtime `api.ex` and the new Storage search adapter for `resolve/2`.
 
+Independent execution boundary: the result/page DTO conversion can proceed
+using the completed Core/Retrieval contracts while Task 3 awaits its authority
+amendment. This sub-slice creates only the two result/page DTO files and pure
+cases in `knowledge_search_api_test.exs`; it does not wire `Api`, change
+`OperationScope` or configuration, or add a persistence fallback. Exact-source
+DTO conversion remains deferred until its canonical adapter shape is defined.
+The DTO seam accepts exact typed internal values, revalidates owner, identity,
+bounds, and query before removing internal fields, and preserves validated
+content/locator/timestamp values. It does not prove live authorization or SQL.
+
+Pre-change baseline: existing Retrieval knowledge/legacy search and Runtime
+`note_reads_test.exs` passed 48 tests, zero failures (seed 203470). The command
+used the explicit test environment and shared locked dependency path above;
+no PostgreSQL or E2E ran.
+
 - [ ] RED: injected-runtime API rejects owner overrides and converts a valid
   internal page to exactly the public result keys; malformed/foreign adapter
   values never escape. Use the established `note_reads_test.exs` scope fake
@@ -590,6 +605,41 @@ devenv shell -- mix singularity.test.integration apps/singularity_runtime/test/s
 ```
 
 - [ ] Review and commit `feat(runtime): expose authenticated unified search and exact sources`.
+
+Task 8 independent result/page DTO slice: **implemented and reviewed**, commit
+`1f9f71b`. `KnowledgeSearchResult.from_result/2` and
+`KnowledgeSearchPage.from_page/2` accept exact typed Retrieval values only,
+validate the query first, revalidate the complete internal value, then expose
+only the approved public fields. Revalidation must preserve the typed value
+exactly; forged locators or timestamps cannot be normalized into a different
+source at this boundary. Typed terminal `nil` is translated to raw `:done`
+only while reusing the existing page validator; the raw port is unchanged.
+Malformed queries return sanitized `invalid`; malformed internal output returns
+content-free retryable `storage_unavailable`.
+
+The following test-only command failed all 13 new cases at the expected
+missing-module assertions (seed 221894), before either DTO was implemented:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
+```
+
+The same cases then passed with the existing Note-read and Retrieval contracts
+(61 tests, seed 356034). Independent spec review passed before a separate
+quality review passed. The final combined focused command was:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_core/test/singularity/core/search_source_test.exs apps/singularity_core/test/singularity/core/search_policy_test.exs apps/singularity_core/test/singularity/core/source_locator_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_retrieval/test/singularity/retrieval/note_lexical_search_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs
+```
+
+Result: Core 33 tests plus 2 properties, Storage 11 tests, Retrieval 39 tests,
+Runtime 22 tests (13 new DTO, 9 legacy); **105 tests plus 2 properties, zero
+failures**, seed 114286. Scoped formatting checks and `git diff --check`
+passed; `mix xref graph --format cycles --fail-above 0` reported no cycles.
+No API wiring, authorization, canonical exact-source read, database migration,
+bootstrap, configuration, or Vault file changed. No PostgreSQL, E2E, full phase
+gate, merge, push, release, or deployment ran in this sub-slice. Task 8 as a
+whole remains pending; these are pure boundary contracts, not live acceptance.
 
 ## Task 9: Deterministic in-process maintenance
 
