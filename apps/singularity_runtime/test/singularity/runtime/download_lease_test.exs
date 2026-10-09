@@ -414,3 +414,317 @@ defmodule Singularity.Runtime.DocumentFreshDownloadLeaseTest do
 
   defp empty(lease), do: apply(DownloadLease, :authenticate_empty_document_source, [lease])
 end
+
+defmodule Singularity.Runtime.DocumentEmptyOriginalLeaseTest do
+  use ExUnit.Case, async: true
+
+  import ExUnit.CaptureLog
+
+  alias Singularity.Core.Error
+  alias Singularity.Runtime.DownloadLease
+
+  @key_material :binary.copy("K", 32)
+  @canary "empty-original-private-content:/private/object/ciphertext"
+
+  defmodule Clock do
+    def utc_now(%{clock: clock}), do: Agent.get(clock, & &1)
+  end
+
+  defmodule Authorization do
+    def revalidate(context, _binding) do
+      send(context.owner, :original_revalidated)
+      Agent.get(context.authority, & &1)
+    end
+  end
+
+  defmodule Reader do
+    def read_chunk(context, _binding, index), do: read(context, {:chunk, index})
+    def read_range(context, _binding, range), do: read(context, range)
+
+    defp read(context, range) do
+      send(context.owner, {:original_reader, self(), range})
+
+      if context.block? do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      case context.result do
+        {:raise, message} -> raise message
+        result -> result
+      end
+    end
+  end
+
+  setup do
+    clock = start_supervised!({Agent, fn -> DateTime.utc_now() end}, id: make_ref())
+    authority = start_supervised!({Agent, fn -> :ok end}, id: make_ref())
+
+    custodian =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> Process.exit(custodian, :kill) end)
+    {:ok, clock: clock, authority: authority, custodian: custodian}
+  end
+
+  test "request empty original authenticates storage once and consumes its key", context do
+    lease = request_lease(context)
+    assert {:error, %Error{code: :invalid}} = DownloadLease.read(lease, :all)
+    assert {:error, %Error{code: :invalid}} = DownloadLease.read(lease, 0..0)
+
+    assert :ok = empty_original(lease)
+    assert_receive {:original_reader, _reader, :all}
+    assert_receive :original_revalidated
+    assert_receive :original_revalidated
+    refute_received {:original_reader, _, _}
+    assert_consumed(lease)
+
+    assert {:error, :waiting_for_unlock} = empty_original(lease)
+    assert {:error, :waiting_for_unlock} = DownloadLease.read_document_chunk(lease, 0)
+    assert :ok = DownloadLease.revoke(lease)
+    refute_received {:original_reader, _, _}
+  end
+
+  test "empty original rejects invalid arguments, other modes and untrusted zero sizes",
+       context do
+    assert {:error, %Error{code: :invalid}} = empty_original(nil)
+
+    for opts <- [
+          [mode: :document_worker_source],
+          [mode: :other],
+          [binding: %{session_id: "session", object_id: "asset"}],
+          [binding: %{access: :worker, resource_version_id: "version", session_id: "session"}],
+          [binding: %{access: :request, session_id: "session"}],
+          [object_binding: %{}],
+          [object_binding: %{plaintext_byte_size: 1}],
+          [object_binding: %{plaintext_byte_size: 0.0}],
+          [object_binding: %{plaintext_byte_size: nil}],
+          [object_binding: %{plaintext_byte_size: "0"}],
+          [
+            binding: %{
+              access: :request,
+              resource_version_id: "version",
+              session_id: "session",
+              plaintext_byte_size: 0
+            },
+            object_binding: %{}
+          ]
+        ] do
+      lease = request_lease(context, opts)
+      assert {:error, %Error{code: :invalid}} = empty_original(lease)
+      refute_received {:original_reader, _, _}
+    end
+  end
+
+  test "worker empty-source operation still denies request Document leases", context do
+    lease = request_lease(context)
+
+    assert {:error, %Error{code: :invalid}} =
+             DownloadLease.authenticate_empty_document_source(lease)
+
+    refute_received {:original_reader, _, _}
+  end
+
+  test "empty original rejects an already consumed chunk index", context do
+    lease = request_lease(context)
+    assert {:ok, ""} = DownloadLease.read_document_chunk(lease, 0)
+    assert_receive {:original_reader, _reader, {:chunk, 0}}
+    assert {:error, %Error{code: :invalid}} = empty_original(lease)
+    refute_received {:original_reader, _, _}
+  end
+
+  test "pending empty original conflicts with concurrent authentication and chunk reads",
+       context do
+    lease = request_lease(context, block?: true)
+    request = start_empty_read(lease)
+    assert_receive {:original_reader, reader, :all}
+
+    assert {:error, %Error{code: :conflict}} = empty_original(lease)
+    assert {:error, %Error{code: :conflict}} = DownloadLease.read_document_chunk(lease, 0)
+    send(reader, :release)
+    assert {:reply, :ok} = :gen_server.wait_response(request, 1_000)
+    assert_consumed(lease)
+  end
+
+  test "empty original conflicts while a request chunk is pending", context do
+    lease = request_lease(context, block?: true)
+    request = :gen_server.send_request(lease, {:read_document_chunk, 0})
+    assert_receive {:original_reader, _reader, {:chunk, 0}}
+    assert {:error, %Error{code: :conflict}} = empty_original(lease)
+    assert :ok = DownloadLease.revoke(lease)
+    assert {:reply, {:error, :waiting_for_unlock}} = :gen_server.wait_response(request, 1_000)
+    assert_consumed(lease)
+  end
+
+  test "empty original refuses nonempty or malformed storage results", context do
+    for result <- [{:ok, "unexpected"}, {:ok, nil}, {:ok, []}, :ok, {:error, :unexpected}] do
+      lease = request_lease(context, result: result)
+      assert {:error, error} = empty_original(lease)
+      assert error == Error.new(:integrity_failure)
+      assert_consumed(lease)
+    end
+  end
+
+  test "empty original preserves waiting-for-unlock without returning bytes", context do
+    lease = request_lease(context, result: {:error, :waiting_for_unlock})
+    assert {:error, :waiting_for_unlock} = empty_original(lease)
+    assert_consumed(lease)
+  end
+
+  test "empty original strips storage error diagnostics and redacts status", context do
+    error =
+      Error.new(:integrity_failure,
+        message: @canary,
+        details: %{plaintext: @canary, key: @key_material},
+        retryable?: true
+      )
+
+    lease = request_lease(context, result: {:error, error})
+    status = inspect(:sys.get_status(lease), limit: :infinity)
+    refute status =~ @canary
+    refute status =~ @key_material
+
+    logs =
+      capture_log(fn ->
+        assert {:error, returned} = empty_original(lease)
+        assert returned == Error.new(:integrity_failure, retryable?: true)
+        assert_consumed(lease)
+      end)
+
+    refute logs =~ @canary
+    refute logs =~ @key_material
+  end
+
+  test "empty original sanitizes reader exceptions and consumes the key", context do
+    lease = request_lease(context, result: {:raise, @canary <> @key_material})
+
+    logs =
+      capture_log(fn ->
+        assert {:error, returned} = empty_original(lease)
+        assert returned == Error.new(:storage_unavailable, retryable?: true)
+        assert_consumed(lease)
+      end)
+
+    refute logs =~ @canary
+    refute logs =~ @key_material
+  end
+
+  test "authority denial before empty authentication prevents storage access", context do
+    lease = request_lease(context)
+
+    Agent.update(context.authority, fn _ ->
+      {:error, Error.new(:forbidden, message: @canary, details: %{source: @canary})}
+    end)
+
+    assert {:error, returned} = empty_original(lease)
+    assert returned == Error.new(:forbidden)
+    assert_receive :original_revalidated
+    refute_received {:original_reader, _, _}
+    assert_consumed(lease)
+  end
+
+  test "expiry before empty authentication prevents storage access", context do
+    lease = request_lease(context)
+    Agent.update(context.clock, &DateTime.add(&1, 61, :second))
+    assert {:error, :waiting_for_unlock} = empty_original(lease)
+    refute_received {:original_reader, _, _}
+    refute_received :original_revalidated
+    assert_consumed(lease)
+  end
+
+  test "revocation before empty authentication prevents storage access", context do
+    lease = request_lease(context)
+    assert :ok = DownloadLease.revoke(lease)
+    assert {:error, :waiting_for_unlock} = empty_original(lease)
+    refute_received {:original_reader, _, _}
+    assert_consumed(lease)
+  end
+
+  for change <- [:authority, :expiry] do
+    test "#{change} during empty storage authentication fences success", context do
+      lease = request_lease(context, block?: true)
+      request = start_empty_read(lease)
+      assert_receive {:original_reader, reader, :all}
+      assert_receive :original_revalidated
+
+      expected =
+        case unquote(change) do
+          :authority ->
+            Agent.update(context.authority, fn _ -> {:error, Error.new(:forbidden)} end)
+            {:error, Error.new(:forbidden)}
+
+          :expiry ->
+            Agent.update(context.clock, &DateTime.add(&1, 61, :second))
+            {:error, :waiting_for_unlock}
+        end
+
+      send(reader, :release)
+      assert {:reply, ^expected} = :gen_server.wait_response(request, 1_000)
+      assert_receive :original_revalidated
+      assert_consumed(lease)
+    end
+  end
+
+  test "explicit revocation cancels an in-flight empty authentication", context do
+    lease = request_lease(context, block?: true)
+    request = start_empty_read(lease)
+    assert_receive {:original_reader, reader, :all}
+    monitor = Process.monitor(reader)
+
+    assert :ok = DownloadLease.revoke(lease)
+    assert_receive {:DOWN, ^monitor, :process, ^reader, :killed}
+    assert {:reply, {:error, :waiting_for_unlock}} = :gen_server.wait_response(request, 1_000)
+    assert_consumed(lease)
+    send(reader, :release)
+    assert {:error, :waiting_for_unlock} = empty_original(lease)
+  end
+
+  defp request_lease(context, opts \\ []) do
+    start_supervised!(
+      {DownloadLease,
+       %{
+         authorization: Authorization,
+         clock: Clock,
+         key_reader: Reader,
+         key_material: @key_material,
+         custodian: context.custodian,
+         mode: Keyword.get(opts, :mode),
+         consumer_pid: self(),
+         binding:
+           Keyword.get(opts, :binding, %{
+             access: :request,
+             resource_version_id: "version",
+             session_id: "session"
+           }),
+         context: %{
+           owner: self(),
+           clock: context.clock,
+           authority: context.authority,
+           block?: Keyword.get(opts, :block?, false),
+           result: Keyword.get(opts, :result, {:ok, ""}),
+           object_binding: Keyword.get(opts, :object_binding, %{plaintext_byte_size: 0})
+         }
+       }},
+      id: make_ref()
+    )
+  end
+
+  defp start_empty_read(lease) do
+    assert function_exported?(DownloadLease, :authenticate_empty_document_original, 1)
+    :gen_server.send_request(lease, :authenticate_empty_document_original)
+  end
+
+  defp assert_consumed(lease) do
+    assert Process.alive?(lease)
+    assert %{revoked?: true, pending: nil, reader_context: context} = :sys.get_state(lease)
+    refute Map.has_key?(context, :key_material)
+  end
+
+  defp empty_original(lease),
+    do: apply(DownloadLease, :authenticate_empty_document_original, [lease])
+end

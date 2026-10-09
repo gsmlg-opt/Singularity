@@ -33,8 +33,9 @@ defmodule Singularity.Runtime.DocumentApiTest do
          resource_version_id: "00000000-0000-4000-8000-000000000904",
          object_id: "00000000-0000-4000-8000-000000000908",
          object_generation: 7,
-         source_digest: :crypto.hash(:sha256, "source bytes"),
-         source_byte_size: 12
+         source_digest:
+           Process.get(:document_source_digest, :crypto.hash(:sha256, "source bytes")),
+         source_byte_size: Process.get(:document_source_byte_size, 12)
        }}
     end
   end
@@ -49,6 +50,11 @@ defmodule Singularity.Runtime.DocumentApiTest do
   end
 
   defmodule DocumentReader do
+    def authenticate_empty_document_original(owner, {lease, owner}) do
+      send(owner, {:document_empty_authenticate, lease})
+      Process.get(:document_empty_result, :ok)
+    end
+
     def read_document_chunk(owner, {lease, owner}, index) do
       send(owner, {:document_chunk, lease, index})
       {:ok, Process.get(:document_bytes, "source bytes")}
@@ -184,6 +190,79 @@ defmodule Singularity.Runtime.DocumentApiTest do
     assert_received {:document_chunk, 1, 0}
     assert_received {:document_revoke, 1}
     refute_received {:document_lease, 2, _request}
+  end
+
+  test "empty original authenticates before obtaining and revoking its fresh delivery lease" do
+    Process.put(:document_source_byte_size, 0)
+    Process.put(:document_source_digest, :crypto.hash(:sha256, ""))
+
+    assert {:ok, %{byte_size: 0, chunk_count: 0, read_chunk: read_chunk}} =
+             Read.download_original(read_runtime(), session_context(), @resource)
+
+    assert [
+             {:document_lease, 1, %{access: :request}},
+             {:document_empty_authenticate, 1},
+             {:document_revoke, 1},
+             {:document_lease, 2, %{access: :request}},
+             {:document_revoke, 2}
+           ] = document_custody_events()
+
+    for index <- [-1, 0, 1, :all, nil] do
+      assert {:error, %Error{code: :invalid}} = read_chunk.(index)
+    end
+
+    refute_received {:document_chunk, _, _}
+  end
+
+  test "failed empty authentication returns no delivery lease or chunks" do
+    Process.put(:document_source_byte_size, 0)
+    Process.put(:document_source_digest, :crypto.hash(:sha256, ""))
+
+    for {result, expected} <- [
+          {{:error, Error.new(:not_found)}, :not_found},
+          {{:error, Error.new(:integrity_failure)}, :integrity_failure},
+          {{:error, :waiting_for_unlock}, :vault_locked}
+        ] do
+      Process.delete(:document_lease_count)
+      Process.put(:document_empty_result, result)
+
+      assert {:error, %Error{code: ^expected}} =
+               Read.download_original(read_runtime(), session_context(), @resource)
+
+      assert [
+               {:document_lease, 1, %{access: :request}},
+               {:document_empty_authenticate, 1},
+               {:document_revoke, 1}
+             ] = document_custody_events()
+
+      refute_received {:document_chunk, _, _}
+    end
+  end
+
+  test "authenticated empty bytes still require the immutable source digest" do
+    Process.put(:document_source_byte_size, 0)
+    Process.put(:document_source_digest, :crypto.hash(:sha256, "different source"))
+
+    assert {:error, %Error{code: :integrity_failure}} =
+             Read.download_original(read_runtime(), session_context(), @resource)
+
+    assert [
+             {:document_lease, 1, %{access: :request}},
+             {:document_empty_authenticate, 1},
+             {:document_revoke, 1}
+           ] = document_custody_events()
+
+    refute_received {:document_chunk, _, _}
+  end
+
+  defp document_custody_events do
+    receive do
+      event
+      when elem(event, 0) in [:document_lease, :document_empty_authenticate, :document_revoke] ->
+        [event | document_custody_events()]
+    after
+      0 -> []
+    end
   end
 
   defp read_runtime do
@@ -676,6 +755,94 @@ defmodule Singularity.Runtime.DocumentApiIntegrationTest do
     assert {:error, :waiting_for_unlock} = read_chunk.(0)
   end
 
+  @tag :tmp_dir
+  test "API original download accepts an authenticated empty object", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+
+    assert {:ok, %{byte_size: 0, chunk_count: 0, read_chunk: read_chunk}} =
+             download_empty_original(fixture)
+
+    for index <- [-1, 0, 1, :all, nil] do
+      assert {:error, %Error{code: :invalid}} = read_chunk.(index)
+    end
+  end
+
+  @tag :tmp_dir
+  test "API original download rejects missing empty ciphertext", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+    File.rm!(fixture.object_path)
+
+    assert {:error, :not_found} = download_empty_original(fixture)
+  end
+
+  @tag :tmp_dir
+  test "API original download rejects corrupt empty ciphertext", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+    ciphertext = File.read!(fixture.object_path)
+    prefix_size = byte_size(ciphertext) - 1
+    <<prefix::binary-size(prefix_size), last>> = ciphertext
+    File.chmod!(fixture.object_path, 0o600)
+    File.write!(fixture.object_path, <<prefix::binary, Bitwise.bxor(last, 1)>>)
+
+    assert {:error, :integrity_failure} = download_empty_original(fixture)
+  end
+
+  @tag :tmp_dir
+  test "API empty original remains available after its Asset is deleted", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE content.assets SET state='deleted' WHERE id=$1", [
+        Ecto.UUID.dump!(fixture.source.asset_id)
+      ])
+    end)
+
+    assert {:ok, %{byte_size: 0, chunk_count: 0}} = download_empty_original(fixture)
+  end
+
+  @tag :tmp_dir
+  test "API empty original denies a tombstoned Document", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+        [fixture.document.resource_id]
+      )
+    end)
+
+    assert {:error, :not_found} = download_empty_original(fixture)
+  end
+
+  @tag :tmp_dir
+  test "API empty original denies another owner's session", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+    other = KnowledgeFixtures.prepared_source!()
+
+    assert {:error, :not_found} =
+             download_empty_original(%{fixture | session: live_session(other)})
+  end
+
+  @tag :tmp_dir
+  test "API empty original denies its revoked session", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir)
+
+    assert {:ok, token} =
+             KeyCustodian.begin_revoke(fixture.custodian, %{
+               session_id: fixture.session.session_id
+             })
+
+    assert :ok = KeyCustodian.finish_revoke(fixture.custodian, token)
+    assert {:error, :vault_locked} = download_empty_original(fixture)
+  end
+
+  @tag :tmp_dir
+  test "API empty original rejects an immutable digest mismatch", %{tmp_dir: tmp_dir} do
+    fixture = empty_original_fixture!(tmp_dir, :crypto.hash(:sha256, "different source"))
+    assert {:error, :integrity_failure} = download_empty_original(fixture)
+  end
+
   test "unsupported retry requires a changed adapter or format and ready never reopens" do
     source = KnowledgeFixtures.source!()
     unsupported = KnowledgeFixtures.document!(source)
@@ -763,6 +930,127 @@ defmodule Singularity.Runtime.DocumentApiIntegrationTest do
                  privilege
                ])
     end
+  end
+
+  defp empty_original_fixture!(tmp_dir, digest \\ :crypto.hash(:sha256, "")) do
+    source = %{
+      KnowledgeFixtures.prepared_source!()
+      | byte_size: 0,
+        digest: digest
+    }
+
+    storage_root = Path.expand(tmp_dir)
+    on_exit(fn -> File.rm_rf!(storage_root) end)
+    object_dek = :crypto.strong_rand_bytes(32)
+    domain_key = :crypto.strong_rand_bytes(32)
+    material = install_live_object!(source, "", object_dek, domain_key, storage_root)
+
+    document_source =
+      Map.new(source, fn {key, value} ->
+        {key,
+         if(String.ends_with?(Atom.to_string(key), "_id"),
+           do: Ecto.UUID.dump!(value),
+           else: value
+         )}
+      end)
+
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "UPDATE content.asset_metadata SET plaintext_byte_size=0 WHERE asset_id=$1 AND resource_version_id=$2",
+                 [document_source.asset_id, document_source.resource_version_id]
+               )
+    end)
+
+    document = KnowledgeFixtures.document!(document_source)
+    grant_runtime!(document_source)
+    lease_supervisor = start_supervised!({KeyLeaseSupervisor, name: nil}, id: make_ref())
+
+    custody_context = %{
+      key_wrapper: KeyWrapper,
+      repo: WorkerRepo,
+      repository_adapter: CustodyRepository,
+      scope: ScopedRepo,
+      storage: %{adapter: LocalFilesystemAdapter, context: %{root: storage_root}}
+    }
+
+    custodian =
+      start_supervised!(
+        {KeyCustodian,
+         %{
+           authorization: CustodyReader,
+           clock: CustodyReader,
+           context: custody_context,
+           idle_lock: fn _session -> :ok end,
+           key_reader: CustodyReader,
+           key_wrapper: KeyWrapper,
+           lease_supervisor: lease_supervisor,
+           object_key_loader: CustodyReader
+         }},
+        id: make_ref()
+      )
+
+    session = live_session(source)
+
+    assert {:ok, pending} =
+             KeyCustodian.prepare_unlock(custodian, %{
+               account_id: source.account_id,
+               domain_classification: :private,
+               domain_dedup_key: :crypto.strong_rand_bytes(32),
+               domain_key: domain_key,
+               domain_key_generation: 1,
+               domain_key_version_id: material.domain_version_id,
+               expires_at: session.expires_at,
+               key_domain_id: material.domain_id,
+               principal_authorization_epoch: 0,
+               principal_id: source.principal_id,
+               session_id: source.session_id,
+               vault_authorization_epoch: 0,
+               vault_id: source.vault_id,
+               vault_key: :crypto.strong_rand_bytes(32)
+             })
+
+    assert :ok = KeyCustodian.activate_unlock(custodian, pending)
+
+    runtime = %{
+      operation_scope: LiveReadScope,
+      request_repo: RequestRepo,
+      document_repository: DocumentRepository,
+      custodian: {KeyCustodian, custodian},
+      authenticated_reader: Singularity.Runtime.DownloadLease
+    }
+
+    assert {:ok, object_path} =
+             Singularity.Storage.Local.PathGuard.object_path(
+               storage_root,
+               source.vault_id,
+               material.domain_id,
+               Base.encode16(material.lookup_digest, case: :lower)
+             )
+
+    %{
+      source: source,
+      document: document,
+      runtime: runtime,
+      custodian: custodian,
+      session: session,
+      object_path: object_path
+    }
+  end
+
+  defp download_empty_original(fixture) do
+    config = %{
+      download_document_original: &Read.download_original(fixture.runtime, &1, &2)
+    }
+
+    session = struct(Singularity.Runtime.DTO.Session, Map.from_struct(fixture.session))
+
+    Singularity.Runtime.Api.download_document_original(
+      config,
+      session,
+      uuid(fixture.document.resource_id)
+    )
   end
 
   defp fail_document!(document, outcome \\ "failed", reason \\ "timeout") do

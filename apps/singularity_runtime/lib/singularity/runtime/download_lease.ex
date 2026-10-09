@@ -57,6 +57,16 @@ defmodule Singularity.Runtime.DownloadLease do
 
   def authenticate_empty_document_source(_lease), do: {:error, Error.new(:invalid)}
 
+  @spec authenticate_empty_document_original(pid()) ::
+          :ok | {:error, :waiting_for_unlock | Error.t()}
+  def authenticate_empty_document_original(lease) when is_pid(lease) do
+    GenServer.call(lease, :authenticate_empty_document_original, :infinity)
+  catch
+    :exit, _reason -> unavailable()
+  end
+
+  def authenticate_empty_document_original(_lease), do: {:error, Error.new(:invalid)}
+
   @spec revoke(pid()) :: :ok
   def revoke(lease) when is_pid(lease),
     do: GenServer.call(lease, :revoke, :infinity)
@@ -241,6 +251,37 @@ defmodule Singularity.Runtime.DownloadLease do
   def handle_call(:authenticate_empty_document_source, _from, state),
     do: {:reply, {:error, Error.new(:invalid)}, state}
 
+  def handle_call(
+        :authenticate_empty_document_original,
+        _from,
+        %{
+          mode: nil,
+          binding: %{access: :request, resource_version_id: _},
+          pending: pending
+        } = state
+      )
+      when not is_nil(pending),
+      do: {:reply, {:error, Error.new(:conflict)}, state}
+
+  def handle_call(
+        :authenticate_empty_document_original,
+        from,
+        %{
+          mode: nil,
+          binding: %{access: :request, resource_version_id: _},
+          next_index: 0,
+          reader_context: %{object_binding: %{plaintext_byte_size: 0}}
+        } = state
+      ) do
+    case lease_status(state) do
+      :active -> {:noreply, start_read(state, from, :empty_document_original)}
+      _inactive -> {:reply, {:error, :waiting_for_unlock}, revoke_state(state)}
+    end
+  end
+
+  def handle_call(:authenticate_empty_document_original, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
+
   def handle_call(:revoke, _from, %{mode: :document_worker_source} = state),
     do: {:stop, :normal, :ok, revoke_state(state)}
 
@@ -281,6 +322,40 @@ defmodule Singularity.Runtime.DownloadLease do
     state = revoke_state(state)
     GenServer.reply(pending.from, reply)
     {:stop, :normal, state}
+  end
+
+  def handle_info(
+        {:download_read_complete, operation_ref, result},
+        %{
+          mode: nil,
+          pending: %{operation_ref: operation_ref, range: :empty_document_original} = pending
+        } = state
+      ) do
+    finish_reader(state, pending)
+    state = %{state | pending: nil}
+
+    reply =
+      case {lease_status(state), result} do
+        {:active, {:ok, ""}} ->
+          send(state.custodian, {:authorized_activity, state.binding.session_id})
+          :ok
+
+        {:active, {:error, :waiting_for_unlock}} ->
+          {:error, :waiting_for_unlock}
+
+        {:active, {:error, %Error{} = error}} ->
+          {:error, public_error(error)}
+
+        {:active, _invalid} ->
+          {:error, Error.new(:integrity_failure)}
+
+        {_inactive, _result} ->
+          {:error, :waiting_for_unlock}
+      end
+
+    state = revoke_state(state)
+    GenServer.reply(pending.from, reply)
+    {:noreply, state}
   end
 
   def handle_info(
@@ -447,6 +522,9 @@ defmodule Singularity.Runtime.DownloadLease do
     do: operation.key_reader.read_chunk(operation.reader_context, operation.binding, index)
 
   defp read_operation(%{range: :empty_document_source} = operation),
+    do: operation.key_reader.read_range(operation.reader_context, operation.binding, :all)
+
+  defp read_operation(%{range: :empty_document_original} = operation),
     do: operation.key_reader.read_range(operation.reader_context, operation.binding, :all)
 
   defp read_operation(operation),

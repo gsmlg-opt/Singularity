@@ -79,6 +79,11 @@ defmodule Singularity.Runtime.Documents.Read do
          {:ok, delivery} <- lease(runtime, session, binding) do
       count = chunk_count(binding.source_byte_size)
 
+      if count == 0 do
+        reader = Map.get(runtime, :authenticated_reader, DownloadLease)
+        :ok = call(reader, :revoke, [delivery])
+      end
+
       {:ok,
        %{
          byte_size: binding.source_byte_size,
@@ -187,7 +192,11 @@ defmodule Singularity.Runtime.Documents.Read do
     result =
       Enum.reduce_while(0..max(count - 1, 0), {:ok, :crypto.hash_init(:sha256), 0}, fn
         _index, {:ok, hash, size} when count == 0 ->
-          {:halt, {:ok, hash, size}}
+          case call(reader, :authenticate_empty_document_original, [lease]) do
+            :ok -> {:halt, {:ok, hash, size}}
+            {:error, reason} -> {:halt, {:error, reason}}
+            _ -> {:halt, {:error, Error.new(:integrity_failure)}}
+          end
 
         index, {:ok, hash, size} ->
           case call(reader, :read_document_chunk, [lease, index]) do
