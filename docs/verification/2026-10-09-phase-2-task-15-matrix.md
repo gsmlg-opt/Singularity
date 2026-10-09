@@ -2,12 +2,18 @@
 
 ## Status and scope
 
-Task 15 is open. This record is not Phase 2 acceptance, a complete README
-verification gate, or publication evidence. Source baseline is
+Task 15 is locally accepted at tested source
+`c34935a112a2b4b807ed741e8e67e44d4e63eafe`: complete ordered README run `51109`
+and owned-resource cleanup audit `96165` both exited 0. The reproduced sign-in
+readiness race remains an explicit unresolved risk; earlier failed attempts
+retain their FAIL verdicts. Final results, scope limits and exact source
+inventories are in the [acceptance handoff](2026-10-09-phase-2-acceptance.md).
+This record preserves the chronological evidence starting from source baseline
 `52d9df11bd943ab7808896be3d0c49e9c7c7808a` on
-`codex/v0.2-phase-2-import-extraction` in the existing project-local worktree.
-E2E remains NOT RUN under the user's explicit exclusion; the required full
-Phase 2 gate cannot be marked accepted without it.
+`codex/v0.2-phase-2-import-extraction` in its project-local worktree. Historical
+NOT RUN and pending statements apply to those earlier attempts. The user's
+later manual-only E2E policy supersedes the temporary deferral; the final gate
+included all ten manual browser cases, which passed without retry flags.
 
 No production activation, Vault feature change, new migration, backup V3,
 search projection, Note Save, merge, push, release, or deployment is included.
@@ -1500,3 +1506,378 @@ The complete selected non-E2E README sequence will restart on the committed
 candidate in the clean verification worktree. The original untracked C plan
 remains untouched; root `main` remains unchanged. No production code, migration,
 Vault feature work, external publication or deployment is part of this repair.
+
+## Existing README gate: repaired source verification
+
+The repair is committed at `8612885341bdc134ca2519f036e77a61ea5af48f`.
+Only the clean verification branch was fast-forwarded to that source. Parent
+wrapper `73048` restarted the selected non-E2E README sequence from service
+startup and completed with **exit 0**. Every selected command passed:
+
+| Check | Result |
+| --- | --- |
+| `devenv up -d`, `devenv processes wait --timeout 120` | PASS; owned PostgreSQL identity revalidated |
+| Role bootstrap on the owned cluster | PASS |
+| `mix deps.get`, `mix deps.unlock --check-unused` | PASS; locked dependencies unchanged |
+| `mix format --check-formatted` | PASS |
+| `mix compile --warnings-as-errors` | PASS |
+| `mix test` | PASS; 1,281 executed cases including 10 properties |
+| `mix singularity.test.integration` | PASS; 875 executed cases |
+| `mix singularity.test.restore` | PASS; V2 and legacy V1 restore oracle |
+| `env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen` | PASS |
+| `mix npm.verify` | PASS; 166 packages match the lockfile |
+| `mix duskmoon_bundler.js.check` | PASS; 22 files formatted, no lint issues |
+| `mix npm.run test:js` | PASS; 197 tests in nine files |
+| `mix duskmoon_bundler.build singularity_web --tailwind` | PASS; CSS and JS assets built |
+| `mix xref graph --format cycles --fail-above 0` | PASS; no cycles |
+| `nix run nixpkgs#actionlint --` all five README workflow paths | PASS |
+| `git diff --check`, `git status --short` | PASS; verification tree clean |
+
+All Mix commands used `devenv shell --` and shared
+`MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps`. The verification
+shell bound both database connections and the role provisioner to its owned
+PostgreSQL socket. This is the exact committed source tested, not a dirty-tree
+or main-branch claim.
+
+Unit seed `562028`, maximum cases 96: Core 10 properties/113 tests; Domains 38;
+Storage 931 reported/670 excluded; Retrieval 26; Ingest 62; Runtime 793
+reported/205 excluded; Web 183. Every application reported zero failures.
+Runtime unit duration was 51.2 seconds.
+
+Integration seed `403422`, maximum cases 96: Storage **670 executed, zero
+failures**, 590.5 seconds; Runtime **205 executed, zero failures**, 823.6
+seconds. All tests in Core, Domains, Retrieval, Ingest and Web were excluded
+from this integration command, so those applications supply no executed
+integration evidence. All 28 failures from attempt 3 are resolved in this run.
+The real five-minute Document checkout, existing 15-second worker checkout,
+restart recovery and extraction-expiry cases ran with their original deadlines.
+
+Primary integration database/root suffix: `41f37861e4f60792b15a5733`.
+Restore source suffix: `bf9b3472ba7015b315d5822b`; V2 destination:
+`83b72a4d4a32655d4eb39cdc`; V1 destination: `b89424361c09cc1054f20065`.
+The restore command passed its maintenance-mode and empty-destination checks
+and completed both manifests before the wrapper advanced. This verifies the
+existing V1/V2 oracle, not future V3 support.
+
+Existing diagnostic output included migration-module redefinition and ordering
+warnings, negative-test constraint errors, three Fake-module redefinition
+warnings, and a Vite future-config-loader notice. They did not fail their
+commands. Application warnings-as-errors compilation and all assertions passed;
+none of these messages were suppressed or repaired outside the active scope.
+
+The wrapper stopped only its owned verification services. A separate cleanup
+audit (`58684`, exit 0) started that same runtime, revalidated its exact PGDATA,
+socket, empty TCP listen address and port, found no `singularity_test_%`
+databases, verified the integration and all three restore storage roots absent,
+and stopped the owned runtime. It ran no bootstrap, migration or test. Root
+`main` remains clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`; the protected
+untracked C plan retains SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+### Manual E2E policy and remaining acceptance
+
+The selected wrapper above omitted E2E under the assistant's earlier reading
+of the temporary deferral. Re-reading the later user instruction established
+the current policy: E2E runs manually when needed, while automatic CI triggers
+remain restricted. The user's approval to continue through completion permits
+the required manual acceptance invocation. The earlier blanket interpretation
+was too broad; the unanswered clarification was not treated as approval.
+
+Parent therefore started a separate manual `mix npm.run test:e2e` invocation
+on the same clean `8612885` source, with owned-service startup/identity checks
+and cleanup, followed by repeated xref, workflow lint and clean-tree checks.
+No workflow trigger changed. The selected non-E2E PASS alone does not establish
+complete Phase 2 acceptance. No main merge, push, tag, release, deployment,
+V3 backup or later-phase implementation occurred.
+
+### Manual browser failure and verification-environment repair
+
+Manual wrapper `23670` exited 1: four restore-wrapper cases passed and six
+browser cases failed in 5.1 minutes. Both Notes checks lacked the workspace
+region; Asset checks lacked their workspace heading or upload input; the theme
+check lacked its initialized theme. No required browser assertion was changed.
+The wrapper stopped its owned verification services.
+
+Independent Astra and asset-pipeline investigations identified a parent-created
+environment mismatch. Mix used the shared absolute `MIX_DEPS_PATH`, but the
+unchanged bundler profile resolves `apps` and `deps` relative to the verification
+checkout. That checkout had no `deps` directory. The generated
+`app-f3f74080.js` retained bare `phoenix_html`, `phoenix`, and
+`phoenix_live_view` imports. An unauthenticated browser probe (`3864`, exit 0)
+captured the actual initialization error: `Failed to resolve module specifier
+"phoenix_html"`. The script responses were HTTP 200, `text/javascript`; this
+was module resolution, not a missing HTTP asset or a demonstrated Notes/Vault
+source defect. Probe exit 0 means diagnostic collection succeeded, not that
+the application passed.
+
+An initial diagnostic invocation (`99753`) mistakenly passed a standalone
+`--` before the file filter, selecting all 11 cases including the temporary
+probe. After the separate browser probe established the cause, parent sent
+SIGINT only to the verified owned Playwright PID. That diagnostic run exited
+130: four failed, four passed, one interrupted, two not run. Its EXIT trap did
+not run on interruption; parent revalidated the exact owned PostgreSQL identity,
+confirmed no test databases remained, and stopped only that runtime (`96039`).
+The borrowed original cluster remained ready. Later wrappers explicitly handle
+INT and TERM. A separate list-only invocation without `MIX_DEPS_PATH` (`88593`)
+failed dependency discovery before running tests; the corrected list command
+(`77657`) selected exactly one diagnostic case.
+
+Parent restored the configured input layout using an ignored local `deps/`
+directory containing package-directory links to the same locked shared
+dependencies. The target was verified absent beforehand; no existing file was
+replaced, dependency version changed, or tracked application configuration
+edited. This restores the expected build inputs and is not a dependency-code
+workaround. Rebuild `50211` exited 0, producing `app-ebc8965c.js` without the
+three unresolved Phoenix imports. Correctly filtered browser diagnostic `56254`
+passed (one test, 11.8 seconds): rebuilt scripts returned HTTP 200 and the browser
+reported no page errors. This unauthenticated probe establishes entry resolution,
+not authenticated workspace acceptance. Its temporary source was removed after
+the check; the verification tree is clean at the same `8612885` SHA.
+
+The unchanged complete manual E2E suite is now rerunning with the corrected
+dependency layout. Full ordered README acceptance remains pending.
+
+### Browser restore child protocol compatibility
+
+Corrected-environment E2E wrapper `3222` exited 1: **nine passed, one failed**,
+1.7 minutes. Notes accessibility, responsive accessibility, theme, upload
+transport security, the asset/backup workbench, and all four restore-wrapper
+contracts passed. The remaining Notes workflow reached actual backup restore
+and failed its unchanged exact-empty cleanup-output assertion.
+
+Astra traced the Phase 2 native guardian compiler to unconditional
+`elixir_make` app-header and make output during the child's `app.config` call.
+The initial standalone cleanup probe (`44010`) also lacked the browser run-ID
+environment. Diagnostic `77555` established that its nonzero status came from
+the existing compile-environment validation (browser endpoint compiled static,
+ordinary test endpoint reloadable); this was a probe mismatch, not a reason to
+disable that validation. Corrected probe `1499` reproduced the actual defect:
+exit status 0, no signal/error, empty stderr, but stdout exactly
+`==> singularity_ingest\nmake: Nothing to be done for 'all'.\n`.
+Its fresh cleanup destination was `7e07d4e1-925c-4b8c-b528-3801b78efc9e`;
+no existing user database or storage root was targeted.
+
+The narrow compatibility patch is confined to
+`apps/singularity_runtime/lib/mix/tasks/singularity.test.browser_restore.ex`:
+load the already browser-compiled application using `app.config --no-compile`.
+This keeps compile-environment validation, runtime configuration loading,
+least-privilege role verification, restore/cleanup behavior and every exact
+output/secret assertion. It does not introduce a custom compiler, suppress
+errors, or change Vault features or semantics. This existing restore harness is
+explicitly reported as the smallest compile-preserving compatibility touch
+required by the new knowledge-extraction compiler.
+
+Focused formatter and complete owning browser-task test file (`80255`, seed
+`458307`) passed: **42 tests, zero failures**, 1.8 seconds. Real child and full
+browser verification of the committed patch remain pending. The owned service
+was stopped separately after diagnostics; a subsequent read-only check confirmed
+no manager/socket/postmaster or port-4002 listener remained. The original
+borrowed cluster was not stopped.
+
+### Local container parity at the pre-compatibility SHA
+
+Clean source `8612885341bdc134ca2519f036e77a61ea5af48f` built locally with:
+
+```sh
+docker build --progress=plain \
+  --build-arg VERSION=local-phase2-verification \
+  --build-arg REVISION=8612885341bdc134ca2519f036e77a61ea5af48f \
+  --tag singularity:phase2-acceptance-8612885341bd .
+```
+
+Build `68643` exited 0. Image ID:
+`sha256:aa516f55354edaaa2cca54a65121a5f15f383b8f5ce40976eaa4302701e298e5`.
+Inspection matched the exact OCI revision, amd64 architecture, nonroot
+`10001:10001` user, and `/app/bin/singularity` entrypoint. A read-only,
+network-disabled temporary container addressed by this immutable ID verified the
+release executable, native guardian, digested assets and absent release COOKIE,
+then ran `pdfinfo -v` and `pdftotext -v`; both reported **25.03.0**, exit 0.
+The container was removed automatically; the local image remains available.
+No app server, database, deployment, remote tag or registry publication occurred.
+This proves Task 6 packaging parity at the stated SHA; a final-source image will
+be rebuilt after the browser-harness compatibility commit.
+
+### Committed browser compatibility verification
+
+Independent SPEC and QUALITY reviewers passed the narrow patch, confirming the
+browser harness compiles before spawning restore children and that Mix retains
+compile-environment validation with `--no-compile`. Commit:
+`c34935a112a2b4b807ed741e8e67e44d4e63eafe`. The clean verification branch was
+fast-forwarded only to this source.
+
+Focused wrapper `63213` exited 0. A real matched-environment cleanup child
+returned status 0, empty stdout and stderr; a child with deliberately mismatched
+compile configuration still returned status 1 and only the generic failure on
+stderr. Their fresh destination IDs were
+`5698f7aa-9ee2-4bb5-a2db-698b90521e92` and
+`834b55e3-1176-4344-b235-182a928fb9c2`. The complete owning Notes Playwright
+file then passed: **five tests, zero failures**, 43.2 seconds. The wrapper
+stopped its owned services. No assertion, timeout, or validation was disabled.
+
+### Final-source gate restarts and container
+
+Complete README attempt `67458` exited 1 before unit execution: the preceding
+browser harness left a test endpoint compiled with `code_reloader: false`,
+while ordinary test mode requires `true`. Parent refreshed ordinary test
+compilation using `MIX_ENV=test mix compile --force --warnings-as-errors`
+(`78049`, exit 0) and restarted the entire gate with unchanged source.
+All commands retain normal compile-environment validation.
+
+Restart `36773`, seed `857108`, exited 2 at the full unit stage: one existing
+`LocalFilesystemAdapterTest` failed because `Task.async_stream/3` exceeded its
+default five-second deadline in the concurrent finalize test. Every other unit
+case passed; no integration or later gate command ran. This failure overlapped
+the filesystem-heavy final image build, but load causation is not established
+by the timeout alone. Both adapter and owning test are unchanged by Phase 2.
+No timeout, assertion, adapter, or unrelated test repair is authorized or applied;
+an unchanged focused repeat after the image build is required before restarting
+acceptance. The Bash wrapper stopped only its owned verification service.
+
+Final-source Docker build `68624` exited 0 for
+`singularity:phase2-acceptance-c34935a112a2`, image
+`sha256:55d81ccf0c8918cd8268f134e61d5b077526f20621f6d537400a6cd2d6e9c72e`.
+The OCI revision matches `c34935a112a2b4b807ed741e8e67e44d4e63eafe`;
+architecture is amd64 and user is `10001:10001`. Immutable-image smoke `8985`
+exited 0 with network disabled and root filesystem read-only: release, guardian,
+asset manifest and absent COOKIE checks passed; both Poppler executables reported
+25.03.0. The temporary smoke container was removed automatically; the unpublished
+local image remains. Task 6 current-source executable parity is satisfied.
+
+Unchanged filesystem-file repeat `73690`, seed `857108`, exited 0 after the
+Docker build finished: **24 tests, zero failures**, 4.1 seconds. Astra confirmed
+the test, adapter and local filesystem helpers have no diff from accepted
+Phase 1; the failed concurrent finalize stream performs serialized locks and
+file/directory synchronization, but the available evidence does not establish
+the source of the earlier delay. No source or deadline change was justified.
+
+Parent restarted the complete ordered README gate as `49398`, with no parallel
+image build and unchanged `c34935a` source. Full unit verification has passed
+(seed `51150`, 1,281 executed cases including ten properties); integration and
+remaining gate commands are still in progress. The final clean-tree assertion
+is enforced by the wrapper, not inferred from an earlier status check.
+
+### Complete gate attempt 49398: browser setup failure
+
+The attempt exited 1, not acceptance. Unit seed `51150`: **1,281 executed
+cases including ten properties, zero failures**. Integration seed `392145`:
+**875 executed cases, zero failures** (Storage 670 in 657.9 seconds; Runtime
+205 in 816.6 seconds). The isolated database/root suffix was
+`7e7abedfad2a0899f36fc4b1`. V1/V2 restore passed in fresh source/destination
+environments `f2ca602a855d3ce94436882d`, `ffc8da1a0d9a3a6c0822671c` and
+`5ad29ad9fb221175e42cacdd`. Locked npm verification matched 166 packages;
+all 22 JavaScript files passed format/lint; all 197 tests in nine JS files
+passed; the complete digested browser asset build passed.
+
+Manual Playwright: **nine passed, one failed**, 1.3 minutes. The Notes
+accessibility case failed before accessibility assertions, at its secondary
+login/unlock setup: `support/fixtures.ts:119` could not find the `Unlock vault`
+heading within 5,000 ms. Real Notes conflict/backup restore/isolation/purge and
+all other browser cases passed. Saved artifact:
+`/tmp/singularity/playwright/0455bc58-b0a6-46c1-841d-3801a8295b37/notes_accessibility-Notes--3af23-educed-motion-and-axe-clean-chromium/error-context.md`.
+Final xref, workflow lint and clean-tree assertion were NOT RUN; the wrapper
+stopped only its owned service. No assertion or timeout was weakened. Astra
+diagnosis is in progress; no production Vault repair is authorized.
+
+Owned cleanup audit `23598` exited 0: PostgreSQL identity matched the verification
+checkout and private socket, no generated `singularity_test_%` databases
+remained, and the four exact integration/restore roots above were absent. The
+audit stopped only the owned service.
+
+Astra's read-only artifact diagnosis found a Sign in page with an empty login
+field after the helper had filled both required fields. A delayed LiveView
+connected mount clearing an unfocused login field is a hypothesis, not yet a
+confirmed cause. The case, shared helper, LoginLive, controller and Playwright
+configuration are unchanged from accepted Phase 1. A temporary sanitized
+diagnostic spec repeated the unchanged secondary login/unlock sequence in
+`52241`: one passed (2.9 seconds; 15.3 seconds total). Its trace showed connected
+mount before either field was filled, then a successful login POST/302. This
+does not reproduce the failure or justify a production change. No credentials,
+request bodies, session values or page HTML were emitted by the probe.
+
+Controlled diagnostic `71213` then reproduced the matching mechanism using an
+explicit barrier on the real initial LiveView join reply, with no arbitrary
+sleep. Both fields were filled before release; the reply's DOM update cleared
+the unfocused login while retaining the focused password. Native form validation
+then emitted `invalid`, no login POST occurred, and the unchanged unlock-heading
+assertion failed after 5,000 ms. This confirms the controlled readiness race
+matching the original artifact; the original failed run did not have temporal
+instrumentation, so its exact interleaving remains an inference. This is an
+unchanged Phase 1 sign-in path, not a proven Document extraction or Vault defect.
+
+The temporary diagnostic spec was removed through a narrow patch; the existing
+browser assertions, login/Vault code and retry policy remain unchanged. Its
+failure artifact is retained under
+`/tmp/singularity/playwright/5f8fe511-880b-4e7e-8240-536543e2f7ee/`.
+The baseline readiness race remains a residual risk, not a fixed bug. An
+unchanged owning-file repeat and another complete gate are required; a later
+passing run must not be presented as proof that this race was repaired.
+
+Precision audit confirmed the relevant locked dependencies also match Phase 1:
+Phoenix 1.8.13, LiveView 1.2.10, HTML 4.3.0 and Duskmoon Bundler/Runtime/NPM
+9.12.2 retain their exact lock entries; `package.json`, `package-lock.json`,
+`devenv.lock`, app entrypoint, root layout, test endpoint configuration and
+Playwright configuration are unchanged. Playwright remains locked at 1.62.1.
+No historical Phase 1 runtime or Chromium execution was performed, so this is
+current-source reproduction on unchanged code/dependencies, not historic runtime
+proof.
+
+Unchanged owning-file repeat `66877` exited 0: the complete Notes accessibility
+case passed in 28.2 seconds (40.3 seconds total), including its original keyboard,
+responsive, theme, reduced-motion and axe assertions. No retry flag was added.
+Verification Git status was clean, and the wrapper stopped only its owned
+service. This does not resolve the documented readiness race. Ordinary test
+compilation is being refreshed after the browser harness before a complete
+ordered README rerun on the same committed source.
+
+Ordinary test compilation refresh `19617` exited 0 with warnings-as-errors.
+Complete ordered rerun `51109` started on the same clean `c34935a` source.
+Unit seed `250133` passed all 1,281 executions including ten properties;
+integration seed `34544` has passed all 670 Storage cases in 559.2 seconds.
+Runtime integration and the remaining gate commands are still pending.
+The isolated database/root suffix is `2b87619b9853022cce2a0220`.
+
+### Qualified local Phase 2 acceptance: session 51109 PASS
+
+The complete ordered README wrapper exited 0 on unchanged committed source
+`c34935a112a2b4b807ed741e8e67e44d4e63eafe`. Final results:
+
+- Unit/property seed `250133`: **1,281 executed including ten properties, zero
+  failures**.
+- Integration seed `34544`: **875 executed, zero failures**; Storage 670 in
+  559.2 seconds and Runtime 205 in 797.2 seconds.
+- V1/V2 restore: PASS, including maintenance-mode and empty-destination oracles.
+  Fresh source/destination suffixes: `2aba68be4d3ef4f7aa3b1829`,
+  `e7e0cffcb0c365f3dda938f0`, `2cfa644e757f31f43fe0c1ce`.
+- Frozen npm install/verification: PASS, 166 packages; format/lint: all 22 files
+  PASS; JavaScript: **197 tests in nine files, PASS**, 6.37 seconds total.
+- Asset/Tailwind build: PASS. Manual Playwright: **ten tests, PASS**, 1.6 minutes,
+  including the unchanged Notes accessibility case (28.1 seconds).
+- Xref: **zero cycles**; all five workflows passed actionlint; whitespace and
+  final clean-tree assertion passed. The EXIT trap stopped owned services.
+
+Owned cleanup audit `96165` exited 0: exact verification PGDATA/private-socket
+identity, no generated test databases, all four exact integration/restore roots
+absent, and browser root/state absent for verified run ID
+`9336895c-f100-44c1-a51e-b352e112595c`. Its storage suffix is
+`70500452ee79d8591fb364e9`. Only the audit's owned service was stopped.
+
+The [exact-source handoff](2026-10-09-phase-2-acceptance.md) records every command,
+source/commit/migration inventory, image identity and residual limitation.
+This closes only Phase 2 local implementation acceptance. The sign-in readiness
+race is **not fixed**; this PASS neither erases failed attempt `49398` nor proves
+historic Phase 1 runtime behavior or general browser reliability. No assertion,
+timeout or retry policy was changed. No Vault feature work, V3 backup, search,
+Note Save, main merge, push, release, registry publication or deployment occurred.
+
+Final post-cleanup read-only check `0bde38` passed: no owned manager/socket,
+process/postmaster files, PostgreSQL socket or port-4002 listener remained;
+the original borrowed cluster was still ready and main remained clean at
+`e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`.
+
+Host Poppler check `c6e612` resolved both executables in the same Nix
+`poppler-utils-26.06.0` store path and reported 26.06.0, exit 0. The already
+verified image contains 25.03.0, so executable packaging qualification is not
+an identical-version or full in-container extraction-fixture claim. This version
+difference is retained as a deployment qualification limit. Immutable-image
+inspection `dd2a2f` reconfirmed image `55d81ccf0c89…`, source `c34935a`, amd64 and
+nonroot `10001:10001`.

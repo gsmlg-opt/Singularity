@@ -12,6 +12,14 @@
 
 ## Authority, order, and worktree
 
+Local implementation acceptance was completed on 2026-10-09 at tested source
+`c34935a112a2b4b807ed741e8e67e44d4e63eafe`. The complete ordered README gate,
+manual E2E, current-source container parity and owned-resource cleanup passed.
+The [exact-source acceptance handoff](../../verification/2026-10-09-phase-2-acceptance.md)
+records the evidence and the unresolved sign-in readiness race on unchanged
+code/dependencies. This is Phase 2 local acceptance only, not whole-product
+production acceptance or permission for a later phase, merge or publication.
+
 The approved spec is `docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md`, including its approved Document-pinned custody amendment at `eeb8c3b`, the three narrow implementation-boundary amendments approved on 2026-09-23 (Poppler process bridge, Document binding resolver, Document envelope codec case), the native Poppler process-group guardian approved on 2026-09-23, and the explicit guardian control protocol approved on 2026-09-28. Execute only on `codex/v0.2-phase-2-import-extraction` in `.trees/v0.2-phase-2-import-extraction`. Do not edit released migrations. Do not alter Vault files, unlock/key derivation/capability policy, or existing Asset lease semantics. `asset.read` remains the sole read capability. No push, tag, release, or deployment.
 
 Phase 2 is one dependent vertical slice, not independent products: retention, backup refusal, and abandoned-attempt recovery must exist before exposing import. Do not deploy or activate production Document writes until Tasks 2–14 and the Task 15 gate pass; earlier task tests use only temporary disposable-database grants. Existing Phase 1 repository tests and V1/V2 backup fixtures remain required assertions; add tests rather than deleting or weakening them.
@@ -299,7 +307,7 @@ The extraction error above is an internal Ingest classification, not a new `Core
 @pdftotext_args ["-enc", "UTF-8", "-eol", "unix", "-q", "-", "-"]
 ```
 
-- [ ] **Step 4: Package and verify executable parity.** Add `poppler_utils` to the stable Nix package list and `poppler-utils` to the runtime Docker apt list. Check `devenv shell -- command -v pdfinfo` and `devenv shell -- command -v pdftotext`; both must resolve. Build the Docker image at the current SHA and run `pdfinfo -v`/`pdftotext -v` inside it; do not publish it.
+- [x] **Step 4: Package and verify executable parity.** Add `poppler_utils` to the stable Nix package list and `poppler-utils` to the runtime Docker apt list. Check `devenv shell -- command -v pdfinfo` and `devenv shell -- command -v pdftotext`; both must resolve. Build the Docker image at the current SHA and run `pdfinfo -v`/`pdftotext -v` inside it; do not publish it.
 
 - [ ] **Step 5: Prove green and commit.** Run the PDF test file and `devenv shell -- mix test apps/singularity_ingest/test/singularity/ingest/documents/`. Expected: pass. Commit only PDF modules/tests/fixtures, Ingest dependency/lockfile, and Nix/Docker changes as `feat(ingest): add bounded poppler document extraction`.
 
@@ -589,7 +597,7 @@ eligible? =
 
 **Files:** Extend focused tests from Tasks 2–14 where a coverage gap remains. Record results in the implementation handoff; do not mark the plan complete on a focused green subset.
 
-- [ ] **Step 1: Execute the adversarial matrix.** Cover all approved fixtures and races, including cross-owner authorization, RLS/definer grants, forged source proof, object cleanup collision, stale completion, timeout, 4096/4097 pages, 16 MiB output boundary, 4096/4097 fragments, malformed/encrypted/scanned PDF, invalid UTF-8, locked custody, revocation, deleted Asset, tombstoned Document, and V2 backup refusal. Assert no user content in logs, telemetry metadata, audit metadata, outbox payload, Oban args, or public error details. No failed attempt leaves fragments or search rows. Add each missing assertion to its owning test file before running the gate.
+- [x] **Step 1: Execute the adversarial matrix.** Cover all approved fixtures and races, including cross-owner authorization, RLS/definer grants, forged source proof, object cleanup collision, stale completion, timeout, 4096/4097 pages, 16 MiB output boundary, 4096/4097 fragments, malformed/encrypted/scanned PDF, invalid UTF-8, locked custody, revocation, deleted Asset, tombstoned Document, and V2 backup refusal. Assert no user content in logs, telemetry metadata, audit metadata, outbox payload, Oban args, or public error details. No failed attempt leaves fragments or search rows. Add each missing assertion to its owning test file before running the gate.
 
 ```elixir
 refute inspect(job.args) =~ secret_text
@@ -597,7 +605,7 @@ refute inspect(outbox.payload) =~ secret_text
 assert [] == search_rows_for(document.resource_id)
 ```
 
-- [ ] **Step 2: Run the complete README gate in its documented order.** Run:
+- [x] **Step 2: Run the complete README gate in its documented order.** Run:
 
 ```sh
 devenv up -d
@@ -624,4 +632,4 @@ git status --short
 
 Expected: every command passes, including E2E and zero cycles. If any required check fails, stop acceptance, diagnose within Phase 2 scope, and rerun the affected focused check and entire failed gate. Do not waive E2E or call a partial run accepted.
 
-- [ ] **Step 3: Record an exact-SHA handoff.** Run `git rev-parse HEAD`, `git status --short`, and `git log --oneline` for Phase 2 commits. Report changed files, new migrations, every gate command/result, remaining risks, and explicit confirmation that no Vault feature work, V3 backup, search projection, Note Save, release, push, or deployment occurred. Implementation acceptance and merge are separate decisions.
+- [x] **Step 3: Record an exact-SHA handoff.** Run `git rev-parse HEAD`, `git status --short`, and `git log --oneline` for Phase 2 commits. Report changed files, new migrations, every gate command/result, remaining risks, and explicit confirmation that no Vault feature work, V3 backup, search projection, Note Save, release, push, or deployment occurred. Implementation acceptance and merge are separate decisions.
