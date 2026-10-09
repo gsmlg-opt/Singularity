@@ -2,7 +2,8 @@
 
 Date: 2026-10-09
 
-Status: fixture prerequisite repaired and reviewed; new test qualification GO.
+Status: bounded test qualification complete; independent Astra SPEC and QUALITY
+reviews clear. Task 15 and full Phase 2 acceptance remain open.
 Source inspected: `dfe60aa11ac471da243e0523a33a23b0bf426276` in
 `.trees/v0.2-phase-2-import-extraction`.
 
@@ -120,6 +121,11 @@ Before insertion, both owners export successfully. After insertion, both
 label, fragment, and locator canaries applicable to that fixture.
 The clean owner still succeeds at both entrypoints; materialize its record
 stream inside its transaction and verify owner-scoped decoded rows.
+
+The established ready-Document helper uses fragment text `"text"`, which is
+also a V2 wire type tag. Test that fixed content against decoded user row
+values, not raw type-tag bytes. Use the exact fragment ID and locator as
+additional cross-owner canaries; preserve the immutable helper fixture.
 
 For target `records/2`, bind the established valid test cut to the transaction's
 current snapshot independently of `snapshot_cut/2`. A refused cut must not

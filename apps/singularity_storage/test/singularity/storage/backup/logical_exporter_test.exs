@@ -5,6 +5,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
 
   alias Ecto.Adapters.SQL
   alias Singularity.Core.Error
+  alias Singularity.Core.SourceLocator
   alias Singularity.Storage.Backup.Exporter
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchemaV2
@@ -187,7 +188,237 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                    {:ok, :checked}
                  end
                )
+
+      requested_cut = %{cut(%{vault_id: requested_vault_id}, 0) | object_inventory: []}
+
+      for entrypoint <- [:snapshot_cut, :records] do
+        result =
+          ScopedRepo.transact(
+            WorkerRepo,
+            %{principal_id: principal_id, vault_id: vault_id},
+            [isolation: :repeatable_read],
+            fn repo ->
+              case entrypoint do
+                :snapshot_cut -> Exporter.snapshot_cut(repo, requested_vault_id)
+                :records -> Exporter.records(repo, current_snapshot_cut(repo, requested_cut))
+              end
+            end
+          )
+
+        assert result == {:error, Error.new(:storage_unavailable, retryable?: true)}
+      end
     end
+  end
+
+  test "backup guard retains its bounded worker privileges", %{fixture: fixture} do
+    assert {:ok, :checked} =
+             ScopedRepo.transact(
+               WorkerRepo,
+               %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+               [isolation: :repeatable_read],
+               fn repo ->
+                 assert %{rows: [["singularity_worker"]]} =
+                          SafeSQL.query!(repo, "SELECT current_user", [])
+
+                 assert %{rows: [[true, "s", "singularity_table_owner", true, config, body]]} =
+                          SafeSQL.query!(
+                            repo,
+                            """
+                            SELECT p.prosecdef, p.provolatile::text, r.rolname,
+                                   p.prorettype = 'boolean'::regtype, p.proconfig, p.prosrc
+                            FROM pg_proc AS p JOIN pg_roles AS r ON r.oid = p.proowner
+                            WHERE p.oid = 'content.backup_has_unsupported_canonical_rows(uuid)'::regprocedure
+                            """,
+                            []
+                          )
+
+                 assert config == ["search_path=pg_catalog, content, core"]
+                 body = String.replace(body, ~r/\s+/, " ")
+
+                 # Structural inventory, not isolated coverage of each OR branch.
+                 for table <- @unsupported_tables do
+                   assert body =~
+                            "EXISTS (SELECT 1 FROM content.#{table} WHERE vault_id = requested_vault_id)"
+
+                   assert %{rows: [[false]]} =
+                            SafeSQL.query!(
+                              repo,
+                              "SELECT has_table_privilege(current_user,$1,'SELECT')",
+                              ["content.#{table}"]
+                            )
+                 end
+
+                 assert body =~
+                          "IF NOT EXISTS ( SELECT 1 FROM core.live_principal_authorization() AS auth"
+
+                 assert body =~ "WHERE auth.vault_id = requested_vault_id"
+                 assert body =~ "AND auth.principal_revoked_at IS NULL"
+                 assert body =~ "AND auth.membership_revoked_at IS NULL"
+                 assert body =~ "AND 'backup.create' = ANY(auth.capabilities)"
+                 assert body =~ "USING ERRCODE = '42501'"
+
+                 assert %{rows: [[false]]} =
+                          SafeSQL.query!(
+                            repo,
+                            """
+                            SELECT EXISTS (
+                              SELECT 1 FROM pg_proc AS p,
+                                LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) AS acl
+                              WHERE p.oid = 'content.backup_has_unsupported_canonical_rows(uuid)'::regprocedure
+                                AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+                            )
+                            """,
+                            []
+                          )
+
+                 for {role, permitted?} <- [
+                       {"singularity_worker", true},
+                       {"singularity_web", false},
+                       {"singularity_dispatcher", false},
+                       {"singularity_pre_auth", false}
+                     ] do
+                   assert %{rows: [[^permitted?]]} =
+                            SafeSQL.query!(
+                              repo,
+                              "SELECT has_function_privilege($1,'content.backup_has_unsupported_canonical_rows(uuid)','EXECUTE')",
+                              [role]
+                            )
+                 end
+
+                 {:ok, :checked}
+               end
+             )
+  end
+
+  for {table, inventory} <- [
+        {"document_versions", ~w(document_versions)},
+        {"document_fragments", ~w(document_versions document_fragments)},
+        {"document_import_receipts", ~w(document_versions document_import_receipts)},
+        {"note_attachments", ~w(note_attachments)},
+        {"note_citations", ~w(document_versions document_fragments note_citations)},
+        {"tags", ~w(tags)},
+        {"resource_tags", ~w(tags resource_tags)},
+        {"relationships", ~w(relationships)}
+      ] do
+    @inventory_table table
+    @expected_inventory inventory
+    test "refuses legal #{@inventory_table} inventory at both entrypoints and isolates its owner",
+         %{
+           fixture: control,
+           cut: control_cut
+         } do
+      raw = KnowledgeFixtures.source!()
+      fixture = load_ids(raw)
+      seeded = seed_export_rows!(raw)
+      export_cut = cut(fixture, seeded.outbox_high_water_mark)
+
+      assert_export_succeeds(fixture, export_cut)
+      assert_export_succeeds(control, control_cut)
+      assert unsupported_inventory(raw) == []
+      assert unsupported_inventory(%{vault_id: Ecto.UUID.dump!(control.vault_id)}) == []
+
+      canaries = insert_unsupported_inventory!(@inventory_table, raw)
+      assert unsupported_inventory(raw) == Enum.sort(@expected_inventory)
+      assert_unsupported_export(fixture, export_cut, canaries)
+      assert_export_succeeds(control, control_cut, canaries)
+    end
+  end
+
+  test "backup cut and records share the snapshot across a committed canonical insert", %{
+    fixture: fixture,
+    raw_fixture: raw_fixture,
+    cut: valid_cut
+  } do
+    reference = make_ref()
+    observer = self()
+    tag_id = uuid_dump()
+    canary = "snapshot-tag-canary-#{Ecto.UUID.generate()}"
+    supervisor = start_supervised!(Task.Supervisor)
+
+    writer =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        receive do
+          {^reference, :write} ->
+            backend_pid =
+              Fixtures.with_owner(fn ->
+                send(observer, {reference, :owner_repo, Process.whereis(MigrationRepo)})
+                owner_query!("SET LOCAL statement_timeout = '5s'", [])
+                owner_query!("SET LOCAL lock_timeout = '5s'", [])
+                %{rows: [[backend_pid]]} = owner_query!("SELECT pg_backend_pid()", [])
+                insert_tag!(raw_fixture, tag_id, canary)
+                backend_pid
+              end)
+
+            {reference, :committed, backend_pid}
+        after
+          10_000 -> raise "backup snapshot writer was not released"
+        end
+      end)
+
+    try do
+      assert {:ok, :checked} =
+               ScopedRepo.transact(
+                 WorkerRepo,
+                 %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+                 [isolation: :repeatable_read],
+                 fn repo ->
+                   SafeSQL.query!(repo, "SET LOCAL statement_timeout = '5s'", [])
+                   SafeSQL.query!(repo, "SET LOCAL lock_timeout = '5s'", [])
+
+                   %{rows: [[snapshot, reader_pid]]} =
+                     SafeSQL.query!(
+                       repo,
+                       "SELECT txid_current_snapshot()::text, pg_backend_pid()",
+                       []
+                     )
+
+                   assert {:ok, first_cut} = Exporter.snapshot_cut(repo, fixture.vault_id)
+                   first_cut = Map.put(first_cut, :manifest_id, Ecto.UUID.generate())
+                   assert first_cut.database_snapshot == snapshot
+                   assert {:ok, first_export} = Exporter.records(repo, first_cut)
+                   first_records = Enum.to_list(first_export.records)
+
+                   send(writer.pid, {reference, :write})
+                   assert {^reference, :committed, writer_pid} = Task.await(writer, 10_000)
+                   refute writer_pid == reader_pid
+
+                   assert %{rows: [[^snapshot]]} =
+                            SafeSQL.query!(repo, "SELECT txid_current_snapshot()::text", [])
+
+                   assert {:ok, second_cut} = Exporter.snapshot_cut(repo, fixture.vault_id)
+
+                   assert Map.drop(second_cut, [:snapshot_id]) ==
+                            Map.drop(first_cut, [:snapshot_id, :manifest_id])
+
+                   assert {:ok, second_export} = Exporter.records(repo, first_cut)
+                   second_records = Enum.to_list(second_export.records)
+                   assert second_records == first_records
+                   assert second_export.inventory == first_export.inventory
+                   refute IO.iodata_to_binary(Enum.map(second_records, & &1.payload)) =~ canary
+                   {:ok, :checked}
+                 end
+               )
+    after
+      Task.shutdown(writer, 5_000)
+      refute Process.alive?(writer.pid)
+
+      receive do
+        {^reference, :owner_repo, owner_pid} when is_pid(owner_pid) ->
+          if Process.alive?(owner_pid), do: Supervisor.stop(owner_pid, :normal, 5_000)
+          refute Process.alive?(owner_pid)
+      after
+        0 -> :ok
+      end
+    end
+
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[^tag_id, ^canary]]} =
+               owner_query!("SELECT id, display_value FROM content.tags WHERE vault_id=$1", [
+                 raw_fixture.vault_id
+               ])
+    end)
+
+    assert_unsupported_export(fixture, valid_cut, %{bytes: [canary], values: []})
   end
 
   test "exports deterministic lazy logical records with exact counts, ordering, and descriptors",
@@ -607,6 +838,230 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
 
   def capture_query(_event, _measurements, _metadata, observer) do
     send(observer, :raw_worker_query)
+  end
+
+  defp assert_export_succeeds(fixture, cut, canaries \\ %{bytes: [], values: []}) do
+    assert {:ok, %{vault_id: vault_id}} =
+             ScopedRepo.transact(
+               WorkerRepo,
+               %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+               [isolation: :repeatable_read],
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+             )
+
+    assert vault_id == fixture.vault_id
+    assert {:ok, records} = materialized_records(fixture, cut)
+
+    rows =
+      records
+      |> Enum.map(fn record ->
+        assert {:ok, decoded} = LogicalRecordCodec.decode(record.type, record.payload)
+        decoded
+      end)
+      |> Enum.filter(&(&1.kind == :row))
+
+    assert_vault_scoped_rows(rows, fixture.vault_id)
+    payload = IO.iodata_to_binary(Enum.map(records, & &1.payload))
+    for canary <- canaries.bytes, do: refute(payload =~ canary)
+
+    # The ready fixture's text is also a wire type tag; inspect only user values.
+    values = for row <- rows, {_tag, value} <- row.ordered_column_values, do: value
+    for canary <- canaries.values, do: refute(canary in values)
+  end
+
+  defp assert_unsupported_export(fixture, cut, canaries) do
+    cut_result =
+      ScopedRepo.transact(
+        WorkerRepo,
+        %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+        [isolation: :repeatable_read],
+        fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+      )
+
+    # Bind an independently valid cut so refusal at snapshot_cut cannot mask records.
+    records_result = run_export(fixture, cut)
+
+    for result <- [cut_result, records_result] do
+      assert result == {:error, Error.new(:backup_unsupported)}
+      for canary <- canaries.bytes, do: refute(inspect(result) =~ canary)
+      for canary <- canaries.values, do: refute(inspect(result) =~ inspect(canary))
+    end
+  end
+
+  defp unsupported_inventory(raw) do
+    Fixtures.with_owner(fn ->
+      for table <- @unsupported_tables,
+          %{rows: [[count]]} =
+            owner_query!("SELECT count(*) FROM content.#{table} WHERE vault_id=$1", [raw.vault_id]),
+          count > 0 do
+        table
+      end
+      |> Enum.sort()
+    end)
+  end
+
+  defp insert_unsupported_inventory!("document_versions", raw) do
+    title = "private-document-canary-#{Ecto.UUID.generate()}"
+    KnowledgeFixtures.document!(raw, %{title: title})
+    %{bytes: [title], values: []}
+  end
+
+  defp insert_unsupported_inventory!("document_fragments", raw) do
+    {document, fragment} = KnowledgeFixtures.ready_document!(raw)
+    document_canaries(document, fragment)
+  end
+
+  defp insert_unsupported_inventory!("document_import_receipts", raw) do
+    title = "private-receipt-document-canary-#{Ecto.UUID.generate()}"
+    document = KnowledgeFixtures.document!(raw, %{title: title})
+
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        """
+        INSERT INTO content.document_import_receipts
+          (vault_id,principal_id,mutation_id,request_fingerprint,state,resource_id,version_id,inserted_at)
+        VALUES ($1,$2,$3,$4,'completed',$5,$6,CURRENT_TIMESTAMP)
+        """,
+        [
+          raw.vault_id,
+          raw.principal_id,
+          uuid_dump(),
+          :crypto.hash(:sha256, title),
+          document.resource_id,
+          document.resource_version_id
+        ]
+      )
+    end)
+
+    %{bytes: [title], values: []}
+  end
+
+  defp insert_unsupported_inventory!("note_attachments", raw) do
+    note = KnowledgeFixtures.note!(raw)
+    target = KnowledgeFixtures.note!(raw)
+    label = "private-attachment-label-canary-#{Ecto.UUID.generate()}"
+
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        """
+        INSERT INTO content.note_attachments
+          (note_resource_version_id,id,note_resource_id,vault_id,classification,
+           target_resource_id,target_resource_version_id,target_kind,ordinal,role,label,inserted_at)
+        VALUES ($1,$2,$3,$4,'private',$5,$6,'note',0,'source',$7,CURRENT_TIMESTAMP)
+        """,
+        [
+          note.resource_version_id,
+          uuid_dump(),
+          note.resource_id,
+          raw.vault_id,
+          target.resource_id,
+          target.resource_version_id,
+          label
+        ]
+      )
+    end)
+
+    %{bytes: [label], values: []}
+  end
+
+  defp insert_unsupported_inventory!("note_citations", raw) do
+    note = KnowledgeFixtures.note!(raw)
+    {document, fragment} = KnowledgeFixtures.ready_document!(raw)
+
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        """
+        INSERT INTO content.note_citations
+          (note_resource_version_id,id,note_resource_id,vault_id,classification,
+           source_resource_id,source_resource_version_id,fragment_id,locator,ordinal,inserted_at)
+        VALUES ($1,$2,$3,$4,'private',$5,$6,$7,$8,0,CURRENT_TIMESTAMP)
+        """,
+        [
+          note.resource_version_id,
+          uuid_dump(),
+          note.resource_id,
+          raw.vault_id,
+          document.resource_id,
+          document.resource_version_id,
+          fragment.fragment_id,
+          SourceLocator.to_map(fragment.locator)
+        ]
+      )
+    end)
+
+    document_canaries(document, fragment)
+  end
+
+  defp insert_unsupported_inventory!("tags", raw) do
+    canary = "private-tag-canary-#{Ecto.UUID.generate()}"
+    Fixtures.with_owner(fn -> insert_tag!(raw, uuid_dump(), canary) end)
+    %{bytes: [canary], values: []}
+  end
+
+  defp insert_unsupported_inventory!("resource_tags", raw) do
+    note = KnowledgeFixtures.note!(raw)
+    tag_id = uuid_dump()
+    canary = "private-resource-tag-canary-#{Ecto.UUID.generate()}"
+
+    Fixtures.with_owner(fn ->
+      insert_tag!(raw, tag_id, canary)
+
+      owner_query!(
+        """
+        INSERT INTO content.resource_tags (resource_id,tag_id,vault_id,classification,inserted_at)
+        VALUES ($1,$2,$3,'private',CURRENT_TIMESTAMP)
+        """,
+        [note.resource_id, tag_id, raw.vault_id]
+      )
+    end)
+
+    %{bytes: [canary], values: []}
+  end
+
+  defp insert_unsupported_inventory!("relationships", raw) do
+    source = KnowledgeFixtures.note!(raw)
+    target = KnowledgeFixtures.note!(raw)
+    relationship_id = uuid_dump()
+
+    Fixtures.with_owner(fn ->
+      owner_query!(
+        """
+        INSERT INTO content.relationships
+          (id,vault_id,classification,source_resource_id,target_resource_id,type,created_by_principal_id,inserted_at)
+        VALUES ($1,$2,'private',$3,$4,'related_to',$5,CURRENT_TIMESTAMP)
+        """,
+        [relationship_id, raw.vault_id, source.resource_id, target.resource_id, raw.principal_id]
+      )
+    end)
+
+    %{
+      bytes: [
+        load_uuid(relationship_id),
+        load_uuid(source.resource_id),
+        load_uuid(target.resource_id)
+      ],
+      values: []
+    }
+  end
+
+  defp document_canaries(document, fragment) do
+    locator = SourceLocator.to_map(fragment.locator)
+
+    %{
+      bytes: [document.title, fragment.fragment_id, JSON.encode!(locator), inspect(locator)],
+      values: [fragment.text, locator]
+    }
+  end
+
+  defp insert_tag!(raw, tag_id, canary) do
+    owner_query!(
+      """
+      INSERT INTO content.tags
+        (id,vault_id,classification,display_value,normalized_key,created_by_principal_id,inserted_at)
+      VALUES ($1,$2,'private',$3,$3,$4,CURRENT_TIMESTAMP)
+      """,
+      [tag_id, raw.vault_id, canary, raw.principal_id]
+    )
   end
 
   defp assert_export_invalid(fixture, cut, bind_snapshot? \\ true) do

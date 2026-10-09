@@ -618,3 +618,117 @@ principal fixture scope, preserved assertions, all 11 passing cases, cleanup,
 and unchanged V2 schema. Standing approval now permits Tasks 2–4 test-only
 qualification GO. Those new assertions and the final qualification gate remain
 unimplemented/unverified; Task 15 and Phase 2 remain open.
+
+## Backup qualification: first new-contract characterization
+
+Tasks 2–4 added live guard catalog/privilege checks, both-entrypoint authorization,
+eight legal omitted-inventory fixtures with clean-owner controls, and a synchronized
+post-commit repeatable-read test. Parent read the complete added diff before running.
+Initial owning-test SHA-256:
+`877e512fcd4c5430158de5eaf7d6fae849e4420c7e590781b0af6b478cde0a50`.
+
+The full-file command above, seed 1208 with trace, session `49858`, exited 2:
+21 tests, 2 failures (18.3 seconds), no test exclusions. Both failures occurred
+in new test helpers before the affected refusal assertions: the ready-Document
+helper returns a Core `SourceLocator` struct, not a JSON-encodable map. The
+fragment case encoded it as a canary; the citation case passed it to the JSONB
+parameter. The other 19 cases, including the committed-writer snapshot test,
+passed. This is fixture characterization evidence, not a production guard defect.
+
+Parent verified the established `SourceLocator.to_map/1` representation and
+requested a surgical Astra correction confined to the owning test. Citation
+UUID parameter types also require verification against raw-SQL binary UUIDs.
+No protocol derivation, shared-helper edit, production repair, or weaker assertion
+is authorized. This is the first observed new-qualification harness failure;
+the user permits at least three failed repair attempts if needed.
+
+After terminal exit, exact database
+`singularity_test_710b5f58a155ef65475903c3` had `pg_database` count 0 and root
+`/tmp/singularity/integration/710b5f58a155ef65475903c3` was absent.
+E2E, full README acceptance, bundle restore, and publication remain NOT RUN.
+
+### Astra fixture conversion repair and final-source characterization
+
+Astra repair attempt 1 converted the citation JSONB parameter and locator
+canaries through the established `SourceLocator.to_map/1`. Source verification
+also established that fragment IDs are SHA-256 text identities, not UUIDs;
+the citation column is `text`, so the existing fragment parameter was retained.
+No production or shared-support defect was demonstrated or repaired.
+
+Parent formatted only the owning test (session `6924`, exit 0), read the full
+diff, and checked whitespace. Final formatted owning-test SHA-256:
+`8fcea4a0e55ae3dae6b6d768782c5e66989a0157d190f3b23239c4b75bb28297`.
+The full-file seed-1208 command, session `87859`, exited 0: 21 tests,
+0 failures (17.9 seconds), no test exclusions. The previously failing fragment
+and citation cases now reach their inventory, both-entrypoint refusal, and
+clean-owner assertions and pass. The snapshot test passes unchanged.
+
+Exact database `singularity_test_bcea928f033bd7dd25c5b810` had `pg_database`
+count 0 after exit and its exact storage root was absent. This repair succeeded
+on its first attempt; the user's three-failure allowance did not require retries.
+Independent final reviews and changed-order verification remain pending.
+
+Changed-order run, session `5522`, exit 0:
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs \
+  --seed 90731 --trace
+```
+
+21 tests, 0 failures (18.9 seconds), no test exclusions. Exact database
+`singularity_test_00214a4fadb48494d40e2ca2` had `pg_database` count 0 and its
+exact storage root was absent. Final-source evidence totals **42 executions,
+0 failures**; the earlier failing characterization is not included as a pass.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix format --check-formatted \
+  apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix xref graph --format cycles --fail-above 0
+git diff --check
+```
+
+Formatter session `72141`, exit 0. Xref session `35195`, exit 0:
+`No cycles found`. Whitespace check exit 0. V2 schema and protected extraction,
+restart, and original untracked C-plan hashes remain identical. Main remains
+clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`.
+
+Fresh independent Astra SPEC review cleared exact final test hash with no
+actionable Tasks 2–4 gaps. Fresh QUALITY/security review is pending; no final
+slice acceptance or commit is claimed yet.
+
+### Backup qualification closure
+
+Fresh independent Astra QUALITY/security review also cleared the exact final
+test hash without actionable findings. Both reviews were read-only source
+reviews; the parent-owned executions above are the test evidence. Parent verified
+the complete checklist and allowlisted four changed files: owning test, backup
+design, backup plan, and this existing matrix.
+
+PASS: deployed function security/catalog and owner-scoped structural inventory;
+both unauthorized exporter entrypoints; eight legal inventory fixtures at both
+entrypoints with successful clean-owner controls; exact sanitized refusal;
+unchanged old export snapshot after acknowledged writer commit; refusal in the
+fresh snapshot; existing legacy export assertions; 42 final-source executions;
+formatting, zero xref cycles, whitespace, isolated-run cleanup, protected hashes,
+and independent SPEC/QUALITY reviews.
+
+Coverage distinction: Document, Note attachment, tag, and relationship fixtures
+are four independent unsupported cases. Fragment, receipt, citation, and resource
+tag fixtures require legal unsupported parents. All eight targets are covered,
+but dependent fixtures do not prove independent reachability of their OR branches.
+
+Production/support/migration/config changes: 0. V2 schema remains byte-identical.
+New qualification harness repairs: 1 successful attempt; production repairs: 0.
+The earlier prerequisite commit's disposable legacy-owner unlock/asset.read setup
+is unchanged and explicitly reported above; no Vault feature work occurred.
+Main, shared services, and user-owned untracked C plan remain untouched. The local
+test commit is authorized; no push, merge, tag, release, or deployment is included.
+
+NOT RUN: E2E, complete README gate, real bundle restore, deployment, and production
+acceptance. **Task 15 and Phase 2 remain open and unaccepted.** This bounded backup
+qualification plan stops here. Recommended next separately designed slice:
+inclusive extraction limits and real scanned/process/privacy extractor cases.

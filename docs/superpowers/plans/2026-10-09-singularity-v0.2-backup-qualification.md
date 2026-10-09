@@ -8,6 +8,10 @@
 
 **Tech Stack:** Elixir/ExUnit, Ecto scoped transactions, PostgreSQL catalogs, existing isolated integration runner.
 
+**Status:** Complete for this bounded test-only slice. Final formatted source
+passed 21 tests in each of two orders; independent Astra SPEC and QUALITY reviews
+are clear. Task 15 and full Phase 2 acceptance remain open; E2E was not run.
+
 ---
 
 ## Preconditions and file ownership
@@ -62,7 +66,7 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 ## Task 2: live guard catalog and entrypoint authorization
 
-- [ ] Add one integration test, `backup guard retains its bounded worker privileges`.
+- [x] Add one integration test, `backup guard retains its bounded worker privileges`.
   In an authenticated WorkerRepo scoped transaction, assert worker current_user
   and query the exact deployed function:
 
@@ -76,15 +80,15 @@ FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
 WHERE p.oid = 'content.backup_has_unsupported_canonical_rows(uuid)'::regprocedure
 ```
 
-- [ ] Expect true, `s`, `singularity_table_owner`, true,
+- [x] Expect true, `s`, `singularity_table_owner`, true,
   `['search_path=pg_catalog, content, core']`, body, false. Check the body has
   all eight `FROM content.<table> WHERE vault_id = requested_vault_id` clauses,
   `core.live_principal_authorization()`, scope match, live principal/membership,
   and `backup.create`. Label this structural inventory evidence.
-- [ ] Use `has_function_privilege($1, $2, 'EXECUTE')` for worker=true and
+- [x] Use `has_function_privilege($1, $2, 'EXECUTE')` for worker=true and
   web/dispatcher/pre-auth=false. Use `has_table_privilege(current_user,$1,'SELECT')`
   for all `@unsupported_tables`, expecting false. Run after any fixture grants close.
-- [ ] Extend unauthorized characterization to BOTH exporter entrypoints. Use
+- [x] Extend unauthorized characterization to BOTH exporter entrypoints. Use
   source principal without backup.create and valid fixture principal requesting
   a foreign owner. For records, create a well-shaped cut with requested vault_id,
   empty object_inventory, and `current_snapshot_cut/2`; keep UUIDs valid.
@@ -99,16 +103,16 @@ assert {:error, %Error{message: nil, details: %{}}} = result
 
 ## Task 3: legal inventory at cut and records with owner isolation
 
-- [ ] Add parameterized cases for the eight tables in the design's inventory.
+- [x] Add parameterized cases for the eight tables in the design's inventory.
   Start each from `raw = KnowledgeFixtures.source!()`; `load_ids(raw)` supplies
   text UUIDs. `seed_export_rows!(raw)` supplies its export closure and capability;
   use existing `cut/2`. Never seed a second active key version on prepared_source!.
   The setup fixture remains the clean control. Prove both export before insertion.
-- [ ] Add only private helpers local to this test file. Fixture insertion uses
+- [x] Add only private helpers local to this test file. Fixture insertion uses
   `Fixtures.with_owner/1` and `owner_query!/2`, binary UUID parameters, `log: false`,
   and committed constraints. Existing `KnowledgeFixtures.document!/1`,
   `ready_document!/1`, and `note!/1` create valid parents. Do not copy or edit support.
-- [ ] Construct the following exact shapes (timestamps use CURRENT_TIMESTAMP,
+- [x] Construct the following exact shapes (timestamps use CURRENT_TIMESTAMP,
   classification is private; all parent identities use the same raw owner):
 
 | Case | Required insertion and omitted inventory |
@@ -122,10 +126,10 @@ assert {:error, %Error{message: nil, details: %{}}} = result
 | Resource tag | supported Note, valid tag, resource_id/tag_id/vault_id; tags + resource_tags |
 | Relationship | two supported Notes, source_resource_id, target_resource_id, type=related_to, creator principal; only relationships |
 
-- [ ] Owner-query counts for every omitted table before worker checks; assert the
+- [x] Owner-query counts for every omitted table before worker checks; assert the
   nonzero table set equals the table above. Never create pending receipt orphans
   or bypass immutable/foreign-key/source-set constraints to isolate a branch.
-- [ ] For each case, use separate repeatable-read ScopedRepo transactions for
+- [x] For each case, use separate repeatable-read ScopedRepo transactions for
   cut and records. The latter binds the existing valid test cut directly with
   `current_snapshot_cut/2`, allowing the record guard to execute after cut refusal.
 
@@ -135,25 +139,28 @@ assert {:error, %Error{message: nil, details: %{}, retryable?: false}} = result
 Enum.each(canaries, fn canary -> refute inspect(result) =~ canary end)
 ```
 
-- [ ] After insertion, the clean owner must still obtain a successful cut and
+- [x] After insertion, the clean owner must still obtain a successful cut and
   materialized records inside its own transaction. Decode records with
   LogicalRecordCodec and reuse `assert_vault_scoped_rows/2`; reject case canaries.
-- [ ] Preserve existing exact counts/order/descriptors/privacy test unchanged.
+  The ready-Document helper's fixed fragment text `"text"` is also a wire type
+  tag: reject it as a decoded user row value, not in raw bytes. Preserve the
+  helper and use its exact fragment ID/locator as additional canaries.
+- [x] Preserve existing exact counts/order/descriptors/privacy test unchanged.
   Record four independent cases and four dependent composite cases honestly.
 
 ## Task 4: a committed concurrent tag does not change the old export snapshot
 
-- [ ] Add `backup cut and records share the snapshot across a committed canonical insert`.
+- [x] Add `backup cut and records share the snapshot across a committed canonical insert`.
   The test process is reader; use `start_supervised!(Task.Supervisor)` and
   `Task.Supervisor.async_nolink/2` for a monitored writer waiting for a unique
   `{reference, :write}` message. Its receive timeout is 10 seconds. It calls
   `Fixtures.with_owner/1` only after the barrier, inserts one canary tag into
   the setup owner, and returns its pg_backend_pid after commit.
-- [ ] Wrap task lifetime in `try/after`; call bounded `Task.shutdown/2` before
+- [x] Wrap task lifetime in `try/after`; call bounded `Task.shutdown/2` before
   leaving the test. Capture the task-owned MigrationRepo supervisor PID after
   startup via a reference-tagged message. On cancellation, stop that exact PID
   if still alive; never kill a shared repo. Ensure final cleanup has completed.
-- [ ] Reader uses ScopedRepo WorkerRepo repeatable_read. Set local statement_timeout
+- [x] Reader uses ScopedRepo WorkerRepo repeatable_read. Set local statement_timeout
   and lock_timeout to 5 seconds on both connections. Explicitly establish the
   snapshot before releasing the writer:
 
@@ -176,29 +183,29 @@ assert Enum.to_list(after_export.records) == before_records
 assert after_export.inventory == before_export.inventory
 ```
 
-- [ ] Confirm unchanged snapshot text explicitly and reject the tag canary from
+- [x] Confirm unchanged snapshot text explicitly and reject the tag canary from
   materialized bytes. Return `{:ok, :checked}` and assert transaction completion.
   Task completion must occur after its owner transaction commits, not merely
   after its INSERT returns. No sleep, polling, retries, or shared connection.
-- [ ] After reader transaction ends, owner-query the exact committed tag ID.
+- [x] After reader transaction ends, owner-query the exact committed tag ID.
   In a new worker repeatable_read transaction assert both cut and records return
   exact Error.new(:backup_unsupported). Records uses a newly bound valid cut,
   not the old snapshot. New snapshot string need not be compared lexicographically.
 
 ## Task 5: bounded verification and evidence handoff
 
-- [ ] Parent runs new focused cases while implementing, then one complete owning
+- [x] Parent runs new focused cases while implementing, then one complete owning
   file run with the Task 1 command. Stop on any failure; preserve full diagnostics.
-- [ ] Parent runs formatter check for the one changed .exs file and `git diff --check`.
+- [x] Parent runs formatter check for the one changed .exs file and `git diff --check`.
   Confirm `logical_schema_v2.ex` is byte-identical and changed paths are allowlisted.
-- [ ] Parent reviews new test fixtures, exact error equality, both entrypoints,
+- [x] Parent reviews new test fixtures, exact error equality, both entrypoints,
   legal parent sets, effective worker privileges, reference-tagged barriers,
   post-commit acknowledgment, and task/supervisor cleanup on failures.
-- [ ] Update Task 15 evidence matrix with exact source, changed files, commands,
+- [x] Update Task 15 evidence matrix with exact source, changed files, commands,
   baseline failure and repair, final test counts, and independent/composite
   inventory distinction. Record zero migration/production/support changes.
-- [ ] Fresh review of resulting test diff must pass before claiming this slice
+- [x] Fresh review of resulting test diff must pass before claiming this slice
   complete. Full README gate, full Phase 2 acceptance, E2E, bundle restore,
   deployment and production acceptance remain NOT RUN. No push/merge/tag/release.
-- [ ] Stop after this bounded slice. Parent handles any separately authorized
+- [x] Stop after this bounded slice. Parent handles any separately authorized
   local commit; this plan does not authorize publication or acceptance expansion.
