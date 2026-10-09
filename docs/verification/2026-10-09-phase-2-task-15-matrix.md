@@ -732,3 +732,52 @@ NOT RUN: E2E, complete README gate, real bundle restore, deployment, and product
 acceptance. **Task 15 and Phase 2 remain open and unaccepted.** This bounded backup
 qualification plan stops here. Recommended next separately designed slice:
 inclusive extraction limits and real scanned/process/privacy extractor cases.
+
+## Inclusive extraction limits: source audit and unchanged baseline
+
+Source: `c7efaec657c1f3d18fad16bed39ea6ae0e85a083` in the existing Phase 2
+worktree. Parent and a read-only Astra audit found that Core already has exact
+16,777,216-byte success with 256 exact-size fragments; preserve that evidence.
+The missing inclusive positives are 4096 fragments, 4096 PDF pages, and PDF raw
+output exactly at its limit. A multi-codepoint grapheme boundary and an independent
+native raw-cap pair complement those gaps without production changes.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix test \
+  apps/singularity_core/test/singularity/core/document_fragmentation_test.exs \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs \
+  --seed 1208 --trace
+```
+
+Unchanged baseline session `15903`, exit 0: Core 6 tests/0 failures (5.3 seconds),
+Ingest PDF 16/0 (10.0 seconds), **22 total**. ExUnit excludes integration tags,
+but neither module has integration cases and no tests were excluded. No database
+was allocated and no service operation occurred. Existing native timeout and
+cancellation tests, encrypted/malformed/empty real PDF fixtures, all adjacent
+over-limit refusals, and exact Core 16 MiB success passed unchanged.
+
+Baseline owning-test SHA-256 values:
+
+- Core: `24e264464d3f4a8ee82d4bf8f3837d7103922beb13231b89c2d19f9f3bd68f8d`
+- PDF: `47d5ad7e1943f2c1e43d2d88439aeedfea3becea8509358e73155ba55f40f773`
+
+Protected production SHA-256 values:
+
+- Core fragmentation: `811ad7db20d6670ea6e5bb00c418bb03466e7d77d5d4dccc5668c17e70ae65ba`
+- PDF adapter: `3ec8e2d2e89f9bb428303836794e111ad44bab1754f48fb10756506290516370`
+- Poppler controller: `ec1e2939185898a393a537e459d9817de9c546fe6d2fa7047488e1f11bc925e5`
+
+Parent wrote and read the complete bounded design and detailed plan. Fresh
+independent Astra design review is pending before test-only GO. Only the two
+owning tests and these three records may change. Source/fixture binary/support/
+dependency/config/migration changes and production repair are not authorized.
+The original untracked C plan remains protected. E2E/full acceptance NOT RUN;
+Task 15 and Phase 2 remain open.
+
+Inclusive-limits design closure: fresh independent Astra review read both full
+documents and traced Core/PDF/Poppler contracts. No Critical/Important finding
+remained. Parent confirmed five vectors, exact types, 27 expected test executions,
+evidence boundaries, old assertion preservation, and the two-test file scope.
+Standing approval now permits test-only GO; production repair remains prohibited
+without a separate bounded review. No qualification test has run yet.
