@@ -254,6 +254,13 @@ formatting and `git diff --check`; xref reported no cycles. These are pure
 contract checks, not PostgreSQL, Runtime authorization, or Phase 3 acceptance.
 No Vault file or legacy search implementation changed; E2E was not run.
 
+Task 2 follow-up `a704d34`: a forged timestamp precision could discard ordering
+microseconds during ISO serialization. Its focused regression first failed
+1/26 (seed 209188); requiring a lossless UTC round trip fixed it. Valid zero,
+three, and six-digit fractional precision remains supported. Independent spec
+and quality reviews passed this correction together with the pure cursor
+slice below.
+
 ## Task 3: Projection schema, extension, and production-role boundaries
 
 **Files:** Create the `20261009000100` migration and
@@ -318,6 +325,33 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 - [ ] Record extension package/version/schema and least-privilege installation
   results. Review and commit `feat(storage): add constrained unified search projection`.
+
+Task 3 status, 2026-10-09: **installation-authority amendment pending approval**.
+The new focused schema contract was run against a fresh application database:
+1 test, 1 expected failure because `pg_trgm` is absent (seed 426598), before
+adding a migration. Its isolated database/storage cleanup and owned PostgreSQL
+shutdown completed. No production migration or grant change was implemented.
+
+A separate owned PostgreSQL 17.10 probe installed `pg_trgm` 1.6 under
+`singularity_table_owner`. The extension belonged to that role, but functions
+belonged to bootstrap administrator `gao`. Attempted PUBLIC function revocation
+and web EXECUTE grants only warned that no privileges could be changed;
+PUBLIC EXECUTE remained, while the worker correctly lacked schema USAGE.
+The probe rolled back its extension transaction and stopped its private
+socket-only server. This agrees with PostgreSQL's documented
+[trusted-extension ownership](https://www.postgresql.org/docs/17/sql-createextension.html).
+Warning-only SQL completion is not accepted privilege evidence.
+
+Astra architecture assessment recommends a narrow amendment: per-application
+administrator provisioning for initial installation/hardening, exact required
+function EXECUTE delegation with grant option to the table owner, then a
+fail-closed forward migration for final web grants and projection creation.
+No role attributes/memberships, runtime administrator credentials, extension
+function ownership transfer, or Vault behavior would change. Bootstrap files,
+fresh/historical test-database lifecycle hooks, operator documentation, and
+explicit installation exception need approval before those edits. Approval
+was requested; the original installation step above is not silently relaxed.
+The independent pure cursor slice of Task 7 can proceed without this change.
 
 ## Task 4: Canonical builder and dual Note reconciliation
 
@@ -457,7 +491,8 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 **Files:** Create `apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex`,
 `knowledge_search_cursor.ex`, and tests in the same test directory named
-`knowledge_search_store_test.exs` and `knowledge_search_pagination_test.exs`.
+`knowledge_search_cursor_test.exs`, `knowledge_search_store_test.exs`, and
+`knowledge_search_pagination_test.exs`.
 
 - [ ] RED: a real canonical Note plus ready Document search with empty q returns
   both kinds and exact version/fragment IDs. Use fresh production-role scoped
@@ -497,6 +532,30 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 ```
 
 - [ ] Review and commit `feat(storage): search version-pinned knowledge with stable keysets`.
+
+Task 7 independent pure cursor slice: **implemented and reviewed**, commit
+`613a4b3`. Eleven unit tests first failed because the module did not exist
+(seed 88782), then passed (827002). They cover the complete ordering tuple,
+normalized owner/filter binding, independently calculated HMAC values,
+limit-independent paging, old-domain rejection, malformed signed payloads,
+tampering, size bounds, and lossless timestamp serialization. Spec review
+passed before a separate quality review passed. No SQL or database dependency
+was added; SQL keyset integration and the remaining Task 7 checks are pending.
+
+Final combined pure-contract regression command:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_core/test/singularity/core/search_source_test.exs apps/singularity_core/test/singularity/core/search_policy_test.exs apps/singularity_core/test/singularity/core/source_locator_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_retrieval/test/singularity/retrieval/note_lexical_search_test.exs
+```
+
+Result: Core 33 tests plus 2 properties; Storage 11 tests; Retrieval 39 tests
+(26 new, 13 legacy); zero failures, seed 364944. Scoped
+`mix format --check-formatted` and `git diff --check` passed;
+`mix xref graph --format cycles` reported no cycles. No E2E, full phase gate,
+merge, push, publication, deployment, or Vault change occurred. These results
+do not establish PostgreSQL search, Runtime authorization, or Phase 3
+acceptance. The separate Task 3 schema RED test remains uncommitted, pending
+the installation-authority amendment above.
 
 ## Task 8: Authenticated API and exact source reads
 
