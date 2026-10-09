@@ -328,3 +328,33 @@ the accepted supervised-restart test remains SHA-256
 `3fe960f0afb64f5253626bafbd3acda5b6a04d14c9c884c2b3dc380401f9aed9`.
 These hashes and `git diff --check` were verified before new qualification
 source changes.
+
+## Recovery qualification: unchanged baseline
+
+Source baseline: `125653e9dbb6d979703360138abf55fb888f2711`, on the existing
+`codex/v0.2-phase-2-import-extraction` worktree. The next bounded supplement
+characterizes live recovery function hardening, UUID-only scanning, and atomic
+rollback on a valid successor-event collision. Production behavior and
+migrations remain unchanged; E2E/full acceptance remain NOT RUN.
+
+```sh
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs \
+  --seed 1208
+```
+
+Unchanged baseline: session `21466`, exit 0; 7 tests, 0 failures (2.4 seconds).
+No exclusions were reported. After exit, the exact database
+`singularity_test_bd834312205b4009eb2047ea` had `pg_database` count 0 and its
+storage root `/tmp/singularity/integration/bd834312205b4009eb2047ea` was absent.
+Borrowed PostgreSQL was ready with zero restarts; no service restart occurred.
+The three protected artifact hashes above were rechecked and unchanged.
+
+Independent Astra design review found one setup omission: the fresh positive
+control must be claimed as expired generation 1 before recording its baseline.
+The parent verified the pending generation-0 fixture behavior and corrected
+both documents. Independent re-review cleared the correction and all remaining
+design/plan contracts. Standing approval permits test-only GO; new tests and
+their qualification remain pending. This baseline does not close Task 15,
+Phase 2, or the release acceptance gate.
