@@ -71,8 +71,27 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
     end)
   end
 
-  test "rollback clears context on the same connection and temporary grants restore production denial" do
+  test "rollback clears context on the same connection and temporary grants restore production permissions" do
     source = KnowledgeFixtures.source!()
+
+    assert_permissions = fn ->
+      for {repo, select?} <- [{RequestRepo, true}, {WorkerRepo, false}] do
+        assert %{rows: [[^select?, false, false, false, false]]} =
+                 query!(
+                   repo,
+                   """
+                   SELECT has_table_privilege(current_user,'content.tags','SELECT'),
+                          has_table_privilege(current_user,'content.tags','INSERT'),
+                          has_table_privilege(current_user,'content.tags','UPDATE'),
+                          has_table_privilege(current_user,'content.tags','DELETE'),
+                          has_table_privilege(current_user,'content.tags','TRUNCATE')
+                   """,
+                   []
+                 )
+      end
+    end
+
+    assert_permissions.()
 
     KnowledgeTestGrants.with_grants(["tags"], fn ->
       for repo <- [RequestRepo, WorkerRepo] do
@@ -113,18 +132,34 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
       end
     end)
 
-    for repo <- [RequestRepo, WorkerRepo] do
-      assert %{rows: [[false, false]]} =
-               query!(
-                 repo,
-                 "SELECT has_table_privilege(current_user,'content.tags','SELECT'), has_table_privilege(current_user,'content.tags','INSERT')",
-                 []
-               )
+    assert_permissions.()
 
+    assert %{rows: []} =
+             ScopedRepo.transact(RequestRepo, source, fn scoped ->
+               query!(scoped, "SELECT id FROM content.tags WHERE vault_id=$1", [source.vault_id])
+             end)
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+          query!(scoped, "SELECT id FROM content.tags", [])
+        end)
+      end
+
+    assert error.postgres.code == :insufficient_privilege
+
+    for repo <- [RequestRepo, WorkerRepo],
+        {statement, params} <- [
+          {"INSERT INTO content.tags DEFAULT VALUES", []},
+          {"UPDATE content.tags SET display_value=display_value WHERE vault_id=$1",
+           [source.vault_id]},
+          {"DELETE FROM content.tags WHERE vault_id=$1", [source.vault_id]},
+          {"TRUNCATE content.tags", []}
+        ] do
       error =
         assert_raise Postgrex.Error, fn ->
           ScopedRepo.transact(repo, source, fn scoped ->
-            query!(scoped, "SELECT id FROM content.tags", [])
+            query!(scoped, statement, params)
           end)
         end
 

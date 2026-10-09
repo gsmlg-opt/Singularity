@@ -413,7 +413,153 @@ git diff --check
 
 ### Task 3b: Forward projection migration and actual-role boundaries
 
-- [ ] Add an integration module using `Singularity.Storage.DataCase`,
+Task 3a is committed locally at
+`aecff46a4c350cbe6adfa3b25118e85021cf10f9`. The preserved fresh-database
+projection contract was rerun immediately afterward through the owned-cluster
+integration harness: **RED, 1 test, 1 failure**, seed `711089`. The extension
+namespace assertion now passes; the expected remaining failure is the absent
+`content.search_entries` table. The allocated fixture and owned PostgreSQL
+instance were cleaned up. Task 3b's migration has subsequently been exercised
+only in isolated test databases; final scoped acceptance is recorded below.
+
+The expanded test-first schema contract was then exercised before creating
+the migration. The isolated table-owner GIN authority characterization passed
+with exactly two executable extension functions: 19 tests, zero failures,
+18 excluded, seed `709643`. The complete new module reported **RED, 19 tests,
+18 failures**, seed `389426`: the authority characterization passed and the
+remaining contracts failed because the projection or migration was absent.
+Canonical Note/Document fixture construction succeeded. Both runs removed their
+allocated fixtures and stopped the owned PostgreSQL instance. Implementation
+was authorized only after this observed baseline.
+
+The first candidate run reported **27 tests, 16 failures**, seed `452047`.
+The failures identified three test-fixture/API defects: the explicit migration
+list lacked a Migrator strategy (13 cases), revision-one Note fixtures lacked
+their canonical parent (two cases), and the catalog query compared PostgreSQL's
+internal `char` value without the established `::text` cast (one case).
+The 11 other contracts passed, including constrained GIN execution and actual
+tag-read isolation. These fixture corrections preserve every required
+assertion and do not change production behavior. The next run reported 27 tests,
+12 failures, seed `660315`: all positive schema/authority/boundary/upgrade cases
+passed, while the 12 rejected-bootstrap cases reached their final rollback
+assertion and exposed a fixture querying migration metadata through the web
+Repo. That assertion must use the existing task-only migration login; no
+additional runtime grant is justified.
+
+Independent spec review also requires the immutable migration preflight to
+reject the same incompatible extension inventory that provisioning rejects.
+The initial candidate omitted checks for detached nonfunction members,
+renamed support functions, and extension members outside the controlled schema.
+Focused reproductions are being added before changing those guards.
+
+The next expanded run reported **31 tests, 17 failures**, seed `408111`.
+Four new catalog cases demonstrated that the candidate incorrectly accepted a
+detached `gtrgm` type, detached GIN operator family, renamed support function,
+and outside-namespace extension member. A fifth regression showed JSONB
+equality alone accepted a Note locator with version `1.0` instead of the
+canonical integer `1`. These five observed failures authorize corrections to
+the already-approved compatibility and locator checks, not new privileges.
+The other 12 failures were the rollback fixture's combined absence query:
+moving it to the migration login fixed metadata access but that NOINHERIT
+login cannot resolve the content-schema relation. After two unsuccessful Sol
+fixture repair rounds, the bounded assertion-routing repair was escalated to
+Astra (`SOL_REPEATED_FAILURE`, initial repair counter zero). Production guard
+correction remains separately Sol-owned; parent verification remains serial.
+
+After those corrections, the full schema module reported **GREEN, 31 tests,
+zero failures**, seed `336659`, in 179.5 seconds. This includes all 16
+incompatible-bootstrap rollback cases, the strict Note-locator regression,
+constrained-role GIN execution, exact canonical content bounds, actual read
+isolation, and historical upgrade preservation. Astra's first bounded repair
+passed parent verification (one completed round, zero failed Astra rounds).
+The three bootstrap/configuration/test-environment unit files also passed:
+42 tests, zero failures, 15 integration cases excluded (27 executed), seed
+`121375`. Independent final spec and code-quality reviews both passed.
+The adjacent bootstrap/test-environment/migration/role/Document-schema/Note-RLS
+run also passed: **106 tests, zero failures, 18 excluded** (88 executed), seed
+`953087`, in 181.5 seconds. This run emitted migration-module redefinition
+warnings and fixture-related database error logs; no unrelated repair was made.
+Scoped formatting, compilation with warnings as errors, and xref's zero-cycle
+check passed. Owned test instances were stopped after each completed run.
+
+The initial compatibility concern was that the existing
+`knowledge_rls_test.exs` rollback test still expects web tag SELECT denial.
+That historical expectation conflicts with the explicitly approved read-only
+tag grant. Its worker-read denial, mutation denials, rollback, and context
+cleanup must remain enforced. The file was outside Task 3b's original two-file
+edit scope, so it was left unchanged pending the explicit amendment below.
+
+Read-only characterization confirmed this conflict: the existing rollback
+test selected at line 78 reported **2 tests, 1 failure, 1 excluded**, seed
+`197091`. At `knowledge_rls_test.exs:117` it expected `[SELECT=false,
+INSERT=false]` but the actual web role correctly had `[true,false]`. The
+allocated fixture was removed and the owned PostgreSQL instance stopped.
+Work stopped under the repository's outside-scope failure rule. The migration,
+new test, and this evidence record remained uncommitted at that boundary; no
+assertion was weakened or reclassified to obtain a green result.
+
+Amendment approved 2026-10-10: permit editing only that existing rollback test
+to require the approved web SELECT grant while preserving rollback/context
+cleanup, worker SELECT denial, all mutation denials, and exact restoration of
+the production permission baseline. No production code, grant, helper, or Vault
+change is authorized for this alignment. Task 3b verification and its local
+commit may resume; later work stays within the approved Phase 3 plan.
+
+Before editing the test, the same focused command reproduced **RED, 2 tests,
+1 failure, 1 excluded**, seed `9099`, with the same expected `[false,false]`
+versus actual `[true,false]` permission mismatch. Its fixture was removed and
+the owned PostgreSQL instance stopped.
+
+The approved test-only alignment now asserts the exact web/worker permission
+baseline both before and after temporary grants, retaining same-connection
+rollback/context cleanup. It verifies a scoped web read, actual worker SELECT
+denial, and actual INSERT/UPDATE/DELETE/TRUNCATE denials for both roles. The
+first test and shared helper are unchanged. The complete two-test module
+passed, seed `987326`; the owned PostgreSQL instance stopped afterward. The
+three focused unit files also passed again: 42 tests, zero failures, 15 excluded
+(27 executed), seed `678122`. Independent amendment spec and code-quality
+reviews both passed. The combined schema/knowledge-RLS/adjacent PostgreSQL run
+then passed: **139 tests, zero failures, 18 excluded** (121 executed), seed
+`85445`, in 344.6 seconds. The owned PostgreSQL instance stopped after cleanup.
+The historical-fixture run retained the previously noted migration redefinition
+warnings and negative-fixture/connection-cleanup database logs; no assertion
+failed and no unrelated repair was made.
+
+Task 3b's constrained extension evidence is PostgreSQL 17.10 with `pg_trgm`
+1.6 in `search_extensions`, table-owner-controlled schema/extension and
+administrator-owned functions. Only the two approved function signatures are
+delegated; actual-role GIN creation, mutation, and query plans passed. The
+migration and new schema-test SHA-256 values remain those independently
+reviewed: `b07003c4b3c2150ba75f1f3bbf2298c6e54e0f346aee0019770cc6a1166b1aad`
+and `2068e3bca042cfd1b337ed0c9437e968e4f4c5d4c85f3bd9942261b28848871f`.
+The reviewed amended RLS test hash is
+`aae1d6dca515e4000caf4fe6f5364d6400e977c1c94cb0085d74e0541264bfb6`.
+Final scoped formatting, compilation with warnings as errors, zero-cycle xref,
+and `git diff --check` passed again. Task 3b is accepted locally for the bounded
+schema slice; it is not whole-phase acceptance or publication authority.
+
+Final scoped commands (serial, from this worktree):
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/configuration_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs apps/singularity_storage/test/singularity/storage/roles_test.exs apps/singularity_storage/test/singularity/storage/document_schema_test.exs apps/singularity_storage/test/singularity/storage/note_rls_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format --check-formatted apps/singularity_storage/priv/repo/migrations/20261009000100_create_unified_search_projection.exs apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs:78
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs apps/singularity_storage/test/singularity/storage/roles_test.exs apps/singularity_storage/test/singularity/storage/document_schema_test.exs apps/singularity_storage/test/singularity/storage/note_rls_test.exs
+git diff --check
+```
+
+The line-selected pre-amendment command is the documented historical **FAIL**;
+the complete amended module is **PASS**. The combined run is recorded above.
+No released migration, canonical row, shared fixture helper, runtime role
+definition, or Vault file was edited. The seven-application graph has no cycles.
+E2E, the complete phase acceptance gate, merge, push, release, deployment, and
+production activation remain **NOT RUN / not performed**.
+
+- [x] Add an integration module using `Singularity.Storage.DataCase`,
   `async: false`, and `@moduletag :integration`. Assert the new table/extension
   are present on a fresh application database, then observe RED:
 
@@ -427,19 +573,19 @@ Fixtures.with_owner(fn ->
 end)
 ```
 
-- [ ] Under `SET LOCAL ROLE singularity_table_owner`, preflight the separately
+- [x] Under `SET LOCAL ROLE singularity_table_owner`, preflight the separately
   provisioned extension's namespace, owner, version and ACLs. Fail if missing
   or incompatible; never install/relocate/harden it through runtime authority.
   Grant web only schema USAGE and EXECUTE on the two approved signatures.
   No role attributes/memberships or other function grants change.
-- [ ] Create `content.search_entries`: text primary key `entry_id`, UUID
+- [x] Create `content.search_entries`: text primary key `entry_id`, UUID
   `resource_id/resource_version_id/vault_id`, private `classification`, text
   `kind`, nullable UUID `note_resource_version_id`, nullable text `fragment_id`,
   bigint `ordinal`, title/body text, locator jsonb, immutable source timestamp,
   and projection format integer constrained to 1. Use canonical source bounds.
   Add generated title-A/body-D simple FTS vector and its GIN index, trigram
   title/body GIN indexes, and owner/kind/source-time/identity indexes.
-- [ ] Use existing unique keys; do not alter canonical data or add a universal
+- [x] Use existing unique keys; do not alter canonical data or add a universal
   current-head FK. Conditional references must use MATCH SIMPLE:
 
 ```sql
@@ -456,12 +602,12 @@ FOREIGN KEY (fragment_id, resource_id, resource_version_id, vault_id, classifica
   branch cannot bypass a nullable FK, Note ordinal is zero, entry IDs match
   their source, and Document ordinals/locators agree with canonical construction.
   Enforce one Note row per resource and one row per Document fragment.
-- [ ] ENABLE/FORCE RLS; preserve the established table-owner internal policy.
+- [x] ENABLE/FORCE RLS; preserve the established table-owner internal policy.
   The web policy requires nonempty scoped principal/owner, matching row owner,
   and `core.principal_is_authorized(principal, owner)`. Grant only web SELECT on
   the new projection and existing `tags/resource_tags`. Runtime projection DML,
   worker Document SELECT, and all tag mutation grants remain denied.
-- [ ] Add actual-role cross-owner/missing-context and ACL tests, FK mismatch
+- [x] Add actual-role cross-owner/missing-context and ACL tests, FK mismatch
   tests, old-table grant preservation, and forward-upgrade tests through
   `MigrationTestEnvironment.with_database(20261008000000, callback)`.
   No temporary `KnowledgeTestGrants` permissions are acceptance evidence.
@@ -470,7 +616,7 @@ FOREIGN KEY (fragment_id, resource_id, resource_version_id, vault_id, classifica
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs
 ```
 
-- [ ] Record extension package/version/schema and least-privilege installation
+- [x] Record extension package/version/schema and least-privilege installation
   results. Review and commit `feat(storage): add constrained unified search projection`.
 
 Task 3 historical status, 2026-10-09: **installation-authority amendment pending approval**.
