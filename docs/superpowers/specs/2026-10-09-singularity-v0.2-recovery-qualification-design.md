@@ -1,7 +1,7 @@
 # Singularity v0.2 Recovery Qualification Design
 
 Date: 2026-10-09
-Status: Parent read-through and independent Astra review clear; test-only GO.
+Status: Qualified locally; independent Astra SPEC and QUALITY reviews clear.
 Baseline supplied by parent: `125653e9dbb6d979703360138abf55fb888f2711`,
 branch `codex/v0.2-phase-2-import-extraction`, existing `.trees` worktree.
 Source inspection below is not live PostgreSQL qualification evidence.
@@ -156,3 +156,14 @@ Passing this supplement qualifies these bounded contracts only. E2E and the
 complete README acceptance gate remain NOT RUN; Task 15 and Phase 2 remain
 open. No claim of live source-byte authentication, extractor execution, or
 full release acceptance follows from schema-only recovery fixtures.
+
+## Qualification record
+
+Final test SHA-256:
+`f652a9e18fb90935799704251e13ff8d80530c772886c2280038eac227e9f39b`.
+The final formatted combined/repeat gate executed 37 tests with zero failures.
+Compilation, formatting, zero-cycle checks, exact database/root cleanup,
+and independent reviews passed. Exact commands, the initial source-projection
+harness correction, protected hashes, and proof limits are recorded in
+`docs/verification/2026-10-09-phase-2-task-15-matrix.md`.
+No production repair, Vault feature work, migration, or publication occurred.

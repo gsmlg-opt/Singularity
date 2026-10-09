@@ -358,3 +358,163 @@ both documents. Independent re-review cleared the correction and all remaining
 design/plan contracts. Standing approval permits test-only GO; new tests and
 their qualification remain pending. This baseline does not close Task 15,
 Phase 2, or the release acceptance gate.
+
+## Recovery first characterization and harness diagnosis
+
+The reviewed recovery documents were committed locally as
+`326a7868538c584889182af54ad8ced5fe5ce8df`. Astra modified only the owning
+reconciler test; all seven existing contracts/assertions were preserved.
+Parent read the complete 602-line test before execution. Initial SHA-256:
+`7e935725982a75dfde13ccf2f19c8fc8867810dcf4dde233d56227d1e4580a02`.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs \
+  --seed 1208 --trace
+```
+
+Session `86821`, exit 2: 9 tests, 1 failure (3.0 seconds). The catalog/grant
+and real UUID scanner contracts passed. The collision contract stopped before
+its production recovery call: it incorrectly expected the entire owner-scoped
+Asset search projection to be empty. `KnowledgeFixtures.source!/0` calls
+`Fixtures.two_vaults!/0`, which inserts an established source Asset projection;
+the observed row identified that source Asset/version, not the Document.
+
+This is a test-harness assumption defect, not a reproduced recovery defect.
+The design requires no Document search row and preservation of source rows.
+Astra was assigned a surgical assertion correction retaining full snapshot
+equality, with no deletion/mutation of the source projection. One harness
+diagnostic correction is in progress; production repair attempts remain 0.
+
+After the failed run, exact database
+`singularity_test_01c31da0525dc520c94bb6e9` had `pg_database` count 0 and exact
+storage root `/tmp/singularity/integration/01c31da0525dc520c94bb6e9` was absent.
+No service, production source, migration, or grant policy changed.
+
+## Corrected recovery characterization
+
+The parent verified the fixture's source projection insertion. Astra changed
+only the invalid empty-owner-search assertion: the test now identifies the
+existing source Asset/version/owner projection, explicitly excludes each new
+Document version, and preserves every complete snapshot comparison. No
+projection was deleted or changed. Corrected test SHA-256:
+`98e26e5e0b5e6353c4e935276d4cd6ef23b9342217bc841f311d1a45b1d374bc`.
+
+The exact first-characterization command above was rerun: session `79425`,
+exit 0, 9 tests, 0 failures (3.0 seconds), no exclusions. Real adapter and
+reconciler calls both returned the exact sanitized conflict while all nine
+owner-filtered table snapshots and the source pin count remained equal.
+The collision stayed scan-eligible; a fresh expired same-source control
+recovered exactly once, cleared only the allowed attempt fields, and inserted
+one correct IDs-only successor without changing source rows or projections.
+
+Exact database `singularity_test_27e763c21e357cd216f0d9e2` had `pg_database`
+count 0 after exit; root
+`/tmp/singularity/integration/27e763c21e357cd216f0d9e2` was absent. One harness
+diagnostic correction passed; production repair attempts remain 0. Independent
+SPEC/QUALITY review and the final scoped repeat/regression remain pending.
+
+## Recovery formatting and scoped regression
+
+Initial format check (session `64817`, exit 1) identified only four formatting
+areas in new code. Before formatting, the combined owning-file/lifecycle
+regression ran in session `70133`, exit 0: Storage 19 tests (6.4 seconds),
+Runtime 9 tests (2.9 seconds), total 28 executed, 0 failures, no exclusions.
+The existing deferred-constraint test emitted its expected Postgrex
+`document_versions_completion_check` disconnect diagnostics; it passed.
+Database `singularity_test_1e98c528fb4d14af995dd8cf` and its exact storage root
+were independently absent afterward.
+
+Parent formatted only the owning test in session `67862`, exit 0; format check
+session `12193` then exited 0. Final test SHA-256:
+`f652a9e18fb90935799704251e13ff8d80530c772886c2280038eac227e9f39b`.
+Independent Astra SPEC review re-read the formatted diff, confirmed the four
+formatting-only changes and no semantic changes, and cleared that exact hash.
+
+```sh
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix format --check-formatted \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs \
+  apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs \
+  --seed 1208 --trace
+```
+
+Final formatted combined run: session `55117`, exit 0; Storage 19 tests,
+0 failures (6.3 seconds), Runtime 9 tests, 0 failures (3.0 seconds). Total
+28 executed, no exclusions. The same expected deferred-constraint diagnostics
+appeared in its passing preexisting test. Exact database
+`singularity_test_61b2d96f67b9df0a51b53f5c` had `pg_database` count 0 and exact
+root `/tmp/singularity/integration/61b2d96f67b9df0a51b53f5c` was absent.
+
+Changed-order repeat and fresh independent QUALITY/security review remain
+pending. No production repair or service restart was needed.
+
+## Recovery final scoped gate
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs \
+  --seed 90731 --trace
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix compile --warnings-as-errors
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix xref graph --format cycles --fail-above 0
+git diff --check
+git status --short
+devenv processes list
+```
+
+Changed-order repeat: session `39543`, exit 0; 9 tests, 0 failures
+(3.4 seconds), no exclusions. The collision test preceded later global scan
+and reconciler cases, all of which passed with the exact-resource fixture
+retirement in place. Exact database
+`singularity_test_ad0358091cd83cecf5f81114` had `pg_database` count 0; exact
+root `/tmp/singularity/integration/ad0358091cd83cecf5f81114` was absent.
+Compile: session `4651`, exit 0. Xref: session `86274`, exit 0,
+`No cycles found`. Diff whitespace check: exit 0. Borrowed PostgreSQL remains
+ready with zero restarts; no parent-owned service was started or stopped.
+
+The final formatted combined/repeat commands executed **37 tests**, 0 failures.
+Test SHA-256 remains `f652a9e18fb90935799704251e13ff8d80530c772886c2280038eac227e9f39b`.
+All three protected artifact hashes remain identical to the recorded values.
+No production module, migration, support helper, dependency, or configuration
+changed. Final fresh independent QUALITY/security review remains pending;
+these scoped results do not imply Task 15 or Phase 2 acceptance.
+
+## Recovery bounded acceptance and handoff
+
+PASS: the bounded recovery qualification supplement is accepted locally.
+Independent Astra SPEC and fresh QUALITY/security reviews cleared final test
+SHA-256 `f652a9e18fb90935799704251e13ff8d80530c772886c2280038eac227e9f39b`
+with no Critical, Important, or Minor actionable findings. Reviewers performed
+no Mix, database, service, source, or Git mutations. Parent verified source
+scope, formatting, all 37 final scoped executions, compilation, zero xref
+cycles, each exact database/root cleanup, and protected artifact hashes.
+
+Source baseline is `125653e9dbb6d979703360138abf55fb888f2711`; reviewed
+design/plan commit is `326a7868538c584889182af54ad8ced5fe5ce8df`. Parent records
+the resulting qualification commit in the Git handoff, not as publication.
+Changed files are exactly the existing Runtime reconciler test, its new design
+and implementation plan, and this existing qualification matrix. All seven
+existing tests/assertions remain preserved. No released migration changed.
+
+One test-harness diagnostic correction passed. No production repair was
+attempted; no behavioral RED/production-fix claim is made. Existing expected
+deferred-constraint diagnostics are not new recovery failures. No Vault
+feature/semantics, custody/key/capability policy, production activation,
+backup V3, search projection behavior, Note Save, version bump, merge, push,
+tag, release, or deployment changed. The original untracked C plan was not
+staged, and the existing worktree/branch remain in place.
+
+NOT RUN: E2E, complete README acceptance, and broader release/deployment gates.
+Task 15 and Phase 2 remain **open and unaccepted**. The next recommended
+source-audited qualification slice is backup unsupported-inventory owner
+scoping and repeatable-read snapshot behavior, followed by inclusive extraction
+limits and real scanned/process/privacy extractor cases. These require their
+own bounded design/review before implementation. No focused subset waives
+the standing E2E exclusion or the complete acceptance requirement.

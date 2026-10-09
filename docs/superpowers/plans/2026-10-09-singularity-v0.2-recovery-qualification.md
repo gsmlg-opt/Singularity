@@ -46,7 +46,7 @@ Stop on a valid required scoped failure; do not repair production under this pla
 
 **Modify/Test:** `apps/singularity_runtime/test/singularity/runtime/document_extraction_reconciler_test.exs` only.
 
-- [ ] Extend the existing narrow-worker-execution test with live catalog
+- [x] Extend the existing narrow-worker-execution test with live catalog
   assertions for its two existing signatures. Use this exact query per signature:
 
 ```sql
@@ -63,7 +63,7 @@ the design, and final `false`. Scanner result is
 `TABLE(version_id uuid, owner_id uuid)`; recovery result is `boolean`.
 Keep the existing effective EXECUTE role assertions unchanged.
 
-- [ ] Assert denied direct mutation for every runtime role on both
+- [x] Assert denied direct mutation for every runtime role on both
   `content.document_versions` and `content.document_fragments` with the query
   below. Check INSERT/UPDATE/DELETE separately; for INSERT/UPDATE also check
   `has_any_column_privilege($1,$2,$3) = false`. Assert worker SELECT denial
@@ -73,7 +73,7 @@ Keep the existing effective EXECUTE role assertions unchanged.
 SELECT has_table_privilege($1,$2,$3)
 ```
 
-- [ ] Add a live scanner contract using `source!/0`, `document!/1`, existing
+- [x] Add a live scanner contract using `source!/0`, `document!/1`, existing
   `grant_read!/1`, and `claim_expired!/2`. Register exact-resource cleanup
   immediately after document creation, using the helper contract in Task 3.
   Execute and assert the exact two columns, both UUIDs, and repository pair:
@@ -96,7 +96,7 @@ Do not assert a global single result or substitute the scanner.
 
 **Modify/Test:** the same existing reconciler test only; private helpers stay here.
 
-- [ ] Add one collision test using existing source/Document/expired-attempt
+- [x] Add one collision test using existing source/Document/expired-attempt
   fixtures. Register an `on_exit` callback immediately after creation of each
   new Document. Its sole mutation is this exact-ID fixture retirement inside
   `Fixtures.with_owner/1`; call `query!(MigrationRepo, sql, [resource_id, owner_id])`:
@@ -109,7 +109,7 @@ WHERE id=$1 AND vault_id=$2 AND deleted_at IS NULL
 This occurs after assertions and prevents the intentionally unrecoverable
 fixture from contaminating later global scans. Never delete the collision event.
 
-- [ ] Insert the collision through table-owner fixture SQL. Set local
+- [x] Insert the collision through table-owner fixture SQL. Set local
   principal/owner context to the fixture before reading live epochs. Parameters
   are `[event_id, version_id, resource_id, owner_id, principal_id, old_job_id]`,
   all binary UUIDs. Require exactly one inserted row and read its complete row:
@@ -127,7 +127,7 @@ FROM core.live_principal_authorization() AS a
 WHERE a.principal_id=$5 AND a.vault_id=$4
 ```
 
-- [ ] Add a private snapshot helper returning complete `to_jsonb(row)` rows
+- [x] Add a private snapshot helper returning complete `to_jsonb(row)` rows
   with `WHERE vault_id=$1`, ordered by each table's stable primary key:
 
 | Table | Order |
@@ -149,7 +149,7 @@ vault_id=$1 AND source_object_id=$2`. Assert initial generation 1, original
 job, expired deadline, nil digest/language/failure/finished time, one exact
 collision event, empty fragments, and no Document search projection.
 
-- [ ] Assert production calls and compare the complete snapshot after each:
+- [x] Assert production calls and compare the complete snapshot after each:
 
 ```elixir
 expected = {:error, Singularity.Core.Error.new(:conflict)}
@@ -171,7 +171,7 @@ Error equality enforces nil message, empty details, and nonretryable conflict.
 The unique violation is currently mapped by `KnowledgeError`; do not change
 the adapter to manufacture a different result. Sequence gaps are not row loss.
 
-- [ ] Create a fresh second Document against the same source for a noncollision
+- [x] Create a fresh second Document against the same source for a noncollision
   control, register exact-resource cleanup immediately, retain the source's
   existing `asset.read` grant, generate its own old job UUID, and call
   `claim_expired!/2`. Assert extracting generation 1 with that job and an
@@ -187,7 +187,7 @@ the adapter to manufacture a different result. Sequence gaps are not row loss.
 
 ## Task 4: Parent verification, independent review, and evidence
 
-- [ ] Parent reads the complete changed test and records its hash. Run the
+- [x] Parent reads the complete changed test and records its hash. Run the
   Task 1 command against the new assertions as characterization, then format
   only that file and run scoped checks below. A first-pass green result is valid.
 
@@ -206,13 +206,24 @@ MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
 git diff --check
 ```
 
-- [ ] Parent verifies each runner's actual database cleanup and no service
+- [x] Parent verifies each runner's actual database cleanup and no service
   restart; record executed counts separately from exclusions. Stop affected
   work on an out-of-scope failure and report it without broadening repairs.
-- [ ] Obtain independent Astra SPEC and QUALITY/security review of the exact
+- [x] Obtain independent Astra SPEC and QUALITY/security review of the exact
   tested diff. Reviewers run no Mix/database/Git mutations. Correct only
   authorized harness defects; a production finding needs bounded review first.
-- [ ] Parent updates only the existing Task 15 matrix with source hash, exact
+- [x] Parent updates only the existing Task 15 matrix with source hash, exact
   commands/results, changed files, cleanup, review findings, and limits. Mark
   bounded recovery evidence only; E2E/full gate NOT RUN and Phase 2 unaccepted.
   Any local commit follows the parent's existing authorization; no publication.
+
+## Local qualification result
+
+All tasks above are complete for this bounded supplement, not the master
+Task 15 or Phase 2 acceptance gate. Final formatted test SHA-256 is
+`f652a9e18fb90935799704251e13ff8d80530c772886c2280038eac227e9f39b`.
+The final combined/repeat commands executed 37 tests, zero failures.
+Independent Astra SPEC and fresh QUALITY/security reviews cleared that hash.
+The parent records commands, cleanup, compile/format/xref results, one harness
+diagnostic correction, and unchanged protected artifacts in the existing
+Task 15 matrix. Production repair attempts remain 0; E2E remains NOT RUN.
