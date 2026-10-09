@@ -54,6 +54,23 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     cut: cut
   } do
     source = KnowledgeFixtures.prepared_source!()
+
+    Fixtures.with_owner(fn ->
+      owner_query!("UPDATE core.vaults SET locked=false WHERE id=$1", [
+        Ecto.UUID.dump!(source.vault_id)
+      ])
+
+      owner_query!(
+        "INSERT INTO core.capabilities (id,name) VALUES ($1,'asset.read') ON CONFLICT (name) DO NOTHING",
+        [uuid_dump()]
+      )
+
+      owner_query!(
+        "INSERT INTO core.principal_capabilities (principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'",
+        [Ecto.UUID.dump!(source.principal_id), Ecto.UUID.dump!(source.vault_id)]
+      )
+    end)
+
     title = "private-document-title-canary"
     command = KnowledgeFixtures.document_command(source, %{title: title})
 

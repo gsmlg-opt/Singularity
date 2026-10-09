@@ -585,3 +585,36 @@ inventory classification, live guard restrictions, independently bound records
 cuts, and post-commit two-connection snapshot/cleanup protocol. Standing approval
 permits **fixture-repair-only GO** first. The documented successful 11-test
 rebaseline remains a prerequisite to new qualification implementation.
+
+## Backup fixture repair and rebaseline
+
+Astra added only the existing repository test's fixture prerequisites to the
+Document-refusal case: unlock that exact disposable owner fixture and assign
+`asset.read` to its existing principal. All assertions, real repository call,
+temporary grants, title/privacy checks, and other-owner success remain intact.
+Parent read the exact 17-line added block before running the whole owning file.
+Repaired test SHA-256:
+`f27e9ec18cf26c7fabdc3610e0c6e0302a6cff06a26189bf20662f33b7c5dd6e`.
+
+The exact full-file baseline command above was rerun, session `48803`, exit 0:
+11 tests, 0 failures (8.3 seconds), no exclusions. The existing Document fixture
+now creates through the real repository, and its unchanged backup refusal and
+other-owner checks execute and pass. This resolves the demonstrated fixture
+setup defect on the first repair attempt; production repair attempts remain 0.
+
+Exact database `singularity_test_30e0e43d8107925c3ba9dbfd` had `pg_database`
+count 0 after exit and root
+`/tmp/singularity/integration/30e0e43d8107925c3ba9dbfd` was absent. No production
+file, support helper, migration, V2 schema, service, or policy changed. The only
+legacy-owner fixture mutation required for knowledge compatibility is reported
+explicitly; no Vault feature work occurred. Independent Task 1 reviews and
+new qualification implementation remain pending.
+
+Task 1 closure: formatter session `84277`, exit 0. Independent Astra SPEC and
+fresh QUALITY/security reviews cleared exact repaired test hash
+`f27e9ec18cf26c7fabdc3610e0c6e0302a6cff06a26189bf20662f33b7c5dd6e`
+with no actionable findings. Parent verified the parameterized exact owner/
+principal fixture scope, preserved assertions, all 11 passing cases, cleanup,
+and unchanged V2 schema. Standing approval now permits Tasks 2–4 test-only
+qualification GO. Those new assertions and the final qualification gate remain
+unimplemented/unverified; Task 15 and Phase 2 remain open.

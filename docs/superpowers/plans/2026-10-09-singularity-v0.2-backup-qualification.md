@@ -23,15 +23,15 @@ Keep production, support, migrations, config, dependencies, V2 wire schema,
 frozen extraction/restart tests, and original untracked C plan unchanged.
 
 - [x] Parent reads both documents completely; fresh Astra review resolves all findings.
-- [x] Parent records bounded fixture-repair-only GO. New qualification awaits rebaseline.
+- [x] Parent records fixture-repair GO, then new qualification GO after rebaseline/reviews.
 - [x] Record unchanged baseline: 11 tests / one Document fixture `:forbidden` failure.
   This is not a backup guard failure: execution never reached its assertions.
-- [ ] Preserve every existing assertion; do not force characterization red by
+- [x] Preserve every existing assertion; do not force characterization red by
   changing production code. New coverage is expected to pass existing behavior.
 
 ## Task 1: repair only the stale Document test setup, then rebaseline
 
-- [ ] Immediately after `source = KnowledgeFixtures.prepared_source!()` in the
+- [x] Immediately after `source = KnowledgeFixtures.prepared_source!()` in the
   existing Document-refusal test, add its established repository-test prerequisites:
 
 ```elixir
@@ -50,9 +50,9 @@ Fixtures.with_owner(fn ->
 end)
 ```
 
-- [ ] Keep `DocumentRepository.create_pending/2`, temporary grants, and all backup
+- [x] Keep `DocumentRepository.create_pending/2`, temporary grants, and all backup
   assertions. This copies existing fixture setup; no policy or Vault behavior changes.
-- [ ] Parent runs the owning file using the command below. Expected: all 11
+- [x] Parent runs the owning file using the command below. Expected: all 11
   existing tests pass. If anything fails, STOP qualification and report exact
   failure; no production/support fix or assertion weakening is authorized.
 

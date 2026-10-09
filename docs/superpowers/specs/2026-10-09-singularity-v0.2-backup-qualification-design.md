@@ -2,7 +2,7 @@
 
 Date: 2026-10-09
 
-Status: parent read and independent Astra review clear; fixture-repair-only GO.
+Status: fixture prerequisite repaired and reviewed; new test qualification GO.
 Source inspected: `dfe60aa11ac471da243e0523a33a23b0bf426276` in
 `.trees/v0.2-phase-2-import-extraction`.
 
