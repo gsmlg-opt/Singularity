@@ -1028,5 +1028,143 @@ this exact source, not another qualification design. A clean verification worktr
 must preserve the original untracked C plan; required E2E remains NOT RUN and
 cannot be replaced by partial acceptance.
 
+## Existing non-E2E README gate: attempt 1 and formatter diagnosis
+
+Source: local commit `3f7ab99b863b7e7345a68c024a9dbf8fa3b8813e`. Parent created
+the clean project-local verification worktree `.trees/v0.2-phase-2-verification`
+on `codex/v0.2-phase-2-verification`, preserving the original untracked C plan.
+No acceptance-source edits were made in the verification checkout. Two read-only
+Astra preflights verified service ownership and frontend commands. Source-defined
+manual E2E triggering does not prove hosted checks; no remote writes occurred.
+
+Environment probe session `61618`, exit 0, verified dedicated paths:
+`DEVENV_STATE=<verification-worktree>/.devenv/state`,
+`PGDATA=<verification-worktree>/.devenv/state/postgres`,
+`DEVENV_RUNTIME=/run/user/1000/devenv-50f49bc`,
+`PGHOST=/run/user/1000/devenv-50f49bc/postgres`, `PGPORT=5432`.
+All manager PID/socket, postmaster PID, and PostgreSQL socket identities were
+absent before startup. Parent ran one strict shell with an EXIT trap that stops
+only this verified owned runtime; the borrowed `devenv-afa1eb9` was never adopted.
+
+Runner session `5898`, exit 1, executed README order up to the formatter gate:
+
+| Command | Result |
+| --- | --- |
+| `devenv up -d` | PASS |
+| `devenv processes wait --timeout 120` | PASS |
+| PostgreSQL identity query | PASS: owned data/socket directories, empty TCP listen address, port 5432 |
+| `devenv shell -- bash apps/singularity_storage/priv/repo/bootstrap_roles.sh` | PASS, owned cluster only |
+| `devenv shell -- mix deps.get` | PASS, all locked dependencies unchanged |
+| `devenv shell -- mix deps.unlock --check-unused` | PASS |
+| `devenv shell -- mix format --check-formatted` | FAIL: one Runtime extraction test file |
+
+Mix commands used the shared source dependency path but verification-worktree
+build outputs. Role bootstrap was deliberately isolated: its cluster-wide role
+alterations/revocations must never run on the borrowed cluster. Cleanup completed;
+new manager/socket/postmaster/socket artifacts are absent and readiness reports
+no response there. The borrowed cluster still reports accepting connections.
+No test database was allocated because execution stopped before integration.
+
+NOT RUN after this failure: warnings-as-errors application compile, full unit,
+full integration, independent bundle restore, frontend install/verify/check/unit/
+build, final xref/actionlint/clean gate. E2E remains separately NOT RUN by user
+exclusion. No partial acceptance was declared or later gate silently skipped.
+
+Focused reproduction session `22978`, exit 1, reports the same sole unformatted
+file: `apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`,
+SHA-256 `b8c6f602344926f4ec085edbd7b3a3b84173efb3d58654cc90ce20d31ba07e42`.
+Astra traced this to C1/C2 appended in `138b035`; later C3/C4/C5 formatting was
+recorded separately while those earlier bytes were deliberately preserved.
+Original A/B first 2,191 lines remain SHA-256
+`373ad3d5fcfdd07ae522f00a037caa6efabbfba5f060c6c9685fb7d71da14178`.
+The historical “final formatted source” description did not establish this
+repository-wide formatting gate; this live failure supersedes that broad reading.
+
+Task 15 explicitly requires stopping acceptance, diagnosing within Phase 2, and
+rerunning the affected focused check plus the entire failed gate. The owning
+Task 12 file is in that approved Phase 2 scope. Its historical tool-evidence
+amendment explicitly prohibited whole-file formatting within that additive slice;
+the parent read that design and plan completely and does not waive it silently.
+Proposed new acceptance-repair exception is formatter-only for this one file,
+with original A/B and C3/C4/C5 bytes unchanged, complete normalized AST and comment
+text equality, and no assertion/tag/deadline/literal or production/Vault change.
+Fresh independent Astra scope review cleared this exact exception after verifying
+the actual source and complete historical freeze design/plan. Parent issues
+formatter-only acceptance-repair GO under standing approval, preserving every
+semantic freeze and the original byte-protected A/B/C3-onward regions. Only this
+existing matrix and the owning Runtime test are authorized repair files.
+
 NOT RUN: E2E, complete README gate, complete Task 15/Phase 2 acceptance,
 deployment and production acceptance. **Task 15 and Phase 2 remain open.**
+
+### Formatter repair: structural proof and focused verification
+
+Parent applied `devenv shell -- mix format
+apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`
+(session `41585`, exit 0). The complete diff changes only C1/C2 layout; original
+A/B and C3-onward are byte-identical. No assertions or enforced behavior changed.
+Parent read the entire actual diff without truncation before further verification.
+
+Elixir structural proof session `59841`, exit 0, compared the complete file against
+`3f7ab99` using `Code.string_to_quoted_with_comments!` and metadata-normalized ASTs:
+
+| Proof | Result |
+| --- | --- |
+| Complete normalized AST and ordered comment texts | Equal |
+| Syntactic registrations/assertions/tags | Unchanged: 24 modules, 91 `test` AST nodes, 554 assertions, 63 tags |
+| Original A/B first 2,191 lines | Byte-identical, SHA-256 `373ad3d5fcfdd07ae522f00a037caa6efabbfba5f060c6c9685fb7d71da14178` |
+| C3-onward through EOF | Byte-identical, SHA-256 `53e2a67134a4190a3e77c3ad7765dee08e55bb261945a812fa19629de9ad095f` |
+| Complete formatted Runtime file | SHA-256 `32b04d1913f976a9b74f2a08a97c375b605836e5af17448940cc05433655e979` |
+
+These are structural counts, not executed test-case counts. Formatting changes
+source lines, but no line-sensitive macro dependency was found in the affected
+code. The preserved source regions retain their original content.
+
+An initial whole-formatter invocation (`1500`, exit 1) omitted the existing
+shared dependency-path environment and stopped on unavailable dependencies,
+before checking formatting. Corrected command `devenv shell -- env
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format
+--check-formatted` passed (`9363`, exit 0). No dependency or lockfile edit occurred.
+
+Fresh independent Astra SPEC review passed the actual two-file repair, separately
+confirming the complete-file and protected-region hashes and reviewing the entire
+diff. It is a source-only review; parent sessions provide execution evidence.
+The original untracked C plan retains SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+Focused runner `69590`, exit 0, started and verified only the owned verification
+cluster, provisioned roles there, and ran the entire Runtime file from the
+implementation checkout with explicit owned PostgreSQL environment:
+
+```sh
+devenv shell -- env \
+  MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  PGHOST=/run/user/1000/devenv-50f49bc/postgres PGPORT=5432 \
+  mix singularity.test.integration \
+  apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs \
+  --seed 1208
+```
+
+PASS: 127 reported tests, 43 excluded, **84 executed test cases, zero failures**,
+554.1 seconds. Generated database `singularity_test_a7b05c78b9aa47b80b60226a`
+and storage root `/tmp/singularity/integration/a7b05c78b9aa47b80b60226a` were
+isolated to this run. The post-run owned-cluster database query returned no
+`singularity_test_%` database; the cleanup trap stopped only the owned runtime.
+Read-only inspection during a quiet interval showed idle PostgreSQL connections.
+Astra source investigation explained the existing expiry contract: settling prior
+attempts can wait almost 180 seconds, followed by another 180-second fresh-attempt
+deadline, under the existing 420-second test timeout. No timeout, assertion,
+deadline, or synchronization behavior was weakened or changed.
+
+Distinct fresh Astra QUALITY review passed, independently repeating complete
+AST/comment equality, protected-byte checks and exact file hash. It confirmed
+the 554 counted assertion operators and four separately unchanged `flunk` calls.
+SPEC and QUALITY are source-only reviews; parent sessions supply all test and
+formatter execution evidence. Production Core/PDF/Poppler/guardian, restart test,
+and V2 backup schema retain their previously recorded exact hashes; root `main`
+remains clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`.
+
+This repairs the failed formatter and proves the affected focused contract only.
+The entire selected non-E2E README gate must restart from its first command on
+the clean committed repair source. E2E remains NOT RUN, full acceptance remains
+open, and no merge, push, release, deployment, or Vault feature work occurred.

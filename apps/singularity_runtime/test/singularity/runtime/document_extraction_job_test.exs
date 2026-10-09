@@ -2198,9 +2198,24 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
   alias Singularity.Runtime.DocumentSourceIntegrationSupport, as: S
   alias Singularity.Runtime.DocumentSourceIntegrationSupport.{Custodian, Lease, Probe}
   alias Singularity.Runtime.Documents.Extract
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, RequestRepo, SafeSQL, ScopedRepo, WorkerRepo}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    MigrationRepo,
+    RequestRepo,
+    SafeSQL,
+    ScopedRepo,
+    WorkerRepo
+  }
+
   alias Singularity.Storage.Jobs.{EnvelopeCodec, GenericWorker, WorkerScope}
-  alias Singularity.Storage.Postgres.{DocumentRepository, DocumentWorkerRepository, IdentityRepository}
+
+  alias Singularity.Storage.Postgres.{
+    DocumentRepository,
+    DocumentWorkerRepository,
+    IdentityRepository
+  }
 
   @canary "CANARY_C_PRIVATE_TITLE_SOURCE_LOCATOR_TOOL_SQL"
   def canary, do: @canary
@@ -2208,17 +2223,32 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
   defmodule ToolFailure do
     alias Singularity.Ingest.Documents.Poppler
     def run(:info, bytes, opts), do: Poppler.run(:info, bytes, opts)
+
     def run(:text, bytes, opts) do
       path = Keyword.fetch!(opts, :c_pid_path)
       fault = Keyword.fetch!(opts, :c_fault)
+
       script =
         case fault do
           :timeout -> "printf '%s' \"$$\" > \"$1\"; exec sleep 10"
           :tool_exit -> "printf '%s' \"$$\" > \"$1\"; printf '%s' \"$2\" >&2; exit 42"
         end
-      result = Poppler.run_guarded("/bin/sh", ["-c", script, "c-owned-tool", path,
-        Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary()], bytes,
-        timeout_ms: 2000, output_limit: 1024)
+
+      result =
+        Poppler.run_guarded(
+          "/bin/sh",
+          [
+            "-c",
+            script,
+            "c-owned-tool",
+            path,
+            Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary()
+          ],
+          bytes,
+          timeout_ms: 2000,
+          output_limit: 1024
+        )
+
       pid = path |> File.read!() |> String.to_integer()
       ExUnit.Assertions.refute(File.exists?("/proc/#{pid}"))
       result
@@ -2230,21 +2260,34 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     alias Singularity.Runtime.DocumentOutcomeIntegrationSupport.ToolFailure
     alias Singularity.Runtime.DocumentSourceIntegrationSupport.Probe
     alias Singularity.Storage.WorkerRepo
+
     def extract(config, bytes) do
       true = WorkerRepo.checked_out?()
       false = WorkerRepo.in_transaction?()
-      Probe.event(config.f.probe, :c_extract, %{size: byte_size(bytes), digest: :crypto.hash(:sha256, bytes)})
+
+      Probe.event(config.f.probe, :c_extract, %{
+        size: byte_size(bytes),
+        digest: :crypto.hash(:sha256, bytes)
+      })
+
       case config.mode do
-        :actual -> config.module.extract(bytes)
+        :actual ->
+          config.module.extract(bytes)
+
         :raise ->
           {:ok, _} = Text.extract(bytes)
           raise Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary()
+
         :throw ->
           {:ok, _} = Text.extract(bytes)
           throw(Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary())
+
         mode when mode in [:timeout, :tool_exit] ->
-          PDF.extract(bytes, runner: ToolFailure, c_fault: mode,
-            c_pid_path: Path.join(config.f.root, "owned-tool-pid"))
+          PDF.extract(bytes,
+            runner: ToolFailure,
+            c_fault: mode,
+            c_pid_path: Path.join(config.f.root, "owned-tool-pid")
+          )
       end
     end
   end
@@ -2254,36 +2297,67 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     alias Singularity.Storage.{SafeSQL, WorkerRepo}
     alias Singularity.Storage.Postgres.DocumentWorkerRepository, as: R
     def describe(_config, context, envelope), do: R.describe(context, envelope)
+
     def put_progress_state(config, context, envelope, state) do
       result = R.put_progress_state(context, envelope, state)
+
       if state == :waiting_for_unlock and result == {:ok, :saved},
         do: Probe.event(config.f.probe, :c_waiting_saved, :saved)
+
       result
     end
+
     def claim(config, context, envelope, adapter, format) do
       result = R.claim(context, envelope, adapter, format)
       Probe.event(config.f.probe, :c_claimed, result)
       result
     end
+
     def complete(config, context, envelope, source, attempt, completion) do
       false = WorkerRepo.in_transaction?()
-      Probe.event(config.f.probe, :c_complete_before, %{outcome: completion.outcome, generation: attempt.generation})
-      R.complete(fault_context(context, config.complete_fault?), envelope, source, attempt, completion)
+
+      Probe.event(config.f.probe, :c_complete_before, %{
+        outcome: completion.outcome,
+        generation: attempt.generation
+      })
+
+      R.complete(
+        fault_context(context, config.complete_fault?),
+        envelope,
+        source,
+        attempt,
+        completion
+      )
     end
+
     def record_exhaustion(config, context, envelope, failure, metadata) do
       Probe.event(config.f.probe, :c_terminal, metadata)
-      result = R.record_exhaustion(fault_context(context, config.recorder_fault?), envelope, failure, metadata)
+
+      result =
+        R.record_exhaustion(
+          fault_context(context, config.recorder_fault?),
+          envelope,
+          failure,
+          metadata
+        )
+
       Probe.event(config.f.probe, :c_terminal_result, result)
       result
     end
+
     defp fault_context(context, false), do: context
+
     defp fault_context(context, true) do
       original = context.transact
+
       Map.put(context, :transact, fn options, phase ->
         original.(options, fn repo ->
           result = phase.(repo)
-          SafeSQL.query!(repo, "SELECT runtime_c_private_failure($1::text)",
-            [Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary()])
+
+          SafeSQL.query!(repo, "SELECT runtime_c_private_failure($1::text)", [
+            Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary()
+          ])
+
           result
         end)
       end)
@@ -2295,6 +2369,7 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     alias Singularity.Runtime.JobDispatcher
     alias Singularity.Runtime.DocumentSourceIntegrationSupport.Probe
     def dependencies, do: Application.fetch_env!(:singularity_storage, :runtime_c_dependencies)
+
     def handle(context, envelope) do
       case context.c_handler_mode do
         :actual -> JobDispatcher.handle(context, envelope)
@@ -2303,6 +2378,7 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
         :throw -> throw(Singularity.Runtime.DocumentOutcomeIntegrationSupport.canary())
       end
     end
+
     def handle_failure(context, envelope, failure, metadata) do
       Probe.event(context.c_fixture.probe, :c_callback, metadata)
       JobDispatcher.handle_failure(context, envelope, failure, metadata)
@@ -2316,23 +2392,44 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
   end
 
   def dependencies(f, options \\ []) do
-    config = %{f: f, complete_fault?: Keyword.get(options, :complete_fault?, false),
-      recorder_fault?: Keyword.get(options, :recorder_fault?, false)}
-    extractors = Map.new([{"text/plain", Text, "plain_text"},
-      {"text/markdown", Markdown, "markdown"}, {"application/pdf", PDF, "poppler_text"}],
-      fn {type, module, name} ->
-        {type, {{Extractor, %{f: f, module: module, mode: Keyword.get(options, :mode, :actual)}}, name, 1}}
-      end)
-    %{authorize: Authorize,
-      authorization: %AuthorizationDependencies{store: IdentityRepository, custodian: {KeyCustodian, f.custodian}},
+    config = %{
+      f: f,
+      complete_fault?: Keyword.get(options, :complete_fault?, false),
+      recorder_fault?: Keyword.get(options, :recorder_fault?, false)
+    }
+
+    extractors =
+      Map.new(
+        [
+          {"text/plain", Text, "plain_text"},
+          {"text/markdown", Markdown, "markdown"},
+          {"application/pdf", PDF, "poppler_text"}
+        ],
+        fn {type, module, name} ->
+          {type,
+           {{Extractor, %{f: f, module: module, mode: Keyword.get(options, :mode, :actual)}},
+            name, 1}}
+        end
+      )
+
+    %{
+      authorize: Authorize,
+      authorization: %AuthorizationDependencies{
+        store: IdentityRepository,
+        custodian: {KeyCustodian, f.custodian}
+      },
       document_worker: {Worker, config},
       custodian: {Custodian, %{probe: f.probe, pid: f.custodian}},
-      document_source_lease: {Lease, f.probe}, document_extractors: extractors,
-      c_fixture: f, c_handler_mode: Keyword.get(options, :handler_mode, :actual)}
+      document_source_lease: {Lease, f.probe},
+      document_extractors: extractors,
+      c_fixture: f,
+      c_handler_mode: Keyword.get(options, :handler_mode, :actual)
+    }
   end
 
   def run(f, options \\ []) do
     envelope = Keyword.get(options, :envelope, f.envelope)
+
     WorkerScope.run(envelope, fn scope ->
       assert scope.repo_handle === WorkerRepo
       refute WorkerRepo.in_transaction?()
@@ -2343,14 +2440,17 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
   def configure_runner!(f, options \\ []) do
     for {key, value} <- [job_handler: Handler, runtime_c_dependencies: dependencies(f, options)] do
       previous = Application.fetch_env(:singularity_storage, key)
+
       ExUnit.Callbacks.on_exit(fn ->
         case previous do
           {:ok, old} -> Application.put_env(:singularity_storage, key, old)
           :error -> Application.delete_env(:singularity_storage, key)
         end
       end)
+
       Application.put_env(:singularity_storage, key, value)
     end
+
     :ok
   end
 
@@ -2364,59 +2464,112 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
 
   def live!(f) do
     scope = %{principal_id: f.principal_id, vault_id: f.vault_id, owner_scope_id: f.vault_id}
-    assert {:ok, document} = ScopedRepo.transact(RequestRepo, scope, fn repo ->
-      DocumentRepository.get_live_scoped(repo, scope, f.envelope.payload["resource_id"])
-    end)
+
+    assert {:ok, document} =
+             ScopedRepo.transact(RequestRepo, scope, fn repo ->
+               DocumentRepository.get_live_scoped(repo, scope, f.envelope.payload["resource_id"])
+             end)
+
     assert document.resource_id == f.envelope.payload["resource_id"]
-    assert {:ok, binding} = ScopedRepo.transact(RequestRepo, scope, fn repo ->
-      DocumentRepository.source_live_scoped(repo, scope, document.resource_id)
-    end)
+
+    assert {:ok, binding} =
+             ScopedRepo.transact(RequestRepo, scope, fn repo ->
+               DocumentRepository.source_live_scoped(repo, scope, document.resource_id)
+             end)
+
     assert binding.object_id == Ecto.UUID.load!(f.source.object_id)
     assert binding.source_byte_size == byte_size(f.plaintext)
-    fragments = ScopedRepo.transact(RequestRepo, scope, fn repo ->
-      DocumentRepository.fragments_live_scoped(repo, scope, document.resource_id)
-    end)
+
+    fragments =
+      ScopedRepo.transact(RequestRepo, scope, fn repo ->
+        DocumentRepository.fragments_live_scoped(repo, scope, document.resource_id)
+      end)
+
     case document.state do
       :ready ->
         assert {:ok, public} = fragments
+
         assert Enum.map(public, fn fragment ->
-          [fragment.fragment_id, fragment.ordinal, fragment.text, fragment.digest, SourceLocator.to_map(fragment.locator)]
-        end) == S.fragments(f)
-      :pending -> assert {:error, %Error{code: :conflict}} = fragments
+                 [
+                   fragment.fragment_id,
+                   fragment.ordinal,
+                   fragment.text,
+                   fragment.digest,
+                   SourceLocator.to_map(fragment.locator)
+                 ]
+               end) == S.fragments(f)
+
+      :pending ->
+        assert {:error, %Error{code: :conflict}} = fragments
     end
   end
 
   def captured_attempt!(f) do
-    assert [{:c_claimed, _, {:ok, attempt}}] = Enum.filter(S.events(f), &(elem(&1, 0) == :c_claimed))
-    assert {:ok, {:source, source}} = WorkerScope.run(f.envelope,
-      &DocumentWorkerRepository.describe(&1, f.envelope))
+    assert [{:c_claimed, _, {:ok, attempt}}] =
+             Enum.filter(S.events(f), &(elem(&1, 0) == :c_claimed))
+
+    assert {:ok, {:source, source}} =
+             WorkerScope.run(
+               f.envelope,
+               &DocumentWorkerRepository.describe(&1, f.envelope)
+             )
+
     {source, attempt}
   end
 
   def sql_complete(f, fragments, digest) do
     e = f.envelope
+
     WorkerScope.run(e, fn scope ->
       scope.transact.([], fn repo ->
-        SafeSQL.query(repo, "SELECT * FROM content.complete_document_worker($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
-          [f.document.resource_id, f.document.resource_version_id, Ecto.UUID.dump!(e.job_id),
-           e.expected_entity_revision, e.principal_authorization_epoch, e.vault_authorization_epoch,
-           e.expected_entity_revision + 1, "plain_text", 1, "text/plain", fragments, digest, nil])
+        SafeSQL.query(
+          repo,
+          "SELECT * FROM content.complete_document_worker($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+          [
+            f.document.resource_id,
+            f.document.resource_version_id,
+            Ecto.UUID.dump!(e.job_id),
+            e.expected_entity_revision,
+            e.principal_authorization_epoch,
+            e.vault_authorization_epoch,
+            e.expected_entity_revision + 1,
+            "plain_text",
+            1,
+            "text/plain",
+            fragments,
+            digest,
+            nil
+          ]
+        )
       end)
     end)
   end
 
   def json_fragments(completion) do
     Enum.map(completion.fragments, fn fragment ->
-      %{"id" => fragment.fragment_id, "ordinal" => fragment.ordinal, "text" => fragment.text,
-        "digest" => Base.encode16(fragment.digest, case: :lower), "locator" => SourceLocator.to_map(fragment.locator)}
+      %{
+        "id" => fragment.fragment_id,
+        "ordinal" => fragment.ordinal,
+        "text" => fragment.text,
+        "digest" => Base.encode16(fragment.digest, case: :lower),
+        "locator" => SourceLocator.to_map(fragment.locator)
+      }
     end)
   end
 
   def job(f, attempt \\ 1, maximum \\ 3) do
     {:ok, args} = EnvelopeCodec.encode(f.envelope)
     now = DateTime.utc_now()
-    %Oban.Job{args: args, attempt: attempt, max_attempts: maximum, queue: "document_extract",
-      worker: Oban.Worker.to_string(GenericWorker), attempted_at: now, scheduled_at: now}
+
+    %Oban.Job{
+      args: args,
+      attempt: attempt,
+      max_attempts: maximum,
+      queue: "document_extract",
+      worker: Oban.Worker.to_string(GenericWorker),
+      attempted_at: now,
+      scheduled_at: now
+    }
   end
 
   def claim_by_interruption!(f) do
@@ -2427,24 +2580,49 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     S.kill_runner!(runner)
     refute :extracted in S.keys(f)
     assert DynamicSupervisor.which_children(f.lease_supervisor) == []
-    {:ok, {:source, source}} = WorkerScope.run(f.envelope, &DocumentWorkerRepository.describe(&1, f.envelope))
+
+    {:ok, {:source, source}} =
+      WorkerScope.run(f.envelope, &DocumentWorkerRepository.describe(&1, f.envelope))
+
     {source, attempt}
   end
 
   def completion!(f, source, attempt, outcome \\ :ready) do
-    attrs = %{resource_id: source.resource_id, resource_version_id: source.resource_version_id,
-      owner_scope_id: f.vault_id, classification: :private, generation: attempt.generation,
-      adapter_name: attempt.adapter_name, format_version: attempt.format_version,
-      media_type: f.media_type, finished_at: DateTime.utc_now(), outcome: outcome}
-    attrs = if outcome == :ready do
-      {:ok, blocks} = Text.extract(f.plaintext)
-      {:ok, fragments} = DocumentFragmentation.build(Map.take(attrs,
-        [:resource_id, :resource_version_id, :owner_scope_id, :classification]), f.media_type, blocks)
-      Map.merge(attrs, %{fragments: fragments,
-        extracted_text_digest: :crypto.hash(:sha256, Enum.map(fragments, & &1.text))})
-    else
-      Map.put(attrs, :failure_code, "extractor_failed")
-    end
+    attrs = %{
+      resource_id: source.resource_id,
+      resource_version_id: source.resource_version_id,
+      owner_scope_id: f.vault_id,
+      classification: :private,
+      generation: attempt.generation,
+      adapter_name: attempt.adapter_name,
+      format_version: attempt.format_version,
+      media_type: f.media_type,
+      finished_at: DateTime.utc_now(),
+      outcome: outcome
+    }
+
+    attrs =
+      if outcome == :ready do
+        {:ok, blocks} = Text.extract(f.plaintext)
+
+        {:ok, fragments} =
+          DocumentFragmentation.build(
+            Map.take(
+              attrs,
+              [:resource_id, :resource_version_id, :owner_scope_id, :classification]
+            ),
+            f.media_type,
+            blocks
+          )
+
+        Map.merge(attrs, %{
+          fragments: fragments,
+          extracted_text_digest: :crypto.hash(:sha256, Enum.map(fragments, & &1.text))
+        })
+      else
+        Map.put(attrs, :failure_code, "extractor_failed")
+      end
+
     {:ok, completion} = DocumentCompletion.new(attrs)
     completion
   end
@@ -2457,17 +2635,25 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
 
   def exhaustion(f, options \\ []) do
     WorkerScope.run(f.envelope, fn scope ->
-      Extract.record_exhaustion(Map.merge(dependencies(f, options), scope), f.envelope,
-        Error.new(:storage_unavailable, retryable?: true), %{attempt: 3, max_attempts: 3})
+      Extract.record_exhaustion(
+        Map.merge(dependencies(f, options), scope),
+        f.envelope,
+        Error.new(:storage_unavailable, retryable?: true),
+        %{attempt: 3, max_attempts: 3}
+      )
     end)
   end
 
   def no_projection!(f) do
-    assert [[true, true, true]] = S.owner_query("""
-      SELECT NOT EXISTS(SELECT 1 FROM content.asset_search_documents WHERE resource_version_id=$1),
-        NOT EXISTS(SELECT 1 FROM content.note_search_documents WHERE resource_version_id=$1),
-        EXISTS(SELECT 1 FROM content.asset_search_documents WHERE resource_version_id=$2)
-      """, [f.document.resource_version_id, f.source.resource_version_id]).rows
+    assert [[true, true, true]] =
+             S.owner_query(
+               """
+               SELECT NOT EXISTS(SELECT 1 FROM content.asset_search_documents WHERE resource_version_id=$1),
+                 NOT EXISTS(SELECT 1 FROM content.note_search_documents WHERE resource_version_id=$1),
+                 EXISTS(SELECT 1 FROM content.asset_search_documents WHERE resource_version_id=$2)
+               """,
+               [f.document.resource_version_id, f.source.resource_version_id]
+             ).rows
   end
 
   def outcome!(f, state, code, options \\ []) do
@@ -2477,8 +2663,13 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     assert actual == Atom.to_string(state)
     assert job_id == Ecto.UUID.dump!(f.envelope.job_id)
     assert DateTime.diff(deadline, started, :microsecond) == 180_000_000
-    assert [[^code]] = S.owner_query("SELECT failure_code FROM content.document_versions WHERE resource_version_id=$1",
-      [f.document.resource_version_id]).rows
+
+    assert [[^code]] =
+             S.owner_query(
+               "SELECT failure_code FROM content.document_versions WHERE resource_version_id=$1",
+               [f.document.resource_version_id]
+             ).rows
+
     assert S.fragments(f) == []
     no_projection!(f)
     assert File.read!(f.path) == before
@@ -2487,41 +2678,73 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
 
   def hidden!(f) do
     scope = %{principal_id: f.principal_id, vault_id: f.vault_id, owner_scope_id: f.vault_id}
+
     for operation <- [:get_live_scoped, :fragments_live_scoped, :source_live_scoped] do
-      assert {:error, %Error{code: :not_found}} = ScopedRepo.transact(RequestRepo, scope, fn repo ->
-        apply(DocumentRepository, operation, [repo, scope, f.envelope.payload["resource_id"]])
-      end)
+      assert {:error, %Error{code: :not_found}} =
+               ScopedRepo.transact(RequestRepo, scope, fn repo ->
+                 apply(DocumentRepository, operation, [
+                   repo,
+                   scope,
+                   f.envelope.payload["resource_id"]
+                 ])
+               end)
     end
   end
 
   def mutation!(f, operation) when operation in [:retry, :restore] do
-    assert [[id]] = Fixtures.with_owner(fn ->
-      Singularity.Storage.DataCase.query!(MigrationRepo,
-        "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
-        [f.principal_id, f.vault_id])
-      Singularity.Storage.DataCase.query!(MigrationRepo,
-        "SELECT content.#{operation}_document_runtime($1,'plain_text',1)", [f.document.resource_id]).rows
-    end)
+    assert [[id]] =
+             Fixtures.with_owner(fn ->
+               Singularity.Storage.DataCase.query!(
+                 MigrationRepo,
+                 "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+                 [f.principal_id, f.vault_id]
+               )
+
+               Singularity.Storage.DataCase.query!(
+                 MigrationRepo,
+                 "SELECT content.#{operation}_document_runtime($1,'plain_text',1)",
+                 [f.document.resource_id]
+               ).rows
+             end)
+
     assert id == f.document.resource_id
   end
 
   def successor!(f, revision) do
     key = "document-extraction:#{f.envelope.payload["resource_version_id"]}:#{revision}"
-    assert [[id, pe, oe, correlation, causation, payload]] = S.owner_query("""
-      SELECT id,principal_authorization_epoch,vault_authorization_epoch,correlation_id,causation_id,payload
-      FROM core.outbox_events WHERE vault_id=$1 AND idempotency_key=$2
-      """, [f.source.vault_id, key]).rows
-    env = %{f.envelope | job_id: Ecto.UUID.load!(id), idempotency_key: key,
-      expected_entity_revision: revision, principal_authorization_epoch: pe,
-      vault_authorization_epoch: oe, correlation_id: Ecto.UUID.load!(correlation),
-      causation_id: Ecto.UUID.load!(causation || id),
-      payload: payload}
+
+    assert [[id, pe, oe, correlation, causation, payload]] =
+             S.owner_query(
+               """
+               SELECT id,principal_authorization_epoch,vault_authorization_epoch,correlation_id,causation_id,payload
+               FROM core.outbox_events WHERE vault_id=$1 AND idempotency_key=$2
+               """,
+               [f.source.vault_id, key]
+             ).rows
+
+    env = %{
+      f.envelope
+      | job_id: Ecto.UUID.load!(id),
+        idempotency_key: key,
+        expected_entity_revision: revision,
+        principal_authorization_epoch: pe,
+        vault_authorization_epoch: oe,
+        correlation_id: Ecto.UUID.load!(correlation),
+        causation_id: Ecto.UUID.load!(causation || id),
+        payload: payload
+    }
+
     {:ok, encoded} = EnvelopeCodec.encode(env)
     {:ok, ^env} = EnvelopeCodec.decode(encoded)
-    S.owner_query("""
+
+    S.owner_query(
+      """
       INSERT INTO jobs.job_submissions(id,vault_id,outbox_event_id,classification,idempotency_key,job_type)
       VALUES($1,$2,$1,'private',$3,'document_extract') ON CONFLICT(outbox_event_id) DO NOTHING
-      """, [id, f.source.vault_id, key])
+      """,
+      [id, f.source.vault_id, key]
+    )
+
     %{f | envelope: env, request: %{f.request | job_id: env.job_id}}
   end
 
@@ -2529,8 +2752,18 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     ready = completion!(f, source, attempt)
     failed = completion!(f, source, attempt, :failed)
     before = {S.attempt_rows(f), S.fragments(f)}
-    assert {:error, %Error{code: :conflict}} = WorkerScope.run(f.envelope,
-      &DocumentWorkerRepository.claim(&1, f.envelope, attempt.adapter_name, attempt.format_version))
+
+    assert {:error, %Error{code: :conflict}} =
+             WorkerScope.run(
+               f.envelope,
+               &DocumentWorkerRepository.claim(
+                 &1,
+                 f.envelope,
+                 attempt.adapter_name,
+                 attempt.format_version
+               )
+             )
+
     assert {:error, %Error{code: :conflict}} = complete(f, source, attempt, ready)
     assert {:error, %Error{code: :conflict}} = complete(f, source, attempt, failed)
     assert {:ok, :unchanged} = exhaustion(f)
@@ -2541,20 +2774,31 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     assert DateTime.diff(attempt.deadline_at, attempt.started_at, :microsecond) == 180_000_000
     wait_for_deadline(f, attempt.deadline_at, System.monotonic_time(:millisecond) + 190_000)
   end
+
   defp wait_for_deadline(f, deadline, bound) do
     assert System.monotonic_time(:millisecond) < bound
-    assert [[current, stored]] = S.owner_query("SELECT clock_timestamp(),attempt_deadline_at FROM content.document_versions WHERE resource_version_id=$1",
-      [f.document.resource_version_id]).rows
+
+    assert [[current, stored]] =
+             S.owner_query(
+               "SELECT clock_timestamp(),attempt_deadline_at FROM content.document_versions WHERE resource_version_id=$1",
+               [f.document.resource_version_id]
+             ).rows
+
     assert stored == deadline
     remaining = DateTime.diff(deadline, current, :millisecond)
+
     if remaining >= 0 do
       token = make_ref()
       timer = Process.send_after(self(), {:deadline_tick, token}, min(remaining + 2, 30_000))
+
       receive do
         {:deadline_tick, ^token} -> :ok
       after
-        31_000 -> Process.cancel_timer(timer); flunk("database deadline timer exceeded bound")
+        31_000 ->
+          Process.cancel_timer(timer)
+          flunk("database deadline timer exceeded bound")
       end
+
       wait_for_deadline(f, deadline, bound)
     else
       :ok
@@ -2565,41 +2809,93 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
     stream = "BT /F1 12 Tf 20 100 Td (page text) Tj ET\n"
     stream_id = pages + 4
     kids = Enum.map_join(4..(pages + 3), " ", &"#{&1} 0 R")
-    objects = ["<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Count #{pages} /Kids [#{kids}] >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"] ++
-      Enum.map(1..pages, fn _ -> "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 3 0 R >> >> /Contents #{stream_id} 0 R >>" end) ++
-      ["<< /Length #{byte_size(stream)} >>\nstream\n#{stream}endstream"]
-    {body, offsets} = Enum.with_index(objects, 1) |> Enum.reduce({"%PDF-1.4\n", []},
-      fn {object, id}, {body, offsets} ->
-        {body <> "#{id} 0 obj\n#{object}\nendobj\n", [byte_size(body) | offsets]}
-      end)
-    xref = Enum.reverse(offsets) |> Enum.map_join("", &(String.pad_leading(Integer.to_string(&1), 10, "0") <> " 00000 n \n"))
-    body <> "xref\n0 #{length(objects) + 1}\n0000000000 65535 f \n" <> xref <>
+
+    objects =
+      [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count #{pages} /Kids [#{kids}] >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+      ] ++
+        Enum.map(1..pages, fn _ ->
+          "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 3 0 R >> >> /Contents #{stream_id} 0 R >>"
+        end) ++
+        ["<< /Length #{byte_size(stream)} >>\nstream\n#{stream}endstream"]
+
+    {body, offsets} =
+      Enum.with_index(objects, 1)
+      |> Enum.reduce(
+        {"%PDF-1.4\n", []},
+        fn {object, id}, {body, offsets} ->
+          {body <> "#{id} 0 obj\n#{object}\nendobj\n", [byte_size(body) | offsets]}
+        end
+      )
+
+    xref =
+      Enum.reverse(offsets)
+      |> Enum.map_join("", &(String.pad_leading(Integer.to_string(&1), 10, "0") <> " 00000 n \n"))
+
+    body <>
+      "xref\n0 #{length(objects) + 1}\n0000000000 65535 f \n" <>
+      xref <>
       "trailer\n<< /Size #{length(objects) + 1} /Root 1 0 R >>\nstartxref\n#{byte_size(body)}\n%%EOF\n"
   end
 
-  def fixture_bytes(name), do: File.read!(Path.expand("../../../../singularity_ingest/test/fixtures/documents/#{name}", __DIR__))
+  def fixture_bytes(name),
+    do:
+      File.read!(
+        Path.expand("../../../../singularity_ingest/test/fixtures/documents/#{name}", __DIR__)
+      )
 
   defp private_document!(f) do
     document = KnowledgeFixtures.document!(f.source, %{title: @canary, media_type: f.media_type})
     id = Ecto.UUID.generate()
-    env = %{f.envelope | job_id: id, correlation_id: id, causation_id: id,
-      idempotency_key: "document-extraction:" <> Ecto.UUID.load!(document.resource_version_id),
-      payload: %{"resource_id" => Ecto.UUID.load!(document.resource_id),
-        "resource_version_id" => Ecto.UUID.load!(document.resource_version_id)}}
-    S.owner_query("""
+
+    env = %{
+      f.envelope
+      | job_id: id,
+        correlation_id: id,
+        causation_id: id,
+        idempotency_key: "document-extraction:" <> Ecto.UUID.load!(document.resource_version_id),
+        payload: %{
+          "resource_id" => Ecto.UUID.load!(document.resource_id),
+          "resource_version_id" => Ecto.UUID.load!(document.resource_version_id)
+        }
+    }
+
+    S.owner_query(
+      """
       INSERT INTO core.outbox_events(id,event_type,idempotency_key,vault_id,principal_id,required_capability,
         principal_authorization_epoch,vault_authorization_epoch,classification,correlation_id,
         expected_entity_revision,envelope_version,payload,occurred_at)
       VALUES($1,'document.extraction_requested',$2,$3,$4,'asset.read',0,0,'private',$1,0,1,$5,CURRENT_TIMESTAMP)
-      """, [Ecto.UUID.dump!(id), env.idempotency_key, f.source.vault_id, f.source.principal_id, env.payload])
-    S.owner_query("""
+      """,
+      [
+        Ecto.UUID.dump!(id),
+        env.idempotency_key,
+        f.source.vault_id,
+        f.source.principal_id,
+        env.payload
+      ]
+    )
+
+    S.owner_query(
+      """
       INSERT INTO jobs.job_submissions(id,vault_id,outbox_event_id,classification,idempotency_key,job_type)
       VALUES($1,$2,$1,'private',$3,'document_extract')
-      """, [Ecto.UUID.dump!(id), f.source.vault_id, env.idempotency_key])
-    %{f | document: document, envelope: env, request: %{f.request | job_id: id,
-      resource_version_id: env.payload["resource_version_id"]}}
+      """,
+      [Ecto.UUID.dump!(id), f.source.vault_id, env.idempotency_key]
+    )
+
+    %{
+      f
+      | document: document,
+        envelope: env,
+        request: %{
+          f.request
+          | job_id: id,
+            resource_version_id: env.payload["resource_version_id"]
+        }
+    }
   end
 end
 
@@ -2620,10 +2916,12 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
     C.outcome!(f, :unsupported, "invalid_utf8")
   end
 
-  for {name, code} <- [{"malformed.pdf", "malformed_document"},
+  for {name, code} <- [
+        {"malformed.pdf", "malformed_document"},
         {"encrypted.pdf", "encrypted_document"},
         {"encrypted_pdf20_xref_stream.pdf", "encrypted_document"},
-        {"empty.pdf", "no_extractable_text"}] do
+        {"empty.pdf", "no_extractable_text"}
+      ] do
     @tag plaintext: C.fixture_bytes(name)
     @tag media_type: "application/pdf"
     test "actual #{name} persists bounded #{code}", %{fixture: f} do
@@ -2645,33 +2943,61 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
   test "canonical oversized INSERT is rejected with no partial Document or event", %{fixture: f} do
     resource = KnowledgeFixtures.uuid()
     version = KnowledgeFixtures.uuid()
-    error = assert_raise Postgrex.Error, fn ->
-      Fixtures.with_owner(fn ->
-        query!(MigrationRepo, "UPDATE content.asset_objects SET plaintext_byte_size=67108865 WHERE id=$1", [f.source.object_id])
-        KnowledgeFixtures.insert_document!(f.source, %{resource_id: resource,
-          resource_version_id: version, source_byte_size: 67_108_865})
-      end)
-    end
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Fixtures.with_owner(fn ->
+          query!(
+            MigrationRepo,
+            "UPDATE content.asset_objects SET plaintext_byte_size=67108865 WHERE id=$1",
+            [f.source.object_id]
+          )
+
+          KnowledgeFixtures.insert_document!(f.source, %{
+            resource_id: resource,
+            resource_version_id: version,
+            source_byte_size: 67_108_865
+          })
+        end)
+      end
+
     assert error.postgres.constraint == "document_versions_source_byte_size_check"
-    assert [[0, 0, 0]] = S.owner_query("""
-      SELECT (SELECT count(*) FROM content.resources WHERE id=$1),
-        (SELECT count(*) FROM content.resource_versions WHERE id=$2),
-        (SELECT count(*) FROM core.outbox_events WHERE payload->>'resource_id'=$3)
-      """, [resource, version, Ecto.UUID.load!(resource)]).rows
-    assert [[size]] = S.owner_query("SELECT plaintext_byte_size FROM content.asset_objects WHERE id=$1", [f.source.object_id]).rows
+
+    assert [[0, 0, 0]] =
+             S.owner_query(
+               """
+               SELECT (SELECT count(*) FROM content.resources WHERE id=$1),
+                 (SELECT count(*) FROM content.resource_versions WHERE id=$2),
+                 (SELECT count(*) FROM core.outbox_events WHERE payload->>'resource_id'=$3)
+               """,
+               [resource, version, Ecto.UUID.load!(resource)]
+             ).rows
+
+    assert [[size]] =
+             S.owner_query("SELECT plaintext_byte_size FROM content.asset_objects WHERE id=$1", [
+               f.source.object_id
+             ]).rows
+
     assert size == byte_size(f.plaintext)
     S.pending!(f)
   end
 
   @tag timeout: 120_000
   test "actual PDF source cap rejects over 64 MiB before process work", %{fixture: f} do
-    assert {:error, {:unsupported, "source_too_large"}} = PDF.extract(:binary.copy("x", 67_108_865))
+    assert {:error, {:unsupported, "source_too_large"}} =
+             PDF.extract(:binary.copy("x", 67_108_865))
+
     S.pending!(f)
     assert S.keys(f) == []
   end
 
   test "valid post-insert oversized object drift denies descriptor before custody", %{fixture: f} do
-    assert %{num_rows: 1} = S.owner_query("UPDATE content.asset_objects SET plaintext_byte_size=67108865 WHERE id=$1", [f.source.object_id])
+    assert %{num_rows: 1} =
+             S.owner_query(
+               "UPDATE content.asset_objects SET plaintext_byte_size=67108865 WHERE id=$1",
+               [f.source.object_id]
+             )
+
     assert {:error, %Error{code: :conflict, message: nil, details: %{}}} = C.run(f)
     refute :leased in S.keys(f)
     refute :c_claimed in S.keys(f)
@@ -2691,7 +3017,10 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
     fragments = S.fragments(f)
     assert length(fragments) == 256
     assert Enum.all?(fragments, fn [_, _, text, _, _] -> byte_size(text) == 65_536 end)
-    assert Enum.sum(Enum.map(fragments, fn [_, _, text, _, _] -> byte_size(text) end)) == 16_777_216
+
+    assert Enum.sum(Enum.map(fragments, fn [_, _, text, _, _] -> byte_size(text) end)) ==
+             16_777_216
+
     C.no_projection!(f)
   end
 
@@ -2710,7 +3039,10 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
   test "4096 actual semantic fragments persist one complete ready set", %{fixture: f} do
     assert {:ok, %{state: :ready}} = C.run(f)
     assert length(S.fragments(f)) == 4096
-    assert Enum.map(S.fragments(f), fn [_, ordinal, _, _, _] -> ordinal end) == Enum.to_list(0..4095)
+
+    assert Enum.map(S.fragments(f), fn [_, ordinal, _, _, _] -> ordinal end) ==
+             Enum.to_list(0..4095)
+
     C.no_projection!(f)
   end
 
@@ -2726,7 +3058,10 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
     assert {:ok, %{state: :ready}} = C.run(f)
     fragments = S.fragments(f)
     assert length(fragments) == 4096
-    assert Enum.map(fragments, fn [_, _, _, _, locator] -> locator["page"] end) == Enum.to_list(1..4096)
+
+    assert Enum.map(fragments, fn [_, _, _, _, locator] -> locator["page"] end) ==
+             Enum.to_list(1..4096)
+
     C.no_projection!(f)
   end
 
@@ -2751,43 +3086,68 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
   end
 
   for mode <- [:raise, :throw] do
-    test "#{mode} private extractor diagnostic persists only failed extractor_failed", %{fixture: f} do
+    test "#{mode} private extractor diagnostic persists only failed extractor_failed", %{
+      fixture: f
+    } do
       C.outcome!(f, :failed, "extractor_failed", mode: unquote(mode))
     end
   end
 
   for loss <- [:custody, :storage] do
-    test "already-claimed #{loss} loss fails exact attempt without re-claim or deadline extension", %{fixture: f} do
+    test "already-claimed #{loss} loss fails exact attempt without re-claim or deadline extension",
+         %{fixture: f} do
       {_source, attempt} = C.claim_by_interruption!(f)
       S.clear(f)
+
       case unquote(loss) do
         :custody ->
-          assert {:ok, token} = KeyCustodian.begin_revoke(f.custodian, %{session_id: f.session_id})
+          assert {:ok, token} =
+                   KeyCustodian.begin_revoke(f.custodian, %{session_id: f.session_id})
+
           assert :ok = KeyCustodian.finish_revoke(f.custodian, token)
-        :storage -> S.corrupt!(f, :missing)
+
+        :storage ->
+          S.corrupt!(f, :missing)
       end
+
       assert {:ok, %{state: :failed, generation: 1}} = C.run(f)
       assert [["failed", 1, job, "plain_text", 1, started, deadline, nil]] = S.attempt_rows(f)
       assert job == Ecto.UUID.dump!(attempt.job_id)
       assert started == attempt.started_at and deadline == attempt.deadline_at
       refute :c_claimed in S.keys(f)
       refute :c_extract in S.keys(f)
-      assert [["extractor_failed"]] = S.owner_query("SELECT failure_code FROM content.document_versions WHERE resource_version_id=$1", [f.document.resource_version_id]).rows
+
+      assert [["extractor_failed"]] =
+               S.owner_query(
+                 "SELECT failure_code FROM content.document_versions WHERE resource_version_id=$1",
+                 [f.document.resource_version_id]
+               ).rows
+
       assert S.fragments(f) == []
       C.no_projection!(f)
     end
   end
 
   for mode <- [:actual, :raise] do
-    test "#{mode} post-claim final SQL fault rolls back terminal fields and all fragments", %{fixture: f} do
-      assert {:error, %Error{code: :storage_unavailable, retryable?: true, message: nil, details: %{}}} =
-        C.run(f, mode: unquote(mode), complete_fault?: true)
+    test "#{mode} post-claim final SQL fault rolls back terminal fields and all fragments", %{
+      fixture: f
+    } do
+      assert {:error,
+              %Error{code: :storage_unavailable, retryable?: true, message: nil, details: %{}}} =
+               C.run(f, mode: unquote(mode), complete_fault?: true)
+
       assert [["extracting", 1, job, "plain_text", 1, started, deadline, nil]] = S.attempt_rows(f)
       assert job == Ecto.UUID.dump!(f.envelope.job_id)
       assert DateTime.diff(deadline, started, :microsecond) == 180_000_000
       assert S.fragments(f) == []
       C.no_projection!(f)
-      assert [[nil, nil]] = S.owner_query("SELECT failure_code,attempt_finished_at FROM content.document_versions WHERE resource_version_id=$1", [f.document.resource_version_id]).rows
+
+      assert [[nil, nil]] =
+               S.owner_query(
+                 "SELECT failure_code,attempt_finished_at FROM content.document_versions WHERE resource_version_id=$1",
+                 [f.document.resource_version_id]
+               ).rows
+
       assert File.exists?(f.path)
       assert DynamicSupervisor.which_children(f.lease_supervisor) == []
     end
