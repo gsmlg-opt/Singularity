@@ -458,23 +458,60 @@ timestamps are excluded. Backup-provided projection rows are never authoritative
 ## Migrations, extensions, and legacy restore
 
 Install `pg_trgm` in a `search_extensions` schema controlled by the established
-migration/table-owner authority, before creating indexes. Revoke PUBLIC schema
-access and grant only the schema usage/function execution required by search;
-runtime roles cannot CREATE there or install extensions. Schema-qualify trigram
-functions, operators, and opclasses. An existing extension in an unexpected
-namespace fails preflight; do not silently relocate an operator's extension.
+table owner, before creating indexes. Revoke PUBLIC schema access and function
+execution; final migrations grant only schema usage/function execution required
+by search. Runtime roles cannot CREATE there or install extensions.
+Schema-qualify trigram functions, operators, and opclasses. An existing
+extension in an unexpected namespace fails preflight; do not silently relocate
+an operator's extension.
 
 Use the actual migration/database bootstrap lifecycle for every fresh test and
 deployment application database, not the provisioner's `postgres` maintenance
-database. The test database lifecycle already grants CREATE on each fresh
-database to the table owner; use established installation authority, not a new
-runtime privilege. Verify the required extension package and namespace on
-PostgreSQL 17 fixtures. Missing installation prerequisites fail before search
-activation and are documented for operators, not bypassed at runtime.
+database. The test database lifecycle grants CREATE on each fresh database to
+the table owner before provisioning. Verify the required extension package and
+namespace on PostgreSQL 17 fixtures. Missing installation prerequisites fail
+before search activation and are documented for operators, not bypassed at
+runtime.
 
-All schema, function replacement, and grant amendments are new forward
-migrations. Preserve immutable source rows, all released migrations, the
-existing Note projection, and the accepted source-retention/backup guard.
+### Approved installation-authority amendment, 2026-10-10
+
+The user approved the narrow administrator-provisioning amendment after an
+isolated PostgreSQL 17.10 probe showed that trusted installation gives the
+table owner the extension but leaves its functions owned by the bootstrap
+administrator. Table-owner REVOKE/GRANT statements can warn without applying
+the required function ACLs. The administrator step below is the sole exception
+to migration-only schema/grant changes; it does not authorize new runtime
+privileges or a general bootstrap redesign.
+
+1. Use the existing external administrator connection and an explicit
+   application database target; refuse maintenance/template databases. Share
+   one privileged SQL implementation between an operator wrapper and the fresh
+   and historical test database lifecycles. Do not add an administrator Repo,
+   runtime configuration, or credential-bearing process arguments/logs.
+2. In one transaction, install `pg_trgm` 1.6 in the table-owner-controlled
+   schema under `SET LOCAL ROLE singularity_table_owner`, then return to the
+   administrator to revoke PUBLIC function execution. Keep extension functions
+   administrator-owned. Delegate EXECUTE WITH GRANT OPTION to the table owner
+   only for `similarity(text,text)` and `similarity_op(text,text)`, the functions
+   required by the approved scoring and `%` operator. Do not grant broad
+   extension execution or change managed-role attributes/memberships.
+3. Verify namespace, extension/schema ownership, supported version, and exact
+   ACLs. Compatible reruns are idempotent, including after final web grants.
+   Reject incompatible pre-existing namespace/ownership/grants rather than
+   relocating, adopting, or silently rewriting operator-managed state.
+4. A new forward migration fails closed unless provisioning is correct, then
+   applies final web USAGE/EXECUTE grants and projection DDL. Prove GIN creation,
+   maintenance, and querying with the constrained ACLs using actual roles;
+   do not treat successful warning-only SQL as privilege evidence.
+5. Provision each fresh/historical application database after the table-owner
+   CREATE grant and before migrations, inside cleanup-protected lifecycle
+   code. A real provisioning failure must remove only its allocated database
+   and storage root and restore the outer historical fixture configuration.
+
+Apart from this explicit initial provisioning exception, schema, function
+replacement, and grant amendments remain new forward migrations. Preserve
+immutable source rows, all released migrations, the existing Note projection,
+and the accepted source-retention/backup guard.
 Initial backfill uses canonical reconciliation and is verified before the
 new search API is considered ready; existing APIs remain available.
 

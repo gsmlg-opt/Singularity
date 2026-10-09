@@ -266,6 +266,82 @@ slice below.
 **Files:** Create the `20261009000100` migration and
 `apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs`.
 
+### Task 3a: Approved administrator provisioning amendment
+
+The user approved this amendment on 2026-10-10. The existing Phase 3 worktree
+at `aa8e473` remains the implementation base. Complete this prerequisite with
+its own focused evidence before adding the projection migration.
+
+**Create:**
+
+- `apps/singularity_storage/lib/singularity/storage/search_extension_bootstrap.ex`
+- `apps/singularity_storage/priv/repo/bootstrap_search_extensions.sh`
+- `apps/singularity_storage/priv/repo/bootstrap_search_extensions.sql`
+- `apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs`
+
+**Modify narrowly:** Storage `test_environment.ex`, test support
+`migration_test_environment.ex`, owning `test_environment_test.exs`,
+`migrations_test.exs` and `configuration_test.exs` as required for regressions;
+`docs/deployment/docker.md` and the README development explanation. Reuse
+`bootstrap_roles.exs` unchanged. Do not change existing role provisioning,
+runtime configuration, released migrations, or Vault files.
+
+- [ ] Add failing pure wrapper transport tests and real PostgreSQL contracts.
+  The initial fresh-application schema RED below is already observed. Add
+  missing bootstrap entrypoint assertions before implementation:
+
+```elixir
+assert Code.ensure_loaded?(Singularity.Storage.SearchExtensionBootstrap)
+assert :ok = apply(Singularity.Storage.SearchExtensionBootstrap, :run!, [database])
+```
+
+- [ ] Implement only `SearchExtensionBootstrap.run!(database)` as a task-side
+  shell adapter. Validate an explicit bounded simple database name and reject
+  `postgres`, `template0`, and `template1`. Raise a fixed sanitized error on
+  subprocess failure; never persist an administrator Repo/configuration.
+  Wrapper credential transport uses the existing helper with checked exit
+  status, an anonymous libpq service FD, an explicit `--dbname` argument, and
+  `ON_ERROR_STOP`; unset credential variables before executing `psql`.
+- [ ] Share one transactional SQL file between the wrapper and operator
+  instructions. Verify administrator authority and target first. For a new
+  installation create the controlled schema and trusted extension under the
+  table-owner role, return to administrator authority for PUBLIC function
+  revocation, then delegate only these signatures:
+
+```sql
+GRANT EXECUTE ON FUNCTION search_extensions.similarity(text, text),
+  search_extensions.similarity_op(text, text)
+  TO singularity_table_owner WITH GRANT OPTION;
+```
+
+  Verify `pg_trgm` 1.6, ownership and exact ACLs after installation. Compatible
+  reruns must preserve state before and after final migration grants; wrong
+  schema/owner/version/ACL state fails without changing it. No role attribute,
+  membership, function ownership, or final runtime grant changes belong here.
+- [ ] Hook fresh database provisioning immediately after `create_database!/1`
+  and before repository configuration, with bounded cleanup on bootstrap
+  failure. In historical setup, call bootstrap inside the second protected
+  `try`, after its existing table-owner CREATE grant and before Migrator.run.
+  Preserve its existing close/restore failure path. No admin connection enters
+  the application supervision tree or runtime repository settings.
+- [ ] Prove actual-role function/schema ACLs, table-owner grant options,
+  idempotency, wrong namespace/owner/ACL rejection, non-admin failure, and real
+  fresh/historical cleanup on failure. Preserve existing role-attribute and
+  membership assertions. Wrapper fakes establish transport hygiene only.
+- [ ] Document the explicit per-application administrator provisioning step
+  before migrations, the supported package/version, failure handling, and the
+  absence of administrator credentials from runtime env files.
+
+```sh
+devenv shell -- mix test apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/configuration_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs
+devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs apps/singularity_storage/test/singularity/storage/roles_test.exs
+```
+
+- [ ] Obtain spec then quality review, record exact execution evidence, and
+  commit `feat(storage): provision constrained search extensions`.
+
+### Task 3b: Forward projection migration and actual-role boundaries
+
 - [ ] Add an integration module using `Singularity.Storage.DataCase`,
   `async: false`, and `@moduletag :integration`. Assert the new table/extension
   are present on a fresh application database, then observe RED:
@@ -280,11 +356,11 @@ Fixtures.with_owner(fn ->
 end)
 ```
 
-- [ ] Under `SET LOCAL ROLE singularity_table_owner`, create the controlled
-  `search_extensions` schema and install trusted `pg_trgm` in that schema.
-  Preflight rejects an existing extension in another namespace. Revoke PUBLIC
-  schema access; grant web only required USAGE/EXECUTE. Do not change role
-  attributes or bootstrap the extension in the `postgres` maintenance DB.
+- [ ] Under `SET LOCAL ROLE singularity_table_owner`, preflight the separately
+  provisioned extension's namespace, owner, version and ACLs. Fail if missing
+  or incompatible; never install/relocate/harden it through runtime authority.
+  Grant web only schema USAGE and EXECUTE on the two approved signatures.
+  No role attributes/memberships or other function grants change.
 - [ ] Create `content.search_entries`: text primary key `entry_id`, UUID
   `resource_id/resource_version_id/vault_id`, private `classification`, text
   `kind`, nullable UUID `note_resource_version_id`, nullable text `fragment_id`,
@@ -326,7 +402,7 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 - [ ] Record extension package/version/schema and least-privilege installation
   results. Review and commit `feat(storage): add constrained unified search projection`.
 
-Task 3 status, 2026-10-09: **installation-authority amendment pending approval**.
+Task 3 historical status, 2026-10-09: **installation-authority amendment pending approval**.
 The new focused schema contract was run against a fresh application database:
 1 test, 1 expected failure because `pg_trgm` is absent (seed 426598), before
 adding a migration. Its isolated database/storage cleanup and owned PostgreSQL
@@ -352,6 +428,11 @@ fresh/historical test-database lifecycle hooks, operator documentation, and
 explicit installation exception need approval before those edits. Approval
 was requested; the original installation step above is not silently relaxed.
 The independent pure cursor slice of Task 7 can proceed without this change.
+
+Amendment approved 2026-10-10: the decision above is resolved by Task 3a and
+the amended installation section of the approved spec. Database work resumes
+under that explicit boundary. The pre-change test-environment unit baseline
+reported 12 tests, zero failures, 1 integration case excluded (seed 10736).
 
 ## Task 4: Canonical builder and dual Note reconciliation
 

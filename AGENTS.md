@@ -27,6 +27,14 @@ reads, canonical rebuilds, narrowly authorized jobs/read grants, and explicitly
 listed derived-projection V1/V2 restore compatibility hooks. It does not enable
 Phase 4 writes, V3 backup, new browser features, or production activation.
 
+The 2026-10-10 approved Phase 3 amendment permits explicit per-application
+database `pg_trgm` provisioning/hardening through the existing external
+administrator connection, plus its fresh/historical test lifecycle hooks and
+operator instructions. Final search grants and projection DDL remain forward
+migrations. No administrator repository, runtime credentials, role-attribute or
+membership change, extension-function ownership transfer, or Vault change is
+authorized by this exception.
+
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
 and browser behavior remain in their designated later phases.
