@@ -885,7 +885,8 @@ defmodule Mix.Tasks.Singularity.Test.BrowserRestore do
   defp require_test_environment, do: if(Mix.env() == :test, do: :ok, else: invalid())
 
   defp load_application_config do
-    Mix.Task.run("app.config")
+    # The browser harness already compiled the application; keep child output protocol-only.
+    Mix.Task.run("app.config", ["--no-compile"])
     Singularity.Storage.RoleVerifier.verify!()
     :ok
   end
