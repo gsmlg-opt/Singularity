@@ -69,6 +69,7 @@ defmodule Singularity.Retrieval.KnowledgeSearchResult do
          {:ok, timestamp} <- KnowledgeValidation.utc_datetime(input, :source_inserted_at),
          true <- Enum.sort(Map.keys(timestamp)) == @datetime_fields,
          "UTC" <- timestamp.zone_abbr,
+         {:ok, ^timestamp, 0} <- DateTime.from_iso8601(DateTime.to_iso8601(timestamp)),
          {:ok, rank} <- KnowledgeValidation.integer(input.rank),
          true <- rank <= policy.max_rank and (query.q != "" or rank == 0) do
       {:ok, struct!(__MODULE__, Map.put(input, :locator, locator))}

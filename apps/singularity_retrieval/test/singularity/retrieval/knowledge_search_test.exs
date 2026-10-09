@@ -375,6 +375,19 @@ defmodule Singularity.Retrieval.KnowledgeSearchTest do
     end
   end
 
+  test "timestamp precision cannot hide microseconds needed by pagination" do
+    assert {:ok, query} = new(%{})
+
+    for time <- [~U[2026-10-09 12:00:00Z], ~U[2026-10-09 12:00:00.123Z], @time] do
+      assert {:ok, %{source_inserted_at: ^time}} =
+               result_new(note(%{source_inserted_at: time}), query)
+    end
+
+    for microsecond <- [{1, 0}, {123_456, 3}] do
+      assert_invalid_row(note(%{source_inserted_at: %{@time | microsecond: microsecond}}), query)
+    end
+  end
+
   test "pages enforce exact shape, the query limit, distinct entries and bounded raw cursors" do
     assert {:ok, query} = new(limit: 1)
 
