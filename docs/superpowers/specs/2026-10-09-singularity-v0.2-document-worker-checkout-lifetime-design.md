@@ -1,8 +1,8 @@
 # Document worker checkout lifetime repair design
 
-Date: 2026-10-09. Status: accepted bounded architecture under the user's standing
-approval and instruction to select the recommended next move. Implementation is
-held until main reads the complete executable plan and issues scoped GO.
+Date: 2026-10-09. Status: bounded repair implemented, verified and independently
+spec/quality reviewed. Source commit `ecb170349ae3ca021e8fe0ca194d4a9b73dfa738`.
+This accepts the checkout repair only, not Task 12, Phase 2 or the full release.
 
 ## Evidence and purpose
 
@@ -22,7 +22,9 @@ not an evidenced dependency defect.
 A fresh Astra architecture worker traced the installed checkout, holder deadline,
 Postgrex receive and borrower-death cleanup paths. Its read-only assessment is not
 a repair attempt or test result. Failed Sol production repairs and Astra repair
-attempts are both zero; user-authorized Astra repair attempts remain capped at 3.
+attempts were both zero at architecture acceptance; the original Astra cap was 3.
+See the implementation plan's ledger for retained failures and the latest user's
+explicit resumed allowance of at least three failed Astra repair rounds.
 
 ## Decision and exact production boundary
 
@@ -99,6 +101,29 @@ addresses the reproduced cases without those broader behavior changes.
 New test file:
 `apps/singularity_storage/test/singularity/storage/document_worker_scope_test.exs`.
 Keep existing C2 and all frozen A/B assertions unchanged.
+
+Recovery amendment after actual focused baseline: use the named WorkerRepo for
+all production-path observations. Raw Ecto.Adapters.SQL calls do not resolve a
+module's dynamic repo, so a private dynamic pool cannot compose with unchanged
+SafeSQL and locks. Select an exact backend through at most 256 real checkouts
+and a five-second admission window; a selected callback's error is never retried.
+Capture and restore the original setting on that same backend, including test
+cleanup. Observe locks/backends in a separate monitored process to avoid session
+advisory-lock reentrancy. No pool saturation, restart, timeout override or global
+configuration change. This corrects test isolation only, not production design.
+
+Bounded regression-compatibility amendment: the existing
+`apps/singularity_storage/test/singularity/storage/postgres/document_worker_repository_test.exs`
+may change only progress_task/4 and the authority race's backend observation
+(progress_blocker/3 notification, one new bounded observation helper and its
+test orchestration). Remove the helper's now-invalid outer checkout. Preserve
+every submission/terminal lock-wait, authority refresh, unchanged-data and wake
+assertion. The authority waiter must be tied to its exact owned blocker through
+pg_blocking_pids and pinned to the later callback backend. No shared fixture or
+production change. Lock observers must exclude the original scope backend even
+after checkin, preventing session reentrancy from masking a leak. Main accepts
+this smallest test-only amendment under the standing fix approval after reading
+the complete Astra recipe; required fresh gates and independent review remain.
 
 - Actual Document callback survives beyond 15 seconds on the same checked-out
   backend, outside a transaction; both shared advisory locks remain held and
