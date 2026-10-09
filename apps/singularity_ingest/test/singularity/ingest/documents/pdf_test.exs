@@ -116,6 +116,37 @@ defmodule Singularity.Ingest.Documents.PDFTest do
              )
   end
 
+  test "accepts exactly 4096 pages from runner output with complete character provenance" do
+    expected =
+      for page <- 1..4096 do
+        %{
+          text: "é",
+          locator: %{version: 1, kind: "pdf", page: page, start_char: 0, end_char: 1}
+        }
+      end
+
+    assert PDF.extract("small",
+             runner: FaultRunner,
+             info: "Pages: 4096\n",
+             text: {:ok, String.duplicate("é\f", 4096)}
+           ) == {:ok, expected}
+  end
+
+  test "accepts exactly 16 MiB of raw runner output including the terminal form feed" do
+    body = :binary.copy("x", 16_777_215)
+    raw = body <> "\f"
+    assert byte_size(raw) == 16_777_216
+
+    assert {:ok,
+            [
+              %{
+                text: ^body,
+                locator: %{version: 1, kind: "pdf", page: 1, start_char: 0, end_char: 16_777_215}
+              }
+            ]} =
+             PDF.extract("small", runner: FaultRunner, info: "Pages: 1\n", text: {:ok, raw})
+  end
+
   test "rejects invalid UTF-8 and content-free extraction" do
     assert {:error, {:unsupported, "invalid_utf8"}} =
              PDF.extract("small",
@@ -207,6 +238,17 @@ defmodule Singularity.Ingest.Documents.PDFTest do
 
       refute_receive {:runner_called, _kind}
     end
+  end
+
+  @tag :linux
+  test "guardian accepts exactly 16 MiB of output and rejects one additional byte" do
+    cat = System.find_executable("cat") || flunk("cat executable is required")
+    assert Path.type(cat) == :absolute
+    payload = :binary.copy("x", 16_777_216)
+    opts = [output_limit: 16_777_216, timeout_ms: 10_000]
+
+    assert {:ok, ^payload} = Poppler.run_guarded(cat, [], payload, opts)
+    assert {:error, :output_limit} = Poppler.run_guarded(cat, [], payload <> "x", opts)
   end
 
   @tag :linux

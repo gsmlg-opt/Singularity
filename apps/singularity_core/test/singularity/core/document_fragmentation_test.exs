@@ -1,7 +1,7 @@
 defmodule Singularity.Core.DocumentFragmentationTest do
   use ExUnit.Case, async: true
 
-  alias Singularity.Core.DocumentFragmentation
+  alias Singularity.Core.{DocumentFragmentation, SourceLocator}
 
   @id "00000000-0000-4000-8000-000000000001"
 
@@ -29,6 +29,65 @@ defmodule Singularity.Core.DocumentFragmentationTest do
     assert first.locator.kind == "fragment"
     assert first.locator.fields.ordinal == 0
     assert second.locator.fields.ordinal == 1
+  end
+
+  test "accepts exactly 4096 fragments with stable identity and exact source ranges" do
+    blocks =
+      for line <- 1..4096 do
+        %{text: "x", locator: %{version: 1, kind: "text", start_line: line, end_line: line}}
+      end
+
+    assert {:ok, fragments} = DocumentFragmentation.build(identity(), "text/plain", blocks)
+    assert length(fragments) == 4096
+    assert Enum.map(fragments, & &1.ordinal) == Enum.to_list(0..4095)
+    assert MapSet.size(MapSet.new(fragments, & &1.fragment_id)) == 4096
+
+    for {fragment, line} <- Enum.with_index(fragments, 1) do
+      assert Map.take(fragment, Map.keys(identity())) == identity()
+      assert fragment.text == "x"
+      assert fragment.digest == :crypto.hash(:sha256, "x")
+
+      assert SourceLocator.to_map(fragment.locator) == %{
+               "version" => 1,
+               "kind" => "text",
+               "start_line" => line,
+               "end_line" => line
+             }
+    end
+
+    assert {:ok, ^fragments} = DocumentFragmentation.build(identity(), "text/plain", blocks)
+  end
+
+  test "keeps a decomposed grapheme intact across the fragment byte limit" do
+    prefix = String.duplicate("a", 65_535)
+    grapheme = "e\u0301"
+    text = prefix <> grapheme
+    block = %{text: text, locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}}
+
+    assert {:ok, [first, second]} = DocumentFragmentation.build(identity(), "text/plain", [block])
+    assert first.text == prefix
+    assert second.text == grapheme
+    assert byte_size(first.text) == 65_535
+    assert byte_size(second.text) == 3
+    assert String.valid?(first.text)
+    assert String.valid?(second.text)
+    assert first.text <> second.text == text
+    assert {first.ordinal, second.ordinal} == {0, 1}
+
+    assert SourceLocator.to_map(first.locator) == %{
+             "version" => 1,
+             "kind" => "fragment",
+             "ordinal" => 0
+           }
+
+    assert SourceLocator.to_map(second.locator) == %{
+             "version" => 1,
+             "kind" => "fragment",
+             "ordinal" => 1
+           }
+
+    assert {:ok, [^first, ^second]} =
+             DocumentFragmentation.build(identity(), "text/plain", [block])
   end
 
   test "rejects empty and over-limit outputs" do

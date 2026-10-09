@@ -8,6 +8,10 @@
 
 **Tech Stack:** Elixir/ExUnit, immutable Core fragment contracts, PDF FaultRunner, existing native Poppler guardian with resolved cat.
 
+**Status:** This bounded slice is complete: 27 tests in each of two final-source
+orders passed; independent Astra SPEC and QUALITY reviews cleared. Full Task 15
+and Phase 2 acceptance remain open, and E2E remains NOT RUN.
+
 ---
 
 ## Task 1: baseline, scope, and design review
@@ -28,7 +32,7 @@ production, fixtures, migration, config, dependencies, or any other tests.
 
 ## Task 2: add the five inclusive contracts
 
-- [ ] Add two Core tests using existing `identity/0`; add `SourceLocator` alias.
+- [x] Add two Core tests using existing `identity/0`; add `SourceLocator` alias.
   Keep all existing tests and assertions exactly. Use these bodies:
 
 ```elixir
@@ -68,7 +72,7 @@ test "does not divide a multi-codepoint grapheme at the byte boundary" do
 end
 ```
 
-- [ ] Add two PDF adapter cases using the existing FaultRunner, without changing it:
+- [x] Add two PDF adapter cases using the existing FaultRunner, without changing it:
 
 ```elixir
 test "accepts exactly 4096 reported pages with all page locators" do
@@ -90,7 +94,7 @@ test "accepts exactly 16 MiB of raw PDF output including a page separator" do
 end
 ```
 
-- [ ] Add native inclusive/adjacent-negative pair; preserve existing native tests:
+- [x] Add native inclusive/adjacent-negative pair; preserve existing native tests:
 
 ```elixir
 @tag :linux
@@ -105,7 +109,7 @@ test "native runner accepts its exact raw output cap and refuses one extra byte"
 end
 ```
 
-- [ ] Self-review exact conversions, old assertion preservation, and evidence
+- [x] Self-review exact conversions, old assertion preservation, and evidence
   boundaries. No shared state, sleeps, process introspection, shell, new fixtures,
   or content files. Parent reads the complete diff before first characterization.
   These are new tests against existing behavior; no production RED is forced.
@@ -114,7 +118,7 @@ end
 
 ## Task 3: final-source checks, independent reviews, and handoff
 
-- [ ] Parent runs both full owning files on current source:
+- [x] Parent runs both full owning files on current source:
 
 ```sh
 MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
@@ -128,21 +132,21 @@ Expected Core 8 and PDF 19 tests, zero failures, no test exclusions. The runner'
 integration exclusion selects no cases in these two unit modules. No DB/service
 operation or integration/browser E2E occurs. Execute only one Mix process at a time.
 
-- [ ] Format only those two tests, check formatted source, and rerun both with
+- [x] Format only those two tests, check formatted source, and rerun both with
   seed 90731. If formatting changes source, run seed 1208 again on final source.
   Expected 27 executions per final whole-file run; do not count earlier source
   or failures as final-source passing evidence.
-- [ ] Run `git diff --check` and `devenv shell -- mix xref graph --format cycles --fail-above 0`
+- [x] Run `git diff --check` and `devenv shell -- mix xref graph --format cycles --fail-above 0`
   with the same Mix environment. Expect exit 0 and zero cycles. Verify unchanged
   Core/PDF/Poppler production and protected Runtime/V2/untracked-plan hashes.
-- [ ] Fresh independent Astra SPEC review, then a distinct fresh QUALITY review
+- [x] Fresh independent Astra SPEC review, then a distinct fresh QUALITY review
   of the exact final test hashes must clear. Keep parent-executed results distinct
   from source review. Diagnose findings; no assertion weakening or silent retries.
-- [ ] Update only this design, this plan, and the existing Task 15 matrix with
+- [x] Update only this design, this plan, and the existing Task 15 matrix with
   exact hashes, commands/sessions, count/results/exclusions, unchanged files,
   repair attempts, limits evidence boundaries, and no Vault feature work.
-- [ ] Parent locally commits only the two tests and three records after reviews.
+- [x] Parent locally commits only the two tests and three records after reviews.
   Keep the Phase 2 worktree; its entire development branch is not finished.
-- [ ] Stop this bounded slice. E2E/full README gate, Task 15/Phase 2 acceptance,
+- [x] Stop this bounded slice. E2E/full README gate, Task 15/Phase 2 acceptance,
   real scanned/process/privacy follow-up, merge, push, tag, release, deployment,
   and production activation remain incomplete or NOT RUN.

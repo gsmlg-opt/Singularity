@@ -781,3 +781,92 @@ remained. Parent confirmed five vectors, exact types, 27 expected test execution
 evidence boundaries, old assertion preservation, and the two-test file scope.
 Standing approval now permits test-only GO; production repair remains prohibited
 without a separate bounded review. No qualification test has run yet.
+
+### Inclusive-limits implementation and first final-source run
+
+Reviewed design/plan and baseline records were committed locally as
+`f0735345e379f3dc1ec7f3ac16dd0e70f0d944e0`. Astra added exactly two Core and three
+PDF tests; parent read the complete diff, 102 insertions and one alias-line
+replacement. No old test assertion, runner, helper, production file, or limit
+changed. Formatting session `72873`, exit 0, did not change the supplied hashes.
+
+Final formatted owning-test SHA-256 values:
+
+- Core: `2df35098a64b2ff792dc3c741af4533ac1e03f4bb1ddd0af8810dec1ec4927ea`
+- PDF: `38302505e1266731e081141eef2d6565199349be08f446ed7efc2de49f843d0d`
+
+The full two-file seed-1208 command above, session `52066`, exited 0:
+Core 8 tests/0 failures (6.1 seconds), PDF 19/0 (18.4 seconds), **27 total**.
+No cases were excluded and no integration database was allocated. The new
+4096-fragment, intact multi-codepoint grapheme, 4096-page runner-double, raw PDF
+16 MiB including form feed, and native exact-cap/one-extra-byte assertions all
+execute and pass against unchanged production. The native cap pair completed
+in 1013.3 ms; the adapter's large output parsing completed in 7196.7 ms. These
+are observations, not new timing thresholds or performance guarantees.
+
+Protected Core/PDF/Poppler production hashes remain equal to the baseline.
+Repair attempts: 0; no failure was hidden by retry. Changed-order repeat and
+independent final reviews remain pending. Task 15 and Phase 2 are not accepted.
+
+### Inclusive-limits final verification and closure
+
+Changed-order command:
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix test \
+  apps/singularity_core/test/singularity/core/document_fragmentation_test.exs \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs \
+  --seed 90731 --trace
+```
+
+Session `92252`, exit 0: Core 8 tests/0 failures (6.2 seconds), PDF 19/0
+(19.4 seconds), **27 total**. No test exclusions. Final formatted source totals
+**54 executions, zero failures**, excluding the separate 22-test baseline.
+No database allocation or shared-service change occurred in either final run.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix format --check-formatted \
+  apps/singularity_core/test/singularity/core/document_fragmentation_test.exs \
+  apps/singularity_ingest/test/singularity/ingest/documents/pdf_test.exs
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix xref graph --format cycles --fail-above 0
+git diff --check
+```
+
+Formatter session `27770`, exit 0; xref session `2656`, exit 0, `No cycles found`;
+standalone whitespace check exit 0. Final tests retain the hashes above. Production
+Core/PDF/Poppler hashes remain identical. Protected Runtime extraction/restart,
+V2 schema, and original untracked C plan retain their previously recorded hashes.
+Main remains clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`.
+
+Fresh independent Astra SPEC and distinct QUALITY reviews inspected actual diffs
+against `f073534` and the exact final hashes. Both cleared without actionable
+findings, independently verifying old assertion preservation and the five vectors.
+These reviews did not execute tests; the parent runs above supply test evidence.
+
+PASS: inclusive 4096 Core fragments with stable source provenance and content IDs;
+multi-codepoint grapheme splitting without content change; 4096 PDF page maps;
+exact 16 MiB PDF raw output including separator; native exact raw cap and one-byte
+overflow refusal; existing exact semantic 16 MiB and adjacent negative assertions;
+formatting, zero cycles, protected hashes, and independent reviews.
+
+Evidence limits: PDF page/raw-output positives use FaultRunner, not a physical
+4096-page PDF or a real 16 MiB Poppler PDF output. The native pair uses real guardian
+and `cat`, not PDF interpretation or descendant-overflow cleanup. PDF's boundary
+body is 16,777,215 semantic bytes because the raw form feed consumes one byte;
+the existing Core test separately proves 16,777,216 semantic bytes. These tests
+do not establish end-to-end worker or production acceptance.
+
+Repair attempts: 0. Production, support, migration, fixture binary, dependency,
+configuration, Vault feature, and custody changes: 0. Parent permits only a local
+five-file commit (two tests, design, plan, and this existing matrix). The original
+untracked C plan is not staged; Phase 2 worktree/branch remain in place. No merge,
+push, tag, release, activation, or deployment occurred.
+
+NOT RUN: E2E, complete README gate, complete Task 15/Phase 2 acceptance, deployment,
+and production acceptance. **Task 15 and Phase 2 remain open and unaccepted.**
+This bounded plan stops here. Recommended next separately designed slice: real
+image-only scanned PDF, blocked-stdin/output-overflow descendant cleanup, repeated
+real PDF-to-fragment digest, and adapter log privacy.
