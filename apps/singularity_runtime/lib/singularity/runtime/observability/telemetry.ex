@@ -398,7 +398,11 @@ defmodule Singularity.Runtime.Observability.Telemetry do
       Map.get(metadata, :worker) ||
         get_in(metadata, [:job, Access.key(:worker)])
 
-    worker in [Singularity.Storage.Jobs.GenericWorker, @generic_worker]
+    worker in [
+      Singularity.Storage.Jobs.GenericWorker,
+      @generic_worker,
+      "Singularity.Storage.Jobs.GenericWorker"
+    ]
   end
 
   defp attempts(metadata) do
