@@ -16,10 +16,11 @@ The Elixir umbrella is split into seven applications with a fixed dependency gra
 
 ## Active `0.2.0` scope
 
-Phase 1 is accepted locally at `a80957da41582de40bdf586a0cba1e14644acf0a`.
-The active implementation slice is Phase 2 under the
-[approved import/extraction design](docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md)
-and [detailed implementation plan](docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md).
+Phase 2 has [qualified local acceptance](docs/verification/2026-10-09-phase-2-acceptance.md)
+on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`.
+The active implementation slice is Phase 3 under the
+[approved unified-search design](docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
+and [detailed implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
 Later phases still require separate approved designs and detailed plans.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
 

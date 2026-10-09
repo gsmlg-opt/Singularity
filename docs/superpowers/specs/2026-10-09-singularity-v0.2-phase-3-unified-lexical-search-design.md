@@ -2,11 +2,11 @@
 
 ## Status and authority
 
-Proposed design, 2026-10-09. This document is not Phase 3 implementation
-approval or an implementation acceptance report. The next gate is explicit
-approval of this bounded design, followed by a detailed implementation plan.
-No Phase 3 code, migration, permission, or runtime behavior is activated by
-this documentation change.
+Approved by the user on 2026-10-09 after review of proposal commit
+`7a9a32a0607b80c11c4aea0a156169325d543b94`. Approval authorizes this bounded
+Phase 3 design and its [detailed implementation plan](../plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
+It is not implementation acceptance or production activation. Later phases
+and publication retain their separate approval gates.
 
 The governing scope is [Phase 3 of the release plan](../plans/2026-08-31-singularity-v0.2-release.md#phase-3--unified-lexical-retrieval-and-source-provenance).
 The base is the [qualified Phase 2 acceptance](../../verification/2026-10-09-phase-2-acceptance.md):

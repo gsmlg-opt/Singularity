@@ -12,14 +12,20 @@ single-user personal knowledge base. Its governing documents are:
 - `docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md`
 
 Work proceeds one accepted phase at a time in a separate project-local
-worktree and branch. Phase 1 is accepted locally at
-`a80957da41582de40bdf586a0cba1e14644acf0a`. The active implementation
-slice is Phase 2 under
-`docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md`
+worktree and branch. Phase 2 has qualified local acceptance on tested source
+`c34935a112a2b4b807ed741e8e67e44d4e63eafe`, recorded by documentation handoff
+`ff703bd710074738b0391bb2f29d585dc6166d5c`. The active implementation
+slice is the separately approved Phase 3 under
+`docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md`
 and
-`docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md`.
+`docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md`.
 Later phases still require separate approved designs and detailed plans.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
+
+Phase 3 may add only the approved unified lexical projection, exact-source
+reads, canonical rebuilds, narrowly authorized jobs/read grants, and explicitly
+listed derived-projection V1/V2 restore compatibility hooks. It does not enable
+Phase 4 writes, V3 backup, new browser features, or production activation.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
