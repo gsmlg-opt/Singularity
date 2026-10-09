@@ -653,42 +653,142 @@ reported 12 tests, zero failures, 1 integration case excluded (seed 10736).
 
 ## Task 4: Canonical builder and dual Note reconciliation
 
+Task 3b is committed locally at
+`5ad2c8193090dd9cefee4d6a2529e0911253e2ce`. Task 4 begins with an unchanged
+legacy Note baseline and a new failing canonical-builder contract. The
+private builder and guarded adapters are verified before composing the dual
+Note path. Existing direct-repository fixtures lack explicit `note.write`
+capabilities; production authorization will not be bypassed to accommodate
+those fixtures, and shared helpers remain outside the edit scope.
+
+The unchanged Note reconciler/repository/search-store baseline passed on that
+commit: **27 tests, zero failures**, seed `411261`, in 12.7 seconds. Its isolated
+database was cleaned up and the owned PostgreSQL instance stopped.
+The initial canonical-builder module then reported **RED, 2 tests, 2 failures**,
+seed `73038`: both canonical fixtures loaded successfully, and both failures
+were the missing `content.reconcile_search_resource_internal` function. Only
+the private builder was authorized for the first GREEN implementation step;
+public entrypoints, adapter, and dual Note integration remain later steps.
+The minimal private-builder migration then passed the same two tests, seed
+`573164`, in 0.9 seconds, with owned PostgreSQL shutdown afterward. It remains
+uncommitted. Expanded eligibility, reconstruction, rollback, actual-role ACL,
+and public-entrypoint contracts are being added before their implementation;
+the initial two-test result is not Task 4 acceptance.
+The expanded contract reported **23 tests, 14 expected failures**, seed
+`200307`, in 5.2 seconds. All nine private-builder/ACL cases passed, including
+multi-fragment reconstruction, current-head selection, tombstone/non-ready
+cleanup, cross-owner isolation, and canonical/projection rollback. Remaining
+failures were absent guarded SQL functions or adapter. The next implementation
+step adds only those public entrypoints and the scoped adapter. The concurrency
+fixture's catalog-only Resource-lock probe uses the web Repo, which already has
+schema USAGE, rather than granting the NOINHERIT migration login new access.
+
+The guarded SQL entrypoints and scoped adapter then passed the full four-module
+Task 4 command: **50 tests, zero failures**, seed `209941`, in 11.5 seconds.
+This includes the 23 new contracts and all 27 unchanged legacy Note contracts;
+the isolated database was cleaned up and the owned PostgreSQL stopped. Dual
+Note integration remains unimplemented pending its next RED contracts.
+Those contracts extend the explicitly listed Note repository/reconciler tests
+with local `note.write` assignments for valid mutation fixtures and dual
+projection assertions. All existing assertions are preserved; no shared helper,
+runtime role grant, or production authorization exception is introduced.
+The first dual-Note RED run reported **56 tests, 14 failures**, seed `965045`,
+in 22.5 seconds: seven expected absent-unified/owning-rollback failures and
+seven fixture failures because the isolated database initially had no
+`note.write` capability definition. Each amended test module now seeds that
+existing capability definition locally before asserting its assignment,
+without depending on module order or changing shared helpers. Production Note
+code remains unchanged until a clean behavioral RED is observed.
+The second run reported **56 tests, 47 failures**, seed `810795`, in 18.3
+seconds. Four initial failures exercised the intended missing behavior; the
+lock-mode failure then exposed test-owned cleanup that killed a blocker before
+its linked MigrationRepo could stop, causing 43 downstream `already_started`
+fixture failures. The local barrier fixtures are being moved under test-owned
+Repo supervision with bounded task cleanup. Lock assertions and production
+semantics are unchanged by this fixture repair; no Task 4 acceptance is claimed.
+The corrected behavioral RED then reported **56 tests, 14 expected failures**,
+seed `718960`, in 19.2 seconds, with no fixture failures. Seven reconciler
+contracts expose missing scope/transaction checks, UPDATE lock order, dual
+repair/tombstone behavior, and projection-failure rollback. Seven owning
+mutation contracts expose absent unified projections or an uncalled faulting
+projection. The other 42 tests passed. The owned database was cleaned up and
+PostgreSQL stopped before authorizing the minimal Note reconciler composition.
+The first composed run reported **56 tests, 5 failures**, seed `691777`, in
+18.0 seconds. All new reconciler and owning mutation contracts passed; the
+five failures were the explicitly listed legacy search suite's Note-creation
+setup lacking `note.write`. Its local setup receives the same existing
+capability definition/assignment as the other two test modules. Every search
+ranking, summary, cursor, and input-validation assertion remains unchanged.
+
+The full four-module Task 4 command then passed: **56 tests, zero failures**,
+seed `260253`, in 27.0 seconds. Both projection changes and owning Note effects
+now roll back under a real projection constraint failure; competing repair
+transactions hold Resource UPDATE locks before either projection write. The
+existing legacy-only rebuild contract passes without added live authority.
+The isolated database was cleaned up and the owned PostgreSQL stopped.
+Scoped formatting across all seven Elixir files, compilation with
+`--warnings-as-errors`, `xref graph --format cycles --fail-above 0`, and
+`git diff --check` also passed (zero cycles). The legacy search suite also
+passed alone on a fresh database: **6 tests, zero failures**, seed `182798`,
+in 3.0 seconds, proving its setup no longer depends on another module seeding
+the existing capability. Independent spec review and a separate code-quality
+review both passed with no actionable findings. No released migration, shared
+fixture helper, production Note repository, or Vault file changed. This focused
+result is not complete Phase 3 or production acceptance. E2E, merge, push,
+release, deployment, and production activation were not performed.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format --check-formatted apps/singularity_storage/priv/repo/migrations/20261009000200_unified_search_reconciliation.exs apps/singularity_storage/lib/singularity/storage/postgres/search_projection_reconciler.ex apps/singularity_storage/lib/singularity/storage/postgres/note_projection_reconciler.ex apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+git diff --check
+```
+
 **Files:** Create the `20261009000200` migration,
 `apps/singularity_storage/lib/singularity/storage/postgres/search_projection_reconciler.ex`,
 and `apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs`.
 Modify `apps/singularity_storage/lib/singularity/storage/postgres/note_projection_reconciler.ex`
-and its existing test; modify `note_repository.ex` only if its established
+and its existing test. Extend the explicitly listed
+`apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs`
+with mutation-local fixture authority and dual-projection regressions. Align
+only the setup of the explicitly listed
+`apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs`
+with the same existing write authority while preserving all assertions; modify
+`note_repository.ex` only if its established
 reconciliation calls cannot preserve the owning transaction/lock order.
 
-- [ ] With `KnowledgeFixtures.source!/0`, `note!/1`, and `ready_document!/1`,
+- [x] With `KnowledgeFixtures.source!/0`, `note!/1`, and `ready_document!/1`,
   assert a canonical builder creates exactly one Note and every canonical
   Document fragment with source timestamps, locators, and deterministic IDs.
   Observe RED before creating the definer/adapter.
-- [ ] Add an ungranted private SQL helper
+- [x] Add an ungranted private SQL helper
   `content.reconcile_search_resource_internal(owner uuid, resource uuid)`.
   Lock Resource `FOR UPDATE`, then Document version when relevant. Delete this
   resource's old derived rows, then INSERT SELECT only eligible canonical data
   in the same transaction. Notes read current typed Markdown; Documents read
   current ready fragments. Tombstones/non-ready sources leave zero entries.
   Never accept content, locator, or an arbitrary SQL fragment from callers.
-- [ ] Add distinct public definer entrypoints for scoped read maintenance and
+- [x] Add distinct public definer entrypoints for scoped read maintenance and
   existing Note-write reconciliation. They derive owner/principal from scoped
   GUCs and revalidate the appropriate existing capability before invoking the
   private helper. Preserve fixed search path, explicit owner, and EXECUTE ACLs.
   Return count/status only. Do not make `note.write` require `note.read`.
-- [ ] In `NoteProjectionReconciler.reconcile/2`, acquire the resource
+- [x] In `NoteProjectionReconciler.reconcile/2`, acquire the resource
   `FOR UPDATE` before either projection and keep the old projection's
   delete-before-head-change rule in owning mutations. Both projection changes
   and the mutation receipt/outbox effect must commit or roll back together.
   Existing Note repair jobs therefore repair both through the same reconciler.
-- [ ] Keep `rebuild_vault/2` as the existing legacy-only reconstruction used
+- [x] Keep `rebuild_vault/2` as the existing legacy-only reconstruction used
   by restore. Extract a private legacy reconciliation helper: the normal
   `reconcile/2` composes it with the guarded unified Note-write path, whereas
   `rebuild_vault/2` calls only the legacy helper under its established caller
   authority. Task 10 separately invokes the ungranted unified SQL builder from
   the already-authorized owner transaction. Do not branch on ambient DB role,
   add a public bypass flag, or require a live session for legacy restore.
-- [ ] Add create/save/conflict-only/merge/tombstone/restore and failure-rollback
+- [x] Add create/save/conflict-only/merge/tombstone/restore and failure-rollback
   regressions. Preserve every existing Note search summary/cursor assertion.
   Force competing reconcilers through deterministic barriers to test lock order.
 
@@ -696,7 +796,7 @@ reconciliation calls cannot preserve the owning transaction/lock order.
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
 ```
 
-- [ ] Review and commit `feat(storage): reconcile canonical unified search entries`.
+- [x] Review and commit `feat(storage): reconcile canonical unified search entries`.
 
 ## Task 5: Transactional Document lifecycle events
 

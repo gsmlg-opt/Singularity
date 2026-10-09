@@ -4,7 +4,10 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
   import Ecto.Query
 
   alias Singularity.Core.Error
+  alias Singularity.Storage.SafeSQL
+  alias Singularity.Storage.Postgres.KnowledgeError
   alias Singularity.Storage.Postgres.NoteSearchStore
+  alias Singularity.Storage.Postgres.SearchProjectionReconciler
   alias Singularity.Storage.Postgres.UUID
   alias Singularity.Storage.Schema.Content.NoteVersion
   alias Singularity.Storage.Schema.Content.Resource
@@ -13,19 +16,10 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
   @spec reconcile(Ecto.Repo.t(), map()) :: :ok | {:error, Error.t()}
   def reconcile(repo, %{vault_id: vault_id, resource_id: resource_id} = selector)
       when map_size(selector) == 2 do
-    with :ok <- UUID.validate([vault_id, resource_id]) do
-      case load_canonical(repo, vault_id, resource_id) do
-        {:ok, %{deleted_at: nil} = canonical} ->
-          canonical
-          |> Map.delete(:deleted_at)
-          |> then(&NoteSearchStore.upsert(repo, &1))
-
-        {:ok, %{deleted_at: %DateTime{}}} ->
-          NoteSearchStore.delete(repo, %{vault_id: vault_id, resource_id: resource_id})
-
-        {:error, %Error{}} = error ->
-          error
-      end
+    with :ok <- UUID.validate([vault_id, resource_id]),
+         :ok <- validate_scope(repo, vault_id),
+         {:ok, _count} <- SearchProjectionReconciler.reconcile_note(repo, resource_id) do
+      reconcile_legacy(repo, vault_id, resource_id)
     end
   rescue
     _error in [Ecto.Query.CastError, Ecto.CastError] ->
@@ -70,7 +64,7 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
         )
 
       Enum.reduce_while(resources, :ok, fn resource_id, :ok ->
-        case reconcile(repo, %{vault_id: vault_id, resource_id: resource_id}) do
+        case reconcile_legacy(repo, vault_id, resource_id) do
           :ok -> {:cont, :ok}
           {:error, %Error{}} = error -> {:halt, error}
         end
@@ -82,6 +76,37 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
 
     _error in [DBConnection.ConnectionError, Postgrex.Error] ->
       {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  defp validate_scope(repo, vault_id) do
+    if repo.in_transaction?() do
+      with {:ok, %{rows: [[scoped_owner]]}} <-
+             SafeSQL.query(repo, "SELECT current_setting('singularity.vault_id', true)"),
+           {:ok, owner} <- UUID.dump(scoped_owner),
+           {:ok, ^owner} <- UUID.dump(vault_id) do
+        :ok
+      else
+        {:error, error} -> {:error, KnowledgeError.from(error)}
+        _ -> {:error, Error.new(:forbidden)}
+      end
+    else
+      {:error, Error.new(:invalid)}
+    end
+  end
+
+  defp reconcile_legacy(repo, vault_id, resource_id) do
+    case load_canonical(repo, vault_id, resource_id) do
+      {:ok, %{deleted_at: nil} = canonical} ->
+        canonical
+        |> Map.delete(:deleted_at)
+        |> then(&NoteSearchStore.upsert(repo, &1))
+
+      {:ok, %{deleted_at: %DateTime{}}} ->
+        NoteSearchStore.delete(repo, %{vault_id: vault_id, resource_id: resource_id})
+
+      {:error, %Error{}} = error ->
+        error
+    end
   end
 
   defp load_canonical(repo, vault_id, resource_id) do
@@ -98,7 +123,7 @@ defmodule Singularity.Storage.Postgres.NoteProjectionReconciler do
           classification: resource.classification,
           deleted_at: resource.deleted_at
         },
-        lock: "FOR SHARE"
+        lock: "FOR UPDATE"
 
     with %{resource_version_id: head_id} = resource <- repo.one(resource_query),
          %{title: title, markdown: markdown, head_inserted_at: head_inserted_at} <-

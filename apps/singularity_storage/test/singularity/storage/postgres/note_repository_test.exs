@@ -7,11 +7,33 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
   alias Singularity.Core.NoteSaveResult
   alias Singularity.Core.NoteSnapshot
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.ScopedRepo
 
   setup do
     %{one: fixture, two: other_fixture} = Fixtures.two_vaults!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id, name) VALUES($1, 'note.write') ON CONFLICT(name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      for context <- [fixture, other_fixture] do
+        assert %{num_rows: 1} =
+                 query!(
+                   MigrationRepo,
+                   """
+                   INSERT INTO core.principal_capabilities(principal_id, vault_id, capability_id)
+                   SELECT $1, $2, id FROM core.capabilities WHERE name = 'note.write'
+                   """,
+                   [context.principal_id, context.vault_id]
+                 )
+      end
+    end)
+
     {:ok, fixture: load_ids(fixture), other_fixture: load_ids(other_fixture)}
   end
 
@@ -125,6 +147,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
       assert load_uuid(version_dump) == version_id
       assert load_uuid(vault_dump) == fixture.vault_id
       assert DateTime.compare(projection_head_inserted_at, head_inserted_at) == :eq
+      assert_unified_projection(repo, resource_id)
 
       assert_create_effects(repo, fixture, intent, resource_id, version_id)
       refute_canaries_in_side_channels(repo, intent, [title, markdown])
@@ -238,6 +261,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
 
       assert load_uuid(projection_version_dump) == saved_version_id
       assert DateTime.compare(projection_head_inserted_at, saved_inserted_at) == :eq
+      assert_unified_projection(repo, resource_id)
 
       assert %{rows: [["completed", "saved", receipt_resource_dump, receipt_version_dump]]} =
                query!(
@@ -312,6 +336,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     assert {:ok, ^first_save} = scoped(fixture, &NoteRepository.save(&1, save))
 
     assert note_effect_counts(fixture, first_create.resource_id) == [2, 2, 1, 2, 2, 2]
+    scoped(fixture, &assert_unified_projection(&1, first_create.resource_id))
   end
 
   test "a stale save preserves a competing snapshot and open conflict without moving canonical state",
@@ -336,6 +361,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
              scoped(fixture, &NoteRepository.save(&1, first_save))
 
     canonical_before = canonical_state(fixture, created.resource_id)
+    unified_before = scoped(fixture, &unified_rows(&1, created.resource_id))
 
     stale =
       save_intent(
@@ -357,6 +383,8 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
 
     assert resource_id == created.resource_id
     assert canonical_state(fixture, created.resource_id) == canonical_before
+    assert scoped(fixture, &unified_rows(&1, created.resource_id)) == unified_before
+    scoped(fixture, &assert_unified_projection(&1, created.resource_id))
 
     scoped(fixture, fn repo ->
       assert %{rows: [[0], [1], [2]]} =
@@ -543,6 +571,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
 
       assert load_uuid(head_dump) == merged_id
       assert load_uuid(projection_dump) == merged_id
+      assert_unified_projection(repo, scenario.created.resource_id)
 
       assert %{rows: [[4]]} =
                query!(
@@ -990,6 +1019,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
   } do
     scenario = conflict_scenario(fixture, "lifecycle")
     before_versions = version_count(fixture, scenario.created.resource_id)
+    scoped(fixture, &assert_unified_projection(&1, scenario.created.resource_id))
 
     tombstone =
       tombstone_intent(
@@ -1044,6 +1074,8 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
                  [Ecto.UUID.dump!(resource_id)]
                )
 
+      assert unified_rows(repo, resource_id) == []
+      assert_unified_projection(repo, resource_id)
       :ok
     end)
 
@@ -1096,6 +1128,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
                  [Ecto.UUID.dump!(resource_id)]
                )
 
+      assert_unified_projection(repo, resource_id)
       :ok
     end)
 
@@ -1157,6 +1190,58 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
              scoped(fixture, &NoteRepository.save(&1, malformed_save))
 
     assert note_effect_counts(fixture, created.resource_id) == before
+  end
+
+  test "a real unified projection failure rolls back the owning create and all its effects", %{
+    fixture: fixture
+  } do
+    intent = create_intent(fixture, "Rollback title", "# Rollback body")
+    constraint = "note_create_projection_failure_#{System.unique_integer([:positive])}"
+
+    state = fn repo ->
+      query!(
+        repo,
+        """
+        SELECT
+          (SELECT count(*) FROM content.resources WHERE vault_id = $1),
+          (SELECT count(*) FROM content.resource_versions WHERE vault_id = $1),
+          (SELECT count(*) FROM content.note_versions WHERE vault_id = $1),
+          (SELECT count(*) FROM content.note_search_documents WHERE vault_id = $1),
+          (SELECT count(*) FROM content.search_entries WHERE vault_id = $1),
+          (SELECT count(*) FROM content.note_mutation_receipts WHERE mutation_id = $2),
+          (SELECT count(*) FROM audit.events WHERE correlation_id = $3),
+          (SELECT count(*) FROM core.outbox_events WHERE correlation_id = $3)
+        """,
+        [
+          Ecto.UUID.dump!(fixture.vault_id),
+          Ecto.UUID.dump!(intent.mutation_id),
+          Ecto.UUID.dump!(intent.correlation_id)
+        ]
+      ).rows
+    end
+
+    assert [[_resources, _versions, 0, 0, 0, 0, 0, 0]] = before = scoped(fixture, state)
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        ALTER TABLE content.search_entries ADD CONSTRAINT #{constraint}
+        CHECK (vault_id <> '#{fixture.vault_id}'::uuid) NOT VALID
+        """
+      )
+    end)
+
+    try do
+      assert {:error, %Error{code: :invalid, retryable?: false}} =
+               scoped(fixture, &NoteRepository.create(&1, intent))
+
+      assert scoped(fixture, state) == before
+    after
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "ALTER TABLE content.search_entries DROP CONSTRAINT #{constraint}")
+      end)
+    end
   end
 
   defp create_intent(fixture, title, markdown) do
@@ -1307,6 +1392,7 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
     %{
       canonical: canonical_state(fixture, resource_id),
       counts: note_effect_counts(fixture, resource_id),
+      unified: scoped(fixture, &unified_rows(&1, resource_id)),
       conflicts:
         scoped(fixture, fn repo ->
           %{rows: rows} =
@@ -1559,6 +1645,50 @@ defmodule Singularity.Storage.Postgres.NoteRepositoryTest do
       %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
       fun
     )
+  end
+
+  defp assert_unified_projection(repo, resource_id) do
+    %{rows: expected} =
+      query!(
+        repo,
+        """
+        SELECT 'note:' || version.id::text, resource.vault_id, resource.classification,
+               resource.id, version.id, 'note', version.id, NULL, 0,
+               note.title, note.markdown,
+               '{"version":1,"kind":"markdown","heading_path":[]}'::jsonb,
+               version.inserted_at, 1
+        FROM content.resources AS resource
+        JOIN content.resource_versions AS version
+          ON version.id = resource.current_version_id
+         AND version.resource_id = resource.id
+         AND version.vault_id = resource.vault_id
+         AND version.classification = resource.classification
+        JOIN content.note_versions AS note
+          ON note.resource_version_id = version.id
+         AND note.resource_id = version.resource_id
+         AND note.vault_id = version.vault_id
+         AND note.classification = version.classification
+        WHERE resource.id = $1 AND resource.kind = 'note'
+          AND resource.classification = 'private' AND resource.deleted_at IS NULL
+        """,
+        [Ecto.UUID.dump!(resource_id)]
+      )
+
+    assert unified_rows(repo, resource_id) == expected
+    :ok
+  end
+
+  defp unified_rows(repo, resource_id) do
+    query!(
+      repo,
+      """
+      SELECT entry_id, vault_id, classification, resource_id, resource_version_id,
+             kind, note_resource_version_id, fragment_id, ordinal, title, body,
+             locator, source_inserted_at, projection_version
+      FROM content.search_entries WHERE resource_id = $1 ORDER BY entry_id
+      """,
+      [Ecto.UUID.dump!(resource_id)]
+    ).rows
   end
 
   defp load_ids(fixture) do
