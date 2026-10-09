@@ -518,3 +518,70 @@ scoping and repeatable-read snapshot behavior, followed by inclusive extraction
 limits and real scanned/process/privacy extractor cases. These require their
 own bounded design/review before implementation. No focused subset waives
 the standing E2E exclusion or the complete acceptance requirement.
+
+## Backup qualification: unchanged baseline and diagnostic prerequisite
+
+Baseline source: `dfe60aa11ac471da243e0523a33a23b0bf426276`, existing Phase 2
+worktree/branch. The next audited evidence gaps are live omitted-inventory
+owner scoping and repeatable-read snapshot consistency. No new backup test
+or production change preceded this characterization.
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs \
+  --seed 1208 --trace
+```
+
+Session `97869`, exit 2: 11 tests, 1 failure (5.6 seconds), no exclusions.
+The existing Document-owner refusal test stopped at fixture creation:
+`DocumentRepository.create_pending/2` returned the exact sanitized
+`:forbidden` error instead of a Document. Its backup guard assertion was
+therefore NOT REACHED. All ten other existing exporter cases passed.
+
+Parent and Astra traced the setup mismatch: `prepared_source!/0` inherits
+the legacy locked default and assigns no `asset.read`. The current repository's
+extraction request requires a live unlocked owner with `asset.read`.
+Existing `DocumentRepositoryTest.grant_asset_read!/1` supplies both fixture
+operations before creation; the backup fixture supplies neither. The proposed
+repair is confined to that owning test's fixture setup, preserving the real
+repository call and every refusal/other-owner/privacy assertion. No repository
+authorization weakening, production grant, support helper, or Vault feature
+repair is authorized. New qualification awaits reviewed design and rebaseline.
+
+After exit, exact database `singularity_test_3335b212a5cde4a6b376f543` had
+`pg_database` count 0 and root
+`/tmp/singularity/integration/3335b212a5cde4a6b376f543` was absent. PostgreSQL
+remains ready with zero restarts. `unbuffer` is unavailable; no environment
+installation/change was made, and the established `devenv shell` runner is
+used. No E2E/full acceptance or publication occurred.
+
+Protected V2 wire-schema SHA-256:
+`992ef89fb52a91ccaa0d7cf2b3ae6607a465e7b345cca5d6c55a86c3fac9f3e6`.
+Unchanged owning-test SHA-256:
+`fdd24d5d4ac1ea98f9bcc8ccf51b9ee4e000c8ef5ff4dda62d739cc529a192dd`.
+The existing frozen extraction/restart tests and original untracked C plan
+retain their previously recorded hashes. Repair attempts in this slice: 0.
+
+The parent reproduced the same failure in isolation before any repair:
+
+```sh
+MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps \
+  devenv shell -- mix singularity.test.integration \
+  apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs:51 \
+  --seed 90731 --trace
+```
+
+Session `1451`, exit 2: 11 reported, 10 excluded, **1 executed**, 1 failure
+(2.5 seconds). The same existing `create_pending/2` assertion received
+`:forbidden`; this is independent of ordering among the other ten cases.
+Exact database `singularity_test_276889fd5d53cb20954d8d85` had `pg_database`
+count 0 and its exact storage root was absent. Source inspection confirmed
+the locked default in `20260718000200_create_identity_and_vault_tables.exs`.
+
+Parent read both backup qualification documents completely. Fresh independent
+Astra design review cleared their fixture repair, legal independent/composite
+inventory classification, live guard restrictions, independently bound records
+cuts, and post-commit two-connection snapshot/cleanup protocol. Standing approval
+permits **fixture-repair-only GO** first. The documented successful 11-test
+rebaseline remains a prerequisite to new qualification implementation.
