@@ -1011,19 +1011,32 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 
 ## Task 7: PostgreSQL search, literal fallback, and signed keysets
 
+Task 6 is committed locally at
+`547f73cab46f21d9545d6d53ded382880449373c`. Before the SQL search slice,
+the existing independently reviewed cursor suite passed **11 tests, zero
+failures**, seed `396126`, in 0.4 seconds. The cursor source remains unchanged;
+a fresh worker added the PostgreSQL search contracts first. The new
+adapter uses the established repository/query seam and existing audit
+fingerprint secret. Exact source resolution and its Runtime API remain
+Task 8 work, not an unimplemented public fallback in Task 7.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs
+```
+
 **Files:** Create `apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex`,
 `knowledge_search_cursor.ex`, and tests in the same test directory named
 `knowledge_search_cursor_test.exs`, `knowledge_search_store_test.exs`, and
 `knowledge_search_pagination_test.exs`.
 
-- [ ] RED: a real canonical Note plus ready Document search with empty q returns
+- [x] RED: a real canonical Note plus ready Document search with empty q returns
   both kinds and exact version/fragment IDs. Use fresh production-role scoped
   queries, not direct fixture grants to the new table.
-- [ ] Validate the internal query map again before repository work. Use
+- [x] Validate the internal query map again before repository work. Use
   SafeSQL bound parameters, the same canonical visibility joins for every
   branch, AND tag membership through owner-bound canonical EXISTS, and a
   deduplicated candidate set. Never hydrate all bodies into Elixir to rank.
-- [ ] Apply transaction-local five-second statement timeout and fixed trigram
+- [x] Apply transaction-local five-second statement timeout and fixed trigram
   threshold. The SQL policy is exactly:
 
 ```sql
@@ -1034,18 +1047,18 @@ plainto_tsquery('simple', $1)
   trigram similarity at 0.3 for at least three Unicode codepoints. Use
   schema-qualified `search_extensions` functions/operators/opclasses. Escape
   backslash, `%`, and `_` as literals; no caller syntax is SQL or tsquery code.
-- [ ] Compute integer score `4*F + 2*T + L` from the approved million-scale
+- [x] Compute integer score `4*F + 2*T + L` from the approved million-scale
   formula; return `left(body,160)` only as the snippet. Order by rank DESC,
   immutable source time DESC, resource UUID ASC, version UUID ASC, ordinal ASC,
   entry ID COLLATE `C` ASC. Apply the complete keyset predicate before LIMIT.
-- [ ] Cursor functions encode/decode the exact ordering tuple with distinct
+- [x] Cursor functions encode/decode the exact ordering tuple with distinct
   HMAC domains `knowledge-search-filter:v1` and `knowledge-search-cursor:v1`.
   Canonically frame fields, bind owner/private/q/kind/sorted tags/policy version,
   use the existing secret of at least 32 bytes, and compare MACs in constant
   time. Reject unknown keys, malformed/oversized payloads, noninteger ranks,
   invalid identities/timestamps, wrong filters, and legacy cursor domains before
   SQL. No plaintext q/title/locator in the token; limit is not fingerprinted.
-- [ ] Cover FTS-only, title typo, CJK/short substrings, literal wildcards,
+- [x] Cover FTS-only, title typo, CJK/short substrings, literal wildcards,
   punctuation/empty q, tag filters, foreign/deleted/nonready/historical/conflict
   rows, tied mixed-kind paging, body/snippet boundaries, and timeout sanitization.
 
@@ -1053,9 +1066,82 @@ plainto_tsquery('simple', $1)
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs
 ```
 
-- [ ] Review and commit `feat(storage): search version-pinned knowledge with stable keysets`.
+- [x] Review and commit `feat(storage): search version-pinned knowledge with stable keysets`.
 
-Task 7 independent pure cursor slice: **implemented and reviewed**, commit
+The first SQL contract reached the production request-role query after creating
+and reconciling a canonical Note and ready Document. It failed only because
+`KnowledgeSearchStore.search/2` does not yet exist: **one test, one expected
+failure**, seed `730080`, 0.7 seconds. The owned integration database/storage
+were cleaned and the isolated PostgreSQL cluster stopped. This is a missing
+feature RED, not a fixture or privilege failure. No production search code
+was written before this run.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs
+```
+
+The expanded pre-implementation run reported **18 tests, 18 failures**, seed
+`956041`, in 6.0 seconds: 17 expected missing-adapter failures and one fixture
+failure for an uninitialized connection-local `pg_trgm.similarity_threshold`.
+The settings fixture was corrected to pin initialization and before/after
+checks to one checked-out connection. A test-only edit overlapped that run, so
+it is retained as diagnostic evidence, not an exact-source qualification run.
+Production code remained absent; the owned database was cleaned and PostgreSQL
+stopped.
+
+After pinning that settings fixture and adding Unicode-codepoint eligibility
+and descending rank/recency paging cases, the same command produced **20 tests,
+20 expected missing-adapter failures**, seed `480917`, 6.3 seconds. Every
+fixture reached the missing feature; independent score/fixture prechecks
+passed. Both test-file SHA-256 values were unchanged before and after this
+frozen-source run. The isolated database/storage were cleaned and PostgreSQL
+stopped before production implementation was authorized.
+
+The first implementation run of those 20 contracts passed **19**, with one
+test-fixture failure, seed `643934`, 8.4 seconds. The separate lock observer
+used the migration login without table-owner schema usage when resolving
+`content.search_entries` as a `regclass`. This prevented observing the real
+timeout; it did not demonstrate a search-query failure. The corrected test receives
+the relation OID from its already-authorized blocker instead of changing any
+grant. The isolated database/storage were cleaned and PostgreSQL stopped.
+
+With the observer corrected, a real three-version open-conflict contract also
+proved that the canonical head remains searchable and a deliberately stale
+derived competing-version entry is omitted. Production search code did not
+change after the first implementation run. The combined suite passed **27
+tests, zero failures** (21 new, six legacy Note search), seed `465079`, in
+15.1 seconds. This includes the real five-second database cancellation,
+sanitized retryable error, successful subsequent query, fixed transaction-local
+settings, all branch scores, literal/CJK/codepoint behavior, tag filtering,
+canonical visibility, and mixed-direction/tied-fragment cursor pagination.
+The owned database/storage were cleaned and isolated PostgreSQL stopped.
+
+Pure cursor and Retrieval compatibility then passed **50 tests, zero failures**
+(Storage 11, Retrieval 39), seed `296436`, in 0.5 and 0.7 seconds respectively.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_retrieval/test/singularity/retrieval/note_lexical_search_test.exs
+```
+
+Scoped formatting, warnings-as-errors compilation, `git diff --check`, and
+the zero-cycle xref gate passed. Independent SPEC review passed first, then a
+separate independent QUALITY reviewer passed without findings. Task 7 is
+complete locally: three new Storage source/test files plus this evidence
+record, with the earlier cursor implementation unchanged. There were zero
+production repair rounds; two test-fixture corrections are preserved above.
+No migration, grant, shared fixture, Runtime API, Vault, E2E, merge, push,
+release, or deployment change occurred. Exact-source resolution/API work is
+Task 8; query-plan/privacy/full-phase qualification remains Task 11. These
+scoped results do not establish Phase 3 or release acceptance.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs + compile --warnings-as-errors + xref graph --format cycles --fail-above 0
+git diff --check
+```
+
+Historical Task 7 independent pure cursor slice: **implemented and reviewed**, commit
 `613a4b3`. Eleven unit tests first failed because the module did not exist
 (seed 88782), then passed (827002). They cover the complete ordering tuple,
 normalized owner/filter binding, independently calculated HMAC values,
