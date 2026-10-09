@@ -1168,3 +1168,119 @@ This repairs the failed formatter and proves the affected focused contract only.
 The entire selected non-E2E README gate must restart from its first command on
 the clean committed repair source. E2E remains NOT RUN, full acceptance remains
 open, and no merge, push, release, deployment, or Vault feature work occurred.
+
+## Existing non-E2E README gate: attempt 2 and reader-observation repair
+
+Formatter-only repair is committed locally at
+`5a41faa6bf1d410bbfe72b5e585f39704674b2fc`. Only the authorized Runtime extraction
+test and this matrix were committed. The original untracked C plan was preserved.
+Parent fast-forwarded only the clean verification branch to this exact commit;
+root `main` was not merged or changed. The entire selected README wrapper restarted
+from service startup, with the same dedicated PostgreSQL identity and shared
+source dependency path. This is not a continuation past the earlier failed gate.
+
+Wrapper `24036`, exit 2: service startup/readiness, owned-cluster identity and role
+bootstrap, locked dependency fetch, unused-dependency check, repository formatter,
+and all seven applications' warnings-as-errors compile passed. Unit execution
+seed was `247993`, maximum concurrent cases 96:
+
+| Application | Reported result |
+| --- | --- |
+| Core | 10 properties, 113 tests, zero failures |
+| Domains | 38 tests, zero failures |
+| Storage | 928 tests, 667 excluded, zero failures |
+| Retrieval | 26 tests, zero failures |
+| Ingest | 62 tests, zero failures |
+| Runtime | 793 tests, 205 excluded, **one failure** |
+| Web | 183 tests, zero failures |
+
+FAIL: Runtime `DocumentFreshDownloadLeaseTest`, generated case
+`expire terminates the owned reader without late plaintext`, original line 322;
+exact `:killed` monitor assertion at line 340 instead received `:noproc` for that
+reader. The mailbox also contained the failed consumer result
+`{:error, :waiting_for_unlock}` and normal lease termination. Runtime suite took
+55.2 seconds. Test compilation emitted existing duplicate-definition warnings for
+three Fake support modules; the application warnings-as-errors compile passed.
+No unrelated support/legacy/Vault repair was attempted.
+
+Acceptance stopped at this unit gate. Full integration, independent restore,
+frontend gates, final xref/actionlint/clean gate were NOT RUN. E2E remains NOT RUN
+separately by user exclusion. No integration database was allocated. After the
+wrapper terminated, teardown was initially still visible. An additional
+ownership-checked cleanup command returned exit 1 during this interval; its
+output did not identify the failing precheck, so no precise failing precondition
+is claimed. Subsequent read-only checks confirmed the owned manager, postmaster
+and PostgreSQL socket were absent; the verification tree remained clean. The
+borrowed cluster still accepted connections and was never a cleanup target.
+
+Two read-only Astra investigations established the allowed Document-only scope
+and observation-race mechanism. The approved source replay amendment explicitly
+includes this test and requires reader kill/await and no late plaintext; the
+legacy first module and production lifecycle remain frozen. Issuing the test's
+monitor precedes explicit expiry in source, but does not acknowledge target-side
+installation. A kill from the lease is a different-sender signal and can overtake
+that monitor. The production spawn-time monitor still observes reader termination
+and replies only after its own kill/await path completes. This failure is not
+evidence that the reader remained alive or that plaintext was released.
+
+Primary references: [OTP 28 monitor semantics](https://www.erlang.org/docs/28/apps/erts/erlang.html#monitor/2),
+[ordered process information](https://www.erlang.org/docs/28/apps/erts/erlang.html#process_info/2),
+and [OTP monitor signal implementation](https://github.com/erlang/otp/blob/OTP-28.0/erts/emulator/beam/erl_proc_sig_queue.c#L1027).
+Monitor requests are asynchronous; the subsequent same-sender process-info request
+acknowledges the reader's registered monitor before any termination trigger.
+
+Pre-repair characterization `61299`, exit 0, ran the entire owning file with seed
+247993: 33 tests, zero failures, 1.5 seconds. This does not erase the full-suite
+RED result or establish a deterministic pre-fix scheduling reproducer; none is
+claimed. Independent Astra scope review issued GO for only the new Document-mode
+test's monitor-registration prerequisite, preserving every existing assertion,
+timeout, termination case, ordinary Asset/request behavior, and production file.
+
+Parent added only a comment and two assertions after `Process.monitor(reader)`:
+`Process.info(reader, :monitored_by)` must return its observer list and that list
+must contain the test process. All six termination cases retain exact `:killed`,
+lease termination, dead-reader, attempted late release, and no successful plaintext
+assertions. No sleep, retry, timeout change, weaker exit reason, module serialization,
+fixture protocol, production code, migration, dependency or Vault behavior changed.
+
+Focused verification on the guard candidate:
+
+| Parent command/session | Result |
+| --- | --- |
+| Owning-file `mix test`, seed 247993, session `6367` | PASS: 33 tests, zero failures, 1.6 seconds |
+| Owning-file `mix test`, seed 90731, session `62646` | PASS: 33 tests, zero failures, 1.6 seconds |
+| Whole `mix format --check-formatted`, same wrapper `62646` | PASS, wrapper exit 0 |
+
+Both Mix commands used `devenv shell -- env
+MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps`; no services were
+started for these focused unit runs. Together they execute 66 test cases, not
+66 file executions. The causal target-side monitor prerequisite supplies the
+deterministic observation guarantee; repeated green runs alone are not that proof.
+
+Parent Elixir byte proof, exit 0, removed the exact single added guard block in
+memory and compared the result to `5a41faa`: **the complete original test file is
+byte-identical**. Thus all old tests/assertions/comments, legacy module and later
+Document original tests remain untouched. Hashes:
+
+- Original whole test: `81096c858e57401943f583a4db239e439bffe488b6352cae1c92e9c55be3619c`.
+- Guard candidate: `a9589b0e4f9054d4ebbecb2c3711c82a4f6807ce3dd2ee80761cca9969e354d0`.
+- Legacy module prefix: `1091184685dd47ab99e54da5c0b7f2d0605f9b45c907ed4aa58b3f234595578c`.
+- Later Document original tests: `f7df06f3f17dbe1d35cacb85993b4efa90632dcb424b9bd2e97a3072d4dbefaa`.
+- Production DownloadLease, independently byte-compared to HEAD:
+  `3ecce1470e11d506435d8213faa1b2c0c012ffb360cb3e4b82f67bdd5277636e`.
+
+This is the first reader-observation repair attempt, with zero failed repaired
+focused runs; no artificial failure or blind retry was introduced. The user's
+allowance for at least three failed Astra repair attempts is retained if needed,
+not a requirement to manufacture failures or waive an invariant. The full selected
+README gate still requires a fresh restart on the clean committed candidate.
+
+Fresh independent Astra SPEC and distinct QUALITY reviews passed the exact
+four-line guard and matrix append, with no actionable findings. Both verified
+the candidate/production hashes and preservation of the original assertions;
+QUALITY also reviewed the narrowed cleanup-evidence wording. Reviews are read-only
+source assessments, not independently executed tests or full-gate acceptance.
+Parent read the complete final diff and `git diff --check` passed. Only the owning
+Document lease test and this existing matrix are authorized for the local commit.
+Task 15/Phase 2 remain open; no E2E, Vault feature work, product merge, push, tag,
+release, deployment, or production activation occurred.

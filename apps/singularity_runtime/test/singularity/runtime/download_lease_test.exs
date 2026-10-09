@@ -328,6 +328,10 @@ defmodule Singularity.Runtime.DocumentFreshDownloadLeaseTest do
       assert_receive {:fresh_reader, reader, {:chunk, 0}}
       reader_monitor = Process.monitor(reader)
 
+      # Confirm the asynchronous monitor is installed before another process kills the reader.
+      assert {:monitored_by, observers} = Process.info(reader, :monitored_by)
+      assert self() in observers
+
       case unquote(reason) do
         :revoke -> assert :ok = DownloadLease.revoke(lease)
         :expire -> send(lease, :expire)
