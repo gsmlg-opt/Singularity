@@ -1284,3 +1284,128 @@ Parent read the complete final diff and `git diff --check` passed. Only the owni
 Document lease test and this existing matrix are authorized for the local commit.
 Task 15/Phase 2 remain open; no E2E, Vault feature work, product merge, push, tag,
 release, deployment, or production activation occurred.
+
+## Existing non-E2E README gate: attempt 3 and contract blocker
+
+Reader-observation repair is committed locally at
+`2335bf3b5f8f4af4dd62bd7c32ec2ccdf553cb44`. Parent fast-forwarded only the clean
+verification branch to that exact source and restarted the selected README
+sequence from its first command. Root `main` remains unchanged. Parent wrapper
+`58404` completed with exit 2; no active Mix session remains.
+
+The following commands passed in order, using the dedicated verification runtime
+and `MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps`:
+
+1. `devenv up -d`
+2. `devenv processes wait --timeout 120`
+3. Read-only PostgreSQL identity check: exact owned PGDATA, socket directory,
+   port 5432, and empty TCP listen address.
+4. `devenv shell -- bash apps/singularity_storage/priv/repo/bootstrap_roles.sh`
+5. `devenv shell -- mix deps.get` (lockfile unchanged)
+6. `devenv shell -- mix deps.unlock --check-unused`
+7. `devenv shell -- mix format --check-formatted`
+8. `devenv shell -- mix compile --warnings-as-errors` (all seven applications)
+9. `devenv shell -- mix test`
+
+Unit seed `263628`, maximum cases 96: **PASS**, 1,281 executed cases, including
+10 properties. Existing test-support duplicate-module warnings appeared during
+test compilation; warnings-as-errors application compilation passed. Integration
+seed `458307`, maximum cases 96: `devenv shell -- mix
+singularity.test.integration` **FAIL**, 872 executed cases, **28 failures**.
+
+| Application | Unit reported result | Integration reported result |
+| --- | --- | --- |
+| Core | 10 properties, 113 tests, zero failures | All 123 excluded; NOT EXECUTED |
+| Domains | 38 tests, zero failures | All 38 excluded; NOT EXECUTED |
+| Storage | 928 tests, 667 excluded, zero failures | 928 tests, 261 excluded, 12 failures |
+| Retrieval | 26 tests, zero failures | All 26 excluded; NOT EXECUTED |
+| Ingest | 62 tests, zero failures | All 62 excluded; NOT EXECUTED |
+| Runtime | 793 tests, 205 excluded, zero failures | 793 tests, 588 excluded, 16 failures |
+| Web | 183 tests, zero failures | All 183 excluded; NOT EXECUTED |
+
+Runtime unit duration was 53.1 seconds. Storage integration took 602.9 seconds;
+Runtime integration took 844.5 seconds. Existing real five-minute worker checkout,
+180-second restart expiry, and up-to-two-180-second outcome-expiry waits remain
+unchanged. No test was aborted, skipped, weakened, or assigned a shorter deadline.
+The strict wrapper stopped at the integration gate: independent restore,
+frontend verification, subsequent xref/actionlint and clean gate are NOT RUN.
+E2E is separately NOT RUN under the user's explicit exclusion. This is not
+complete README or Phase 2 acceptance.
+
+### Failure inventory and bounded Astra diagnosis
+
+Storage failures: Roles pin-count/direct-read contract (1), exact Document schema
+inventory (1), Knowledge concurrency contracts (6), pending Document repository
+creation (1), Knowledge diagnostic privacy contracts (2), and Backup concurrency
+snapshot cut (1). Runtime failures: Document API integration (13), outcome-fence
+completion after tombstone (actual/raise, 2), and ready Document restoration (1).
+These account for all 28 failures; they are not claimed to share one proven cause.
+
+Two independent read-only Astra investigations concluded that assertion changes
+cannot receive unconditional GO within the current repair scope:
+
+- `roles_test.exs` fails for `singularity_web`: observed function EXECUTE/table
+  SELECT privileges are `[[false, true]]`, not a worker privilege escalation.
+  Migration `20260922000300_document_runtime_mutations.exs` grants the web role
+  SELECT on `content.document_versions` and `content.document_fragments` for
+  Task 14 ordinary reads. Older role/grant contracts demand no runtime SELECT.
+  Task 14 reads require authenticated `asset.read`, scoped context and forced
+  RLS. Revoking the grant would break these reads; merely changing old required
+  assertions would violate the instruction against weakening/reclassification.
+- `KnowledgeTestGrants.with_direct_mutation_grants/1` restores neither original
+  SELECT grant: its teardown unconditionally revokes permissions, including the
+  already-present web SELECT. DataCase does not sandbox these grants, so shared
+  integration database order can pollute later tests. Runtime permission failures
+  are consistent with this mechanism; all 16 were not independently replayed to
+  prove that each has this cause.
+- The exact schema inventory omits the three approved extraction-attempt columns.
+  Updating that required inventory lies outside the current Task 4 named repair
+  files. Pending creation failures and concurrency/privacy setup failures return
+  `:forbidden`; missing fixture authorization prerequisites are a candidate cause,
+  not a fully established explanation for every failure. No global unlock or
+  assertion rewrite was applied.
+- Backup concurrency snapshot cut returns a retryable `:storage_unavailable`.
+  Its root cause remains unproven. That test is outside the approved backup
+  qualification files; no unrelated backup/Vault repair was attempted. Master
+  Task 13 is periodic recovery, not backup; the backup guard belongs to Task 2.
+
+Recommended next decision is an explicit narrow contract amendment authorizing
+web-only ordinary SELECT on exactly the two Document tables, retaining all
+worker/pre-auth/dispatcher direct SELECT denials on those tables and direct-write
+denials, and permitting the corresponding historical assertion reconciliation,
+exact schema inventory
+and local authorization/grant-preservation fixture corrections. The out-of-scope
+backup failure needs separate classification before any repair. The larger
+alternative is a separately approved request-only read-function architecture and
+forward migration. Neither option was implemented or inferred from blanket
+approval. No released migration or production permission was edited.
+
+### Cleanup and handoff
+
+Primary generated database was `singularity_test_0323914320a6bbad9f85c4aa`;
+storage root was `/tmp/singularity/integration/0323914320a6bbad9f85c4aa`.
+After the failed gate attempt, parent performed ownership-checked cleanup and a
+separate read-only catalog audit (`69328`, exit 0). That audit started only the owned
+verification runtime, revalidated its exact PostgreSQL identity, found no
+`singularity_test_%` databases, and stopped it through its cleanup trap. It ran
+no bootstrap, migration, Mix command or further test.
+
+Final read-only inspection confirmed the owned manager PID, native socket,
+PostgreSQL socket, postmaster PID, and primary generated storage root absent.
+Borrowed PostgreSQL at `/run/user/1000/devenv-afa1eb9/postgres` still accepted
+connections and was never stopped, bootstrapped or used as a cleanup target.
+Verification branch is clean at the exact tested `2335bf3` source. Root `main`
+is clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`. The original untracked
+C plan remains untouched with SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+This appendix records execution evidence, not another accepted repair or a
+waiver of required assertions. Task 15 and Phase 2 remain open. No E2E, Vault
+feature work, main merge, push, tag, release, deployment or activation occurred.
+
+Fresh read-only Astra documentation review checked the complete appendix,
+arithmetic and cited source contracts against parent-supplied execution evidence.
+Its two wording corrections were applied: worker denials concern direct SELECT,
+not approved guarded reads; cleanup followed a failed gate attempt, not completed
+acceptance. The reviewer ran no tests or services. Parent checked the final diff;
+this documentation-only record does not change the exact tested code SHA above.
