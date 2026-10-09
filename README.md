@@ -77,6 +77,16 @@ acceptance run only through Actions → Manual Acceptance → Run workflow; sele
 the branch or tag to test. Static CI checks remain automatic. Unit CI does not
 replace the complete phase/release verification gate below.
 
+Fresh and historical test databases provision the approved `pg_trgm` 1.6 search
+extension before migrations. This requires the external administrator connection
+in `SINGULARITY_ROLE_PROVISIONER_DATABASE_URL` (provided by `devenv shell`) and
+the PostgreSQL server's `pg_trgm` package. Provisioning targets each allocated
+application database, not the administrator's maintenance database. The task-only
+bootstrap does not add an administrator repository or runtime credentials;
+incompatible existing extension state fails without being rewritten. See the
+[deployment provisioning step](docs/deployment/docker.md#provision-search-extensions)
+for persistent databases.
+
 Run the complete local verification sequence from one shell so its cleanup trap
 remains active for the entire run:
 

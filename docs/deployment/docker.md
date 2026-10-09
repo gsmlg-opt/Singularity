@@ -112,6 +112,48 @@ an existing cluster. Never use a superuser URL for an application role, and neve
 give all five connections the same login. Database ownership and the `CREATE`
 grant above are required by the migrations' existing table-owner role switching.
 
+### Provision search extensions
+
+Before running migrations, use the protected administrator service to provision
+the search extension in the **application database**. The PostgreSQL server must
+provide `pg_trgm` version 1.6; install its PostgreSQL 17 extension/contrib package
+through your database operator if it is missing. The application image does not
+install server-side extensions.
+
+Run the SQL from the same source revision as the application, after the database
+creation and table-owner `CREATE` grant above:
+
+```bash
+PGSERVICE=singularity_admin psql --dbname=singularity --no-psqlrc \
+  --set ON_ERROR_STOP=1 \
+  --file apps/singularity_storage/priv/repo/bootstrap_search_extensions.sql
+```
+
+Replace `singularity` only with the intended application database name: 1–63
+lowercase ASCII letters, digits, or underscores, beginning with a letter or
+underscore. Do not target `postgres`, `template0`, or `template1`. The script
+installs the trusted extension in `search_extensions` under the non-login table
+owner, removes PUBLIC schema/function access, and delegates grant authority for
+only the two approved search functions. It retains administrator ownership of
+the extension functions and does not change role attributes or memberships.
+The later forward migration
+verifies this state and supplies the final web search grants and projection DDL.
+
+Provisioning is transactional and compatible reruns preserve state, including
+after those migration grants. An existing extension in another schema, an
+unsupported version, unexpected ownership, or incompatible grants causes failure
+without adopting or rewriting it. Stop on any failure; inspect the database state
+with the administrator and resolve it through an explicit operator decision.
+Do not move/drop an existing extension or bypass the migration preflight merely
+to continue an upgrade.
+
+The test lifecycle uses the same SQL through
+`bootstrap_search_extensions.sh <application_database>` and the existing
+`SINGULARITY_ROLE_PROVISIONER_DATABASE_URL`. Neither that URL nor the protected
+administrator service belongs in the application container's runtime environment.
+An administrator connection is required only for this explicit provisioning step,
+not for application startup.
+
 ## 3. Configure secrets and persistent storage
 
 Create the host directories before mounting them. The application must be able

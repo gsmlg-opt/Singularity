@@ -286,7 +286,7 @@ its own focused evidence before adding the projection migration.
 `bootstrap_roles.exs` unchanged. Do not change existing role provisioning,
 runtime configuration, released migrations, or Vault files.
 
-- [ ] Add failing pure wrapper transport tests and real PostgreSQL contracts.
+- [x] Add failing pure wrapper transport tests and real PostgreSQL contracts.
   The initial fresh-application schema RED below is already observed. Add
   missing bootstrap entrypoint assertions before implementation:
 
@@ -295,14 +295,14 @@ assert Code.ensure_loaded?(Singularity.Storage.SearchExtensionBootstrap)
 assert :ok = apply(Singularity.Storage.SearchExtensionBootstrap, :run!, [database])
 ```
 
-- [ ] Implement only `SearchExtensionBootstrap.run!(database)` as a task-side
+- [x] Implement only `SearchExtensionBootstrap.run!(database)` as a task-side
   shell adapter. Validate an explicit bounded simple database name and reject
   `postgres`, `template0`, and `template1`. Raise a fixed sanitized error on
   subprocess failure; never persist an administrator Repo/configuration.
   Wrapper credential transport uses the existing helper with checked exit
   status, an anonymous libpq service FD, an explicit `--dbname` argument, and
   `ON_ERROR_STOP`; unset credential variables before executing `psql`.
-- [ ] Share one transactional SQL file between the wrapper and operator
+- [x] Share one transactional SQL file between the wrapper and operator
   instructions. Verify administrator authority and target first. For a new
   installation create the controlled schema and trusted extension under the
   table-owner role, return to administrator authority for PUBLIC function
@@ -318,17 +318,17 @@ GRANT EXECUTE ON FUNCTION search_extensions.similarity(text, text),
   reruns must preserve state before and after final migration grants; wrong
   schema/owner/version/ACL state fails without changing it. No role attribute,
   membership, function ownership, or final runtime grant changes belong here.
-- [ ] Hook fresh database provisioning immediately after `create_database!/1`
+- [x] Hook fresh database provisioning immediately after `create_database!/1`
   and before repository configuration, with bounded cleanup on bootstrap
   failure. In historical setup, call bootstrap inside the second protected
   `try`, after its existing table-owner CREATE grant and before Migrator.run.
   Preserve its existing close/restore failure path. No admin connection enters
   the application supervision tree or runtime repository settings.
-- [ ] Prove actual-role function/schema ACLs, table-owner grant options,
+- [x] Prove actual-role function/schema ACLs, table-owner grant options,
   idempotency, wrong namespace/owner/ACL rejection, non-admin failure, and real
   fresh/historical cleanup on failure. Preserve existing role-attribute and
   membership assertions. Wrapper fakes establish transport hygiene only.
-- [ ] Document the explicit per-application administrator provisioning step
+- [x] Document the explicit per-application administrator provisioning step
   before migrations, the supported package/version, failure handling, and the
   absence of administrator credentials from runtime env files.
 
@@ -337,8 +337,79 @@ devenv shell -- mix test apps/singularity_storage/test/singularity/storage/searc
 devenv shell -- mix singularity.test.integration apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs apps/singularity_storage/test/singularity/storage/roles_test.exs
 ```
 
-- [ ] Obtain spec then quality review, record exact execution evidence, and
+- [x] Obtain spec then quality review, record exact execution evidence, and
   commit `feat(storage): provision constrained search extensions`.
+
+Task 3a execution evidence, 2026-10-10 (locally verified prerequisite):
+
+- Live `origin` default HEAD and `main` were rechecked at
+  `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`. Work remains isolated in
+  `codex/v0.2-phase-3-search-design`; amendment authority is recorded in
+  `b66849f` after independent plan review passed.
+- Pre-change unit characterization of `test_environment_test.exs`: **12 tests,
+  0 failures, 1 integration excluded**, seed `10736`.
+- Pre-change real PostgreSQL characterization of `test_environment_test.exs`,
+  `migrations_test.exs`, and `roles_test.exs`: **61 tests, 0 failures,
+  11 excluded**, seed `280003`.
+- New bootstrap contracts before implementation: unit **RED, 14 tests,
+  6 failures, 8 integration excluded**, seed `35404`; actual PostgreSQL
+  **RED, 14 tests, 8 failures, 6 excluded**, seed `569336`. All failures identify
+  the absent wrapper or `SearchExtensionBootstrap` module, not setup failures.
+- A 96 KiB fake credential-service contract reproduced Bash's temporary-file
+  backing of a large here-string: **RED, 15 tests, 1 failure, 14 excluded**,
+  seed `490770`. A separate non-secret descriptor probe confirmed the backing
+  file. Feeding the checked helper output through an anonymous pipe then passed
+  the scoped bootstrap/configuration/test-environment unit selection:
+  **37 tests, 0 failures, 10 excluded**, seed `871815`.
+- Attaching an unexpected function from `public` to the extension reproduced
+  missing member-namespace validation: **RED, 16 tests, 1 failure,
+  14 excluded**, seed `55299`. After the guard, the scoped real PostgreSQL
+  bootstrap/lifecycle/migration/role selection passed **77 tests, 0 failures,
+  18 excluded**, seed `955578`. Known historical migration-module redefinition
+  warnings and the intentional setup-failure log matched the baseline.
+- Spec review passed. Independent quality review identified missing required
+  non-function membership validation. Five independent real PostgreSQL
+  regressions reproduced accepted detached operator/type/opclass/opfamily state
+  and a substituted `%` implementation: **RED, 21 tests, 5 failures,
+  15 excluded**, seed `373343`. Each fixture alteration succeeded; failures were
+  missing rejection, not fixture errors. Direct membership and required operator
+  binding checks closed the gap; independent quality re-review passed. The
+  automatic array dependency remains supported without ownership changes.
+- Final candidate unit selection: **42 tests, 0 failures, 15 integration
+  excluded**, seed `895552`. Final actual PostgreSQL selection: **82 tests,
+  0 failures, 18 excluded**, seed `818098`. Fresh/historical provisioning,
+  compatible pre/post-web-grant reruns, exact ACLs/role invariants, incompatible
+  catalog rejection, and allocation cleanup/outer restoration all passed.
+  Both SPEC and QUALITY review passed; no unresolved in-scope findings remain.
+- `mix do compile --warnings-as-errors, xref graph --format cycles --fail-above 0`
+  passed with **zero cycles**; the seven-application graph remains unchanged.
+  Changed Elixir files passed `mix format --check-formatted`; the wrapper passed
+  `bash -n`, and `git diff --check` passed. The new wrapper has executable mode
+  matching the existing role-bootstrap wrapper, which remains unchanged.
+- Commands ran from the Phase 3 worktree with `devenv shell --`, `MIX_ENV=test`,
+  and shared `MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps`.
+  Unit selection used `mix test <listed files>`. Integration selection used
+  `mix singularity.test.integration <listed files>` through the worktree-local
+  `.devenv/phase3-integration.sh` owned-cluster harness. The harness verifies its
+  PostgreSQL data directory and Unix-socket-only listener, supplies the existing
+  administrator URL, and stops only that owned instance on exit. Baseline, RED,
+  and GREEN integration runs cleaned their allocated fixtures and stopped it.
+  Final absence of its postmaster PID file and Unix socket was verified
+  separately.
+- E2E, the complete phase gate, publication, deployment, and Vault changes
+  remain **NOT RUN / not performed**. The projection schema contract remains
+  deliberately RED for Task 3b; Task 3a is not phase acceptance.
+
+Final focused commands (executed serially from this worktree):
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/configuration_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs apps/singularity_storage/test/singularity/storage/test_environment_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs apps/singularity_storage/test/singularity/storage/roles_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format --check-formatted apps/singularity_storage/lib/singularity/storage/search_extension_bootstrap.ex apps/singularity_storage/lib/singularity/storage/test_environment.ex apps/singularity_storage/test/support/migration_test_environment.ex apps/singularity_storage/test/singularity/storage/search_extension_bootstrap_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+bash -n apps/singularity_storage/priv/repo/bootstrap_search_extensions.sh
+git diff --check
+```
 
 ### Task 3b: Forward projection migration and actual-role boundaries
 

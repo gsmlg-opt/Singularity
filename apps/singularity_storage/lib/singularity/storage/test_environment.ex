@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.TestEnvironment do
   @moduledoc false
 
-  alias Singularity.Storage.SafeSQL
+  alias Singularity.Storage.{SafeSQL, SearchExtensionBootstrap}
 
   @suffix_bytes 12
   @database_prefix "singularity_test_"
@@ -77,10 +77,24 @@ defmodule Singularity.Storage.TestEnvironment do
     File.mkdir_p!(names.storage_root)
 
     create_database!(names.database)
+    bootstrap_search_extensions!(names)
     configure_repositories!(names)
     migrate!()
     start_runtime_repositories!()
     :ok
+  end
+
+  defp bootstrap_search_extensions!(names) do
+    SearchExtensionBootstrap.run!(names.database)
+  catch
+    kind, reason ->
+      try do
+        drop_database!(names.database)
+      after
+        File.rm_rf!(names.storage_root)
+      end
+
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   @spec drop!(t()) :: :ok

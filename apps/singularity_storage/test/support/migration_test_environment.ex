@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.MigrationTestEnvironment do
   @moduledoc false
 
-  alias Singularity.Storage.{MigrationRepo, TestEnvironment}
+  alias Singularity.Storage.{MigrationRepo, SearchExtensionBootstrap, TestEnvironment}
 
   @repos [
     MigrationRepo,
@@ -60,6 +60,8 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
           [],
           log: false
         )
+
+        SearchExtensionBootstrap.run!(names.database)
 
         compiler_options = Code.compiler_options()
         Code.compiler_options(ignore_module_conflict: true)
