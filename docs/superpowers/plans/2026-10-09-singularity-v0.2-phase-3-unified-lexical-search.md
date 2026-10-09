@@ -188,7 +188,7 @@ claimed runtime or phase acceptance. No database, grant, API, or Vault change.
 `apps/singularity_core/test/singularity/core/search_policy_test.exs`,
 `apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs`.
 
-- [ ] Add failing query tests with a separately supplied owner:
+- [x] Add failing query tests with a separately supplied owner:
 
 ```elixir
 owner = "00000000-0000-4000-8000-000000000a03"
@@ -199,27 +199,27 @@ assert {:error, %Error{code: :invalid}} =
          KnowledgeSearchQuery.new(owner, %{owner_scope_id: owner})
 ```
 
-- [ ] Implement `SearchPolicy.current/0` as a fixed pure value containing
+- [x] Implement `SearchPolicy.current/0` as a fixed pure value containing
   `version: 1`, `rank_scale: 1_000_000`, `fts_weight: 4`, `title_weight: 2`,
   `literal_weight: 1`, `title_threshold: 0.3`, `max_rank: 7_000_000`,
   `query_bytes: 1_024`, `cursor_bytes: 2_048`, `tag_count: 20`,
   `page_limit: 50`, `snippet_codepoints: 160`, `snippet_bytes: 640`,
   `statement_timeout_ms: 5_000`, and `rebuild_batch_size: 100`.
   No mutable configuration, process, Ecto, or SQL dependency belongs here.
-- [ ] Implement exact public-key validation before trimming/deduplication;
+- [x] Implement exact public-key validation before trimming/deduplication;
   preserve strict duplicate aliases. Sort/dedupe canonical tag UUIDs only after
   the raw list's 20-element bound is checked. Empty q lists; nil cursor is
   terminal. Reject unknown owner/classification/policy fields and forged structs.
-- [ ] Define the Core behaviour callbacks `search/2` and `resolve/2`, returning
+- [x] Define the Core behaviour callbacks `search/2` and `resolve/2`, returning
   the existing `Error.t()` on failure. Search returns exactly
   `{:ok, %{items: list, next_cursor: binary | :done}}`.
-- [ ] Validate all result keys, owner/classification, selector/entry-ID
+- [x] Validate all result keys, owner/classification, selector/entry-ID
   equality, ordinal, source timestamp, canonical locator, title bounds inherited
   from source types, snippet codepoint and byte bounds, and integer rank bound.
   Validate page size against the query limit, reject duplicate entry IDs,
   require a bounded next cursor or `:done`, and expose nil for terminal pages.
   Malformed adapter output becomes sanitized retryable `storage_unavailable`.
-- [ ] Use a contract fake only at the persistence port; assert the actual
+- [x] Use a contract fake only at the persistence port; assert the actual
   retrieval validator rejects each malformed field, foreign owner, wrong kind,
   malformed locator, oversized page, and raised/thrown content-bearing error.
   Constructor tests use real values, not mocks of constructors.
@@ -229,8 +229,30 @@ devenv shell -- mix do --app singularity_core test test/singularity/core/search_
 devenv shell -- mix do --app singularity_retrieval test test/singularity/retrieval/knowledge_search_test.exs test/singularity/retrieval/note_lexical_search_test.exs
 ```
 
-- [ ] Observe RED then GREEN for each contract, preserve old search behavior,
+- [x] Observe RED then GREEN for the contract groups, preserve old search behavior,
   review, and commit `feat(retrieval): validate unified knowledge search contracts`.
+
+Task 2 execution: policy/query constructor RED was 1 Core and 10 Retrieval
+failures (seed 797294), then GREEN with the 13 legacy search tests (100339).
+Result/port/page RED produced 14/24 failures (388280), then passed alongside
+legacy search (881689). A direct improper-list page regression failed 1/24
+(463926); bounded-list validation fixed it. Independent spec review passed.
+Independent quality review identified extra fields surviving inside a forged
+DateTime. Its direct/composition regression failed 1/25 (484448); exact UTC
+timestamp shape checks fixed it without changing the shared helper. The
+reviewer rechecked the fix and passed the bounded Task 2 quality review.
+
+Final focused command (the environment exports above apply):
+
+```sh
+devenv shell -- mix test apps/singularity_core/test/singularity/core/search_source_test.exs apps/singularity_core/test/singularity/core/search_policy_test.exs apps/singularity_core/test/singularity/core/source_locator_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_retrieval/test/singularity/retrieval/note_lexical_search_test.exs
+```
+
+Result: Core 33 tests plus 2 properties; Retrieval 38 tests (25 new, 13
+legacy); zero failures, seed 636201. All eight new files passed scoped
+formatting and `git diff --check`; xref reported no cycles. These are pure
+contract checks, not PostgreSQL, Runtime authorization, or Phase 3 acceptance.
+No Vault file or legacy search implementation changed; E2E was not run.
 
 ## Task 3: Projection schema, extension, and production-role boundaries
 
