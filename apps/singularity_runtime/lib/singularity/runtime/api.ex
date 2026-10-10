@@ -70,6 +70,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Search.Search, as: KnowledgeSearch
   alias Singularity.Runtime.Search.Resolve, as: SearchSourceResolver
   alias Singularity.Runtime.SessionContext
+  alias Singularity.Runtime.Search.Rebuild, as: SearchRebuild
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Runtime.UnlockVault
   alias Singularity.Runtime.UploadSessionSupervisor
@@ -335,6 +336,25 @@ defmodule Singularity.Runtime.Api do
   end
 
   def trash_notes(_config, _session, _params), do: {:error, :invalid}
+
+  @spec rebuild_search(Session.t(), String.t() | :all) ::
+          {:ok, %{resources: non_neg_integer(), entries: non_neg_integer()}} | {:error, atom()}
+  def rebuild_search(session, selector),
+    do: with_production(&rebuild_search(&1, session, selector))
+
+  @doc false
+  def rebuild_search(config, %Session{} = session, input) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, selector} <- SearchRebuild.validate_selector(input),
+         {:ok, counts} <- invoke(config, :rebuild_search, [context, selector]),
+         {:ok, counts} <- SearchRebuild.validate_counts(counts) do
+      {:ok, counts}
+    else
+      result -> normalize_error(result)
+    end
+  end
+
+  def rebuild_search(_config, _session, _input), do: {:error, :invalid}
 
   @spec get_note(Session.t(), String.t()) ::
           {:ok, Singularity.Runtime.DTO.Note.t()} | {:error, atom()}
@@ -1113,6 +1133,9 @@ defmodule Singularity.Runtime.Api do
         SearchSourceResolver.run(runtime, session, selector)
       end,
       subscribe_assets: &AssetEvents.subscribe/1,
+      rebuild_search: fn session, selector ->
+        SearchRebuild.run(runtime, session, selector)
+      end,
       trash_notes: fn session, params ->
         NoteTrash.run(runtime, session, params)
       end,

@@ -343,7 +343,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
       assert [token] =
                Regex.run(
-                 ~r/SearchSource|KnowledgeSearchQuery|KnowledgeSearchPage|KnowledgeSearch|search_knowledge|SearchProjectionReconciler|DocumentProjection|document_projection/,
+                 ~r/SearchSource|KnowledgeSearchQuery|KnowledgeSearchPage|KnowledgeSearch|search_knowledge|SearchProjectionReconciler|DocumentProjection|document_projection|SearchRebuild|rebuild_search/,
                  addition
                )
 
@@ -584,6 +584,38 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
          "      do: {:error, Error.new(failure.code, retryable?: failure.retryable?)}\n\n",
        "  @impl true\n  def handle_failure(\n        context,\n        %JobEnvelope{job_type: \"document_extract\"} = envelope,\n",
        "  @impl true\n  def handle(context, %{job_type: \"asset_verify\"} = envelope),\n    do: run_asset_job(context, envelope, Verify)\n\n"},
+      {@api, "  alias Singularity.Runtime.SessionContext\n",
+       "  alias Singularity.Runtime.Search.Rebuild, as: SearchRebuild\n",
+       "  alias Singularity.Runtime.StorageAdapter\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  def trash_notes(_config, _session, _params), do: {:error, :invalid}\n\n",
+       ~S"""
+         @spec rebuild_search(Session.t(), String.t() | :all) ::
+                 {:ok, %{resources: non_neg_integer(), entries: non_neg_integer()}} | {:error, atom()}
+         def rebuild_search(session, selector),
+           do: with_production(&rebuild_search(&1, session, selector))
+
+         @doc false
+         def rebuild_search(config, %Session{} = session, input) when is_map(config) do
+           with {:ok, context} <- session_context(session),
+                {:ok, selector} <- SearchRebuild.validate_selector(input),
+                {:ok, counts} <- invoke(config, :rebuild_search, [context, selector]),
+                {:ok, counts} <- SearchRebuild.validate_counts(counts) do
+             {:ok, counts}
+           else
+             result -> normalize_error(result)
+           end
+         end
+
+         def rebuild_search(_config, _session, _input), do: {:error, :invalid}
+
+       """, "  @spec get_note(Session.t(), String.t()) ::\n",
+       "  def search_notes(_config, _session, _params), do: {:error, :invalid}\n\n"},
+      {@api, "      subscribe_assets: &AssetEvents.subscribe/1,\n",
+       "      rebuild_search: fn session, selector ->\n" <>
+         "        SearchRebuild.run(runtime, session, selector)\n      end,\n",
+       "      trash_notes: fn session, params ->\n",
+       "      publish_asset: &AssetEvents.publish/2,\n"},
       {"config/config.exs", "    document_extract: 2,\n", "    document_projection: 2,\n",
        "    backup: 1,\n", "  tailwind: [\n"}
     ]
