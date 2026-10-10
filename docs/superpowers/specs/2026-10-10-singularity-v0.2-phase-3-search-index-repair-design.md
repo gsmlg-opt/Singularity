@@ -400,6 +400,15 @@ plan must enumerate the exact affected fixture files before edits.
    revoked principal/membership/capability, inactive account, insufficient
    clearance, non-owner principal, and unsupported transaction isolation. Errors
    stay content-free, and no invalid call returns a falsely complete empty set.
+   The unchanged `vault_members_classification_check` permits only private,
+   sensitive, or restricted membership clearance. A public-only membership is
+   therefore an impossible persisted state: prove its UPDATE is rejected by
+   that exact existing constraint, the membership remains private, and the
+   legitimate candidate control and canonical snapshot remain unchanged.
+   Do not disable the constraint, invent authorization doubles, or claim the
+   candidate function executed with public clearance. This qualification
+   correction follows the actual fixture failure in parent run `93996`; the
+   production private-or-higher guard and frozen schema remain unchanged.
 5. Reproduce revocation while the function waits behind the existing exclusive
    authorization lock; observe the wait, commit revocation, release, and require
    denial from the post-lock authority read. Verify wrong-key locks do not

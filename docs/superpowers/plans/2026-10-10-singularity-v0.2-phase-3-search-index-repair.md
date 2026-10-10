@@ -287,23 +287,33 @@ owning tests, and fixture-only changes. Review strengthened complete historical
 policy equality and the all-user-schema privileged-function inventory using
 predecessor `20261009000400`; this is not the later populated upgrade gate.
 Source/input/concurrency/index qualification in Tasks 3–8 remains outstanding.
+The checkpoint was committed locally as
+`8fa8aa1d1a55485713dc200c4758d13e7b9994b3`
+(`feat(storage): add guarded canonical search candidates`). Tasks 3 and 4 may
+proceed in parallel because both depend on this guarded function checkpoint,
+not on each other's test changes; the parent still serializes all execution.
 
 ## Task 3: Qualify direct input, context, revocation, and shadowing guards
 
 **Files:** `search_candidate_ids_test.exs`; migration only if a newly failing contract proves a defect.
 
-- [ ] Add table-driven direct SQL calls for null/empty q, 1,025 UTF-8 bytes (including multibyte boundary), null/unknown kind, null tags, nested arrays, null elements, and 21 duplicate tag IDs before deduplication. Positive boundaries: 1,024 bytes, empty tags, 20 valid repeated tags, and literal `\\`, `%`, `_` escaped exactly like Store. Use separately scoped transactions because a database exception aborts its transaction; never continue a matrix in an aborted transaction.
-- [ ] Add missing/empty/malformed principal and owner GUC cases and unsupported repeatable-read/serializable transactions. Do malformed GUC checks through a raw real RequestRepo transaction with fixed `set_config` calls, not through ScopedRepo validation that would preempt the database guard. Use actual owner/principal identifiers for wrong-owner, non-owner principal, inactive account, public-only clearance, revoked principal, revoked membership, and revoked capability cases. Existing reconciler tests provide the exact fixtures and UPDATE columns; all mutations are disposable owner fixture SQL, not authority doubles. A preceding positive call and following clean independent call demonstrate that failure is not merely missing content.
-- [ ] Add local assertions using the private `candidate_error/1` sanitization above, never raw query/params/options/errors. Expect `{:error,{:check_violation,"search candidates input is invalid",{false,false}}}` or `{:error,{:insufficient_privilege,"search candidates are not authorized",{false,false}}}`; the booleans prove DETAIL/HINT absence without exporting their values. Undefined-function RED uses the closed `:candidate_function_missing` category. Direct EXECUTE-denied roles have PostgreSQL's own 42501 message rather than the function's message: reduce that path to a closed code predicate privately and assert insufficient privilege, without emitting its text. Test Store's existing mapping with separate invalid and forbidden patterns, each `%Error{message: nil, details: %{}, retryable?: false}`. Type parser errors that precede function invocation retain sanitized mapping; do not claim the function produced its own message in those cases.
-- [ ] Add temporary-table/caller-search_path shadowing controls on the web connection, using only its existing temporary privileges and fixed synthetic names. The qualified references and function trusted path must still yield the exact legitimate identities; do not grant CREATE on application schemas.
-- [ ] Parent runs owning RED/GREEN increments. A newly added contract may already pass; record that actual result rather than forcing a failure. Fix only the evidenced guard defect, then rerun the complete owning module. Preserve immutable canonical snapshots before and after all successful and rejected read calls. Commit this bounded qualification batch as `test(storage): qualify search candidate authority boundaries` once green.
+- [x] Add table-driven direct SQL calls for null/empty q, 1,025 UTF-8 bytes (including multibyte boundary), null/unknown kind, null tags, nested arrays, null elements, and 21 duplicate tag IDs before deduplication. Positive boundaries: 1,024 bytes, empty tags, 20 valid repeated tags, and literal `\\`, `%`, `_` escaped exactly like Store. Use separately scoped transactions because a database exception aborts its transaction; never continue a matrix in an aborted transaction.
+- [x] Add missing/empty/malformed principal and owner GUC cases and unsupported repeatable-read/serializable transactions. Do malformed GUC checks through a raw real RequestRepo transaction with fixed `set_config` calls, not through ScopedRepo validation that would preempt the database guard. Use actual owner/principal identifiers for wrong-owner, non-owner principal, inactive account, revoked principal, revoked membership, and revoked capability cases. Public-only clearance cannot be persisted under the unchanged `vault_members_classification_check`: prove its UPDATE is rejected by that exact constraint/SQLSTATE, membership stays private, and the positive candidate control and canonical snapshot remain unchanged. Do not claim a function denial for this impossible state or modify the constraint. This evidence-based contract amendment corrects the fixture failure in parent run `93996`. Existing reconciler tests provide the exact fixtures and UPDATE columns; all mutations are disposable owner fixture SQL, not authority doubles. A preceding positive call and following clean independent call demonstrate that failure is not merely missing content.
+- [x] Add local assertions using the private `candidate_error/1` sanitization above, never raw query/params/options/errors. Expect `{:error,{:check_violation,"search candidates input is invalid",{false,false}}}` or `{:error,{:insufficient_privilege,"search candidates are not authorized",{false,false}}}`; the booleans prove DETAIL/HINT absence without exporting their values. Undefined-function RED uses the closed `:candidate_function_missing` category. Direct EXECUTE-denied roles have PostgreSQL's own 42501 message rather than the function's message: reduce that path to a closed code predicate privately and assert insufficient privilege, without emitting its text. Test Store's existing mapping with separate invalid and forbidden patterns, each `%Error{message: nil, details: %{}, retryable?: false}`. Type parser errors that precede function invocation retain sanitized mapping; do not claim the function produced its own message in those cases.
+- [x] Add temporary-table/caller-search_path shadowing controls on the web connection, using only its existing temporary privileges and fixed synthetic names. The qualified references and function trusted path must still yield the exact legitimate identities; do not grant CREATE on application schemas.
+- [x] Parent runs owning RED/GREEN increments. A newly added contract may already pass; record that actual result rather than forcing a failure. Fix only the evidenced guard defect, then rerun the complete owning module. Preserve immutable canonical snapshots before and after all successful and rejected read calls. Commit this bounded qualification batch as `test(storage): qualify search candidate authority boundaries` once green.
+
+Qualified after the evidence-based fixture correction: owning run `5183` passed
+all 27 tests, and independent amended SPEC and QUALITY reviews passed. The
+prior run `93996` failure remains recorded. This is one successful Sol fixture
+repair, not a production guard change; Tasks 5–8 remain unqualified.
 
 ## Task 4: Preserve the Store's nonempty and empty-query contracts
 
 **Files:** Store and the three direct-Store test files.
 
-- [ ] Add a successful nonempty Store call without read capabilities as an intended denial contract, alongside existing actual matching-result controls. Add assertions that empty q still returns rank zero without invoking the candidate function; use process-specific call capture of actual SQL, not production instrumentation. A source with no read assignments is allowed only for the established direct-storage empty-q characterization; Runtime still applies its own mandatory capabilities.
-- [ ] Preserve `parameters/2`, `rank_expression/1`, `text_predicate/1`, resolve paths, item/page mapping, cursor domain, and `fixed_settings/1` byte-for-byte. Add these two private fragments in Store and interpolate them at the indicated existing SQL anchors:
+- [x] Add a successful nonempty Store call without read capabilities as an intended denial contract, alongside existing actual matching-result controls. Add assertions that empty q still returns rank zero without invoking the candidate function; use process-specific call capture of actual SQL, not production instrumentation. A source with no read assignments is allowed only for the established direct-storage empty-q characterization; Runtime still applies its own mandatory capabilities.
+- [x] Preserve `parameters/2`, `rank_expression/1`, `text_predicate/1`, resolve paths, item/page mapping, cursor domain, and `fixed_settings/1` byte-for-byte. Add these two private fragments in Store and interpolate them at the indicated existing SQL anchors:
 
 ```elixir
 defp candidate_relation(""), do: ""
@@ -321,8 +331,14 @@ defp candidate_join(_),
 ```
 
 Change the `statement/1` opening from `), scored AS MATERIALIZED (` to `)#{candidate_relation(q)}, scored AS MATERIALIZED (`; after its existing `CROSS JOIN input`, insert `#{candidate_join(q)}`. The empty fragments yield the same SQL meaning and no definer call. The nonempty relation invokes the function once from the single-row input; it does not pass `$1` owner or introduce a fourteenth binding. Retain every outer join/predicate and its materialization/order/cursor/limit text.
-- [ ] Parent runs Store and pagination GREEN, retaining all original 21 cases and any new focused cases. Compare exact ordered tuples, integer ranks, immutable timestamps, locators and cursor continuity, including repeated page limits 1/7/50 and mixed-kind tied rows. Verify unknown/foreign tags, query escaping, 13 bindings, hidden historical/conflict/not-ready resources, and exact-source resolve behavior remain unchanged. The existing Store suite already contains these assertions; do not replace them with weaker counts.
-- [ ] Parent commits only Store and these owning compatibility assertions as `fix(storage): join guarded candidates for nonempty search`. No Runtime, SafeSQL, source DTO, cursor, auth, or Vault edit belongs in this commit.
+- [x] Parent runs Store and pagination GREEN, retaining all original 21 cases and any new focused cases. Compare exact ordered tuples, integer ranks, immutable timestamps, locators and cursor continuity, including repeated page limits 1/7/50 and mixed-kind tied rows. Verify unknown/foreign tags, query escaping, 13 bindings, hidden historical/conflict/not-ready resources, and exact-source resolve behavior remain unchanged. The existing Store suite already contains these assertions; do not replace them with weaker counts.
+- [x] Parent commits only Store and these owning compatibility assertions as `fix(storage): join guarded candidates for nonempty search`. No Runtime, SafeSQL, source DTO, cursor, auth, or Vault edit belongs in this commit.
+
+Qualified locally in `9793289851022c15ea6aa31305daeecacb2c9d85`: RED `92037`
+had the expected one failing contract, GREEN `33792` passed all 26 tests, and
+static gate `33585` passed formatting/compilation with zero xref cycles.
+Independent nonauthor SPEC and QUALITY reviews passed. This narrow Store gate
+does not establish nested-index or complete-phase acceptance.
 
 Parent command for this task:
 

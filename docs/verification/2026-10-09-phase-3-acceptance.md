@@ -706,6 +706,116 @@ untracked plan test is included with this batch's approved fixture-only change;
 its known selective failures are preserved, not claimed fixed. No phase or
 release acceptance, Vault change, merge, push, or deployment is implied.
 
+This seven-file checkpoint was committed locally as
+`8fa8aa1d1a55485713dc200c4758d13e7b9994b3`
+(`feat(storage): add guarded canonical search candidates`). Only the protected
+runtime privacy test remains untracked. The parent assigned Task 3 direct
+authority/input qualification and Task 4 Store RED contracts to different Sol
+workers on disjoint files; all database, test, formatting, and Git work remains
+parent-serialized. Neither task requires renewed human approval.
+
+## Guarded candidate Tasks 3–4: parallel qualification and Store RED
+
+Task 3 adds 15 input/context/live-authority/isolation/shadowing contracts to the
+12 existing candidate cases. Canonical row count/digest snapshots remain private
+and every failed query has its own transaction. Task 4 adds five Store contracts
+without changing existing assertions. Before execution, parent review renamed
+the empty-query capture's counter to `candidate_references` (it is SQL absence
+evidence, not actual-call invocation proof) and required a distinct fixed
+collector-cleanup error so an expected setup fault cannot hide abnormal
+collector termination. Formatting `77362` exited 0; Store-test hash:
+`78543d3e95bb40b6d3ce468979de61f425ff30bdeae6764fb1ca5a172bac2ef7`.
+
+Parent Store/pagination RED `92037`, exit 2, seed `215378`, took 17.3 seconds:
+**26 integration tests, one expected failure**, before changing the production
+Store. The no-read matching nonempty query still returned a canonical page
+instead of the new required sanitized forbidden result. The other 25 contracts
+passed, including empty-query rank-zero identity/13-bindings/no-candidate SQL,
+trace ownership/cleanup, existing ranking/pagination, and the fixed deadline.
+The production Store was still byte-identical at SHA256
+`ad2832e8b8e048c1c480e91d8f0d182637f315b1d60a02a1f8a36c9fa01293a4`.
+This expected RED is not a failed repair round.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs --seed 215378
+```
+
+The harness disposed `singularity_test_44e160ab4fa4e793c0bf7ee9` and stopped its
+owned server. Only then did Sol add the two planned Store fragments and SQL
+interpolation anchors. Reverse reconstruction reproduces the original Store
+byte-for-byte; parameters, rank, text predicates, resolve, page/cursor mapping,
+and fixed settings remain unchanged. Candidate source guards and Store
+integration are reviewed independently by the other, nonauthor Sol worker.
+Parent formatting `29017` exited 0. Final frozen candidate-test hash:
+`1621edacc5596e59596341ccee55dec1200ebda500af3e1006f44c64fb7f1073`;
+Store implementation hash:
+`53e4b3bae1eee8397ae0e6587a2fedacca2f16e95518e6428567a97795c8c3b4`.
+GREEN results remain separate execution obligations, not inferred from review.
+
+Parent Task 3 qualification `93996`, exit 2, seed `215378`, executed **27 tests
+with one failure** in 28.0 seconds. The public-clearance fixture UPDATE failed
+before calling the candidate function: the unchanged initial migration's
+`vault_members_classification_check` permits only private/sensitive/restricted.
+The other 26 contracts passed. Allocation
+`singularity_test_05b0d9db4322f6a220dc650b` was disposed and PostgreSQL stopped.
+Both earlier source-only SPEC/QUALITY reviews passed but missed this invalid
+fixture; they do not override the execution failure.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs --seed 215378
+```
+
+The reviewed design/plan correction qualifies this impossible persisted state
+through its exact existing constraint/SQLSTATE rejection, unchanged membership,
+legitimate candidate control, and unchanged canonical snapshot. The first Sol
+fixture repair is in progress; no completed failed repair round is recorded.
+No production function, Vault schema, guard, or constraint change is required.
+This is not a claim of live candidate denial with public clearance.
+
+Parent Task 4 GREEN `33792`, exit 0, seed `215378`, ran the exact Store/pagination
+command above: **26 tests, zero failures**, 17.8 seconds. Allocation
+`singularity_test_45512132b45c7eed5576011c` was disposed and PostgreSQL stopped.
+Store and Store-test hashes remained `53e4b3ba...` and `78543d3e...` respectively.
+Independent SPEC and separate QUALITY source reviews by the nonauthor
+`phase3_task9_rebuild` Sol both passed without findings. This qualifies the
+narrow join and retained Store contracts only; actual nested selective-index
+proof, concurrency, migration upgrade, final regression, and E2E remain separate.
+
+Parent static gate `33585`, exit 0, passed formatting of the two changed Store
+files, warnings-as-errors compilation, and zero xref cycles:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Only those two files were committed locally as
+`9793289851022c15ea6aa31305daeecacb2c9d85`
+(`fix(storage): join guarded candidates for nonempty search`). Uncommitted
+candidate qualification and evidence updates remain separate; the protected
+privacy test, original plan fixture, and legacy concurrency test are unchanged.
+
+Task 3 repair 1 passed independent amended SPEC and separate QUALITY review by
+the nonauthor `search_fixture_authority_review` Sol. Formatting `75487` exited
+0; final candidate-test hash is
+`6296a850d50e12d862bbc8d31ed0752f061a35b5618a360de8f16ae670256453`.
+Parent owning rerun `5183`, exit 0, seed `215378`, passed **27 integration tests
+in 30.4 seconds**, using the exact candidate command recorded above. The public
+membership UPDATE produces the exact expected `23514` constraint error within
+an owner-fixture savepoint, then rollback/release allows the unchanged private
+membership and canonical snapshots to be verified. All six representable
+authority denials, invalid inputs/GUC/isolation, literal boundaries, and
+shadowing controls remain intact. This is one successful Sol fixture repair,
+zero failed Sol repair rounds and zero Astra repair rounds for this guarded
+candidate batch; historical observer recovery counts above remain unchanged.
+
+Allocation `singularity_test_ad8c9880aeb24b172d3935e7` was disposed and PostgreSQL
+stopped. Earlier cleanup `80252`, exit 0, confirmed zero generated/recorded
+databases and absent roots through the Task 4 allocation; the repair allocation
+has been added to the next read-only inventory. Protected root/main and both
+Phase 2 worktrees, their untracked plan digest, runtime privacy test, and legacy
+Note concurrency test remain unchanged. No production/Vault change was part of
+this fixture repair. Concurrency and actual nested index qualification are next.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with

@@ -15,6 +15,9 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   @owner_roles ~w(singularity_table_owner singularity_auth_definer singularity_authorization_definer singularity_outbox_definer)
   @runtime_roles ~w(singularity_pre_auth singularity_web singularity_dispatcher singularity_worker)
   @signature "content.search_candidate_ids(text,text,uuid[])"
+  @invalid {:error, {:check_violation, "search candidates input is invalid", {false, false}}}
+  @denied {:error,
+           {:insufficient_privilege, "search candidates are not authorized", {false, false}}}
 
   test "real web reads only canonical Note and ready Document identities" do
     source = source!()
@@ -225,6 +228,414 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
     assert privileged_function_inventory() == fresh_functions
   end
 
+  test "direct input rejects null oversized unknown and malformed array boundaries" do
+    control = control!()
+    tag = KnowledgeFixtures.uuid()
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+
+    for {q, kind, tags} <- [
+          {nil, "all", []},
+          {"", "all", []},
+          {:binary.copy("x", 1_025), "all", []},
+          {String.duplicate("猫", 341) <> "xy", "all", []},
+          {"o", nil, []},
+          {"o", "asset", []},
+          {"o", "all", nil},
+          {"o", "all", [[tag], [tag]]},
+          {"o", "all", [nil]},
+          {"o", "all", List.duplicate(tag, 21)}
+        ] do
+      assert candidates(RequestRepo, control.source, q, kind, tags) == @invalid
+      assert_control(control)
+    end
+
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  test "direct UTF-8 q accepts exactly 1024 bytes and rejects 1025 without canonical mutation" do
+    source = source!()
+    q = String.duplicate("猫", 341) <> "x"
+    assert byte_size(q) == 1_024
+    note = literal_note!(source, "Neutral heading", q)
+    project!(source, [note])
+    snapshot = canonical_snapshot(source)
+    expected = {:ok, [["note:" <> Ecto.UUID.load!(note.resource_version_id)]]}
+
+    assert candidates(source, q, "note") == expected
+    assert candidates(source, q <> "y", "note") == @invalid
+    assert candidates(source, q, "note") == expected
+    assert canonical_snapshot(source) == snapshot
+  end
+
+  test "empty tags and twenty repeated canonical tag IDs are valid before the raw cap" do
+    control = control!()
+    tag = tagged_note!(control.source, control.note)
+    snapshot = canonical_snapshot(control.source)
+    expected = {:ok, [["note:" <> Ecto.UUID.load!(control.note.resource_version_id)]]}
+
+    assert_control(control)
+
+    assert candidates(RequestRepo, control.source, "o", "all", List.duplicate(tag, 20)) ==
+             expected
+
+    assert candidates(RequestRepo, control.source, "o", "all", List.duplicate(tag, 21)) ==
+             @invalid
+
+    assert candidates(RequestRepo, control.source, "o", "all", [tag]) == expected
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  test "direct substring matching treats backslash percent and underscore as literal bytes" do
+    source = source!()
+    needles = ["\\", "%", "_"]
+
+    notes =
+      Enum.map(needles, &literal_note!(source, "Neutral heading", "literal " <> &1 <> " mark"))
+
+    project!(source, notes)
+    snapshot = canonical_snapshot(source)
+
+    for {q, note} <- Enum.zip(needles, notes) do
+      assert candidates(source, q, "note") ==
+               {:ok, [["note:" <> Ecto.UUID.load!(note.resource_version_id)]]}
+    end
+
+    assert canonical_snapshot(source) == snapshot
+  end
+
+  test "raw real-web GUC failures reach the function guard and leave a clean independent transaction" do
+    control = control!()
+    principal = Ecto.UUID.load!(control.source.principal_id)
+    owner = Ecto.UUID.load!(control.source.vault_id)
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+
+    for context <- [
+          nil,
+          {nil, owner},
+          {principal, nil},
+          {"", ""},
+          {"", owner},
+          {principal, ""},
+          {"malformed-principal", owner},
+          {principal, "malformed-owner"}
+        ] do
+      assert raw_candidates(context) == @denied
+      assert_control(control)
+    end
+
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  test "real scoped repeatable-read transaction is rejected rather than returning stale success" do
+    control = control!()
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+
+    assert ScopedRepo.transact(
+             RequestRepo,
+             Map.take(control.source, [:principal_id, :vault_id]),
+             [isolation: :repeatable_read],
+             fn repo -> candidate_query(repo, "o", "all", []) end
+           ) == @denied
+
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  test "raw serializable transaction sets isolation first and fails with the fixed guard error" do
+    control = control!()
+
+    context =
+      {Ecto.UUID.load!(control.source.principal_id), Ecto.UUID.load!(control.source.vault_id)}
+
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+    assert raw_candidates(context, :serializable) == @denied
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  for authority <- [
+        :wrong_owner,
+        :non_owner,
+        :inactive_account,
+        :revoked_principal,
+        :revoked_membership,
+        :revoked_capability
+      ] do
+    @authority authority
+
+    test "actual #{@authority} authority cannot read matching canonical candidates" do
+      control = control!()
+      snapshot = canonical_snapshot(control.source)
+      assert_control(control)
+      rejected_scope = reject_authority!(control.source, @authority)
+
+      assert candidates(rejected_scope, "o", "all") == @denied
+      assert canonical_snapshot(control.source) == snapshot
+      assert_control(control!())
+    end
+  end
+
+  test "immutable membership constraint rejects public clearance without changing private authority" do
+    control = control!()
+    snapshot = canonical_snapshot(control.source)
+    membership = private_membership_snapshot(control.source)
+    assert_control(control)
+
+    result =
+      Fixtures.with_owner(fn ->
+        assert {:ok, _result} = query(MigrationRepo, "SAVEPOINT candidate_public_clearance")
+
+        result =
+          query(
+            MigrationRepo,
+            "UPDATE core.vault_members SET clearance='public' WHERE principal_id=$1 AND vault_id=$2",
+            [control.source.principal_id, control.source.vault_id]
+          )
+
+        assert {:ok, _result} =
+                 query(MigrationRepo, "ROLLBACK TO SAVEPOINT candidate_public_clearance")
+
+        assert {:ok, _result} =
+                 query(MigrationRepo, "RELEASE SAVEPOINT candidate_public_clearance")
+
+        result
+      end)
+
+    assert result == {:error, {:check_violation, "23514", "vault_members_classification_check"}}
+    assert private_membership_snapshot(control.source) == membership
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+    assert_control(control!())
+  end
+
+  test "caller search path and empty temporary lookalike tables cannot shadow canonical selection" do
+    control = control!()
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+
+    result =
+      ScopedRepo.transact(
+        RequestRepo,
+        Map.take(control.source, [:principal_id, :vault_id]),
+        fn repo ->
+          for table <-
+                ~w(search_entries resources resource_versions note_versions document_versions document_fragments tags resource_tags) do
+            assert {:ok, _result} =
+                     query(repo, "CREATE TEMP TABLE " <> table <> "(shadow text) ON COMMIT DROP")
+          end
+
+          assert {:ok, _result} =
+                   query(repo, """
+                   SELECT set_config('search_path',
+                     'pg_temp, public, search_extensions, content, core, identity, pg_catalog',true)
+                   """)
+
+          candidate_query(repo, "o", "all", [])
+        end
+      )
+
+    assert result == {:ok, control.entries}
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  defp control! do
+    source = source!()
+    note = KnowledgeFixtures.note!(source)
+    {document, fragment} = KnowledgeFixtures.ready_document!(source)
+    project!(source, [note, document])
+
+    %{
+      source: source,
+      note: note,
+      entries:
+        Enum.sort([
+          ["note:" <> Ecto.UUID.load!(note.resource_version_id)],
+          ["document:" <> fragment.fragment_id]
+        ])
+    }
+  end
+
+  defp assert_control(control),
+    do: assert(candidates(control.source, "o", "all") == {:ok, control.entries})
+
+  defp literal_note!(source, title, body) do
+    row = %{resource_id: KnowledgeFixtures.uuid(), resource_version_id: KnowledgeFixtures.uuid()}
+
+    Fixtures.with_owner(fn ->
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,$4)",
+                 [row.resource_id, source.vault_id, row.resource_version_id, title]
+               )
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
+                 [row.resource_version_id, row.resource_id, source.vault_id]
+               )
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private',$4,$5,$6,CURRENT_TIMESTAMP)",
+                 [
+                   row.resource_version_id,
+                   row.resource_id,
+                   source.vault_id,
+                   title,
+                   body,
+                   source.principal_id
+                 ]
+               )
+    end)
+
+    row
+  end
+
+  defp tagged_note!(source, note) do
+    tag = KnowledgeFixtures.uuid()
+
+    Fixtures.with_owner(fn ->
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.tags(id,vault_id,classification,display_value,normalized_key,created_by_principal_id,inserted_at) VALUES($1,$2,'private','boundary-tag','boundary-tag',$3,CURRENT_TIMESTAMP)",
+                 [tag, source.vault_id, source.principal_id]
+               )
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.resource_tags(resource_id,tag_id,vault_id,classification,inserted_at) VALUES($1,$2,$3,'private',CURRENT_TIMESTAMP)",
+                 [note.resource_id, tag, source.vault_id]
+               )
+    end)
+
+    tag
+  end
+
+  defp reject_authority!(source, :wrong_owner) do
+    foreign = control!()
+    assert_control(foreign)
+    %{source | vault_id: foreign.source.vault_id}
+  end
+
+  defp reject_authority!(source, authority) do
+    {statement, parameters, count} =
+      case authority do
+        :non_owner ->
+          {"UPDATE identity.principals SET kind='system' WHERE id=$1", [source.principal_id], 1}
+
+        :inactive_account ->
+          {"UPDATE identity.accounts SET status='disabled' WHERE id=$1", [source.account_id], 1}
+
+        :revoked_principal ->
+          {"UPDATE identity.principals SET revoked_at=CURRENT_TIMESTAMP WHERE id=$1",
+           [source.principal_id], 1}
+
+        :revoked_membership ->
+          {"UPDATE core.vault_members SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+           [source.principal_id, source.vault_id], 1}
+
+        :revoked_capability ->
+          {"UPDATE core.principal_capabilities SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+           [source.principal_id, source.vault_id], 2}
+      end
+
+    Fixtures.with_owner(fn ->
+      assert {:ok, %{num_rows: ^count}} = query(MigrationRepo, statement, parameters)
+    end)
+
+    source
+  end
+
+  defp private_membership_snapshot(source) do
+    Fixtures.with_owner(fn ->
+      case query(
+             MigrationRepo,
+             """
+             SELECT membership.clearance,membership.revoked_at,to_jsonb(membership)::text
+             FROM core.vault_members AS membership
+             WHERE principal_id=$1 AND vault_id=$2
+             """,
+             [source.principal_id, source.vault_id]
+           ) do
+        {:ok, %{rows: [["private", nil, row]], num_rows: 1}} -> :crypto.hash(:sha256, row)
+        _other -> flunk("private candidate membership snapshot failed")
+      end
+    end)
+  end
+
+  defp canonical_snapshot(source) do
+    Fixtures.with_owner(fn ->
+      Map.new(
+        ~w(resources resource_versions note_versions document_versions document_fragments resource_assets asset_objects assets tags resource_tags),
+        fn table ->
+          case query(
+                 MigrationRepo,
+                 "SELECT to_jsonb(canonical)::text FROM content." <>
+                   table <>
+                   " AS canonical WHERE vault_id=$1 ORDER BY to_jsonb(canonical)::text COLLATE \"C\"",
+                 [source.vault_id]
+               ) do
+            {:ok, %{rows: rows, num_rows: count}} ->
+              {table, %{rows: count, digest: :crypto.hash(:sha256, :erlang.term_to_binary(rows))}}
+
+            {:error, _reason} ->
+              flunk("canonical candidate snapshot failed")
+          end
+        end
+      )
+    end)
+  end
+
+  defp raw_candidates(context, isolation \\ :read_committed) do
+    RequestRepo.checkout(fn ->
+      result =
+        case RequestRepo.transaction(fn ->
+               if isolation == :serializable do
+                 assert {:ok, _result} =
+                          query(RequestRepo, "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+               end
+
+               if context != nil do
+                 {principal, owner} = context
+
+                 assert {:ok, _result} =
+                          query(
+                            RequestRepo,
+                            "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+                            [principal, owner]
+                          )
+               end
+
+               case candidate_query(RequestRepo, "o", "all", []) do
+                 {:error, reason} -> RequestRepo.rollback(reason)
+                 success -> success
+               end
+             end) do
+          {:ok, success} -> success
+          {:error, reason} -> {:error, reason}
+        end
+
+      assert {:ok, %{rows: [[nil, nil]]}} =
+               query(RequestRepo, """
+               SELECT NULLIF(current_setting('singularity.principal_id',true),''),
+                      NULLIF(current_setting('singularity.vault_id',true),'')
+               """)
+
+      result
+    end)
+  end
+
   defp source!(names \\ ["note.read", "asset.read"]) do
     source = KnowledgeFixtures.source!()
     expected = length(names)
@@ -273,20 +684,28 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   end
 
   defp candidates(repo, source, q, kind) do
+    candidates(repo, source, q, kind, [])
+  end
+
+  defp candidates(repo, source, q, kind, tags) do
     ScopedRepo.transact(repo, Map.take(source, [:principal_id, :vault_id]), fn repo ->
-      case query(
-             repo,
-             """
-             SELECT candidate.entry_id
-             FROM content.search_candidate_ids($1::text,$2::text,$3::uuid[]) AS candidate
-             ORDER BY candidate.entry_id COLLATE "C"
-             """,
-             [q, kind, []]
-           ) do
-        {:ok, %{rows: rows}} -> {:ok, rows}
-        {:error, _reason} = error -> error
-      end
+      candidate_query(repo, q, kind, tags)
     end)
+  end
+
+  defp candidate_query(repo, q, kind, tags) do
+    case query(
+           repo,
+           """
+           SELECT candidate.entry_id
+           FROM content.search_candidate_ids($1::text,$2::text,$3::uuid[]) AS candidate
+           ORDER BY candidate.entry_id COLLATE "C"
+           """,
+           [q, kind, tags]
+         ) do
+      {:ok, %{rows: rows}} -> {:ok, rows}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp security_snapshot do
@@ -454,6 +873,15 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
 
   defp candidate_error(%{code: :undefined_function}),
     do: {:error, :candidate_function_missing}
+
+  defp candidate_error(%{
+         code: :check_violation,
+         pg_code: "23514",
+         schema: "core",
+         table: "vault_members",
+         constraint: "vault_members_classification_check"
+       }),
+       do: {:error, {:check_violation, "23514", "vault_members_classification_check"}}
 
   defp candidate_error(%{code: code, message: message} = fields)
        when (code == :check_violation and message == "search candidates input is invalid") or
