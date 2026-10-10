@@ -40,12 +40,13 @@ defmodule Singularity.Runtime.NoteReadsTest do
     resource_id resource_version_id title revision display_version updated_at
     deleted? open_conflict_count
   )a
-  @note_fields @summary_fields ++ [:markdown]
+  @note_fields @summary_fields ++ [:markdown, :attachments, :citations]
   @version_summary_fields ~w(
     resource_version_id revision display_version created_by_principal_id inserted_at
     parent_version_id merge_parent_version_id canonical? conflict_state
   )a
-  @version_fields @version_summary_fields ++ [:resource_id, :title, :markdown]
+  @version_fields @version_summary_fields ++
+                    [:resource_id, :title, :markdown, :attachments, :citations]
   @conflict_fields ~w(
     conflict_id base_version_id observed_canonical_version_id competing_version_id
   )a
@@ -73,17 +74,17 @@ defmodule Singularity.Runtime.NoteReadsTest do
   defmodule Repository do
     def get(owner, repo, vault_id, resource_id) do
       send(owner, {:get, repo, vault_id, resource_id})
-      Process.get(:note_get_result)
+      remember(Process.get(:note_get_result))
     end
 
     def get_version(owner, repo, vault_id, resource_id, version_id) do
       send(owner, {:get_version, repo, vault_id, resource_id, version_id})
-      Process.get(:note_version_result)
+      remember(Process.get(:note_version_result))
     end
 
     def get_conflict(owner, repo, vault_id, resource_id, conflict_id) do
       send(owner, {:get_conflict, repo, vault_id, resource_id, conflict_id})
-      Process.get(:note_conflict_result)
+      remember(Process.get(:note_conflict_result))
     end
 
     def history(owner, repo, vault_id, resource_id, params) do
@@ -94,6 +95,40 @@ defmodule Singularity.Runtime.NoteReadsTest do
     def trash(owner, repo, vault_id, params) do
       send(owner, {:trash, repo, vault_id, params})
       Process.get(:note_trash_result)
+    end
+
+    defp remember({:ok, %{current: current, competing: competing}} = result) do
+      remember({:ok, current})
+      remember({:ok, competing})
+      result
+    end
+
+    defp remember({:ok, %{resource_id: resource, resource_version_id: version} = row} = result) do
+      Process.put({:note_read_membership_row, resource, version}, row)
+      result
+    end
+
+    defp remember(result), do: result
+  end
+
+  # Explicit unit metadata reader for the fake repository, not canonical SQL.
+  defmodule Membership do
+    import ExUnit.Assertions
+
+    def read_membership(context, resource, version) do
+      assert context == %{
+               repo: context.repo,
+               principal_id: "00000000-0000-4000-8000-000000000902",
+               owner_scope_id: "00000000-0000-4000-8000-000000000903"
+             }
+
+      assert context.repo in [:read_repo, :shared_repo]
+
+      %{resource_id: ^resource, resource_version_id: ^version} =
+        row = Process.get({:note_read_membership_row, resource, version})
+
+      assert row.vault_id == context.owner_scope_id
+      {:ok, %{revision: row.revision, attachments: [], citations: []}}
     end
   end
 
@@ -363,6 +398,7 @@ defmodule Singularity.Runtime.NoteReadsTest do
 
     assert {:ok, canonical} = Get.run(runtime, session, @resource_id)
     assert canonical.resource_version_id == @version_id
+    assert canonical == Map.merge(canonical_row(), %{attachments: [], citations: []})
     assert_receive {:read_scope, ^runtime, ^session, get_requirement}
     assert_read_requirement(get_requirement)
     assert_receive {:get, :read_repo, @vault_id, @resource_id}
@@ -370,10 +406,19 @@ defmodule Singularity.Runtime.NoteReadsTest do
     assert {:ok, pinned} = Get.version(runtime, session, @resource_id, @base_version_id)
     assert pinned.resource_version_id == @base_version_id
     assert pinned.canonical? == false
+    assert pinned == Map.merge(version_row(), %{attachments: [], citations: []})
     assert_receive {:get_version, :read_repo, @vault_id, @resource_id, @base_version_id}
 
     assert {:ok, detail} = Get.conflict(runtime, session, @resource_id, @conflict_id)
     assert detail.conflict.conflict_id == @conflict_id
+    {:ok, raw_detail} = Process.get(:note_conflict_result)
+
+    assert detail == %{
+             raw_detail
+             | current: Map.merge(raw_detail.current, %{attachments: [], citations: []}),
+               competing: Map.merge(raw_detail.competing, %{attachments: [], citations: []})
+           }
+
     assert_receive {:get_conflict, :read_repo, @vault_id, @resource_id, @conflict_id}
 
     assert {:ok, %{items: [_], next_cursor: :done}} =
@@ -472,6 +517,7 @@ defmodule Singularity.Runtime.NoteReadsTest do
     %{
       audit: {Audit, self()},
       note_repository: {Repository, self()},
+      knowledge_link_repository: Membership,
       note_search: {Retrieval, self()},
       note_search_store: Store,
       operation_scope: {Scope, self()}
@@ -531,6 +577,7 @@ defmodule Singularity.Runtime.NoteReadsTest do
   defp note_attrs(overrides \\ []) do
     summary_attrs()
     |> Map.put(:markdown, "# Current note")
+    |> Map.merge(%{attachments: [], citations: []})
     |> Map.merge(Map.new(overrides))
   end
 
@@ -556,7 +603,9 @@ defmodule Singularity.Runtime.NoteReadsTest do
     |> Map.merge(%{
       resource_id: @resource_id,
       title: "Version title",
-      markdown: "# Version title"
+      markdown: "# Version title",
+      attachments: [],
+      citations: []
     })
     |> Map.merge(Map.new(overrides))
   end

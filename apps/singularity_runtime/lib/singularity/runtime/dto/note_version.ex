@@ -8,7 +8,7 @@ defmodule Singularity.Runtime.DTO.NoteVersion do
     resource_version_id revision display_version created_by_principal_id inserted_at
     parent_version_id merge_parent_version_id canonical? conflict_state
   )a
-  @fields @summary_fields ++ [:resource_id, :title, :markdown]
+  @fields @summary_fields ++ [:resource_id, :title, :markdown, :attachments, :citations]
   @enforce_keys @fields
   defstruct @fields
 
@@ -20,11 +20,15 @@ defmodule Singularity.Runtime.DTO.NoteVersion do
          {:ok, summary} <- NoteVersionSummary.new(Map.take(attrs, @summary_fields)),
          {:ok, _resource_id} <- NoteValidation.uuid(attrs, :resource_id),
          true <- NoteValidation.title?(attrs.title),
-         true <- NoteValidation.markdown?(attrs.markdown) do
+         true <- NoteValidation.markdown?(attrs.markdown),
+         {:ok, sources} <- NoteValidation.source_collections(attrs) do
       {:ok,
        struct!(
          __MODULE__,
-         Map.merge(Map.from_struct(summary), Map.take(attrs, [:resource_id, :title, :markdown]))
+         summary
+         |> Map.from_struct()
+         |> Map.merge(Map.take(attrs, [:resource_id, :title, :markdown]))
+         |> Map.merge(sources)
        )}
     else
       _invalid -> NoteValidation.integrity_failure()

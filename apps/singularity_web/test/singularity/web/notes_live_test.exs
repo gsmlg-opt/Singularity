@@ -372,7 +372,15 @@ defmodule Singularity.Web.NotesLiveTest do
   end
 
   defp note,
-    do: struct!(Note, Map.put(Map.from_struct(summary()), :markdown, "# canonical markdown"))
+    do:
+      struct!(
+        Note,
+        Map.merge(Map.from_struct(summary()), %{
+          markdown: "# canonical markdown",
+          attachments: [],
+          citations: []
+        })
+      )
 
   defp search_page, do: %NoteSearchPage{items: [summary()], next_cursor: nil}
 
@@ -389,7 +397,9 @@ defmodule Singularity.Web.NotesLiveTest do
       conflict_state: nil,
       resource_id: @resource_id,
       title: "Fixture note",
-      markdown: "# canonical markdown"
+      markdown: "# canonical markdown",
+      attachments: [],
+      citations: []
     }
   end
 

@@ -1153,7 +1153,8 @@ databases** and stopped only the owned private server. Both selected-reader
 allocated roots `114fb29f8ef042df19fddd1b` and
 `bea56073351c94f8f5d43c93`, and its `postmaster.pid`, are verified absent by
 three separate read-only checks. The ignored private cluster remains available;
-no material user data was removed. Local bounded commit is pending.
+no material user data was removed. The bounded selected-reader source commit is
+`68c9c4cd96f8d350f00749a58fff4b79a21ffbc1`.
 
 This qualifies the four internal Storage/Domain reader operations only.
 Runtime current target authorization and public resolution, DTO/composer
@@ -1202,6 +1203,80 @@ All changes remain frozen for broader parent validation. Necessary existing fake
 and explicit constructor-array fixtures are being drafted separately; real
 source integration keeps its actual Storage reader. No browser behavior,
 authorization/custody/Command/HMAC semantics or released migration is changed.
+
+### Task 4 owning collection qualification and SPEC repair
+
+Fresh `55290` passed scoped formatting, warnings-as-errors compilation and
+zero-cycle xref, with **117 Runtime and five Web cases, zero failures**.
+Existing unit adapters now explicitly inject their metadata-only membership
+reader, and DTO fixtures provide the required arrays. Real source integration
+retains the actual Storage reader; no browser behavior or assertion was changed.
+Fresh isolated integration `93683` passed **58 Storage and 13 Runtime cases,
+zero failures**, 36.8 and 14.3 seconds respectively, seed `215378`, exit 0.
+
+Actual independent 19-file SPEC found one P2: the server membership boundary
+accepted normalization-changing maps because generic client constructors fill
+defaults and normalize values. This was **SPEC FAIL**, not acceptance. The
+parent added two regressions without removing or weakening the original cases.
+Fresh `13136` ran **17 cases, one reproduced semantic failure**, 1.0 seconds,
+with warnings-as-errors compilation; the missing-role server map demonstrated
+the unwanted default filling.
+
+Sol review repair 1 now requires a plain exact membership map and unchanged
+canonical nested attributes after reconstruction. Canonical Core references,
+DTOs and complete canonical maps remain valid; missing output fields, aliases,
+value/representation rewriting and forged membership structs fail closed.
+Generic constructor input normalization remains unchanged.
+
+Fresh `23687` passed the exact 19-file format check, production compilation
+without warnings, all **119 Runtime and five Web cases**, 4.0 and 0.6 seconds,
+and xref **No cycles found**, seed `215378`, exit 0. Fresh real integration
+`38362` again passed **58 Storage and 13 Runtime cases**, 36.2 and 12.8 seconds,
+same seed, exit 0, after the repair. No failed production repair round or Astra
+attempt was required. Fresh independent `phase4_internal_detail_spec_review`
+SPEC rereview passed with zero actionable findings; subsequent separate
+`phase4_collection_quality_rereview` QUALITY passed with zero findings. All
+19 source/test hashes remained unchanged during both read-only reviews.
+This qualifies the collection slice only; neither Task 4 nor Phase 4 is accepted.
+The local collection commit includes exactly the 19 reviewed source/test files
+and these governing/evidence documents. Resolution drafts remain outside it.
+
+Cleanup `38684` confirmed **zero generated test databases** and stopped only
+the owned private server. The two integration roots
+`75828746daccc4ac7ecbc12a` and `8df9e57683e0230140f3390f`, and the private
+cluster's `postmaster.pid`, were individually verified absent, each exit 0.
+The ignored private cluster remains; no material user data was removed.
+
+Exact repair and integration commands:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs, compile --warnings-as-errors, test apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/lib/singularity/runtime/notes/source_collections.ex apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs, format --check-formatted apps/singularity_runtime/lib/singularity/runtime/dto/note_attachment.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_citation.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_summary.ex apps/singularity_runtime/lib/singularity/runtime/dto/note.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_version.ex apps/singularity_runtime/lib/singularity/runtime/notes/source_collections.ex apps/singularity_runtime/lib/singularity/runtime/notes/get.ex apps/singularity_runtime/lib/singularity/runtime/notes/create.ex apps/singularity_runtime/lib/singularity/runtime/notes/export.ex apps/singularity_runtime/lib/singularity/runtime/notes/dto.ex apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs, compile --warnings-as-errors, test apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs --warnings-as-errors --seed 215378, xref graph --format cycles --fail-above 0
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%'"
+```
+
+### Task 4 exact source resolution RED
+
+The new explicit unit adapters require one containing Note read scope, one
+requested-member selection, current target authorization with both session
+epochs, and only then exact pinned source/selected-fragment hydration on the
+same scoped connection. Strict results preserve canonical references, pins,
+historical deletion status, UTF-8 titles and canonical fragment identity; they
+reject private fields, rewritten values, malformed replies and oversized text.
+These fakes prove ordering and wire contracts only, not SQL or live custody.
+
+Fresh `67562` passed test formatting and production warnings-as-errors
+compilation, then ran **37 cases, 37 expected missing-ResolveSource-function
+failures**, 0.8 seconds, seed `215378`, exit 2. No production resolver existed
+during this clean semantic RED. Source resolution implementation is now being
+drafted but remains unqualified; the public API and permanent grants are pending.
+E2E **NOT RUN**, as explicitly deferred by the user.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs, compile --warnings-as-errors, test apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs --warnings-as-errors --seed 215378
+```
+
 
 ## Preserved boundaries and baseline inventory
 

@@ -23,20 +23,29 @@ defmodule Singularity.Runtime.Notes.DTO do
     resource_id resource_version_id vault_id classification title revision updated_at
     deleted? open_conflict_count
   )a
-  @note_fields @summary_fields ++ [:markdown]
+  @note_fields @summary_fields ++ [:markdown, :attachments, :citations]
   @raw_note_fields ~w(
     resource_id resource_version_id vault_id classification title markdown revision updated_at
     deleted_at deleted? created_by_principal_id inserted_at parent_version_id
-    merge_parent_version_id canonical? open_conflict_count
+    merge_parent_version_id canonical? open_conflict_count attachments citations
   )a
   @version_summary_fields ~w(
     resource_version_id revision display_version created_by_principal_id inserted_at
     parent_version_id merge_parent_version_id canonical? conflict_state
   )a
   @raw_version_summary_fields @version_summary_fields -- [:display_version]
-  @version_fields @version_summary_fields ++ [:resource_id, :title, :markdown]
+  @version_fields @version_summary_fields ++
+                    [:resource_id, :title, :markdown, :attachments, :citations]
   @raw_version_fields @raw_version_summary_fields ++
-                        [:resource_id, :vault_id, :classification, :title, :markdown]
+                        [
+                          :resource_id,
+                          :vault_id,
+                          :classification,
+                          :title,
+                          :markdown,
+                          :attachments,
+                          :citations
+                        ]
   @raw_conflict_fields ~w(
     conflict_id resource_id vault_id classification base_version_id
     observed_canonical_version_id competing_version_id state resolution_version_id

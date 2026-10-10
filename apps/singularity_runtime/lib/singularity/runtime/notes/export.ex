@@ -6,10 +6,12 @@ defmodule Singularity.Runtime.Notes.Export do
   alias Singularity.Runtime.DTO.Note
   alias Singularity.Runtime.DTO.NoteExport
   alias Singularity.Runtime.Notes.DTO, as: NotesDTO
+  alias Singularity.Runtime.Notes.SourceCollections
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
   alias Singularity.Storage.Postgres.AuditSink
   alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.Postgres.KnowledgeLinkRepository
 
   @media_type "text/markdown; charset=utf-8"
   @unsafe_filename ~r/[\x{0000}-\x{001F}\x{007F}-\x{009F}\/\\]+/u
@@ -41,6 +43,8 @@ defmodule Singularity.Runtime.Notes.Export do
     with {:ok, source} <-
            call_adapter(adapters.note_repository, :get, [repo, session.vault_id, resource_id]),
          :ok <- source_scope(source, session.vault_id, resource_id),
+         {:ok, source} <-
+           SourceCollections.compose(adapters.knowledge_link_repository, repo, session, source),
          {:ok, note} <- NotesDTO.note(source),
          {:ok, attrs} <- export_attrs(note, resource_id),
          :ok <- append_audit(adapters.audit, repo, session, attrs),
@@ -118,6 +122,8 @@ defmodule Singularity.Runtime.Notes.Export do
     values = %{
       audit: Map.get(runtime, :audit, AuditSink),
       note_repository: Map.get(runtime, :note_repository, NoteRepository),
+      knowledge_link_repository:
+        Map.get(runtime, :knowledge_link_repository, KnowledgeLinkRepository),
       operation_scope: Map.get(runtime, :operation_scope, OperationScope)
     }
 

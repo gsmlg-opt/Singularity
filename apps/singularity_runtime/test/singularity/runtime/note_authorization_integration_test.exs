@@ -147,6 +147,29 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
     end
   end
 
+  # Metadata-only fake used exclusively with Repository in the first two tests.
+  # The real canonical source cases retain the real Storage reader default.
+  defmodule Membership do
+    import ExUnit.Assertions
+
+    def read_membership(context, resource, version) do
+      assert context.repo == RequestRepo
+      assert RequestRepo.in_transaction?()
+      assert Enum.sort(Map.keys(context)) == [:owner_scope_id, :principal_id, :repo]
+      assert Ecto.UUID.cast(context.principal_id) == {:ok, context.principal_id}
+
+      row =
+        Enum.find(
+          [Process.get(:auth_note_row), Process.get(:auth_note_version)],
+          &(&1.resource_id == resource and &1.resource_version_id == version)
+        )
+
+      assert row.vault_id == context.owner_scope_id
+      send(self(), {:auth_note_membership, context, resource, version})
+      {:ok, %{revision: row.revision, attachments: [], citations: []}}
+    end
+  end
+
   setup do
     raw = Fixtures.two_vaults!().one
     vault_id = load_uuid(raw.vault_id)
@@ -216,6 +239,7 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
   test "same-vault principals receive only their exact read write and export authority",
        context do
     %{runtime: runtime, principals: principals} = context
+    runtime = Map.put(runtime, :knowledge_link_repository, Membership)
 
     for result <- read_operations(runtime, session(principals.read_only), context) do
       assert {:ok, _value} = result
@@ -261,6 +285,7 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
 
   test "revocation and principal or vault epoch changes deny stale sessions", context do
     %{runtime: runtime, principals: principals} = context
+    runtime = Map.put(runtime, :knowledge_link_repository, Membership)
 
     read_session = session(principals.read_only)
     assert {:ok, _page} = Search.run(runtime, read_session, %{})

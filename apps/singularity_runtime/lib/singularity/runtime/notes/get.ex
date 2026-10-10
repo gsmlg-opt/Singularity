@@ -2,9 +2,11 @@ defmodule Singularity.Runtime.Notes.Get do
   @moduledoc "Reads canonical notes, exact versions, and conflict sources."
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.Notes.SourceCollections
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
   alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.Postgres.KnowledgeLinkRepository
 
   @spec run(map(), SessionContext.t(), String.t()) :: {:ok, map()} | {:error, Error.t()}
   def run(runtime, %SessionContext{} = session, resource_id) when is_map(runtime) do
@@ -12,6 +14,7 @@ defmodule Singularity.Runtime.Notes.Get do
          {:ok, adapters} <- adapters(runtime) do
       read(adapters, runtime, session, fn repo ->
         call_adapter(adapters.note_repository, :get, [repo, session.vault_id, resource_id])
+        |> compose_result(adapters, repo, session, resource_id)
       end)
     end
   rescue
@@ -29,12 +32,21 @@ defmodule Singularity.Runtime.Notes.Get do
     with :ok <- validate_ids([resource_id, version_id]),
          {:ok, adapters} <- adapters(runtime) do
       read(adapters, runtime, session, fn repo ->
-        call_adapter(adapters.note_repository, :get_version, [
-          repo,
-          session.vault_id,
-          resource_id,
-          version_id
-        ])
+        case call_adapter(adapters.note_repository, :get_version, [
+               repo,
+               session.vault_id,
+               resource_id,
+               version_id
+             ]) do
+          {:ok, %{resource_version_id: ^version_id}} = result ->
+            compose_result(result, adapters, repo, session, resource_id)
+
+          {:ok, _invalid} ->
+            integrity_failure()
+
+          result ->
+            result
+        end
       end)
     end
   rescue
@@ -52,12 +64,27 @@ defmodule Singularity.Runtime.Notes.Get do
     with :ok <- validate_ids([resource_id, conflict_id]),
          {:ok, adapters} <- adapters(runtime) do
       read(adapters, runtime, session, fn repo ->
-        call_adapter(adapters.note_repository, :get_conflict, [
-          repo,
-          session.vault_id,
-          resource_id,
-          conflict_id
-        ])
+        case call_adapter(adapters.note_repository, :get_conflict, [
+               repo,
+               session.vault_id,
+               resource_id,
+               conflict_id
+             ]) do
+          {:ok, %{conflict: conflict, current: current, competing: competing} = detail}
+          when map_size(detail) == 3 ->
+            with {:ok, current} <-
+                   compose_result({:ok, current}, adapters, repo, session, resource_id),
+                 {:ok, competing} <-
+                   compose_result({:ok, competing}, adapters, repo, session, resource_id) do
+              {:ok, %{conflict: conflict, current: current, competing: competing}}
+            end
+
+          {:ok, _invalid} ->
+            integrity_failure()
+
+          result ->
+            result
+        end
       end)
     end
   rescue
@@ -67,6 +94,20 @@ defmodule Singularity.Runtime.Notes.Get do
   end
 
   def conflict(_runtime, _session, _resource_id, _conflict_id), do: invalid()
+
+  defp compose_result(
+         {:ok, %{resource_id: resource_id} = row},
+         adapters,
+         repo,
+         session,
+         resource_id
+       ),
+       do: SourceCollections.compose(adapters.knowledge_link_repository, repo, session, row)
+
+  defp compose_result({:error, %Error{}} = result, _adapters, _repo, _session, _resource_id),
+    do: result
+
+  defp compose_result(_result, _adapters, _repo, _session, _resource_id), do: integrity_failure()
 
   defp read(adapters, runtime, session, callback) do
     call_adapter(adapters.operation_scope, :with_read_request, [
@@ -89,6 +130,8 @@ defmodule Singularity.Runtime.Notes.Get do
   defp adapters(runtime) do
     values = %{
       note_repository: Map.get(runtime, :note_repository, NoteRepository),
+      knowledge_link_repository:
+        Map.get(runtime, :knowledge_link_repository, KnowledgeLinkRepository),
       operation_scope: Map.get(runtime, :operation_scope, OperationScope)
     }
 
@@ -113,5 +156,6 @@ defmodule Singularity.Runtime.Notes.Get do
 
   defp concrete?(value), do: value not in [nil, false]
   defp invalid, do: {:error, Error.new(:invalid)}
+  defp integrity_failure, do: {:error, Error.new(:integrity_failure)}
   defp storage_unavailable, do: {:error, Error.new(:storage_unavailable, retryable?: true)}
 end

@@ -60,7 +60,9 @@ defmodule Singularity.Runtime.NoteObservabilityTest do
                updated_at: ~U[2026-08-18 09:00:00.000000Z],
                deleted?: false,
                open_conflict_count: 0,
-               markdown: markdown
+               markdown: markdown,
+               attachments: [],
+               citations: []
              })
 
     assert {:ok, export} =

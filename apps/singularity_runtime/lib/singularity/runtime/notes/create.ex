@@ -11,9 +11,11 @@ defmodule Singularity.Runtime.Notes.Mutation do
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.Notes.DTO, as: NotesDTO
   alias Singularity.Runtime.Notes.MutationFingerprint
+  alias Singularity.Runtime.Notes.SourceCollections
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.SessionContext
   alias Singularity.Storage.Postgres.NoteRepository
+  alias Singularity.Storage.Postgres.KnowledgeLinkRepository
 
   @client_fields %{
     create: [:mutation_id, :title, :markdown, :attachments, :citations],
@@ -240,10 +242,10 @@ defmodule Singularity.Runtime.Notes.Mutation do
          classification: :private
        } = note}
       when vault_id == session.vault_id ->
-        NotesDTO.note(note)
-
-      {:ok, %{__struct__: Singularity.Runtime.DTO.Note, resource_id: ^resource_id} = note} ->
-        NotesDTO.note(note)
+        with {:ok, composed} <-
+               SourceCollections.compose(adapters.knowledge_link_repository, repo, session, note) do
+          NotesDTO.note(composed)
+        end
 
       {:ok, _malformed} ->
         integrity_failure()
@@ -315,6 +317,8 @@ defmodule Singularity.Runtime.Notes.Mutation do
           Application.get_env(:singularity_runtime, :mutation_fingerprint_secret),
       mutation_fingerprint: Map.get(runtime, :mutation_fingerprint, MutationFingerprint),
       note_repository: Map.get(runtime, :note_repository, NoteRepository),
+      knowledge_link_repository:
+        Map.get(runtime, :knowledge_link_repository, KnowledgeLinkRepository),
       notes: Map.get(runtime, :notes, Notes),
       operation_scope: Map.get(runtime, :operation_scope, OperationScope),
       authorizer: Map.get(runtime, :authorizer, Authorize),
@@ -327,7 +331,13 @@ defmodule Singularity.Runtime.Notes.Mutation do
   defp valid_adapters?(values) do
     match?(<<_::binary-size(32)>>, values.fingerprint_secret) and
       Enum.all?(
-        Map.take(values, [:mutation_fingerprint, :note_repository, :notes, :operation_scope])
+        Map.take(values, [
+          :mutation_fingerprint,
+          :note_repository,
+          :knowledge_link_repository,
+          :notes,
+          :operation_scope
+        ])
         |> Map.values(),
         &(&1 not in [nil, false])
       ) and is_atom(values.note_repository)

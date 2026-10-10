@@ -96,6 +96,27 @@ defmodule Singularity.Runtime.NoteSourcesTest do
     end
   end
 
+  # Unit-only membership for the fake canonical reload; no source proof claim.
+  defmodule Membership do
+    import ExUnit.Assertions
+
+    def read_membership(context, resource, version) do
+      assert Process.get(:runtime_note_sources_active_scope, false)
+
+      assert context == %{
+               repo: :scoped_repo,
+               principal_id: "00000000-0000-4000-8000-000000004401",
+               owner_scope_id: "00000000-0000-4000-8000-000000004402"
+             }
+
+      %{resource_id: ^resource, resource_version_id: ^version} =
+        row = Process.get(:runtime_note_sources_canonical)
+
+      assert row.vault_id == context.owner_scope_id
+      {:ok, %{revision: row.revision, attachments: [], citations: []}}
+    end
+  end
+
   setup do
     {:ok, saved} =
       NoteSaveResult.saved(%{
@@ -317,6 +338,7 @@ defmodule Singularity.Runtime.NoteSourcesTest do
       fingerprint_secret: @secret,
       mutation_fingerprint: {Fingerprint, self()},
       note_repository: Repository,
+      knowledge_link_repository: Membership,
       notes: Singularity.Domains.Notes,
       operation_scope: {Scope, self()},
       authorizer: Authorizer,

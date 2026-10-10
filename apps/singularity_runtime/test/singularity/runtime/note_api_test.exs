@@ -425,7 +425,9 @@ defmodule Singularity.Runtime.NoteApiTest do
       parent_version_id: @base_id,
       merge_parent_version_id: nil,
       canonical?: true,
-      open_conflict_count: 1
+      open_conflict_count: 1,
+      attachments: [],
+      citations: []
     }
   end
 
@@ -444,7 +446,9 @@ defmodule Singularity.Runtime.NoteApiTest do
         parent_version_id: nil,
         merge_parent_version_id: nil,
         canonical?: false,
-        conflict_state: nil
+        conflict_state: nil,
+        attachments: [],
+        citations: []
       },
       overrides
     )

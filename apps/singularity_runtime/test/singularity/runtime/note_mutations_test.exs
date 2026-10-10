@@ -75,6 +75,25 @@ defmodule Singularity.Runtime.NoteMutationsTest do
     end
   end
 
+  # Explicit metadata-only unit reader; receipt replay binds to the reloaded row.
+  defmodule Membership do
+    import ExUnit.Assertions
+
+    def read_membership(context, resource, version) do
+      assert context == %{
+               repo: :scoped_repo,
+               principal_id: "00000000-0000-4000-8000-000000002203",
+               owner_scope_id: "00000000-0000-4000-8000-000000002204"
+             }
+
+      {:ok, %{resource_id: ^resource, resource_version_id: ^version} = row} =
+        Process.get(:note_mutation_reload_result)
+
+      assert row.vault_id == context.owner_scope_id
+      {:ok, %{revision: row.revision, attachments: [], citations: []}}
+    end
+  end
+
   setup do
     Process.put(:note_mutation_owner, self())
     Process.put(:note_mutation_reload_result, {:ok, canonical_row()})
@@ -410,11 +429,11 @@ defmodule Singularity.Runtime.NoteMutationsTest do
     end
 
     config = %{
-      create_note: fn _session, _attrs -> {:ok, canonical_row()} end,
+      create_note: fn _session, _attrs -> {:ok, facade_note()} end,
       save_note: fn _session, @resource_id, _attrs -> {:ok, hydrated_saved()} end,
       merge_note: fn _session, @resource_id, _attrs -> {:ok, hydrated_saved()} end,
       delete_note: fn _session, @resource_id, _attrs -> {:ok, true} end,
-      restore_note: fn _session, @resource_id, _attrs -> {:ok, canonical_row()} end
+      restore_note: fn _session, @resource_id, _attrs -> {:ok, facade_note()} end
     }
 
     assert {:ok, %Note{resource_id: @resource_id}} =
@@ -472,6 +491,7 @@ defmodule Singularity.Runtime.NoteMutationsTest do
       fingerprint_secret: @secret,
       mutation_fingerprint: {Fingerprint, self()},
       note_repository: Repository,
+      knowledge_link_repository: Membership,
       notes: Singularity.Domains.Notes,
       operation_scope: {Scope, self()}
     }
@@ -526,11 +546,14 @@ defmodule Singularity.Runtime.NoteMutationsTest do
   defp hydrated_saved do
     %{
       outcome: :saved,
-      canonical: canonical_row(),
+      canonical: facade_note(),
       submitted_version_id: @version_id,
       conflict_id: nil
     }
   end
+
+  defp facade_note,
+    do: Map.merge(canonical_row(), %{attachments: [], citations: []})
 
   defp canonical_row(overrides \\ []) do
     Map.merge(

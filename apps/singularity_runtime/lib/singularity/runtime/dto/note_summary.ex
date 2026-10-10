@@ -54,6 +54,40 @@ defmodule Singularity.Runtime.DTO.NoteValidation do
 
   def cursor?(_value), do: false
 
+  def source_collections(%{attachments: attachments, citations: citations}) do
+    with {:ok, attachments} <-
+           references(attachments, Singularity.Runtime.DTO.NoteAttachment),
+         {:ok, citations} <- references(citations, Singularity.Runtime.DTO.NoteCitation),
+         true <- unique?(attachments, & &1.attachment_id),
+         true <-
+           unique?(attachments, &{&1.target_resource_id, &1.target_resource_version_id, &1.role}),
+         true <- unique?(citations, & &1.citation_id) do
+      {:ok, %{attachments: attachments, citations: citations}}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  def source_collections(_value), do: integrity_failure()
+
+  defp references(values, module) when is_list(values) and length(values) <= 100 do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
+      case module.new(value) do
+        {:ok, reference} -> {:cont, {:ok, [reference | acc]}}
+        _invalid -> {:halt, integrity_failure()}
+      end
+    end)
+    |> case do
+      {:ok, references} -> {:ok, Enum.reverse(references)}
+      failure -> failure
+    end
+  end
+
+  defp references(_values, _module), do: integrity_failure()
+
+  defp unique?(values, key),
+    do: MapSet.size(MapSet.new(Enum.map(values, key))) == length(values)
+
   def integrity_failure, do: {:error, Error.new(:integrity_failure)}
 end
 

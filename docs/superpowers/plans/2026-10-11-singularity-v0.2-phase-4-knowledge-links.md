@@ -243,9 +243,11 @@ The bounded winning-source mutation slice has passed its actual Runtime units,
 real Storage/Runtime authorization suites, static gates and independent SPEC
 then QUALITY. The narrow Storage selected-reader slice has also passed its
 actual port/owning SQL suites, static gates and separate SPEC then QUALITY.
-Runtime DTO/composer/resolution integration, permanent grants and the remaining
-Task 4 acceptance checks are still pending; this is not whole-task or phase
-acceptance.
+Runtime DTO/composer and all current/exact/conflict/mutation/Export collection
+routes have passed their owning units, real authorization suites, static gates
+and separate SPEC then QUALITY after a reproduced canonical-output repair.
+Public exact resolution, permanent grants and remaining Task 4 acceptance
+checks are still pending; this is not whole-task or phase acceptance.
 
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
 `dto/note_citation.ex`, `notes/source_collections.ex`, and the source owning tests.
@@ -293,7 +295,7 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   `resolve_note_citation` with containing Note read and current target read.
   Preserve pins, expose deleted status/historical evidence, and don't return
   new original-byte payloads or follow current head.
-- [ ] Compose complete source arrays in Runtime through a shared helper and the
+- [x] Compose complete source arrays in Runtime through a shared helper and the
   explicit internal `knowledge_link_repository`, using the existing scoped
   metadata-only membership reader. Bind exact row IDs/revision/session scope;
   compose both conflict branches separately and latest-head mutation replay.

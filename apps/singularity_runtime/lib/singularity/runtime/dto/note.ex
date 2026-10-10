@@ -8,7 +8,7 @@ defmodule Singularity.Runtime.DTO.Note do
     resource_id resource_version_id title revision display_version updated_at
     deleted? open_conflict_count
   )a
-  @fields @summary_fields ++ [:markdown]
+  @fields @summary_fields ++ [:markdown, :attachments, :citations]
   @enforce_keys @fields
   defstruct @fields
 
@@ -21,7 +21,9 @@ defmodule Singularity.Runtime.DTO.Note do
           updated_at: DateTime.t(),
           deleted?: boolean(),
           open_conflict_count: non_neg_integer(),
-          markdown: String.t()
+          markdown: String.t(),
+          attachments: [Singularity.Runtime.DTO.NoteAttachment.t()],
+          citations: [Singularity.Runtime.DTO.NoteCitation.t()]
         }
 
   @spec new(map()) :: {:ok, t()} | {:error, Singularity.Core.Error.t()}
@@ -29,8 +31,16 @@ defmodule Singularity.Runtime.DTO.Note do
     with {:ok, attrs} <- NoteValidation.exact_attrs(attrs, @fields),
          {:ok, summary} <- NoteSummary.new(Map.take(attrs, @summary_fields)),
          false <- summary.deleted?,
-         true <- NoteValidation.markdown?(attrs.markdown) do
-      {:ok, struct!(__MODULE__, Map.put(Map.from_struct(summary), :markdown, attrs.markdown))}
+         true <- NoteValidation.markdown?(attrs.markdown),
+         {:ok, sources} <- NoteValidation.source_collections(attrs) do
+      {:ok,
+       struct!(
+         __MODULE__,
+         summary
+         |> Map.from_struct()
+         |> Map.put(:markdown, attrs.markdown)
+         |> Map.merge(sources)
+       )}
     else
       _invalid -> NoteValidation.integrity_failure()
     end
