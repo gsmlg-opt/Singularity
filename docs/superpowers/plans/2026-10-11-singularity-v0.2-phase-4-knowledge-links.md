@@ -200,7 +200,7 @@ prepare/lock/insert composition; no general graph/process abstraction.
 **Modify:** `postgres/note_repository.ex`, `knowledge_link_repository.ex`,
 and owning `note_repository_test.exs`/`knowledge_link_repository_test.exs`.
 
-- [ ] Add real integration RED for metadata-only new versions, normal/stale
+- [x] Add real integration RED for metadata-only new versions, normal/stale
   inheritance from exact base, independent clear/replace, and merge inheritance
   from expected current while explicit unchanged members may use either parent.
 - [ ] Prepare the full target set without row locks inside winning receipt
@@ -211,7 +211,10 @@ and owning `note_repository_test.exs`/`knowledge_link_repository_test.exs`.
   No later target discovery or Asset locking; preserve existing shared-request,
   receipt, deadlines, head/conflict and projection semantics.
 - [ ] Resolve canonical witnesses per-member as historical retained or live new;
-  construct stored NoteSourceSet with derived owner/new Note/version/ordinals;
+  construct validated Core NoteAttachment/NoteCitation rows from strict resolved
+  reference lists with derived owner/new Note/version/ordinals; check actual
+  canonical typed/fragment/locator metadata without fetching retained content,
+  preserving the full-text public NoteSourceSet constructor unchanged;
   insert both collections and force seal within shared `insert_note_version`.
 - [ ] Replay must bypass all preparation/live checks and leave zero new rows,
   audits, jobs or events after source deletion; same-ID changed request conflicts.
@@ -230,7 +233,15 @@ and owning `note_repository_test.exs`/`knowledge_link_repository_test.exs`.
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
 `dto/note_citation.ex`, and `test/singularity/runtime/note_sources_test.exs`.
 **Modify:** Runtime `notes/create.ex` (contains Mutation), `notes/dto.ex`,
-`dto/note.ex`, `dto/note_version.ex`, `api.ex`, existing Notes owning tests;
+`notes/get.ex` as needed for ordered source collection composition,
+`dto/note.ex`, `dto/note_version.ex`, `api.ex`, existing Notes owning tests
+(`note_mutations_test.exs`, `note_reads_test.exs`, `note_api_test.exs`,
+`note_authorization_integration_test.exs`, `note_observability_test.exs`);
+Storage `postgres/knowledge_link_repository.ex` and its full owning suite for
+narrow selected-reference/historical metadata readers, plus
+`test/support/knowledge_test_grants.ex` to preserve permanent organization
+DELETE privileges in temporary test grants; Web
+`architecture/knowledge_phase1_contract_test.exs` for exact approved API additions;
 Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
 `knowledge_grants_test.exs` exact ACL expectations.
 
@@ -248,6 +259,13 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   `resolve_note_citation` with containing Note read and current target read.
   Preserve pins, expose deleted status/historical evidence, and don't return
   new original-byte payloads or follow current head.
+- [ ] Select only the requested stored canonical member on the authenticated
+  scoped connection before determining its target read capability. After that
+  current check, hydrate exact historical Asset/Note/Document typed metadata
+  and the selected citation fragment/locator on the same authorization boundary.
+  Do not reuse live-only search resolution or content-hydrating whole-set reads
+  unchanged for pre-authorization selection. Keep ordinary live-only resource
+  read behavior intact; missing/foreign members are nondisclosing.
 - [ ] Apply explicit narrow web source/organization grants under forced RLS;
   worker/download remain excluded; seal write privileges remain absent.
 - [ ] Test real canonical mutation composition, capability denial/revocation,

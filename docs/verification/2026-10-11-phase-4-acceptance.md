@@ -467,6 +467,10 @@ prior test-preparation review fix 1 was recorded above. Relevant full restore
 checks remain required after later Note composition changes and at whole-phase
 acceptance. The only frozen-substrate production patch is the explicitly
 reported derived destination inventory addition, not Vault feature work.
+Local compatibility commit: `46be8193e13ec50eb705ed19123537d3f735e5e1`
+(`fix(backup): regenerate note source seals`), containing the four reviewed
+files plus this report and Task 8 checklist; the worker's separate new Task 3
+test was preserved untracked and not staged.
 
 ## Task 3 pre-change characterization
 
@@ -485,6 +489,80 @@ devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integrati
 ```sh
 devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/lib/singularity/storage/backup/restorer.ex, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs --seed 215378
 ```
+
+## Task 3 test-harness preparation
+
+The Sol worker prepared 29 new real integration cases before production edits.
+Parent `93018` exited 1 during formatting: a missing outer map delimiter in
+the new `DocumentFragment.new` fixture caused `MismatchedDelimiterError`.
+Compilation and tests did not run, so this attempt is a failed static/harness
+check, not semantic RED. The owned PostgreSQL server stopped; no integration
+database was allocated. Test-only Sol fixture repair 1 closed the missing map
+and corrected one target helper's `version_id` shape; no assertion changed.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs --seed 215378
+```
+
+The same command's repaired attempt `4569` passed formatting/compilation but
+exited 2: **29 integration tests, 29 failures**, 33.1 seconds, seed `215378`.
+Sixteen failures reached intended missing-source behavior (empty inherited
+membership, rejected explicit collections or early actual race outcomes).
+Thirteen failed before their behavior assertions because the new exact-state
+helper named nonexistent `content.search_documents`; the real Phase 3 table
+is `content.search_entries`. Those thirteen are invalid harness failures,
+not missing-feature RED. Test-only Sol fixture repair 2 corrects the inventory
+name while preserving every exact row/effect assertion. Production remains
+unchanged; Task 3 Astra attempts remain zero. Database/root:
+`singularity_test_3094f13535311835dc697618` and
+`/tmp/singularity/integration/3094f13535311835dc697618`; the owned server stopped
+and root absence was verified. One validated Sol harness repair has failed to
+fully qualify the harness so far; the initial static failure is recorded
+separately above.
+
+Sol fixture repair 2 changed only the actual table name. Fresh `54329` ran
+the same complete new suite after formatting and warnings-as-errors compile:
+**29 tests, 16 expected missing-feature failures**, exit 2, 27.3 seconds,
+seed `215378`. All thirteen former inventory failures now passed; no fixture
+SQL failure or linked-task/repository cascade remained. The sixteen failures
+are exact inherited membership absence, rejected explicit create/clear/replace/
+merge collections and actual source race operations ending before their required
+barriers. This qualifies semantic RED, not implementation acceptance.
+Database/root: `singularity_test_14e4ab6a5d1ff3885772c211` and
+`/tmp/singularity/integration/14e4ab6a5d1ff3885772c211`; the owned server stopped
+and root absence was verified. Stage 2 production implementation is now
+authorized. Counters: two Sol harness repair attempts, one unsuccessful
+validated round followed by repair 2 PASS; production repair rounds 0,
+Astra attempts 0.
+
+Read-only `phase4_runtime_source_mapping` also mapped later Task 4 composition.
+Existing all-of capabilities and the authorization lock support target checks
+without changing OperationScope or Vault. Existing search resolution is
+live-only and citation set reads hydrate fragment text too early for selected
+source authorization. Task 4 therefore needs narrow scoped stored-reference
+selection followed by exact historical typed metadata hydration only after
+current target read authority, preserving pins and deletion status without
+binary delivery or current-head substitution. Necessary adapter/DTO/registration
+test inventory is recorded in the plan; this mapping is not test or review
+acceptance.
+
+Task 3's implementation inspection identified a necessary plan correction:
+`Core.NoteSourceSet.new/1` validates full `DocumentFragment.text`, conflicting
+with metadata-only retained copying if used unchanged in the mutation seam.
+The plan now names strict canonical reference reconstruction plus derived
+`NoteAttachment`/`NoteCitation` rows, real locked typed/fragment/locator witnesses,
+resolved bounds and independent SQL provenance/parent/retention/seal constraints.
+The existing full-text constructor and standalone adapter remain unchanged;
+no forged Core struct or waived validation is authorized. Independent review
+of this bounded clarification remains required, separate from implementation
+qualification. Task 4 selected-source clarification received independent
+`phase4_runtime_source_plan_spec` SPEC PASS before this additional amendment.
+The same reviewer then performed fresh combined Task 3/4 clarification SPEC
+review and returned PASS with no findings. Separate
+`phase4_source_seal_quality` QUALITY review followed and passed with no
+Critical, Important or Minor findings. These reviews cover documentation and
+feasibility only, excluding the worker's mutable production candidate; all
+implementation checks and reviews remain pending.
 
 ## Preserved boundaries and baseline inventory
 

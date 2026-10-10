@@ -186,6 +186,17 @@ transactions must prove supported application writers converge without raising
 timeouts. Arbitrary raw SQL can still deadlock-abort; do not promise universal
 deadlock freedom.
 
+Canonical mutation composition remains metadata-only for retained copying.
+The existing public `NoteSourceSet.new/1` requires full `DocumentFragment`
+text, so it and the standalone content-hydrating link adapter keep their
+contracts unchanged. The narrow mutation seam instead reconstructs strict
+canonical reference lists, derives `NoteAttachment`/`NoteCitation` rows with
+authenticated owner and new containing IDs/ordinals, and checks actual typed
+source/fragment identity and exact locator metadata under the ordered locks.
+Resolved collection/union bounds and independent SQL provenance, parent,
+retention and final-seal constraints all remain mandatory. It neither forges
+Core structs nor claims content-witness validation without reading content.
+
 ## Database sealing, migration and grants
 
 Add derived `content.note_source_set_seals`, with the exact containing
@@ -248,6 +259,17 @@ Response pins stay exact, with live/deleted status; deleted sources retain
 historical evidence instead of silently becoming a newer version. Do not
 return new binary bytes through this API: existing Asset download remains the
 only original-byte delivery path.
+
+Source resolution first selects only the requested stored canonical reference
+using the authenticated containing Note/version/member identity. Determine and
+check its target's current read authority before hydrating any source title,
+excerpt or citation fragment text, on the same scoped connection and existing
+authorization lock. A narrow historical metadata reader joins the exact owner,
+private resource/version/typed identity and selected fragment/locator; ordinary
+live-only resource/search readers retain their behavior. Asset filenames come
+from pinned source metadata, not mutable resource-head titles. Missing or
+cross-owner members return nondisclosing not-found outcomes. Whole-set citation
+hydration is not a valid pre-authorization selector.
 
 ## Independent tags, relationships and backlinks
 
