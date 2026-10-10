@@ -2090,7 +2090,7 @@ Update Phase 3 checklist/evidence and active-phase documentation on acceptance.
 Necessary repairs follow the continuous authorization and a synchronized
 design/plan; this file list is not an approval boundary.
 
-- [ ] Add deterministic synthetic, analyzed query-plan fixtures. Verify
+- [x] Add deterministic synthetic, analyzed query-plan fixtures. Verify
   selective FTS/trigram queries have viable indexed plans without forcing the
   planner. Record the intentional nonselectivity of short literal queries;
   verify the fixed timeout fails with a sanitized error, not an empty success.
@@ -2098,7 +2098,7 @@ design/plan; this file list is not an approval boundary.
   across success, malformed input, adapter failure, SQL cancellation, retries,
   exact-source denial, and rebuild failure. Assert no raw content in logs,
   supported telemetry, job/outbox/audit metadata, or exception messages.
-- [ ] Run all new owning suites plus the directly affected legacy Note,
+- [x] Run all new owning suites plus the directly affected legacy Note,
   Document-worker, codec/outbox, and V1/V2 restore suites. Record source SHA,
   exact commands, seeds, counts, forward migrations/grants, and reviews.
 - [ ] After scoped gates pass, commit the candidate and run the entire ordered
@@ -2116,7 +2116,7 @@ git diff --check
 
   These static checks supplement, not replace, the complete README sequence.
   No green subset is phase or release acceptance.
-- [ ] Obtain independent spec and quality review of the complete candidate.
+- [x] Obtain independent spec and quality review of the complete candidate.
   Resolve findings within approved scope; route internal-organization dependency
   defects upstream under AGENTS.md. Preserve any failed gate's evidence rather
   than relabeling it passing after a narrower rerun.
@@ -2235,8 +2235,20 @@ repairs are now locally committed: `d80d727...` (legacy Storage contracts),
 `e7a6723...` (uniform post-load search fixture index maintenance). Their owning
 and regression checks, static checks, independent SPEC/QUALITY reviews and
 cleanup passed as recorded in the qualification report. The historical full
-FAIL is preserved; a clean-SHA rerun of the entire allowed README sequence is
-still required. No E2E or phase-advancement permission is inferred.
+FAIL is preserved. The subsequent clean-candidate run `91785` on
+`35c1f8360dd22b129832a1618b3723032a1983bd` exited 0: all 1,383 unit/property
+cases, 1,109 integration cases, the complete V1/V2 restore oracle, 197 frontend
+tests, and every other allowed ordered README check passed. Both selective plan
+contracts, short-query/deadline contracts and privacy contracts passed inside
+the full integration run. Independent complete-candidate SPEC and separate
+QUALITY source reviews passed on that same SHA. Fresh cleanup `8761` found no
+generated databases or recorded/new allocation roots and stopped PostgreSQL;
+protected worktrees and source/lockfile hashes remained unchanged.
+The [qualification record](../../verification/2026-10-09-phase-3-acceptance.md)
+contains exact seeds, per-application counts, commands, reviews and limitations.
+Task 11's complete README/phase-acceptance checkboxes remain unchecked because
+mandatory manual E2E is still NOT RUN under the preserved user restriction.
+No Phase 3 acceptance or Phase 4 advancement is inferred.
 
 ## Coverage and execution record
 

@@ -4,17 +4,17 @@
 
 **IN PROGRESS — Phase 3 is not accepted.**
 
-Latest clean gate source: `999b2fc7ce5308156203944eb0f474a5cdb2a44f` on
+Latest clean gate source: `35c1f8360dd22b129832a1618b3723032a1983bd` on
 `codex/v0.2-phase-3-search-design`, in the project-local Phase 3 worktree.
-The approved implementation is locally complete through Task 10. Task 11's
-privacy and actual-call cold/warm selective query-plan contracts passed scoped
-qualification. The subsequent complete integration run failed **26 of 1,107
-executed cases**, including both selective plan tests; scoped passes do not
-override that failure. Necessary compatibility, fixture-lifetime, event-contract
-and search-fixture repairs have now passed owning/regression checks and their
-own independent SPEC/QUALITY reviews, and are committed locally through
-`e7a6723924135c45ec9b45b72b297b5ab94846ac`. The clean-SHA full rerun and remaining
-ordered README checks are not complete. Earlier full failures remain recorded.
+The implementation is locally complete through Task 10. Task 11's complete
+allowed non-E2E README sequence passed in session `91785`, exit 0: **1,383
+unit/property cases, 1,109 integration cases, complete V1/V2 restore, 197
+frontend tests**, dependency/format/compile/build checks, zero xref cycles, and
+all five workflow static checks. The exact clean candidate also passed
+independent complete-candidate SPEC and separate QUALITY source review.
+The earlier full integration failure at `999b2fc...` (26 of 1,107 cases) and
+each failed repair/diagnostic attempt remain recorded below; the fresh full
+rerun, not the intervening scoped passes, establishes the repaired result.
 
 The bounded Astra diagnosis is complete. The user's 2026-10-10
 [continuous development authorization](../../AGENTS.md#continuous-development-authorization--2026-10-10)
@@ -1701,6 +1701,124 @@ all three roots absent. The one-file, 13-line test-only local commit is
 clean full-suite failure or establish phase acceptance. Final evidence-document
 review and clean-SHA README rerun follow separately.
 
+## Clean-candidate complete non-E2E README qualification, 2026-10-10
+
+Session `91785` exited 0 on clean source
+`35c1f8360dd22b129832a1618b3723032a1983bd`. HEAD and tracked/untracked Git status
+were checked before and after the entire ordered run and remained unchanged.
+The parent used only the previously verified private Unix-socket PostgreSQL
+instance and owned temporary directory `.devenv/phase3-gate-tmp.HSoLYQ`.
+No E2E command ran. The exact outer command was:
+
+```sh
+devenv shell -- bash .devenv/phase3-readme-non-e2e.sh
+```
+
+That local, ignored safety wrapper checked checkout/service identity, unset
+inherited test/database overrides, exported the shared locked `MIX_DEPS_PATH`,
+created an owned `TMPDIR`, bootstrapped roles on the private PostgreSQL instance,
+and stopped it before these ordered commands. The integration/restore wrappers
+each independently owned and stopped that same private service:
+
+```sh
+mix deps.get
+mix deps.unlock --check-unused
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test
+bash .devenv/phase3-integration.sh
+bash .devenv/phase3-restore.sh
+env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
+mix npm.verify
+mix duskmoon_bundler.js.check
+mix npm.run test:js
+mix duskmoon_bundler.build singularity_web --tailwind --resolve-dir apps --resolve-dir /home/gao/Workspace/gsmlg-opt/Singularity/deps
+# E2E NOT RUN: preserved user restriction, not a passing or waived gate.
+mix xref graph --format cycles --fail-above 0
+nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/e2e.yml .github/workflows/release.yml .github/workflows/docker-image.yml
+git diff --check
+git status --short
+```
+
+Dependencies were unchanged; unused-dependency, full formatting and default-dev
+warnings-as-errors compilation checks passed. Unit/property seed `341049`
+executed **1,383 cases, zero failures**; excluded integration cases are not
+counted as executed:
+
+| Application | Executed | Excluded | Seconds |
+| --- | ---: | ---: | ---: |
+| Core | 125 tests + 10 properties | 0 | 6.4 |
+| Domains | 38 | 0 | 1.0 |
+| Storage | 289 | 873 | 34.9 |
+| Retrieval | 52 | 0 | 0.7 |
+| Ingest | 62 | 0 | 26.1 |
+| Runtime | 620 | 236 | 53.3 |
+| Web | 187 | 0 | 15.2 |
+
+Full integration seed `377596` executed **1,109 cases, zero failures**:
+Storage 873 executed / 289 excluded in 1,035.4 seconds, Runtime 236 executed /
+620 excluded in 950.6 seconds. Other applications' cases were excluded by the
+integration selection and are not counted. The main allocation was
+`6dc3a3d9a26fbbb0f6015745`; the historical-migration allocation observed in the
+run was `4012679ad88ccb2f00508808`.
+
+The original four plan contracts passed inside this full integration run.
+Uniform fixture maintenance cleaned 28/81/106 FTS/title/body pending pages.
+Both selective shapes retained seven same-backend cold/warm samples, one
+candidate invocation and one outer row/loop, with all three required content
+indexes observed. FTS backend `3857762` had 49 buffer nodes; title backend
+`3930237` had 50. Short-literal row visits were 32,768/32,766, and the original
+fixed-deadline contract passed. No planner forcing or assertion change occurred.
+Runtime privacy and the complete directly affected legacy suites also passed
+as part of the full integration selection.
+
+The unchanged complete `mix singularity.test.restore` V1/V2 oracle returned 0,
+and the ordered wrapper continued to the frontend checks. Its source allocation
+was `86508badb447d74bb71e6fc6`, V2 destination `c0d8ac9e7369a27534dc5e36`, and V1
+destination `792992d1866b1142b0a0149c`. One output chunk containing repeated
+migration diagnostics was truncated by the tool; individual omitted stage
+counts are therefore not claimed. The complete command exit and subsequent
+ordered progress establish the oracle result, not a subset of assertions.
+
+Frozen npm installation and verification passed for all 166 locked packages.
+JavaScript format/lint checked 22 files; nine frontend test files passed all
+**197 tests** in 6.22 seconds. The Tailwind and JavaScript builds passed in
+3,577 ms and 37,793 ms respectively. Xref reported zero cycles; actionlint
+passed for all five workflow files. The final diff check passed, Git stayed
+clean on the exact candidate, and PostgreSQL was stopped. This was not a
+warning-free run: existing module/migration and intentional negative-path
+diagnostics, Postgrex type-reload messages, ignored fsevents lifecycle hooks,
+and Vite's future config-loader warning remain visible; no warning was
+suppressed to obtain a pass.
+
+Independent nonauthor `search_observer_actual_review` reviewed the complete
+candidate at `35c1f83`: **SPEC PASS, separate QUALITY PASS**, no findings. The
+Phase 2-to-candidate inventory contains 101 files: 76 unchanged previously
+reviewed files plus 25 deltas since `996fdbea...` (15 test/support files and 10
+documents). The reviewer re-read overlapping cleanup/event interactions and
+verified source hashes; no unexpected production, migration, permission, Vault,
+backup, provenance, deadline, assertion, or privacy changes were found.
+This is source review evidence, separate from the parent-run execution above.
+
+Fresh post-gate inventory `8761` exited 0: zero generated test databases,
+recorded storage roots absent, all five allocation roots above absent, and
+private PostgreSQL pid/socket absent after shutdown. Root/main remained clean
+at `e866990...`; the import/extraction worktree remained at `ff703bd...` with
+only its preserved untracked integration plan (SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`), and the
+verification worktree remained clean at `c34935a...`. Lockfile, observer,
+privacy and original Note-concurrency test hashes remained unchanged.
+
+This final five-document handoff passed independent SPEC and separate QUALITY
+review by `search_observer_actual_review`, with no findings. All 31 relative
+Markdown targets resolved, `git diff --check` passed, and source/configuration,
+workflow and lockfile diffs against tested `35c1f83` were empty. This handoff
+changes documentation only; it does not replace the tested source SHA.
+**Manual E2E remains NOT RUN, the complete README
+acceptance gate remains unmet, Phase 3 is not accepted, and Phase 4 does not
+begin.** No Vault feature work, production backfill, merge, push, version bump,
+tag, release or deployment occurred.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with
@@ -1726,14 +1844,15 @@ the subsequent governance changes are recorded separately above.
 
 | Gate | Status |
 | --- | --- |
-| Selective real-role FTS/trigram query plans on analyzed fixtures | Final maintenance candidate PASS `25556`/`33312`/`47775`; earlier full-suite FAIL `37888` retained, clean full rerun pending |
-| Honest short-query limitation and fixed-timeout error | PASS: owning gate `54358`; earlier `69774` retained |
-| Runtime content-canary/privacy/cancellation/retry contracts | PASS: fresh eight-contract owning run `19825` and combined `51110`; prior failures retained above |
-| All new and directly affected PostgreSQL suites | Last full integration FAIL `37888`, 26 of 1,107; scoped repairs PASS, clean full rerun pending |
-| Complete V1/V2 restore | PASS: `90085` on guarded-function production source; exact clean-SHA ordered gate remains NOT RUN |
-| Exact clean-SHA ordered README gate | FAIL at full integration on `999b2fc...`; later steps NOT RUN in that attempt |
+| Selective real-role FTS/trigram query plans on analyzed fixtures | PASS in full clean-candidate run `91785`; scoped passes and historical failures retained |
+| Honest short-query limitation and fixed-timeout error | PASS in full clean-candidate run `91785`; original contracts retained |
+| Runtime content-canary/privacy/cancellation/retry contracts | PASS in full clean-candidate run `91785`; scoped evidence and historical failures retained |
+| All new and directly affected PostgreSQL suites | PASS `91785`: full integration 1,109 executed, zero failures; historical `37888` FAIL retained |
+| Complete V1/V2 restore | PASS `91785` on exact clean source `35c1f83...` |
+| All permitted ordered non-E2E README checks | PASS `91785`, exit 0, exact clean source `35c1f83...` |
+| Complete README phase-acceptance gate | UNMET: mandatory manual E2E remains NOT RUN; no waiver |
 | Manual E2E | NOT RUN under user restriction |
-| Final independent complete-candidate specification/quality source review | Historical PASS through `996fdbea...`; subsequent repair-scoped SPEC/QUALITY reviews PASS; repaired complete-candidate closure still pending |
+| Final independent complete-candidate specification/quality source review | SPEC PASS and separate QUALITY PASS on repaired complete candidate `35c1f83...` |
 
 ## Preserved risks and boundaries
 

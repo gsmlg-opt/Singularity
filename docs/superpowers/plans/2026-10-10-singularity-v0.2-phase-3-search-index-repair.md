@@ -74,8 +74,16 @@ recorded roots and stopped PostgreSQL, with direct checks covering every new roo
   commit the test-only maintenance locally.
   Test-only maintenance is local commit `e7a6723924135c45ec9b45b72b297b5ab94846ac`;
   evidence documentation is the subsequent local handoff.
-- [ ] Re-run the clean-SHA full allowed README sequence after all compatibility
+- [x] Re-run the clean-SHA full allowed README sequence after all compatibility
   repairs. E2E remains NOT RUN and no phase advancement is implied.
+  Full ordered non-E2E run `91785` exited 0 on clean candidate
+  `35c1f8360dd22b129832a1618b3723032a1983bd`: 1,383 unit/property cases, 1,109
+  integration cases (including all four original plan contracts), complete
+  V1/V2 restore, 197 frontend tests and the remaining static/build checks passed.
+  Independent complete-candidate SPEC and separate QUALITY source reviews
+  passed on that same SHA; fresh cleanup `8761` passed. The qualification record
+  retains exact counts/seeds and all earlier failures. The complete phase gate
+  remains unmet because manual E2E is still NOT RUN.
 
 ## Exact file map
 

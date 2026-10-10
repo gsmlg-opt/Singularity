@@ -228,7 +228,13 @@ cycles and diff checks also passed. Allocations `213302780d62541c9596b14b` and
   Search-plan fixture maintenance remains a separate commit.
   Both event/lifetime source slices are local commit
   `c423a88d792a06e29cb84a3a501678e245182255`.
-- [ ] Resume other full-gate repairs and the remaining README checks.
+- [x] Resume other full-gate repairs and the remaining allowed README checks.
+  Clean-candidate `35c1f8360dd22b129832a1618b3723032a1983bd` passed the entire
+  ordered non-E2E sequence in `91785`, exit 0: 1,383 unit/property cases, 1,109
+  integration cases, complete V1/V2 restore, 197 frontend tests and all remaining
+  static/build checks. Independent complete-candidate SPEC and separate QUALITY
+  source reviews passed; cleanup `8761` passed. Manual E2E remains NOT RUN,
+  so full phase acceptance and Phase 4 advancement remain unavailable.
 
 ## Self-review
 

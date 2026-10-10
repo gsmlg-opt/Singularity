@@ -134,8 +134,12 @@ compilation, zero xref cycles and `git diff --check`.
   complete combined batch and separate required regressions pass. Record each
   slice's evidence independently; do not mix the search-plan maintenance into it.
   Both test slices are committed at `c423a88d792a06e29cb84a3a501678e245182255`;
-  the search-plan maintenance is a separate commit. Full clean-SHA README
-  verification remains outstanding and E2E remains prohibited.
+  the search-plan maintenance is a separate commit. Subsequent clean-source
+  `35c1f8360dd22b129832a1618b3723032a1983bd` passed every allowed ordered
+  non-E2E README check in `91785`, exit 0, including all 1,109 integration cases.
+  Independent complete-candidate SPEC and separate QUALITY source reviews and
+  fresh cleanup `8761` passed. Full phase acceptance remains unmet because
+  E2E is still prohibited/NOT RUN; no Phase 4 advancement is implied.
 
 ## Self-review
 
