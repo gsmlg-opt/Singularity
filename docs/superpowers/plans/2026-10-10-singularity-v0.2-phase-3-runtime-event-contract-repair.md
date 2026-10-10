@@ -20,10 +20,10 @@ environment, `.devenv/phase3-integration.sh`, shared dependencies via
 
 ## Task 1: Characterize and review
 
-- [ ] Read the design, current two owning files, claim migration
+- [x] Read the design, current two owning files, claim migration
   `20260722000100_skip_vault_locked_outbox_claims.exs`, projection-event migration
   `20261009000300_document_projection_events.exs`, and existing Phase 3 design.
-- [ ] Parent records current SHA and diff, including fixture-lifetime changes,
+- [x] Parent records current SHA and diff, including fixture-lifetime changes,
   and characterizes both unchanged event-test bodies:
 
 ```sh
@@ -34,6 +34,18 @@ Expected: the ready-restoration count contract fails; undefined dispatch order
 may reproduce FAIL or produce isolated PASS. Record actual executed/excluded
 counts, failures, allocation, and cleanup. Preserve full-run `37888` evidence.
 Do not manufacture RED, change deadlines, or classify an unrun check as PASS.
+This unchanged-body characterization may be combined with the Document
+fixture-lifetime full owning batch by appending the dispatcher file; both
+complete Runtime files must execute, with the expanded command/counts recorded.
+
+Combined baseline `23006` at `e08113b` plus the reviewed lifetime diff appended
+the dispatcher to the complete lifetime owning command. Seed `918339`, exit 2:
+Storage 161 executed, zero failures, one excluded (98.1 seconds); Runtime 110
+executed, one failure, 43 excluded (752.4 seconds). The unchanged ready-restore
+count failed, expected 2 / actual 3; the dispatch-generation case passed this
+time. This does not erase its undefined-order failure in full run `37888`.
+Allocation `8ffdd8426d28bdc46d69b77b`; PostgreSQL stopped, and final inventory
+`19748` subsequently confirmed cleanup.
 
 - [x] Close independent exact-document SPEC then separate QUALITY review.
   Both passed with nonauthor `search_observer_actual_review`.
@@ -47,7 +59,7 @@ Do not manufacture RED, change deadlines, or classify an unrun check as PASS.
 **Modify:** `apps/singularity_runtime/test/singularity/runtime/outbox_dispatcher_test.exs`,
 test `retry and restore extraction generations encode and submit with stable dedupe`.
 
-- [ ] Retain both original fixture events and initial exact dispatch summary.
+- [x] Retain both original fixture events and initial exact dispatch summary.
   Replace the generation-ordered receive loop with identity-based checks:
 
 ```elixir
@@ -72,7 +84,7 @@ end
 refute_receive {:runner_submit, _, _}
 ```
 
-- [ ] Keep the original reset loop scoped to `events` and the second exact
+- [x] Keep the original reset loop scoped to `events` and the second exact
   `submitted: 2, skipped: 0, failed: 0` summary. After that summary, assert:
 
 ```elixir
@@ -97,7 +109,7 @@ Do not impose production SQL ordering or alter runner/dispatcher behavior.
 **Modify:** `apps/singularity_runtime/test/singularity/runtime/document_extraction_job_test.exs`,
 test `restoring ready Document re-exposes identical result without reopening or event`.
 
-- [ ] Rename the final words to `without reopening or extraction event`.
+- [x] Rename the final words to `without reopening or extraction event`.
   Keep initial `C.run(f)`, its receipt, and the original attempts/fragments
   snapshot. Replace the old count snapshot with a local complete-row snapshot:
 
@@ -136,7 +148,7 @@ The snapshot includes all immutable metadata and also requires unchanged
 mutable columns for these undispatched rows; it does not omit projection events.
 The authority query reads the exact fixture's current canonical epochs.
 
-- [ ] Keep `S.tombstone!(f, :document)`, `C.hidden!(f)`,
+- [x] Keep `S.tombstone!(f, :document)`, `C.hidden!(f)`,
   `C.mutation!(f, :restore)`, and `C.live!(f)` in their original order. Before
   the existing replay assertion, require the exact new event:
 
@@ -175,10 +187,12 @@ filtering, count-only replacement, or production mutation is needed.
 
 ## Task 4: Verify, independently review, and commit locally
 
-- [ ] Parent formats only the two owned files and reruns their complete batch
+- [x] Parent formats only the two owned files and reruns their complete batch
   from Task 1. Diagnose remaining failures; compatibility repair counters for
   this slice begin at zero, separate from earlier observer recovery counters.
-- [ ] Parent runs existing exact-event/lifecycle regressions:
+  Repeat the expanded lifetime-plus-dispatcher command to qualify both slices
+  together; it includes every case in these two files and omits no lifetime case.
+- [x] Parent runs existing exact-event/lifecycle regressions:
 
 ```sh
 devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/document_projection_events_test.exs apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs --seed 918339
@@ -188,13 +202,32 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 git diff --check
 ```
 
-- [ ] Nonauthors review SPEC then QUALITY against the exact two-file diff;
+Final chain `96668`, exit 0, seed `918339`, reran the pure lifetime case (one
+pass, two excluded, 0.2 seconds), then the expanded owning batch: Storage 161
+passed, one excluded, 95.1 seconds; Runtime 110 passed, 43 excluded, 768.1
+seconds. The separate event/lifecycle regression above passed all 32 cases in
+21.2 seconds. Full formatting, warnings-as-errors compilation, zero xref
+cycles and diff checks also passed. Allocations `213302780d62541c9596b14b` and
+`be4b15306e7fa683f92e367c` were disposed and PostgreSQL stopped.
+
+- [x] Nonauthors review SPEC then QUALITY against the exact two-file diff;
   resolve findings and rerun relevant checks without weakening assertions.
-- [ ] Confirm owned database/root cleanup, stopped PostgreSQL, unchanged
+  Nonauthor `search_observer_actual_review` passed both reviews with no findings:
+  dispatcher `4832ae1635a390bca3f70b6297e0e06e06c5b444a34df4923ff3def881072cec`,
+  job test `e347a1141acd42225da768a27cd38712b1fa3ae3e8a0a80b6cc6e6060c73a023`.
+  This is source review, not an execution result.
+- [x] Confirm owned database/root cleanup, stopped PostgreSQL, unchanged
   production/migration/lockfile hashes, protected worktrees, and valid links.
-- [ ] Parent records exact outcomes and source hashes in the qualification
+  Final inventory `19748` found zero generated databases; direct checks covered
+  all new roots. Protected worktrees/source hashes and relative links passed.
+- [x] Parent records exact outcomes and source hashes in the qualification
   record, preserves historical FAIL and E2E NOT RUN, and explicitly stages
   only reviewed slice files for a local conventional commit.
+  The event and lifetime slices may share that local commit because they edit
+  the same job test, but each retains its own regressions and review evidence.
+  Search-plan fixture maintenance remains a separate commit.
+  Both event/lifetime source slices are local commit
+  `c423a88d792a06e29cb84a3a501678e245182255`.
 - [ ] Resume other full-gate repairs and the remaining README checks.
 
 ## Self-review
@@ -205,5 +238,6 @@ identity. Complete-row snapshots preserve every old event and require exactly
 one restored event with canonical revision and live authority metadata.
 Terminal replay cannot create another event. Production ordering, Vault,
 extraction deadlines, fixtures owned by another slice, source provenance, and
-backup formats remain intact. Independent review and all execution are pending;
-this plan makes no Phase 3 acceptance or qualification claim.
+backup formats remain intact. Independent document and implementation review
+passed; the final owning/regression/static checks passed and the test-only
+source is committed locally. This plan makes no Phase 3 acceptance claim.

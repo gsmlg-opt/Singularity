@@ -10,10 +10,11 @@ The approved implementation is locally complete through Task 10. Task 11's
 privacy and actual-call cold/warm selective query-plan contracts passed scoped
 qualification. The subsequent complete integration run failed **26 of 1,107
 executed cases**, including both selective plan tests; scoped passes do not
-override that failure. Full-gate compatibility, fixture-lifetime, event-contract,
-and selective-plan diagnosis/repair are in progress. Earlier complete-candidate
-SPEC and separate QUALITY source reviews passed; upcoming repairs require
-their own review. The remaining ordered README checks are not complete.
+override that failure. Necessary compatibility, fixture-lifetime, event-contract
+and search-fixture repairs have now passed owning/regression checks and their
+own independent SPEC/QUALITY reviews, and are committed locally through
+`e7a6723924135c45ec9b45b72b297b5ab94846ac`. The clean-SHA full rerun and remaining
+ordered README checks are not complete. Earlier full failures remain recorded.
 
 The bounded Astra diagnosis is complete. The user's 2026-10-10
 [continuous development authorization](../../AGENTS.md#continuous-development-authorization--2026-10-10)
@@ -1569,6 +1570,137 @@ event contracts and selective-plan diagnosis remain independent workstreams.
 
 No E2E, Phase 4, merge, push, release, deployment or production mutation occurred.
 
+## Full-gate Document fixture and Runtime event repairs, 2026-10-10
+
+The lifetime design/plan was committed at `fffd1af1925fb63f078d6352ef91c70ee072312c`;
+the separate event-contract design/plan at `e08113b5dbda8f2c819ceb750e62cd8d711a858a`.
+Both passed independent SPEC then separate QUALITY review before implementation.
+The earlier five-file Storage compatibility repair is local commit
+`d80d7270679f11e2a71ea36ad9afbe2bbd859307`.
+
+The [lifetime plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-document-fixture-lifetime.md)
+adds an explicit test-process-only retirement registration. On test exit it
+tombstones exactly the resource/owner pair, preserves versions/typed rows/
+fragments, tolerates an already-tombstoned row, and propagates unexpected errors.
+All shared constructors stay unchanged. Explicit callers include the two
+staged-fragment producers and test-owned worker/lifecycle/restart/reconciler/job
+fixtures; historical private-database callers do not receive late callbacks.
+
+Missing-helper RED: pure `2012`, one executed failure/two excluded, 0.2 seconds;
+integration `90820`, two executed failures/one excluded, 1.2 seconds. GREEN
+`42398`: one pure pass/two excluded, 0.1 seconds, then two integration passes/
+one excluded, 1.5 seconds. Seed `918339`; allocations `068c5bd5cae2a82cc3290136`
+and `242dc96c54b925f74ca0e059` were disposed and PostgreSQL stopped.
+
+Producer/recovery batch `7608` passed two Storage cases (65 excluded, 4.2
+seconds) and all ten Runtime cases (199.2 seconds), preserving the real
+180-second deadline. Allocation `3f793129fa99fa0cc846e141` was disposed and
+PostgreSQL stopped. Independent review subsequently found one missing explicit
+registration for the reconciler's ready control; it was added before the next
+full batch. That correction is not proof the ready control caused an expiry.
+
+Expanded baseline `23006`, seed `918339`, included every lifetime owning file
+plus the complete dispatcher file. Storage passed 161 executed cases (one
+excluded, 98.1 seconds). Runtime executed 110 cases, one failed, 43 excluded,
+752.4 seconds. Exit 2: only the unchanged ready-restore event count failed,
+expected two / actual three. The dispatcher ordering case passed on this run,
+which does not invalidate its earlier full-suite failure. Allocation
+`8ffdd8426d28bdc46d69b77b`; PostgreSQL stopped. This is FAIL, not acceptance.
+
+The [event plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-runtime-event-contract-repair.md)
+replaces unpromised dispatch arrival order with exact fixture-ID multisets,
+checks each event's original generation/key/codec, and requires unchanged full
+envelopes/runner IDs on redispatch with no extra submission. Ready restoration
+must preserve every prior event and add exactly one fully bound
+`document.restored`, using live authority epochs and canonical revision zero.
+Terminal extraction replay preserves the entire event set and original
+receipt/attempts/fragments. No production ordering or extraction change occurs.
+
+Nonauthor `search_observer_actual_review` passed final nine-file lifetime SPEC
+and separate QUALITY after the ready-control correction, then separately passed
+both reviews on the two formatted event files. Final helper/test hashes are
+`e6b3b6d7d2c33981dcd425b5d9f29fbeaf71b7293365b755b3675604b86bad4a` and
+`e9d78bd444b388e2dfe95a4bfb5e1658a9a2ae6955ce13fa8389b22006f2072f`;
+dispatcher/job hashes are `4832ae1635a390bca3f70b6297e0e06e06c5b444a34df4923ff3def881072cec`
+and `e347a1141acd42225da768a27cd38712b1fa3ae3e8a0a80b6cc6e6060c73a023`.
+Final chain `96668`, exit 0, seed `918339`, used the exact expanded command in
+the lifetime plan, including both complete event-test files. It passed:
+
+- Pure lifetime contract: one executed, two excluded, 0.2 seconds.
+- Storage owning batch: 161 executed, one excluded, 95.1 seconds.
+- Runtime owning batch: 110 executed, 43 excluded, 768.1 seconds.
+- Separate exact-event/lifecycle regression: 32 executed, no exclusions,
+  21.2 seconds, using the command in the event plan.
+- Full formatting, warnings-as-errors compilation, zero xref cycles and diff
+  checks. Expected negative completion-constraint logs were not test failures.
+
+All executed tests above had zero failures. The batch and regression allocations
+were `213302780d62541c9596b14b` and `be4b15306e7fa683f92e367c`. Final read-only
+inventory `19748`, exit 0, found zero generated databases and absent recorded
+storage roots; direct checks covered every new repair allocation. Owned
+PostgreSQL stopped with no socket remaining. Protected root/main and Phase 2
+worktrees, their untracked plan, production/config/migration files, observer,
+legacy Note concurrency test and lock hashes remain as previously recorded.
+Relative Markdown targets and wrapper syntax checks passed.
+
+The ten-file source-only local commit is
+`c423a88d792a06e29cb84a3a501678e245182255`. These first bounded lifetime/event
+repair rounds passed; the baseline failure and one review correction remain
+recorded, distinct from the observer's two failed Sol rounds and one successful
+Astra recovery. No Vault feature work, E2E or publication occurred. These
+results do not replace the still-required clean-SHA complete gate.
+
+## Full-gate search fixture maintenance follow-up, 2026-10-10
+
+The uniform post-load maintenance allowed by the
+[search repair design](../superpowers/specs/2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md)
+was measured only after the unchanged fixture reproduced failure. Closed
+diagnostic `4158` retained all assertions and showed title sample 1 with one
+candidate call/result/outer loop, 47 buffer nodes, and only `search_entries_fts`.
+The required title index was absent; observer cleanup passed. Four tests ran,
+one failed in 35.3 seconds. This locates that reproduction without attributing
+every earlier failure to one cause or exposing raw plans/content.
+
+The first maintenance probe `7612` exited 2 with four invalid cases: binding a
+relation name required `$1::text::regclass` rather than `$1::regclass`. It yielded
+no plan evidence. Corrected probe `47219` cleaned 71/208/270 actual pending pages
+from the FTS/title/body indexes and passed all four contracts in 33.8 seconds.
+This is distinct from the historical zero-page probe; no causal claim about
+that earlier run is made.
+
+The final test adds only uniform maintenance of those same three disposable
+fixture indexes before the existing ANALYZE, with bounded counts and fixed
+index names. All temporary diagnostic branches were removed. Fixture size,
+query shapes, original settings/deadline assertions and production code remain
+unchanged. Test SHA-256 is
+`a371e9e6a9ab9996d549ba532a3b3e4f7b8d3d389e4610a9448f028d06a2fc1d`;
+observer remains `780dede425cc42fad6988ce32f9d06e954616839439a20e944792de5386fc2e8`.
+Nonauthor `search_observer_actual_review` passed exact SPEC and separate QUALITY
+reviews of the diff and amended design/plan before final execution.
+
+Final unprobed commands are the three follow-up commands in the
+[search repair plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-search-index-repair.md).
+All exited 0:
+
+| Session / seed | Executed / excluded | Seconds | FTS/title/body pages cleaned | Short-query row visits |
+| --- | --- | ---: | --- | --- |
+| `25556` / `918339` | 4 / 0, no failures | 35.7 | 72 / 213 / 279 | 32,768 / 32,766 |
+| `33312` / `215378` | 4 / 0, no failures | 35.5 | 56 / 164 / 214 | 32,768 / 32,766 |
+| `47775` / `918339`, combined search | 86 / 7, no failures | 101.3 | 119 / 356 / 466 | 33,002 / 33,000 |
+
+Each selective shape retained seven same-backend cold/warm observations, one
+candidate invocation, one outer row/loop and all three executed content indexes.
+FTS/title backends were `2785532`/`2791826`, `3685184`/`3679688`, and
+`148205`/`152932`; corresponding buffer-node counts were 49/50, 49/50, and
+49–51/49–52. All original short-query and fixed-deadline assertions passed.
+Allocations were `606c27d58ab0a3d53b228155`, `22542ab4c4b2db43a3f139f1`, and
+`f365fcead3978b48d6e3425d`; wrappers stopped PostgreSQL. Static checks `96668`
+and final inventory `19748` passed as described above; direct checks confirmed
+all three roots absent. The one-file, 13-line test-only local commit is
+`e7a6723924135c45ec9b45b72b297b5ab94846ac`. These scoped passes do not erase the
+clean full-suite failure or establish phase acceptance. Final evidence-document
+review and clean-SHA README rerun follow separately.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with
@@ -1594,14 +1726,14 @@ the subsequent governance changes are recorded separately above.
 
 | Gate | Status |
 | --- | --- |
-| Selective real-role FTS/trigram query plans on analyzed fixtures | Scoped PASS `54358`/`14560`; full-suite FAIL: both selective cases in `37888`, diagnosis open |
+| Selective real-role FTS/trigram query plans on analyzed fixtures | Final maintenance candidate PASS `25556`/`33312`/`47775`; earlier full-suite FAIL `37888` retained, clean full rerun pending |
 | Honest short-query limitation and fixed-timeout error | PASS: owning gate `54358`; earlier `69774` retained |
 | Runtime content-canary/privacy/cancellation/retry contracts | PASS: fresh eight-contract owning run `19825` and combined `51110`; prior failures retained above |
-| All new and directly affected PostgreSQL suites | FAIL: full integration `37888`, 26 failures among 1,107 executed cases |
+| All new and directly affected PostgreSQL suites | Last full integration FAIL `37888`, 26 of 1,107; scoped repairs PASS, clean full rerun pending |
 | Complete V1/V2 restore | PASS: `90085` on guarded-function production source; exact clean-SHA ordered gate remains NOT RUN |
 | Exact clean-SHA ordered README gate | FAIL at full integration on `999b2fc...`; later steps NOT RUN in that attempt |
 | Manual E2E | NOT RUN under user restriction |
-| Final independent complete-candidate specification/quality source review | PASS: `search_observer_actual_review`, all tracked Phase 3 changes plus the exact privacy test now committed at `996fdbea...`; phase acceptance remains separate |
+| Final independent complete-candidate specification/quality source review | Historical PASS through `996fdbea...`; subsequent repair-scoped SPEC/QUALITY reviews PASS; repaired complete-candidate closure still pending |
 
 ## Preserved risks and boundaries
 

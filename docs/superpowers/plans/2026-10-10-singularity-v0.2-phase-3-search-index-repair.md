@@ -24,6 +24,59 @@ The continuous-development authority permits this reviewed forward migration, fi
 
 The parent serially owns every formatter, Mix/test command, database/service lifecycle, Git action, and commit. Workers edit assigned disjoint files only. Preserve all existing assertions and user work. Characterize and repair ordinary failures; retain cumulative repair counts and the established Sol-two-failed-rounds/Astra escalation conditions. No planner forcing, leakproof changes, RLS relaxation, grants to inspect hidden GUCs, runtime credentials, or copied inner-query EXPLAIN.
 
+## Full-gate follow-up: post-load fixture maintenance
+
+The earlier scoped passes below remain historical. Clean full integration
+`37888` reopened both selective cases; unchanged owning run `38416` failed the
+title case (four executed, one failed, 34.8 seconds, seed `918339`). Diagnostic
+`4158` retained all assertions and printed only already-validated closed
+metadata before them: title sample 1 had one candidate call, one result,
+one outer loop, 47 buffer nodes and only `search_entries_fts`; cleanup passed.
+Thus that reproduced failure is the missing required title index, not missing
+plan evidence. FTS, short-query and deadline contracts passed.
+
+- [x] Characterize the unchanged fixture and locate the failure without raw
+  plans, SQL, parameters, result content or exception inspection.
+- [x] Measure the already-permitted uniform maintenance on all three indexes.
+  Probe `7612` exited 2 with four invalid tests because the relation-name binding
+  needed `$1::text::regclass`, not `$1::regclass`; it supplied no plan evidence.
+  Corrected probe `47219` exited 0: 71/208/270 actual pending pages cleaned,
+  four tests passed in 33.8 seconds. FTS seven samples used backend `1604292`
+  with 49 buffer nodes; title used `1609596` with 50; both observed the required
+  indexes. Short row visits remained 32,768/32,766. Do not attribute the older
+  zero-page probe or every full-run failure to this maintenance.
+- [x] Remove temporary diagnostic prints/error branches. The retained owning
+  test diff adds only uniform maintenance before ANALYZE plus bounded fixed-name
+  page reporting. Every original contract and observer byte stays unchanged.
+- [x] Independently review that narrow diff and the design amendment, SPEC then
+  QUALITY, without changing production indexes, credentials, settings or code.
+  Nonauthor `search_observer_actual_review` passed both reviews on the final
+  13-line test diff, SHA `a371e9e6a9ab9996d549ba532a3b3e4f7b8d3d389e4610a9448f028d06a2fc1d`.
+- [x] Parent reruns the final owning command with both seeds and the existing
+  combined search regression with seed `918339`:
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --seed 918339
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --seed 918339
+```
+
+Final unprobed runs all exited 0: `25556`, seed `918339`, four tests passed in
+35.7 seconds; `33312`, seed `215378`, four passed in 35.5 seconds; combined
+`47775`, seed `918339`, 86 executed cases passed, seven excluded, 101.3 seconds.
+Both selective shapes retained seven same-backend cold/warm samples with all
+three named content indexes. Short-query counts and the original deadline
+contract also passed. Each wrapper stopped PostgreSQL. Final static checks
+passed in `96668`; cleanup `19748` confirmed zero generated databases, absent
+recorded roots and stopped PostgreSQL, with direct checks covering every new root.
+
+- [x] Record exact final hashes, cleanup, reviews and results, then narrowly
+  commit the test-only maintenance locally.
+  Test-only maintenance is local commit `e7a6723924135c45ec9b45b72b297b5ab94846ac`;
+  evidence documentation is the subsequent local handoff.
+- [ ] Re-run the clean-SHA full allowed README sequence after all compatibility
+  repairs. E2E remains NOT RUN and no phase advancement is implied.
+
 ## Exact file map
 
 Create:

@@ -2228,6 +2228,16 @@ contains exact commands, failed attempts, review findings, and cleanup evidence.
 Task 11 remains incomplete. The user's E2E prohibition remains effective; no
 complete README gate, Phase 3 acceptance, Phase 4 work, or publication is implied.
 
+The later clean-source README attempt at `999b2fc...` passed 1,382 unit/property
+cases but failed 26 of 1,107 integration cases. Necessary test-only compatibility
+repairs are now locally committed: `d80d727...` (legacy Storage contracts),
+`c423a88...` (explicit Document fixture lifetimes and exact event contracts), and
+`e7a6723...` (uniform post-load search fixture index maintenance). Their owning
+and regression checks, static checks, independent SPEC/QUALITY reviews and
+cleanup passed as recorded in the qualification report. The historical full
+FAIL is preserved; a clean-SHA rerun of the entire allowed README sequence is
+still required. No E2E or phase-advancement permission is inferred.
+
 ## Coverage and execution record
 
 Tasks 1–2 cover typed values and closed contracts; Task 3 covers extensions,

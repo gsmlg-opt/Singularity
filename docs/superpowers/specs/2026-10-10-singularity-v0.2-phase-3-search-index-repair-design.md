@@ -464,6 +464,41 @@ same backend past the usual PL/pgSQL plan-cache warmup; do not force custom or
 generic plans. Instrumentation overhead must not justify increasing the product
 deadline. Missing executed plans or timeout remains a failed qualification.
 
+### Full-gate follow-up: measured post-load GIN maintenance
+
+The later full integration `37888`, seed `918339`, reopened both selective
+qualifications. Unchanged owning characterization `38416` reproduced the title
+failure. Closed-metadata-only diagnostic `4158` located it at the required-index
+assertion: title search returned its correct result and complete actual-call
+evidence, but its only executed content index was `search_entries_fts`. The
+observer cleanup checks passed. Missing observation and leaked state are not
+the cause of that particular failure.
+
+Use the previously permitted uniform post-load maintenance in the owning
+8,192-source fixture: call `pg_catalog.gin_clean_pending_list` for all three
+existing content indexes, through the existing owner setup before ANALYZE and
+before any measured search. Pass the allowlisted relation name as text before
+casting to regclass; do not change production index definitions or settings.
+Record only the fixed index name and bounded nonnegative cleaned-page count.
+PostgreSQL 17 documents this built-in pending-list maintenance and the extra
+read work caused by pending entries in its
+[GIN implementation guidance](https://www.postgresql.org/docs/17/gin.html).
+
+Diagnostic `47219` cleaned 71 FTS, 208 title-trigram and 270 body-trigram pages,
+then passed all four unchanged contracts, including seven same-backend samples
+for each required index. This is measured nonzero maintenance, unlike the
+historical zero-page probe; it does not establish that every earlier failure
+had the same cause or that the full gate is repaired. Probe `7612` invalidated
+all four tests because a diagnostic regclass parameter incorrectly used the
+OID encoder; no search-plan claim comes from that failed setup.
+
+Remove all temporary stage/summary probes and preserve every original query,
+assertion, fixture row, timeout, planner setting, and observer byte. Independently
+review the narrow fixture diff and this evidence, rerun final uninstrumented
+owning/combined search checks, and retain the full clean-SHA gate requirement.
+No runtime automatic maintenance, new extension, credential, migration, or
+production-data operation belongs to this test-only follow-up.
+
 ## Forward migration and compatibility
 
 Use a new forward-only migration
