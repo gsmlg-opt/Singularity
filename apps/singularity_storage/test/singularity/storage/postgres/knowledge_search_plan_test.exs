@@ -6,11 +6,30 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
 
   alias Singularity.Core.Error
   alias Singularity.Storage.Postgres.KnowledgeSearchStore
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, SafeSQL, ScopedRepo}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    KnowledgeSearchPlanObserver,
+    MigrationRepo,
+    SafeSQL,
+    ScopedRepo
+  }
+
+  alias Singularity.Storage.KnowledgeSearchPlanObserver.Repo, as: ObserverRepo
 
   @fixture_size 8_192
   @fts_query "needle bridge"
   @trigram_query "postgreql"
+  @summary_keys ~w(backend parameter_count candidate_calls nested_statements executed_nodes actual_rows actual_loops buffer_nodes indexes entry_rows_inspected entry_access)a
+  @content_indexes ~w(search_entries_fts search_entries_title_trigram search_entries_body_trigram)
+  @entry_nodes [
+    "Seq Scan",
+    "Index Scan",
+    "Index Only Scan",
+    "Bitmap Heap Scan",
+    "Bitmap Index Scan"
+  ]
 
   setup_all do
     {:ok, fixture: canonical_fixture!()}
@@ -25,29 +44,44 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
     @index index
 
     test "selective #{shape} has an unforced indexed production-role plan", %{fixture: fixture} do
-      {page, plan} = executed_plan(fixture, @query)
+      version_id =
+        :crypto.hash(
+          :md5,
+          fixture.owner_scope_id <> ":knowledge-plan:version:" <> to_string(@ordinal)
+        )
+        |> Ecto.UUID.load!()
 
-      assert %{items: [item], next_cursor: :done} = page
-      assert item.resource_id == resource_id(fixture, @ordinal)
-      assert item.rank > 0
-      assert plan["Actual Rows"] == 1
+      with_plan_observer(fn repo ->
+        Enum.reduce(1..7, nil, fn sample, backend ->
+          {page, summary} = observed_search(repo, fixture, @query)
+          assert %{items: [item], next_cursor: :done} = page
+          assert item.resource_id == resource_id(fixture, @ordinal)
+          assert item.resource_version_id == version_id
+          assert item.entry_id == "note:" <> version_id
+          assert item.rank > 0
+          assert summary.parameter_count == 13
+          assert summary.candidate_calls == 1
+          assert summary.nested_statements == 1
+          assert summary.actual_rows == 1
+          assert summary.actual_loops > 0
+          assert summary.buffer_nodes > 0
 
-      indexes =
-        plan
-        |> plan_nodes()
-        |> Enum.flat_map(fn node ->
-          case node do
-            %{"Index Name" => name} -> [name]
-            _other -> []
-          end
+          assert @index in summary.indexes,
+                 "selective production-role search did not use #{@index}; indexes=#{inspect(summary.indexes)}"
+
+          if backend != nil, do: assert(summary.backend === backend)
+          phase = if sample == 1, do: :cold, else: if(sample >= 6, do: :warm, else: :warmup)
+
+          IO.puts(
+            "knowledge_search_plan shape=#{@index} sample=#{sample} phase=#{phase} " <>
+              "backend=#{summary.backend} candidate_calls=#{summary.candidate_calls} " <>
+              "actual_rows=#{summary.actual_rows} actual_loops=#{summary.actual_loops} " <>
+              "buffer_nodes=#{summary.buffer_nodes} indexes=#{inspect(summary.indexes)}"
+          )
+
+          summary.backend
         end)
-
-      assert @index in indexes,
-             "selective production-role search did not use #{@index}; indexes=#{inspect(indexes)}"
-
-      assert Enum.any?(plan_nodes(plan), fn node ->
-               node["Index Name"] == @index and node["Actual Loops"] > 0
-             end)
+      end)
     end
   end
 
@@ -55,27 +89,19 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
     fixture: fixture
   } do
     for q <- ["o", "ol"] do
-      {page, plan} = executed_plan(fixture, q)
+      {page, summary} = executed_plan(fixture, q)
 
       assert %{items: items, next_cursor: cursor} = page
       assert length(items) == 20
       assert is_binary(cursor)
       assert Enum.all?(items, &(&1.rank >= 1_000_000))
-      assert plan["Actual Rows"] == 21
-
-      entry_access =
-        plan
-        |> plan_nodes()
-        |> Enum.filter(&(&1["Relation Name"] == "search_entries"))
-
-      assert entry_access != []
-
-      inspected =
-        Enum.reduce(entry_access, 0, fn node, total ->
-          total +
-            (node["Actual Rows"] + Map.get(node, "Rows Removed by Filter", 0)) *
-              node["Actual Loops"]
-        end)
+      assert summary.parameter_count == 13
+      assert summary.candidate_calls == 1
+      assert summary.actual_rows == 21
+      assert summary.actual_loops > 0
+      assert summary.buffer_nodes > 0
+      assert summary.entry_access != []
+      inspected = summary.entry_rows_inspected
 
       # These literals occur in virtually every background title. A sequential
       # or owner-index scan is legitimate; a selective content-index claim is not.
@@ -83,7 +109,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
 
       IO.puts(
         "knowledge_search_plan shape=short_literal codepoints=#{length(String.codepoints(q))} " <>
-          "candidate_rows=#{inspected} access=#{inspect(Enum.map(entry_access, & &1["Node Type"]))}"
+          "candidate_rows=#{inspected} access=#{inspect(Enum.map(summary.entry_access, &elem(&1, 0)))}"
       )
     end
   end
@@ -182,97 +208,79 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
   end
 
   defp executed_plan(fixture, q) do
-    RequestRepo.checkout(fn ->
-      ScopedRepo.transact(RequestRepo, scope(fixture), fn repo ->
-        query = filters(fixture, q)
-        {result, statement, parameters} = capture_search(repo, query)
-        assert {:ok, page} = result
+    with_plan_observer(fn repo -> observed_search(repo, fixture, q) end)
+  end
 
-        assert %{rows: [["singularity_web", "on", "on", "5s", "0.3"]]} =
-                 SafeSQL.query!(repo, """
-                 SELECT current_user, current_setting('row_security'),
-                        current_setting('enable_seqscan'), current_setting('statement_timeout'),
-                        current_setting('pg_trgm.similarity_threshold')
-                 """)
+  defp observed_search(repo, fixture, q) do
+    monitors = caller_monitors()
 
-        # Reuse the exact SQL and parameters passed by the real search call.
-        # Raw Postgrex queries are unnamed here, so pg_prepared_statements cannot
-        # retain them. Neither the private statement nor its bindings are copied.
-        assert %{rows: [[[%{"Plan" => plan}]]]} =
-                 SafeSQL.query!(
-                   repo,
-                   "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " <> statement,
-                   parameters
-                 )
+    case KnowledgeSearchPlanObserver.search_summary(repo, scope(fixture), filters(fixture, q)) do
+      {:ok, page, summary} ->
+        closed? = closed_summary?(summary)
+        assert closed?, "plan observer returned non-closed evidence (contents withheld)"
+        assert summary.backend > 0
+        assert_search_trace_clean(monitors)
+        {page, summary}
 
-        {page, plan}
+      _ ->
+        flunk("actual production-role search evidence missing (contents withheld)")
+    end
+  end
+
+  defp with_plan_observer(callback) do
+    database = RequestRepo.config()[:database]
+    shared = Process.whereis(RequestRepo)
+    dynamic = RequestRepo.get_dynamic_repo()
+    monitors = caller_monitors()
+
+    result =
+      KnowledgeSearchPlanObserver.with_observer(database, fn repo ->
+        assert repo == ObserverRepo
+        assert Process.whereis(RequestRepo) == shared
+        assert RequestRepo.get_dynamic_repo() == dynamic
+        callback.(repo)
       end)
-    end)
-  end
 
-  defp capture_search(repo, query) do
-    caller = self()
-    reference = make_ref()
-    function = {SafeSQL, :query, 4}
+    assert Process.whereis(RequestRepo) == shared
+    assert RequestRepo.get_dynamic_repo() == dynamic
+    assert Process.whereis(ObserverRepo) == nil
+    assert KnowledgeSearchPlanObserver.clean?(database)
+    assert_search_trace_clean(monitors)
 
-    # Refuse to replace tracing owned by another observer. Only this process is
-    # traced; the isolated collector never logs SQL, arguments, or result rows.
-    assert {:flags, []} = :erlang.trace_info(caller, :flags)
-    assert {:traced, false} = :erlang.trace_info(function, :traced)
-
-    tracer = spawn_link(fn -> collect_search_calls(caller, reference, []) end)
-    monitor = Process.monitor(tracer)
-
-    try do
-      assert :erlang.trace_pattern(function, true, [:local]) == 1
-      assert :erlang.trace(caller, true, [:call, {:tracer, tracer}]) == 1
-
-      result = KnowledgeSearchStore.search(repo, query)
-      delivered = :erlang.trace_delivered(caller)
-      assert_receive {:trace_delivered, ^caller, ^delivered}, 5_000
-      send(tracer, {reference, :collect})
-      assert_receive {^reference, :calls, calls}, 5_000
-
-      selected =
-        Enum.filter(calls, fn {called_repo, statement, _parameters, _options} ->
-          called_repo == repo and String.starts_with?(statement, "WITH input AS (") and
-            String.contains?(statement, "scored AS MATERIALIZED") and
-            String.contains?(statement, "plainto_tsquery")
-        end)
-
-      assert length(selected) == 1, "expected one captured actual search statement"
-      [{_repo, statement, parameters, _options}] = selected
-      assert length(parameters) == 13
-      {result, statement, parameters}
-    after
-      :erlang.trace(caller, false, [:call])
-      :erlang.trace_pattern(function, false, [:local])
-      send(tracer, {reference, :stop})
-
-      receive do
-        {:DOWN, ^monitor, :process, ^tracer, :normal} -> :ok
-      after
-        5_000 ->
-          Process.unlink(tracer)
-          Process.exit(tracer, :kill)
-          assert_receive {:DOWN, ^monitor, :process, ^tracer, _reason}, 1_000
-      end
+    case result do
+      {:ok, value} -> value
+      _ -> flunk("plan observer failed or leaked state (contents withheld)")
     end
   end
 
-  defp collect_search_calls(caller, reference, calls) do
-    receive do
-      {:trace, ^caller, :call, {SafeSQL, :query, [repo, statement, parameters, options]}} ->
-        call = {repo, IO.iodata_to_binary(statement), parameters, options}
-        collect_search_calls(caller, reference, [call | calls])
+  defp closed_summary?(summary) when is_map(summary) do
+    Enum.sort(Map.keys(summary)) == Enum.sort(@summary_keys) and
+      Enum.all?(@summary_keys -- [:indexes, :entry_access], fn key ->
+        value = Map.get(summary, key)
+        is_integer(value) and value >= 0 and value <= 1_000_000_000
+      end) and is_list(summary.indexes) and length(summary.indexes) <= 3 and
+      Enum.all?(summary.indexes, &(&1 in @content_indexes)) and
+      is_list(summary.entry_access) and length(summary.entry_access) <= 4_096 and
+      Enum.all?(summary.entry_access, fn
+        {name, count} ->
+          name in @entry_nodes and is_integer(count) and count >= 0 and count <= 1_000_000_000
 
-      {^reference, :collect} ->
-        send(caller, {reference, :calls, Enum.reverse(calls)})
-        collect_search_calls(caller, reference, calls)
+        _ ->
+          false
+      end)
+  end
 
-      {^reference, :stop} ->
-        :ok
-    end
+  defp closed_summary?(_summary), do: false
+
+  defp caller_monitors do
+    {:monitors, monitors} = Process.info(self(), :monitors)
+    Enum.sort(monitors)
+  end
+
+  defp assert_search_trace_clean(monitors) do
+    assert {:flags, []} = :erlang.trace_info(self(), :flags)
+    assert {:traced, false} = :erlang.trace_info({SafeSQL, :query, 4}, :traced)
+    assert caller_monitors() == monitors
   end
 
   defp authorized_source! do
@@ -418,9 +426,6 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
       policy_version: 1
     }
   end
-
-  defp plan_nodes(node),
-    do: [node | Enum.flat_map(Map.get(node, "Plans", []), &plan_nodes/1)]
 
   defp connection_settings(repo) do
     %{rows: [settings]} =
