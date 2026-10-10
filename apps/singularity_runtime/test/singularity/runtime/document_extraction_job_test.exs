@@ -1549,6 +1549,7 @@ defmodule Singularity.Runtime.DocumentSourceIntegrationSupport do
       end
 
     document = KnowledgeFixtures.document!(source, Map.put(pin_attrs, :media_type, media_type))
+    KnowledgeFixtures.retire_document_on_exit!(document)
     key = "document-extraction:" <> Ecto.UUID.load!(document.resource_version_id)
 
     Fixtures.with_owner(fn ->
@@ -2848,6 +2849,7 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationSupport do
 
   defp private_document!(f) do
     document = KnowledgeFixtures.document!(f.source, %{title: @canary, media_type: f.media_type})
+    KnowledgeFixtures.retire_document_on_exit!(document)
     id = Ecto.UUID.generate()
 
     env = %{
@@ -3270,27 +3272,78 @@ defmodule Singularity.Runtime.DocumentOutcomeFencesIntegrationTest do
     C.no_projection!(f)
   end
 
-  test "restoring ready Document re-exposes identical result without reopening or event", %{
-    fixture: f
-  } do
+  test "restoring ready Document re-exposes identical result without reopening or extraction event",
+       %{
+         fixture: f
+       } do
     assert {:ok, receipt} = C.run(f)
     before = {S.attempt_rows(f), S.fragments(f)}
 
-    count =
-      S.owner_query("SELECT count(*) FROM core.outbox_events WHERE vault_id=$1", [
-        f.source.vault_id
-      ]).rows
+    events = fn ->
+      S.owner_query(
+        "SELECT to_jsonb(event) FROM core.outbox_events AS event WHERE vault_id=$1 ORDER BY id",
+        [f.source.vault_id]
+      ).rows
+      |> Map.new(fn [event] -> {event["id"], event} end)
+    end
+
+    before_events = events.()
+
+    assert [[principal_epoch, owner_epoch, canonical_revision]] =
+             S.owner_query(
+               """
+               SELECT principal.authorization_epoch, owner.authorization_epoch, version.revision
+               FROM identity.principals AS principal
+               JOIN core.vaults AS owner ON owner.id=$2
+               JOIN core.vault_members AS member
+                 ON member.principal_id=principal.id AND member.vault_id=owner.id
+               JOIN content.resource_versions AS version
+                 ON version.id=$3 AND version.resource_id=$4 AND version.vault_id=owner.id
+               WHERE principal.id=$1 AND principal.kind='owner'
+                 AND principal.revoked_at IS NULL AND member.revoked_at IS NULL
+               """,
+               [
+                 f.source.principal_id,
+                 f.source.vault_id,
+                 f.document.resource_version_id,
+                 f.document.resource_id
+               ]
+             ).rows
+
+    assert canonical_revision == 0
 
     S.tombstone!(f, :document)
     C.hidden!(f)
     C.mutation!(f, :restore)
     C.live!(f)
+
+    after_restore = events.()
+    assert Map.take(after_restore, Map.keys(before_events)) == before_events
+    assert [restored] = Map.values(Map.drop(after_restore, Map.keys(before_events)))
+    restored_id = restored["id"]
+    assert {:ok, ^restored_id} = Ecto.UUID.cast(restored_id)
+    refute Map.has_key?(before_events, restored_id)
+    assert restored["event_type"] == "document.restored"
+    assert restored["idempotency_key"] == "document-projection:#{restored_id}"
+    assert restored["vault_id"] == f.vault_id
+    assert restored["principal_id"] == f.principal_id
+    assert restored["principal_authorization_epoch"] == principal_epoch
+    assert restored["vault_authorization_epoch"] == owner_epoch
+    assert restored["required_capability"] == "asset.read"
+    assert restored["classification"] == "private"
+    assert restored["envelope_version"] == 1
+    assert {:ok, _correlation_id} = Ecto.UUID.cast(restored["correlation_id"])
+    assert restored["causation_id"] == nil
+    assert restored["expected_entity_revision"] == canonical_revision
+
+    assert restored["payload"] == %{
+             "resource_id" => Ecto.UUID.load!(f.document.resource_id),
+             "resource_version_id" => Ecto.UUID.load!(f.document.resource_version_id)
+           }
+
     assert {:ok, ^receipt} = C.run(f)
     assert {S.attempt_rows(f), S.fragments(f)} == before
-
-    assert S.owner_query("SELECT count(*) FROM core.outbox_events WHERE vault_id=$1", [
-             f.source.vault_id
-           ]).rows == count
+    assert events.() == after_restore
   end
 
   @tag timeout: 420_000

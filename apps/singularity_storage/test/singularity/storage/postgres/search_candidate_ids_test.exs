@@ -771,6 +771,7 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   test "a real extracting Document staged fragment is not a ready search candidate" do
     control = control!()
     document = KnowledgeFixtures.document!(control.source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     fragment = fragment!(document, 0, "staged signal")
 
     Fixtures.with_owner(fn ->

@@ -32,6 +32,7 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
       end)
 
     document = KnowledgeFixtures.document!(binary_source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     job = KnowledgeFixtures.uuid()
 
     {principal_epoch, owner_epoch} =

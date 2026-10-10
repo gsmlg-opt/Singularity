@@ -76,7 +76,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "claim increments once, completion seals all fragments and exact replay does not mutate" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
     fragments = [fragment(document, 0, "hello"), fragment(document, 1, "\nworld")]
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
@@ -118,7 +118,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "claimed extraction may complete after tombstone but a new claim is denied" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
     body = [fragment(document, 0, "retained")]
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
@@ -151,7 +151,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "claimed extraction may fail after tombstone but a new claim is denied" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       claim(source, document)
@@ -178,7 +178,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
   test "failed and unsupported attempts reset without losing identity or reusing a generation" do
     for outcome <- ["failed", "unsupported"] do
       source = KnowledgeFixtures.source!()
-      document = KnowledgeFixtures.document!(source)
+      document = document!(source)
       before = state(document)
 
       KnowledgeTestGrants.with_lifecycle_grants(fn ->
@@ -230,7 +230,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "expired attempt is fenced and recovery permits a fresh job" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
     first_job = document.resource_version_id
     next_job = KnowledgeFixtures.uuid()
     body = [fragment(document, 0, "fresh")]
@@ -367,7 +367,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
   test "EXECUTE alone cannot authorize missing, cross-owner or revoked scope for any operation" do
     source = KnowledgeFixtures.source!()
     other = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       for repo <- [RequestRepo, WorkerRepo],
@@ -389,7 +389,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "claim validates metadata and refuses bigint exhaustion" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       for adapter <- [nil, "", " ", String.duplicate("é", 128)] do
@@ -425,7 +425,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
   test "revoked principals and disabled accounts invalidate every lifecycle entrypoint" do
     for revocation <- [:principal, :account] do
       source = KnowledgeFixtures.source!()
-      document = KnowledgeFixtures.document!(source)
+      document = document!(source)
 
       Fixtures.with_owner(fn ->
         case revocation do
@@ -466,7 +466,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "completion validates every fragment and leaves no partial set on rejection" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
     good = fragment(document, 0, "hello")
 
     malformed = [
@@ -549,7 +549,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "SQL rejects unknown locator fields, NULL holes, numeric coercion and invalid ranges" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
     good = fragment(document, 0, "hello")
 
     locators = [
@@ -639,7 +639,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "completion enforces aggregate fragment count and byte bounds without partial insertion" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       claim(source, document)
@@ -662,7 +662,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "completion rejects canonical locators for another media kind and accepts ordinal fallback" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_lifecycle_grants(fn ->
       claim(source, document)
@@ -687,7 +687,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "immutable identity and pinned source updates fail at the statement before commit" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     assignments = [
       {"resource_id", KnowledgeFixtures.uuid()},
@@ -722,7 +722,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "deferred completion guards reject partial pending fragments and empty ready versions" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     rejected("document_versions_completion_check", fn ->
       Fixtures.with_owner(fn ->
@@ -759,7 +759,7 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
 
   test "accidental runtime grants cannot mutate lifecycle, immutable identity or sealed fragments" do
     source = KnowledgeFixtures.source!()
-    document = KnowledgeFixtures.document!(source)
+    document = document!(source)
 
     KnowledgeTestGrants.with_direct_mutation_grants(fn ->
       for repo <- [RequestRepo, WorkerRepo],
@@ -814,6 +814,12 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
         end)
       end
     end)
+  end
+
+  defp document!(source) do
+    document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
+    document
   end
 
   defp calls(document) do

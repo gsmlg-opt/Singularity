@@ -456,6 +456,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   test "an extracting Document with staged canonical fragments and stale entries is not visible" do
     source = authorized_source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     fragment = fragment!(source, document, "signal", 0)
 
     Fixtures.with_owner(fn ->

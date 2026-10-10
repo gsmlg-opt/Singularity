@@ -24,6 +24,7 @@ defmodule Singularity.Runtime.DocumentExtractionRuntimeRestartTest do
 
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     {event, envelope} = extraction_event!(source, document)
     {pending, _observed_at} = snapshot!(document)
 

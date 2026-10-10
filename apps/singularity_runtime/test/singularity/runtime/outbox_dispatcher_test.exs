@@ -536,8 +536,18 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert {:ok, %{submitted: 2, skipped: 0, failed: 0}} =
              OutboxDispatcher.dispatch_once(dispatcher_options(runner))
 
-    for generation <- [1, 2] do
-      assert_receive {:runner_submit, envelope, _runner_id}
+    first =
+      for _ <- 1..2 do
+        assert_receive {:runner_submit, envelope, runner_id}
+        {envelope.job_id, {envelope, runner_id}}
+      end
+
+    expected_ids = Enum.map(events, &load_uuid(&1.id))
+    assert Enum.sort(Enum.map(first, &elem(&1, 0))) == Enum.sort(expected_ids)
+    first_by_id = Map.new(first)
+
+    for {event, generation} <- Enum.zip(events, [1, 2]) do
+      {envelope, _runner_id} = Map.fetch!(first_by_id, load_uuid(event.id))
       assert envelope.expected_entity_revision == generation
 
       assert envelope.idempotency_key ==
@@ -545,6 +555,8 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
 
       assert {:ok, _encoded} = EnvelopeCodec.encode(envelope)
     end
+
+    refute_receive {:runner_submit, _, _}
 
     Enum.each(events, fn event ->
       owner_query(
@@ -556,6 +568,15 @@ defmodule Singularity.Runtime.OutboxDispatcherTest do
     assert {:ok, %{submitted: 2, skipped: 0, failed: 0}} =
              OutboxDispatcher.dispatch_once(dispatcher_options(runner))
 
+    second =
+      for _ <- 1..2 do
+        assert_receive {:runner_submit, envelope, runner_id}
+        {envelope.job_id, {envelope, runner_id}}
+      end
+
+    assert Enum.sort(Enum.map(second, &elem(&1, 0))) == Enum.sort(expected_ids)
+    assert Map.new(second) == first_by_id
+    refute_receive {:runner_submit, _, _}
     assert FakeRunner.submission_count(runner) == 2
   end
 

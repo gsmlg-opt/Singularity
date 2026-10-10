@@ -57,6 +57,18 @@ defmodule Singularity.Storage.KnowledgeFixtures do
     Fixtures.with_owner(fn -> insert_document!(source, attrs) end)
   end
 
+  def retire_document_on_exit!(%{resource_id: resource_id, vault_id: owner_id}) do
+    ExUnit.Callbacks.on_exit(fn ->
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1 AND vault_id=$2 AND deleted_at IS NULL",
+          [resource_id, owner_id]
+        )
+      end)
+    end)
+  end
+
   def insert_document!(source, attrs \\ %{}) do
     row =
       Map.merge(

@@ -16,6 +16,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "expired attempt recovers once with a successor event and fences the old job" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     old_job = KnowledgeFixtures.uuid()
     grant_read!(source)
     claim_expired!(document, old_job)
@@ -101,7 +102,9 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "unexpired and terminal attempts are not recovered" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     {ready, _fragment} = KnowledgeFixtures.ready_document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(ready)
 
     Fixtures.with_owner(fn ->
       query!(
@@ -126,6 +129,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "a newly started reconciler runs a recovery pass" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     grant_read!(source)
     claim_expired!(document, KnowledgeFixtures.uuid())
 
@@ -150,6 +154,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "concurrent passes create exactly one successor" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     grant_read!(source)
     claim_expired!(document, KnowledgeFixtures.uuid())
 
@@ -169,6 +174,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "revoked original principal leaves expired attempt fenced without an event" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     grant_read!(source)
     claim_expired!(document, KnowledgeFixtures.uuid())
     Fixtures.revoke_membership!(source)
@@ -181,6 +187,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "locked custody does not prevent recovery; deleted Documents are not redispatched" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     grant_read!(source)
     claim_expired!(document, KnowledgeFixtures.uuid())
 
@@ -192,6 +199,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
     assert %{rows: [[1]]} = recovery_event_count(document)
 
     deleted = KnowledgeFixtures.document!(source)
+    KnowledgeFixtures.retire_document_on_exit!(deleted)
     claim_expired!(deleted, KnowledgeFixtures.uuid())
 
     Fixtures.with_owner(fn ->
@@ -284,7 +292,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "worker scanner returns only version and owner UUIDs for an expired Document" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
-    retire_document_on_exit(document)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     grant_read!(source)
     claim_expired!(document, KnowledgeFixtures.uuid())
 
@@ -306,7 +314,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
   test "successor collision rolls back recovery while a same-source control recovers once" do
     source = KnowledgeFixtures.source!()
     document = KnowledgeFixtures.document!(source)
-    retire_document_on_exit(document)
+    KnowledgeFixtures.retire_document_on_exit!(document)
     old_job = KnowledgeFixtures.uuid()
     grant_read!(source)
     claim_expired!(document, old_job)
@@ -365,7 +373,7 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
     assert {version, owner} in ids
 
     control = KnowledgeFixtures.document!(source)
-    retire_document_on_exit(control)
+    KnowledgeFixtures.retire_document_on_exit!(control)
     control_job = KnowledgeFixtures.uuid()
     claim_expired!(control, control_job)
     assert_expired_attempt!(control, control_job)
@@ -443,18 +451,6 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
              )
 
     assert recovered == recovery_snapshot(source)
-  end
-
-  defp retire_document_on_exit(document) do
-    on_exit(fn ->
-      Fixtures.with_owner(fn ->
-        query!(
-          MigrationRepo,
-          "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1 AND vault_id=$2 AND deleted_at IS NULL",
-          [document.resource_id, document.vault_id]
-        )
-      end)
-    end)
   end
 
   defp assert_expired_attempt!(document, job_id) do
