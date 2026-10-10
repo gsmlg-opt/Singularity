@@ -518,6 +518,16 @@ defmodule Singularity.Runtime.SearchRebuildIntegrationTest do
     task = Task.async(fn -> rebuild(config(observed), session, :all) end)
 
     try do
+      transactions =
+        Enum.map(Enum.take(ids, 100), fn expected_id ->
+          assert_receive {:rebuild_resource, ^tag, id, transaction}, 5_000
+          assert id == expected_id
+          assert is_integer(transaction) and transaction > 0
+          transaction
+        end)
+
+      assert length(Enum.uniq(transactions)) == 100
+      refute_received {:rebuild_resource, ^tag, _, _}
       assert_receive {:rebuild_between_pages, ^tag, blocked}, 5_000
 
       RequestRepo.checkout(fn ->
