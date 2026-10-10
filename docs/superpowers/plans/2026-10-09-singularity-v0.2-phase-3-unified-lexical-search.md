@@ -1674,18 +1674,18 @@ escalation.
 `apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs`.
 Modify the new projection adapter and Runtime `api.ex`.
 
-- [ ] RED: rebuild one resource succeeds after its projection is removed;
+- [x] RED: rebuild one resource succeeds after its projection is removed;
   full rebuild discovers all canonical Note/Document resources including tombstones.
   Do not enumerate through the public live Document list or stale projection table.
-- [ ] Add bounded IDs-only UUID-keyset enumeration with at most 100 IDs per
+- [x] Add bounded IDs-only UUID-keyset enumeration with at most 100 IDs per
   page. Full command requires both read capabilities before enumeration; each
   resource transaction reauthorizes. One-resource command determines only
   owner-scoped canonical kind before requiring that kind's read authority.
-- [ ] Reuse atomic private canonical construction through the read-authorized
+- [x] Reuse atomic private canonical construction through the read-authorized
   entrypoint. No event identity is required for manual maintenance. Stop on a
   sanitized failure, never skip a failed resource and report success. Return
   counts only; no whole-owner transaction, truncate, owner override, or credentials.
-- [ ] Exercise the actual running Runtime session path:
+- [x] Exercise the actual running Runtime session path:
 
 ```elixir
 assert {:ok, %{resources: 2, entries: 2}} =
@@ -1695,11 +1695,11 @@ assert {:ok, %{resources: 2, entries: 2}} =
   The fixture supplies the established live session/config; no new login/unlock
   path or standalone Mix task is introduced. Fresh independent custody does not
   regain a required unlock from a token/DTO.
-- [ ] Compare complete ordered visible rows, rank, timestamps, locators, and
+- [x] Compare complete ordered visible rows, rank, timestamps, locators, and
   paging after deleting all derived entries and rebuilding. Test interrupted
   restart, revocation between pages, and deterministic concurrent delete/restore.
   Assert immutable canonical rows/digests are byte-identical before and after.
-- [ ] Prove the initial backfill path for canonical Notes and ready Documents
+- [x] Prove the initial backfill path for canonical Notes and ready Documents
   that predate this projection, with no later lifecycle event to populate it.
   Upgrade a historical fixture, invoke the guarded in-process full rebuild,
   and compare its exact entries with a fresh canonical rebuild. Record this
@@ -1712,7 +1712,82 @@ devenv shell -- mix test apps/singularity_runtime/test/singularity/runtime/searc
 devenv shell -- mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs
 ```
 
-- [ ] Review and commit `feat(runtime): rebuild unified search from canonical resources`.
+- [x] Review and commit `feat(runtime): rebuild unified search from canonical resources`.
+
+### Task 9 execution, 2026-10-10 — locally complete
+
+The implementation follows the accepted cleanup repair at
+`294958c35a481baf0b670803e9bfe9e3f157c573`. The one-resource path reads only
+owner-scoped canonical identity before entering the existing kind-specific
+read scope. That preliminary RLS scope is not described as session
+authentication: the subsequent `OperationScope` performs the fresh live
+session, capability, and custody checks before reconciliation. The full sweep
+checks both read capabilities and unlock before every IDs-only page and every
+separate resource transaction. No authorization implementation or grants changed.
+
+The three original unit contracts first failed at the absent API (session
+`4473`, exit 2, seed `215378`). The first live fixture stopped earlier because
+its descriptive token was not the required 32-byte opaque session token
+(`32174`). The fixture-only correction hashes a fresh 32-byte token into the
+existing session and resolves it through the real PreAuth/ResolveSession path;
+the corrected four live contracts then failed at the absent API (`82399`,
+exit 2). No fake session authority was introduced. Initial unit and live GREEN
+were `40145` and `18405`; the latter command's overall exit 2 belonged only
+to Task 10's expected replay RED, not these four passing Runtime contracts.
+
+Expanded qualification preserved the original seven contracts and passed:
+
+- Four unit contracts, 13 integration exclusions, session `74223`, exit 0,
+  seed `215378`, 1.7 seconds.
+- Thirteen live integration contracts, four unit exclusions, session `94621`,
+  exit 0, seed `215378`, 27.1 seconds. This includes 102 resources across
+  two bounded pages, distinct transaction IDs, malformed pages/counts,
+  authority denial before enumeration, interrupted rollback/restart,
+  revocation between pages after the observed scope release, and controlled
+  committed delete/restore. Complete canonical bytes, ordered projection rows,
+  nonempty ranks, timestamps, locators, and cursors remain equal.
+- A historical `20261008000000` fixture had canonical Notes and a ready
+  Document but no unified projection. Forward migration followed by the actual
+  guarded API rebuilt exact entries with zero later outbox events; a fresh
+  canonical reconstruction and ranked API response matched exactly.
+
+The already-approved two-file Phase 3 architecture amendment is extended only
+with the three literal Task 9 API additions and their mutation-token choices.
+All original Phase 2/Task 8 additions and legacy-byte hashes remain unchanged.
+Before this extension, the current two-file gate failed only its two exact-byte
+checks (`24065`, 29 tests, two failures). Afterward all 29 tests passed
+(`95492`, exit 0, seed `215378`, 1.7 seconds), including mutation, removal,
+duplication, and relocation rejection for every addition. This is not a
+replacement baseline or an assertion waiver.
+
+Exact owning qualification commands:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs + test apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs + test apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378
+```
+
+**Required operator step before any separately authorized activation:** in the
+already-running Runtime, obtain its existing authenticated owner session with
+both `asset.read` and `note.read` and the required live unlock, then call
+`Singularity.Runtime.Api.rebuild_search(existing_session, :all)`. Require an
+`{:ok, %{resources: resource_count, entries: entry_count}}` result and verify canonical search
+results before activation. The two counts may differ (for example, tombstones
+and pending Documents have no entries). A denied/interrupted command is not
+successful backfill; resolve the existing authority/failure and restart the
+same idempotent command. Do not start a standalone Mix runtime, copy custody,
+introduce credentials, or infer unlock from a DTO. Migration alone is not a
+backfill. This records an operator requirement; no live activation, production
+backfill, or deployment has been performed or authorized.
+
+Independent specification then quality reviews passed with no remaining
+findings; the concrete operator instruction was verified before acceptance.
+Task 9 is committed at `ab212109cf876b29e017f595c3bc5b6160d83550`.
+The final combined scoped checks below passed. No Task 9 production repair
+has been required. The historical unreproduced Note
+concurrency timeout remains a separate residual risk, not a repaired or waived
+finding.
 
 ## Task 10: Minimal legacy restore compatibility
 
@@ -1875,10 +1950,10 @@ resume; complete Phase 3 qualification and the historical Note risk remain.
 add `apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs`
 and extend owning existing restore integration assertions without weakening them.
 
-- [ ] RED: a supported V2 Note restore completes with canonical Notes but no
+- [x] RED: a supported V2 Note restore completes with canonical Notes but no
   unified results under the new API. Also assert nonempty derived destination
   rows are not silently ignored. Existing V1 behavior remains zero unified rows.
-- [ ] Add `content.search_entries` to Restorer's excluded/destination-check
+- [x] Add `content.search_entries` to Restorer's excluded/destination-check
   inventory; never to canonical V1/V2 payloads. In
   `IntegrityAudit.rebuild_locked/2`, rebuild and verify unified Note rows from
   the restored canonical inventory during the existing pre-completion stage.
@@ -1886,11 +1961,11 @@ and extend owning existing restore integration assertions without weakening them
   preserved legacy-only `NoteProjectionReconciler.rebuild_vault/2` from Task 4
   must not enter the live `note.write` definer. Add a regression without live
   principal/session context so this separation is exercised, not inferred.
-- [ ] Invoke the private helper only through the existing restore-owned
+- [x] Invoke the private helper only through the existing restore-owned
   table-owner transaction and authenticated restore binding. No Runtime session,
   new capability, unlock, event, or public EXECUTE grant is introduced. Preserve
   restore's established exclusive locks rather than imposing the online sweep.
-- [ ] Assert the accepted unsupported-canonical guard still refuses live and
+- [x] Assert the accepted unsupported-canonical guard still refuses live and
   tombstoned Documents/tags. No V3, Document restore, backup wire-format change,
   key/recovery redesign, or unrelated Vault repair is authorized.
 
@@ -1899,8 +1974,103 @@ devenv shell -- mix singularity.test.integration apps/singularity_storage/test/s
 devenv shell -- mix singularity.test.restore
 ```
 
-- [ ] Report both frozen-substrate compatibility file touches explicitly,
+- [x] Report both frozen-substrate compatibility file touches explicitly,
   review their complete diff, and commit `fix(storage): rebuild unified note search after legacy restore`.
+
+### Task 10 execution, 2026-10-10 — locally complete
+
+Three independent RED observations preceded the production changes:
+
+- The restore-owned audit left an old tombstoned unified Note row instead of
+  reconstructing the current live Note (`32174`, one executed owning contract,
+  one failure).
+- V2 replay accepted a destination containing derived unified rows instead of
+  rejecting it (`18405`, eight executed restore-import contracts, one failure;
+  the other seven passed).
+- With the original audit restored byte-for-byte, the full encrypted V2 restore
+  completed, but the authenticated Runtime API returned zero Notes instead of
+  three (`43991`, exit 1, `unified_note_search rows=0 expected=3`). An earlier
+  full RED (`14560`) reported only the oracle's generic access error; it is not
+  used as evidence of the precise missing-row count. The count-only diagnostic
+  discloses no content. Both runs terminated and stopped their owned server.
+
+The two approved frozen-substrate compatibility touches are explicitly:
+
+1. `backup/restorer.ex`: add `content.search_entries` only to the existing
+   excluded/destination inventory used by locking, emptiness, and replay checks.
+2. `backup/integrity_audit.ex`: call the existing ungranted canonical builder
+   for restored Notes inside the restore-owned table-owner transaction, then
+   compare the exact expected and actual Note rows in both directions before
+   completion. Existing Asset/Note reconstruction, evidence map, count,
+   projection name, and deterministic digest algorithm are unchanged.
+
+No session, capability, grant, login/unlock path, V1/V2 wire format, V3 support,
+key/recovery behavior, released migration, or unrelated Vault code changed.
+The existing runtime restore oracle gained only assertions: V1 has no unified
+Notes before new writes; V2 returns the exact three current live Note identities,
+versions, titles, and resolvable canonical Markdown before new mutations.
+
+Current GREEN evidence:
+
+- The initial four-suite integration command passed 34 executed tests
+  (`41766`, 42 reported, eight excluded, 21.1 seconds).
+- With the additional live/tombstoned Document and tagged-Note refusal contracts,
+  the same command passed **36 executed tests** (`46028`, 44 reported,
+  eight excluded, 20.8 seconds). Both use seed `215378`, exit 0. These retain
+  positive supported-owner controls and assert sanitized `backup_unsupported`
+  for unsupported canonical rows before and after tombstoning.
+- The strengthened complete V1/V2 restore oracle passed (`17348`, exit 0).
+  The owned PostgreSQL server stopped normally. No E2E ran.
+- Independent read-only specification then quality reviews: PASS, no remaining
+  findings. Final scoped static checks passed. Production repair rounds: zero.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs apps/singularity_storage/test/singularity/storage/integrity_audit_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-restore.sh
+```
+
+This is scoped legacy compatibility evidence, not Phase 3 or full-release
+acceptance. The full phase gate, preserved Note concurrency residual, and all
+separate activation/publication restrictions remain in force.
+
+Task 10 is committed at `c9a7b7937fb55378f8d655fc0bb638b952e6a99f`.
+
+### Final combined Task 9/10 checks, 2026-10-10
+
+These commands ran on the reviewed candidate bytes before the two local code
+commits; neither commit changed those bytes. The clean-SHA complete phase gate
+is still Task 11, not inferred from this subset.
+
+- Scoped formatting, warnings-as-errors compilation, and zero xref cycles:
+  PASS, session `6679`, exit 0.
+- Unit/API/legacy/architecture compatibility: **140 executed tests**, zero
+  failures, session `47883`, seed `215378`, exit 0. Storage: eight executed,
+  36 excluded, 7.1 seconds. Runtime: 88 executed, 35 excluded, 2.4 seconds.
+  Web: 44 executed, zero excluded, 2.0 seconds.
+- Live Note/unified projection/API/rebuild compatibility: **52 executed
+  tests**, zero failures, session `23547`, seed `215378`, exit 0. Storage:
+  32 executed, 13.5 seconds. Runtime: 20 executed, 27 excluded, 48.3 seconds.
+  The original Note concurrency contract remained byte-identical and passed;
+  this repeat does not establish a cause for its earlier timeout.
+- The exact recorded database/storage inventory check (`30309`, exit 0)
+  found no remaining recorded databases or storage roots, and the owned
+  cluster contained zero generated test databases including historical
+  upgrade fixtures. Its server stopped normally.
+- `git diff --check` passed. Root/main and both protected Phase 2 worktree
+  HEADs were unchanged. The protected untracked Phase 2 plan retained SHA-256
+  `350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+  No E2E, merge, push, tag, release, deployment, Phase 4, or Vault feature work
+  occurred.
+
+Exact shared checks:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_runtime/lib/singularity/runtime/api.ex apps/singularity_runtime/lib/singularity/runtime/search/rebuild.ex apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs apps/singularity_storage/lib/singularity/storage/postgres/search_projection_reconciler.ex apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_storage/lib/singularity/storage/backup/integrity_audit.ex apps/singularity_storage/lib/singularity/storage/backup/restorer.ex apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex + compile --warnings-as-errors + xref graph --format cycles --fail-above 0
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/asset_search_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_runtime/test/singularity/runtime/api_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs apps/singularity_storage/test/singularity/storage/integrity_audit_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-cleanup-inventory.sh
+git diff --check
+```
 
 ## Task 11: Query plans, privacy, and full phase qualification
 
