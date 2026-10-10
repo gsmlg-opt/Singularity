@@ -345,7 +345,181 @@ the four changed architecture/evidence documents resolved (`00b79f`, exit 0),
 and `git diff --check` passed. This verifies documentation consistency, not the
 proposed observer or candidate function.
 
-## Final local hygiene for this qualification slice
+### Observer prerequisite: initial execution and diagnosis, 2026-10-10
+
+The [observer prerequisite plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-search-plan-observer.md)
+was authored by Sol and independently reviewed by the parent. Revision
+`dc7e982cbf7c7416ef5209cc191383032359c17d95f07775cc2ce42d0847197d`
+removes a machine-specific cluster path and makes pre-reset versus callback
+cleanup ownership explicit. The ignored parent harness supplies the verified
+private cluster identity through `SINGULARITY_TEST_OBSERVER_PGDATA`; committed
+tests do not start or stop PostgreSQL.
+
+TDD and first implementation evidence, seed `215378`:
+
+- `20136`, exit 2: one pure test, one intended missing-helper failure.
+- `38001`, exit 0: one pure target-validation test passes.
+- `10511`, exit 2: five integration cases fail as expected for missing
+  lifecycle, cleanup, and proof implementation; one pure case excluded.
+- `8635`, exit 2: first full helper implementation still fails all five
+  integration cases; one pure case excluded. This is not qualification.
+- `91063` and `19744`, exit 2: one focused lifecycle case fails, five excluded.
+  Closed diagnostic counters locate PostgreSQL `insufficient_privilege` while
+  the real Web connection reads preload settings, before installing defaults.
+- `41266`, exit 0: one pure case passes, five integration cases excluded.
+
+Exact owning commands (the diagnostic commands used the same integration
+command with the owning file suffixed `:27`):
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378
+```
+
+PostgreSQL 17 marks `session_preload_libraries` and
+`shared_preload_libraries` as `GUC_SUPERUSER_ONLY`; a real least-privilege Web
+login cannot perform the plan's proposed direct reads. This is expected
+PostgreSQL behavior, not an internal dependency defect. Astra received the
+evidenced architecture correction under `PROJECT_ARCHITECTURE`, without new
+grants or production changes. At this checkpoint no repair round had run.
+
+Independent SPEC review also requires rejecting unlisted `auto_explain.*`
+catalog settings and permitting unchanged compatible inherited logging defaults
+in the cleanup predicate. The reviewed helper hash was
+`513cf6ecb75eda5d6312bee8972d447cc1ea08d944a70e55e55ae2672e14c383`,
+test hash `2512c06381f69c84e1cc31e3e4a11b190eadf5250f25f51b7270b0ae026e6836`.
+Temporary diagnostic output contained only closed error categories, exception
+classes, and helper line numbers; it was removed, restoring the exact helper
+hash. No raw plans, SQL, connection options, or credentials were emitted.
+
+The parent cleanup inventory `53683`, exit 0, verified zero generated test
+databases, absent recorded storage roots for all four new allocations, and
+stopped its owned server. Original Task 11 privacy/plan test hashes and the
+legacy Note concurrency-test hash remain unchanged. Observer delivery and
+actual nested analysis are still **NOT PROVEN**; the original two selective
+index failures remain **FAIL**. No E2E, publication, or deployment occurred.
+
+The subsequent no-grant architecture correction is now recorded in the design.
+It moves only hidden preload inspection to administrator configuration-provenance
+checks, preserves every readable real-role check and actual nested-plan proof,
+and adds startup-override rejection plus fresh ordinary-backend negative controls.
+The amended observer plan adds the two independent fixed conflict fixtures and
+allocated-database-only compatible logging fixture without a settings injection
+API. Startup rejection first failed as intended in `13430` (one pure failure,
+five excluded), then passed in `32327` (one pure pass, five excluded).
+
+Repair run `96674`, exit 2, still failed three of five integration cases (one
+pure case excluded). Early-fault cleanup and the two conflict branches passed.
+The run also exposed a separate helper defect: raw Postgrex `log: false` is
+treated as a callback by locked DBConnection 2.10.2, whose callback failure
+logged synthetic administrator SQL/results. No authorization plan, user content,
+or credentials were present, but diagnostic confinement did fail. Raw Postgrex
+logging was corrected to `nil`/omission; production Ecto SafeSQL is unchanged.
+The test now checks an empty captured log through a closed boolean, so an
+assertion failure cannot itself print captured diagnostics.
+
+The second repair/probe `41720`, exit 2, ran the actual-proof case at `:73` and
+still failed (five other cases excluded). Content-free instrumentation identifies
+the `auto_explain.log_min_duration` readiness comparison, not a successful
+nested-plan observation. After these two distinct repair-and-validation rounds,
+the parent handed the same two test files to Astra under `SOL_REPEATED_FAILURE`,
+mode `implementation`. Astra starts implementation repair round 1; its prior
+diagnosis/design handoffs do not count as repairs. At least three bounded Astra
+attempts remain permitted if needed. No production function, grant, migration,
+or original index assertion has changed.
+
+Astra's first content-free diagnostic `87856`, exit 2 (one owning case failed,
+five excluded), reported `log_min_duration` missing and no registered
+auto_explain settings. Inspection of the locked Ecto SQL/Repo registry showed
+the routing mismatch: raw SQL with a module atom used its registered shared pool,
+while generated Repo transaction methods honored dynamic selection. The original
+dynamic observer therefore did not route those calls to the same connection.
+This is expected adapter API behavior, not a dependency bug.
+
+The revised design uses a fixed private **real** Ecto.Repo initialized from
+validated RequestRepo options. Its module is passed explicitly through unchanged
+production ScopedRepo/SafeSQL/Store functions; ordinary negative controls pass
+their freshly allocated connection PID explicitly. Shared RequestRepo and its
+dynamic state remain untouched. Independent Sol SPEC review passed exact design
+hash `abf390ced68bd2d3a5604a139da8c58d1ef05d6aaec5b22abd5ecb067cfb9d06`.
+Additional startup-negative assertions first failed as intended in `97981`
+(exit 2, one pure failure, five excluded). These probes do not consume an Astra
+implementation repair round; the first bounded implementation is in progress.
+
+### Observer prerequisite: Astra repair qualification
+
+Astra implementation round 1 used the fixed named real Repo and explicit
+Repo/PID routing. Session `64238`, exit 0, formatted both files and passed
+one pure case (five integration cases excluded). Full integration `95857`,
+exit 2, passed four cases but failed the actual-proof case with closed
+`:observer_evidence_missing`; one pure case was excluded. Lifecycle, inherited
+logging, collision ownership, fault cleanup, and diagnostic confinement passed.
+This was a failed repair round, not successful nested-plan qualification.
+
+Focused diagnostic `30291`, exit 2 (one failed case, five excluded), reached
+no successful function-identity marker. The immutable authorization migration
+sets `singularity_authorization_definer` before creating
+`core.live_principal_authorization()`. The observer had incorrectly expected
+`singularity_table_owner`. Astra round 2 corrected only that exact owner check;
+the check was not removed and the migration/function was not changed. All
+temporary diagnostic instrumentation was removed before qualification.
+
+Round 2 integration `17116`, exit 0, seed `215378`, took 1.7 seconds: **five
+executed integration cases pass, one pure case excluded**. Its closed summary
+from the actual real-Web scoped function call was:
+
+```text
+backend=455900 nested_statements=1 executed_nodes=12
+actual_rows=1 actual_loops=1 buffer_nodes=12 indexes=[]
+```
+
+This proves delivery of an analyzed nested deployed function plan, including
+its strict source/context/backend identity and buffer counters. The empty
+index list is deliberate: this prerequisite makes no search-index claim.
+No copied SQL, SET ROLE, broad grants, planner forcing, RLS bypass, raw plan
+output, or shared RequestRepo/dynamic-state mutation was used.
+
+Qualified file hashes:
+
+- Helper: `87213eef3a4a8017004951781a04160b06e01a3e3ed199c73e5ccc5505c3e8f3`.
+- Owning test: `d36687ebe9b079ee6f87da51bbec358c385b5466216858a24b81364fe6963b16`.
+
+Static/pure session `62549`, exit 0, passed changed-file format checking,
+one pure test (five integration cases excluded), compilation with warnings
+as errors, and compile-connected xref with zero cycles. Exact command:
+
+```sh
+devenv shell -- bash -c 'export MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps; mix format --check-formatted apps/singularity_storage/test/support/knowledge_search_plan_observer.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs && mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378 && mix compile --warnings-as-errors && mix xref graph --format cycles --label compile-connected --fail-above 0'
+```
+
+The owning integration command remains the complete-file command above.
+Full-xref/cleanup session `30119`, exit 0, reported zero cycles, zero **all**
+generated test databases, zero recorded databases, and every recorded storage
+root absent, including rounds 1/2 and the focused owner diagnostic. The owned
+PostgreSQL instance stopped normally. Exact command:
+
+```sh
+devenv shell -- bash -c 'export MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps; mix xref graph --format cycles --fail-above 0 && bash .devenv/phase3-cleanup-inventory.sh'
+git diff --check
+```
+
+Independent Sol SPEC then QUALITY reviews both **PASS**, with no outstanding
+important findings, on the exact helper/test hashes above. SPEC also reviewed
+observer-plan behavior at `a14b17361032cf9d79bf618cbfc0976cd2c6d8e5d30d67e062dac0f152efb1b3`;
+later documentation changes record qualification and checklist completion.
+Both review passes used read-only inspection only; parent-owned execution is the
+evidence for the test results. Link check `a4e72d` passed three documents and
+nine local links. Root/main and the two protected Phase 2 worktrees remain at
+their recorded commits, and the protected untracked integration plan and all
+three frozen original test hashes remain unchanged.
+
+Cumulative implementation repair accounting is
+two failed parent/Sol rounds followed by two Astra rounds (first failed,
+second passed its owning tests); diagnostic probes are not repair rounds.
+Original selective-index contracts remain FAIL pending the separate product
+repair; E2E remains NOT RUN. No production or Vault file has changed.
+
+## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with
 warnings as errors passes, and xref reports zero cycles. Exact command:

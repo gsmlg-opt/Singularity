@@ -236,19 +236,75 @@ Through the external administrator only, temporarily install these
 | client_min_messages | notice |
 | log_min_messages | warning |
 
-Verify existing inherited preload/logging configuration is compatible before
-setting defaults; do not silently replace other preloads or logging policy.
-There is no SET privilege grant, role-attribute change, or privileged query
-connection masquerading through SET ROLE. Connect as the actual
-`singularity_web` login, verify both session_user/current_user and all expected
-settings, then remove only the defaults this helper installed. The dedicated
-session retains its startup settings; future sessions must not inherit them.
+Verify existing inherited preload/logging configuration before setting defaults;
+do not silently replace other preloads or logging policy. PostgreSQL 17 marks
+`session_preload_libraries` and `shared_preload_libraries` as
+`GUC_SUPERUSER_ONLY`: the real Web login cannot read them. The observed `42501`
+requires split evidence, not a new grant or treating denied inspection as success.
 
-Use a separate unnamed `RequestRepo` instance with pool size one and its existing
-real-role connection configuration. Scope `put_dynamic_repo/1` to the observer
-test process and restore it unconditionally. Do not stop shared repositories or
-change their application environment. The locked Ecto Repo supports dynamic
-repository PIDs. Do not inherit the observer connection into unrelated tests.
+The external administrator verifies the empty global preload baseline through
+`pg_settings.setting`, `source`, `reset_val`, and `pending_restart`. Reject
+administrator-specific role/database/client/session overrides that could mask
+the baseline; that administrator session does not expose another backend's
+settings. Inspect all applicable global, database, Web-role and Web-role/database
+catalog defaults. Reject every pre-existing `auto_explain.*` key and conflicting
+preloads, not just keys being installed. Preserve compatible inherited logging
+defaults. Snapshot the exact catalog footprint and require exact restoration;
+reset only keys owned by this helper.
+
+Close startup override paths in the actual effective RequestRepo configuration
+and URL parameters: reject caller options, observation/preload parameters,
+`after_connect`, and `configure` hooks. A pure test predicate may validate
+synthetic configurations, but cannot supply options to the observer. A fixed
+regression fixture may set compatible logging defaults on the allocated test
+database only, then restore its own exact footprint; no cluster-wide setting
+is authorized.
+
+There is no SET privilege grant, `pg_read_all_settings` membership, privileged
+inspection function, role-attribute change, or SET ROLE impersonation. Connect
+as the actual `singularity_web` login and verify both users, database/backend,
+empty readable `local_preload_libraries`, every expected readable auto_explain
+setting, logging thresholds, RLS, and the normal sequential-scan setting. Remove
+the owned defaults before the callback. The dedicated session retains its
+startup settings; future sessions must not inherit them. Actual analyzed nested
+NOTICE evidence remains mandatory; configuration checks cannot replace it.
+
+After reset, a fresh ordinary Web connection must show no registered
+`auto_explain.*` rows in `pg_settings` and no plan NOTICE from a fixed read-only
+probe, alongside its normal identity/settings. Custom settings appear in that
+view after the defining module loads; this proves ordinary-session isolation
+without pretending to read its hidden preload GUCs.
+
+This 2026-10-10 correction was provided by Astra under `PROJECT_ARCHITECTURE`
+after the observed failed prerequisite. Primary references:
+[PostgreSQL 17 GUC visibility](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/utils/misc/guc_tables.c),
+[pg_settings provenance](https://www.postgresql.org/docs/17/view-pg-settings.html),
+[login-time role settings](https://www.postgresql.org/docs/17/sql-alterrole.html),
+and [auto_explain](https://www.postgresql.org/docs/17/auto-explain.html).
+
+Use a test-only **real Ecto.Repo** with one fixed private module/name and pool
+size one, started from the validated real RequestRepo connection configuration.
+Pass this module explicitly to the observer callback and unchanged production
+`ScopedRepo.transact/3`, SafeSQL, and later `KnowledgeSearchStore.search/2`.
+These production functions already accept the Repo module; no SQL copy, fake
+authorizer, adapter replacement, privileged login, or production SafeSQL change
+is involved. A name collision fails closed and never stops an existing process.
+Stop only the newly returned owned Repo PID and confirm termination.
+
+This replaces the initially proposed dynamic RequestRepo binding: the locked
+Ecto SQL raw-query API resolves an atom through the Repo registry directly,
+whereas generated Repo transaction methods honor dynamic selection. Probe
+`87856` confirmed the initial mismatch by reporting the ordinary backend's
+missing/unregistered observation settings. Combining those APIs through a
+dynamic module binding therefore did not prove one observed scoped connection.
+
+Leave the shared RequestRepo PID and its process-local dynamic selection
+unchanged throughout. For fresh ordinary-session controls, start an unnamed
+RequestRepo and pass its **PID explicitly** to SafeSQL for fixed read-only
+checks; it performs no scoped transaction. This permits `clean?/1` during the
+named observer callback without a name collision. Never change application
+environment or inherit an observed connection into unrelated tests. Both real
+Repo paths retain log/telemetry suppression and explicit identity checks.
 
 NOTICE is below the configured server logging threshold. Parameter logging is
 disabled, but **plan expressions can still contain literals**: these are not
@@ -258,7 +314,7 @@ failure inspection, or persisted reports. Export only closed numeric counters,
 known index/node names, and bounded pass/fail identifiers. Existing production
 and privacy tests remain uninstrumented, with their no-content assertions intact.
 
-Cleanup must restore dynamic Repo state, stop the owned observer connection,
+Cleanup must preserve shared/dynamic RequestRepo state, stop the owned observer connection,
 remove only owned temporary settings, remove owned trace patterns/flags, drain
 the collector, and let the parent dispose of its database/root. Verify no
 database-role observation settings remain and a fresh ordinary web connection
