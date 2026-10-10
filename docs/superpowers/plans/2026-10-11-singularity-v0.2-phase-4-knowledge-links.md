@@ -561,6 +561,62 @@ and assertion. Existing frozen Vault test-module redefinition warnings remain
 visible and unmodified; no warning suppression or compiler-option change is
 authorized. Focused suites keep their already-qualified stricter test flag.
 
+### Task 9 necessary compatibility and diagnosis work
+
+Complete-gate `44472` failed on clean source `1f760855`: Storage integration
+reported five failures. Separate whole-candidate QUALITY found two Asset
+lifecycle defects. The independently SPEC/QUALITY-reviewed amendment is now
+part of the governing design; preserve the failed gate and every old assertion.
+
+1. Historical test-contract repair: change only
+   `postgres/search_candidate_migration_test.exs`,
+   `postgres/search_candidate_ids_test.exs`,
+   `search_projection_schema_test.exs` and `document_schema_test.exs`.
+   Run each complete historical contract at `20261010000000`, preserving its
+   nested predecessor, inventory SQL, lock barriers, deadlines and errors.
+   Assert exact historical migration head and enclosing latest repository
+   configuration/head/catalog/security restoration. Add a separate latest
+   sealed non-head typed Note deletion regression with unchanged identities,
+   head and seals. Run all four owning files and current grants/sealing
+   counterproofs, actual SPEC then fresh QUALITY and a narrow local commit.
+2. Diagnose short-literal plan failure: unchanged focused run `97157` passes,
+   but does not resolve the failed complete-run case. Add failing diagnostic
+   contracts before a test-only opt-in process-local first-error record in
+   `test/support/knowledge_search_plan_observer.ex`, its owning observer tests
+   and `postgres/knowledge_search_plan_test.exs`. Keep closed fixed fields,
+   unchanged public errors, cleanup, content-canary and zero logging/query
+   telemetry; no error messages, operands, raw plans/queries/params or stack
+   arguments. Run complete observer/plan suites with unchanged deadline
+   barrier. Design a production repair only after actual cause is evidenced.
+3. Asset lifecycle repair: parent adds real `Api.delete_asset` RED to owning
+   Runtime organization and Markdown/source integration tests. After RED, Sol
+   owns new forward migration
+   `20261011000200_knowledge_asset_lifecycle_guards.exs`, shared hardened invoker
+   predicates/witnessed guard, KnowledgeLink/Organization/Tag/Relationship
+   repositories and owning SQL tests. Parent owns Runtime tests and evidence.
+   Historical metadata must retain the exact Resource/version/Asset/Metadata/
+   association identity after deletion/cleanup. Organization SQL filters live
+   bindings before LIMIT; one INSERT-trigger guard locks Assets before Resources,
+   retaining and revalidating only actually held witnesses. No nested/late
+   Asset locks, newly inserted rescue binding, invented binding cap or retry.
+   Runtime metadata prechecks/read selectors become lock-free under the
+   unchanged global kind-immutability contract. Detach/selected-unrelate uses
+   one source-only guard; first check exact selected-row visibility without
+   locks so absent/foreign/mismatched no-ops and legacy unrelate remain unchanged.
+4. Prove actual delete/normal cleanup, every live state/multiple bindings,
+   exact historical pins/title/deleted marker, retained Save/new-source rejection,
+   selectors/pages/audits and native role/RLS/ACL/kind immutability. Use supported
+   upload B and observed Asset A lock barriers for unheld-binding rejection,
+   still-live-witness control, one INSERT guard and Note Save/finalization/delete
+   interleavings. No fake deletion, direct Resource tombstone substitute,
+   arbitrary sleeps, deadline increase, assertion waiver, Vault/custody change,
+   E2E or publication.
+5. Run owning suites, complete V1/V2 restore/static checks and actual SPEC then
+   fresh QUALITY before a scoped local repair commit. Any changed candidate
+   needs a new whole-candidate frozen SPEC then fresh QUALITY and the entire
+   permitted README gate on one clean source. Phase4 stays unaccepted and
+   Phase5 execution remains pending until all required checks pass.
+
 - [ ] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and
   every failed attempt honestly. No E2E, assertion waiver or timeout increase.

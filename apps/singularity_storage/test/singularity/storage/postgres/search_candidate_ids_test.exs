@@ -210,25 +210,66 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   end
 
   test "fresh migration preserves exact predecessor security and adds only one privileged function" do
-    fresh_security = security_snapshot()
-    fresh_functions = privileged_function_inventory()
+    latest_configs =
+      Enum.map([MigrationRepo, RequestRepo, PreAuthRepo, DispatcherRepo, WorkerRepo], fn repo ->
+        {repo, Application.fetch_env(:singularity_storage, repo)}
+      end)
 
-    MigrationTestEnvironment.with_database(20_261_009_000_400, fn _environment ->
-      assert {:ok, %{rows: [[nil]]}} =
-               query(RequestRepo, "SELECT to_regprocedure($1)::text", [@signature])
+    migration_head = fn ->
+      {:ok, owned} = MigrationRepo.start_link()
 
-      predecessor_security = security_snapshot()
-      predecessor_functions = privileged_function_inventory()
+      try do
+        %{rows: [[head]]} =
+          query!(MigrationRepo, "SELECT max(version) FROM public.schema_migrations")
 
-      assert_security_baseline(predecessor_security)
-      assert fresh_security == predecessor_security
+        head
+      after
+        Supervisor.stop(owned)
+      end
+    end
 
-      assert fresh_functions ==
-               Enum.sort(predecessor_functions ++ [[@signature, "singularity_table_owner"]])
+    latest_head = migration_head.()
+    assert latest_head > 20_261_010_000_000
+    latest_security = security_snapshot()
+    latest_functions = privileged_function_inventory()
+
+    catalog_sql =
+      "SELECT pg_get_functiondef(oid),pg_get_userbyid(proowner),proacl::text FROM pg_proc WHERE oid=$1::text::regprocedure"
+
+    latest_catalog = query!(RequestRepo, catalog_sql, [@signature]).rows
+
+    MigrationTestEnvironment.with_database(20_261_010_000_000, fn _environment ->
+      assert migration_head.() == 20_261_010_000_000
+      fresh_security = security_snapshot()
+      fresh_functions = privileged_function_inventory()
+
+      MigrationTestEnvironment.with_database(20_261_009_000_400, fn _environment ->
+        assert {:ok, %{rows: [[nil]]}} =
+                 query(RequestRepo, "SELECT to_regprocedure($1)::text", [@signature])
+
+        predecessor_security = security_snapshot()
+        predecessor_functions = privileged_function_inventory()
+
+        assert_security_baseline(predecessor_security)
+        assert fresh_security == predecessor_security
+
+        assert fresh_functions ==
+                 Enum.sort(predecessor_functions ++ [[@signature, "singularity_table_owner"]])
+      end)
+
+      assert security_snapshot() == fresh_security
+      assert privileged_function_inventory() == fresh_functions
+      assert migration_head.() == 20_261_010_000_000
     end)
 
-    assert security_snapshot() == fresh_security
-    assert privileged_function_inventory() == fresh_functions
+    assert Enum.map(latest_configs, fn {repo, _config} ->
+             {repo, Application.fetch_env(:singularity_storage, repo)}
+           end) == latest_configs
+
+    assert migration_head.() == latest_head
+    assert security_snapshot() == latest_security
+    assert privileged_function_inventory() == latest_functions
+    assert query!(RequestRepo, catalog_sql, [@signature]).rows == latest_catalog
   end
 
   test "direct input rejects null oversized unknown and malformed array boundaries" do

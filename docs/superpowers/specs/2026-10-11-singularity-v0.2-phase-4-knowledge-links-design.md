@@ -697,6 +697,211 @@ expansion to V3, browser behavior or E2E. Independently review this detail befor
 implementation. Preserve empty-export identity and existing exact-version,
 audit and privacy assertions when updating the old nonempty raw-body oracle.
 
+## Task 9 qualification compatibility amendment
+
+The complete gate at `1f760855e8a861406ad467b98ffecc21be89dcd7`
+failed Storage integration, and separate whole-candidate QUALITY found two
+Asset lifecycle gaps. These necessary compatibility and diagnostic contracts
+replace conflicting earlier lock details only for organization/lifecycle reads
+and writes; Note source readiness, canonical membership and other locks stay
+unchanged. They received independent SPEC then fresh separate QUALITY review
+before implementation, as recorded in the Phase 4 report. This is reviewed
+design, not a fixed gate or phase acceptance.
+
+### Historical contracts
+
+Four failures compare a historical contract with the latest Phase4 schema.
+Preserve every original assertion and raw inventory query, without filters,
+weaker expectations, deleted assertions, longer waits or production changes.
+
+1. In `postgres/search_candidate_migration_test.exs`, run the entire populated
+   predecessor-upgrade test inside an outer `MigrationTestEnvironment.with_database`
+   at candidate migration 20261010000000. Its nested predecessor remains
+   20261009000400. Fresh and upgraded security/catalog/data/ranks now compare the
+   same historical schema. Preserve the separate latest candidate catalog test.
+2. In `postgres/search_candidate_ids_test.exs`, run the complete exact predecessor
+   security/privileged-function inventory test at 20261010000000, retaining the
+   nested predecessor and its exact one-function delta. Other latest tests remain.
+3. In `search_projection_schema_test.exs`, run the complete Phase3 final-grants
+   test at 20261010000000. Preserve all worker, projection-write, tag-write and
+   extension denials. The separate current `KnowledgeGrantsTest` continues proving
+   the exact approved Phase4 grants, forced RLS and excluded roles.
+4. In `document_schema_test.exs`, run the complete established typed-head deletion
+   race at pre-seal 20261010000000. Its original lock barrier, five-second lock
+   deadline and exact `resources_typed_head_check` error remain. Add a separate
+   latest-schema test proving a sealed typed Note deletion is rejected atomically
+   by `note_source_set_seals_note_fkey`, without altering the current head,
+   immutable generic/typed version identities or seals.
+
+Each historical outer test asserts the exact target migration head and unchanged
+enclosing latest repository configuration, migration head and relevant
+catalog/security inventory after restoration. Do not modify the shared lifecycle
+helper, fixtures, released migrations, security snapshot SQL or live production.
+Owning full four-file SQL plus current Phase4 grants/sealing counterproofs and
+independent SPEC then separate QUALITY must pass before a narrow local commit.
+
+### Unknown short-literal plan failure: diagnosis only
+
+The generic observer error does not establish its cause. Preserve all query,
+unforced-plan, row-count, node-envelope, cleanup and fixed five-second production
+deadline assertions. No retry, plan forcing, timeout increase, node filtering,
+observer bypass or flaky-test classification is permitted.
+
+First run the unchanged focused plan case. If it still fails or complete-run
+reproduction needs finer evidence, add test-only opt-in bounded process-local
+diagnostics to `test/support/knowledge_search_plan_observer.ex` and its owning
+tests. Public error tuples remain identical. Preserve the first inner failure
+rather than overwriting it with callback-wrapper failure. Keep only fixed stage
+and error atoms, allowlisted exception class, allowlisted source-file identifier
+and bounded line number; existing bounded backend and fixed case ordinal may be
+included. Never retain exception messages/operands, stack arguments, queries,
+parameters, NOTICEs, plans or result content. Restore diagnostic state in `after`.
+Observer itself emits no Logger/telemetry/stdout event. The plan test may report
+only the strictly closed content-free failure record after cleanup.
+
+Stages distinguish setup/callback, original search/drain, trace delivery/pair
+collection/cleanup, plan validation, local settings and final observer cleanup.
+Owning regressions prove unchanged errors, first-error preservation, closed
+bounded fields, content-canary exclusion, no process residue, zero log/query
+telemetry and all trace/repo/default cleanup. A production repair may be designed
+only after evidence identifies the actual cause. Run the complete observer and
+plan suites, including the unchanged deadline barrier.
+
+### Exact lifecycle contracts
+
+Established Asset deletion changes Asset state, inserts `content.tombstones`
+and releases matching `content.resource_assets`; it does not tombstone Resource.
+
+- Historical attachment resolution retains the exact private Resource/version/
+  Asset/AssetMetadata/ResourceAsset identity. Missing or ambiguous exact binding
+  fails closed, never substitutes another surviving Asset. `deleted?` means
+  Resource tombstone OR pending_delete/deleted Asset state OR matching Asset
+  tombstone OR released exact association. Original metadata and pins remain
+  readable after cleanup clears `asset_object_id`; do not require an object,
+  original bytes or available state for this metadata-only reader.
+- Organization liveness requires an undeleted private supported Resource. Asset
+  requires at least one exact unreleased, untombstoned private binding whose
+  Asset is staging/uploaded/verified/available/processing/ready. Do not use an
+  Asset Resource's null `current_version_id` as a head. A second live binding
+  may keep the Resource live without changing a deleted historical attachment.
+- New Note-source readiness and retained-member Save remain unchanged. Do not
+  rewrite Asset deletion/cleanup, Resource tombstones, canonical history or the
+  existing Note lock sequence.
+
+Use SQL liveness before ordering/LIMIT/cursor admission, including both edge
+endpoints. Keep kind/capability filtering, source-only selected-unrelate authority,
+closed contexts/DTOs, source ordering, no-op audits and all privacy boundaries.
+
+### One forward migration and shared SQL guard
+
+Add one new forward migration; never edit released DDL or rewrite/backfill rows.
+Create shared hardened SECURITY INVOKER functions using existing RLS:
+
+1. `content.knowledge_asset_binding_is_live(owner, version, asset)` — exact
+   live Asset binding predicate, read-only and lock-free.
+2. `content.knowledge_resource_is_live(owner, resource)` — read-only/lock-free
+   supported private Resource predicate with live Asset-binding existence.
+3. A narrow `content.lock_knowledge_organization_resources(owner, resource_ids)`
+   guard — VOLATILE, returning boolean, owning the complete witnessed lock
+   sequence below. Accept one or two canonical distinct sorted Resource IDs;
+   invalid/missing/nonlive input fails closed. No caller flag, previous-lock
+   claim, transaction GUC, selected authority or arbitrary SQL input is accepted.
+
+Revoke PUBLIC execution and grant only the required existing web/table-owner
+callers. Existing web SELECT/UPDATE privileges already cover Asset/Resource row
+locks and lifecycle tables; add no table privilege, role membership/attributes,
+capability, custody/key change or new definer read surface. Existing organization
+INSERT trigger remains its established definer authority; replace only its body
+to invoke the shared guard and preserve `resource_tags_resource_check` /
+`relationships_resource_check` names and sanitized errors. Existing canonical
+organization rows remain historical, not invalidated or deleted by migration.
+
+Guard implementation must retain exact operation-local binding witnesses
+`{resource_id, resource_version_id, asset_id, owner_scope_id, classification}`.
+It must not materialize an unbounded binding collection in BEAM: keep discovery
+and witnessing inside SQL, retaining at most one live locked witness per Asset
+Resource. Multiple legacy bindings remain supported without an invented cap.
+Discover candidates in a single pre-Resource snapshot, traverse by Asset UUID,
+lock needed Asset rows FOR SHARE in that global order, and record only exact
+identities actually locked. If a waited-on candidate is no longer live, another
+candidate from the original discovery may establish the witness before Resource
+acquisition. Newly committed candidates outside that discovery cannot rescue it.
+Stop witnessing after all Asset Resources have a witness; no Resource lock has
+yet been acquired. Lock requested Resources sorted by UUID FOR SHARE. In a
+subsequent SQL statement, revalidate Resource identity/private scope/liveness and
+require each Asset Resource's live binding to be one of its recorded exact
+witnesses. Hold through mutation and audit. If a binding disappears or no known
+live witness remains, return false; never lock an unseen Asset after Resource
+acquisition or retry away the race. Additional new bindings do not invalidate a
+still-live held witness. Unrestricted liveness alone is not post-wait proof.
+
+### Single lock ownership and actual-kind authority
+
+Do not repeat discovery at metadata, repository and trigger layers:
+
+- Attach/relate: the BEFORE INSERT trigger is the sole guard invocation and
+  Asset→Resource lock owner, including `ON CONFLICT DO NOTHING`. Earlier Runtime
+  resource metadata and repository liveness prechecks are lock-free snapshots;
+  the trigger revalidates live scope before admitting canonical insertion.
+- Detach and Runtime selected-unrelate: one explicit repository guard invokes
+  the same shared SQL function before DELETE. Selected-unrelate locks/revalidates
+  its source only, not a new live/readable target requirement. Preserve standalone
+  unrelate's established behavior and absent/foreign no-op semantics.
+- Read selectors/pages/history/export: lock-free lifecycle snapshots, without
+  Asset locks. The historical source selector's containing-Note lock remains;
+  this repair does not remove that source-membership protection.
+
+Actual kind cannot change between lock-free metadata and Runtime capability
+checks: `20260818000100` installs the global Resource BEFORE UPDATE OF kind guard
+`enforce_note_resource_kind_update()`, raising
+`resources_note_kind_immutable_check` on every kind change, not just Notes.
+Preserve this guard and add actual-role Asset/Document/Note counterproofs. No
+duplicate capability policy, mutable checked-state channel, extra port field or
+new public signature is needed. Owner/private identity and current capabilities
+remain revalidated in the same existing scoped authorization transaction; a
+deletion after precheck makes the guard reject and rolls back all tag/audit
+effects. No cross-page or historical-read snapshot permanence is promised.
+
+Existing Note preparation locks Assets before Resources. Asset deletion retains
+its object-advisory→Asset-lock→association-release path; finalization retains its
+Asset lock. Organization takes no object advisory/object-row lock and no late
+Asset lock. This preserves the supported writer ordering without a Vault change.
+
+### Required RED and deterministic qualification
+
+Use real `Api.delete_asset` composed with real Runtime Delete, Authorize,
+OperationScope and SQL under permanent grants. Do not substitute direct Resource
+tombstoning or a deletion double. Existing lease fixture limitations remain
+explicit; this is not live byte/custody, browser or release acceptance.
+
+- Delete an Asset with Note attachment, tag and both relationship directions.
+  Prove Asset state/tombstone/association release while Resource deleted_at is nil;
+  exact historical IDs/title/deleted marker, browse/backlink exclusion, selector/
+  new attach/relate rejection with zero success audit and unchanged membership.
+- Run normal logical cleanup clearing the object pointer; metadata still resolves.
+  Preserve retained Save and reject new source references. Cover every six live
+  states, different versions/multiple bindings, missing/ambiguous/foreign metadata.
+- Actual-role direct INSERT rejects deleted/missing/foreign/mismatched-context
+  endpoints. Exact function ACL/invoker/path, unchanged table grants and global
+  immutable-kind checks remain independently proved.
+- Deterministic unheld-binding race: hold Asset A in a real deleting transaction;
+  start organization until its Asset SHARE wait is observed; commit new live B
+  on the same version from the supported upload path; finish deletion; organization
+  must reject with no mutation/audit, not admit B. No arbitrary sleeps or retries.
+- Control: add B while A stays live; the locked A witness still permits mutation.
+  With organization holding A, real deletion waits until commit; later pages omit
+  the deleted endpoint. Prove only one Asset-lock acquisition phase on INSERT.
+- Note Save/finalization interleavings finish within unchanged deadlines without
+  deadlock or masking retries. Preserve source-only selected-unrelate, capability
+  epochs, paging, pin conflicts/idempotency and content-canary privacy assertions.
+
+Ownership: new migration/shared SQL guard, Storage knowledge-link/organization/
+Tag/Relationship repositories and owning SQL tests; Runtime organization,
+Markdown-export and source-collection integration tests; actual Phase4 design/
+plan/report. Runtime Operations/ports/DTOs need no new fields/signatures. No
+AssetRepository/Delete/Note source readiness, extraction/search, backup wire,
+Vault/custody, E2E or publication work.
+
 ## Verification and acceptance
 
 Follow red/green focused contracts, independent SPEC then QUALITY review, and

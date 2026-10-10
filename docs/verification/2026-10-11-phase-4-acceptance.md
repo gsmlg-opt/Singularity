@@ -15,8 +15,14 @@ qualified after owning tests and independent SPEC then QUALITY. Task 7 Markdown
 rendering is locally qualified and committed at
 `ebb45781e837bc2a4bb84ec54c3aa1cf5358f1bc` (exact ten files). Task 9's first
 whole-candidate attempt failed; the necessary port-test contract repair has
-passed focused checks and independent SPEC then separate QUALITY. A clean
-complete rerun and final whole-phase acceptance remain pending.
+passed focused checks and independent SPEC then separate QUALITY and was
+committed at `1f760855e8a861406ad467b98ffecc21be89dcd7` (exact three files).
+The clean complete rerun failed with five Storage integration failures;
+separate whole-candidate QUALITY found two Asset lifecycle defects. The historical
+contract repair is now locally qualified; reviewed observer-diagnosis and Asset
+lifecycle amendments await actual RED and implementation. Prior failures remain
+FAIL; Phase4 acceptance and Phase5 execution
+remain pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -1801,6 +1807,165 @@ after review. Neither reviewer edited files or ran tests/services; all their
 read-only commands completed. The existing ignored user-configuration warning
 was not altered. Whole-candidate requalification on the resulting clean commit
 remains required; this repair review is not phase acceptance.
+
+## Task 9 clean complete rerun and whole-candidate findings
+
+Parent process `44472` ran the entire permitted runner at clean source
+`1f760855e8a861406ad467b98ffecc21be89dcd7`, seed `215378`.
+Role bootstrap, dependency resolution/unused checks, complete format and
+warnings-as-errors compilation passed. README's ordinary test commands kept
+all assertions and visible baseline Runtime fake-module redefinition warnings.
+The seven-app unit/property run reported zero failures:
+
+- Core: 10 properties / 201 tests, 15.5 seconds.
+- Domains: 56 tests, 5.3 seconds.
+- Storage: 1,315 tests / 1,017 excluded, 35.1 seconds.
+- Retrieval: 52 tests, 1.0 seconds.
+- Ingest: 62 tests, 25.6 seconds.
+- Runtime: 1,204 tests / 288 excluded, 59.3 seconds.
+- Web: 192 tests, 19.2 seconds.
+
+Integration then completed, but the overall runner is **FAIL**, exit 2:
+Storage reported **1,315 tests / five failures / 298 excluded**, 1,095.4 seconds;
+Runtime reported **1,204 tests / zero failures / 916 excluded**,
+1,053.2 seconds. Integration-tag selection excluded all Core/Domains/Retrieval/
+Ingest/Web tests as expected; those excluded tests are not integration evidence.
+Restore, frontend and the subsequent xref/workflow/diff commands were **NOT RUN**
+in this attempt because the runner stops on failed integration. E2E **NOT RUN**.
+
+The exact five failures and evidence-driven disposition:
+
+1. `SearchCandidateMigrationTest` compares a populated predecessor's 62
+   privileged functions with latest Phase4's 65. The three additional functions
+   belong to approved source sealing, not a candidate-migration privilege delta.
+   Run the entire historical upgrade oracle at its exact target, without
+   filtering or weakening the raw security inventory.
+2. `DocumentSchemaTest`'s established pre-seal typed-row delete race is rejected
+   at COMMIT by latest `note_source_set_seals_note_fkey` before reaching the
+   parent-lock barrier. Keep the whole historical race at pre-seal target and
+   add an independent latest atomic seal-deletion counterproof. Preserve the
+   original barrier, waits, deadlines and `resources_typed_head_check` result.
+3. `SearchCandidateIdsTest`'s exact predecessor one-function inventory likewise
+   needs its complete historical target, with the raw inventory unchanged.
+4. `KnowledgeSearchPlanTest` short-literal case returns the generic observer
+   failure. Its underlying cause remains **UNKNOWN**. Do not infer a timeout,
+   state leak or flaky test from that collapsed error. Unchanged focused process
+   `97157` passed: four tests / zero failures / three excluded, 34.7 seconds.
+   This is scoped characterization, not a repair or resolution of the failed
+   complete-run case. Reviewed bounded private diagnostics will distinguish the
+   actual failed stage without revealing query/content or altering the oracle.
+5. `SearchProjectionSchemaTest`'s Phase3 read-only tag grants conflict with the
+   approved Phase4 web organization writes. Keep the full historical denial
+   oracle at Phase3 target and independently retain latest exact Phase4 grants,
+   forced RLS, excluded roles and UPDATE denials.
+
+Whole-candidate nonauthor SPEC passed on the unchanged 102-file source manifest
+at `1f760855`. Fresh separate Sol/high QUALITY thread
+`01a127de-2823-7261-8130-a3af3aa40b4e`, process `93952`, returned
+**QUALITY FAIL**, two P2 findings; its process exit 0 is not review PASS:
+historical Asset metadata checks only Resource deletion, and organization
+selectors/pages/mutations admit Assets deleted by the established Asset
+tombstone/association-release path. Existing direct-Resource-tombstone tests
+miss that real lifecycle. Neither production finding is resolved yet.
+
+All 102 frozen hashes were rechecked unchanged after the complete run and
+reviews; tracked source stayed clean at `1f760855` throughout. EXIT shutdown
+completed; owned cluster verification then found zero generated integration/
+migration databases. Allocations `singularity_test_ada3efefdb07c5c8c7d9ff8e`
+and `singularity_test_d18d5f76036fc1a3f0a39972` and their exact recorded
+`/tmp/singularity/integration/<suffix>` roots are absent; owned postmaster PID
+file and socket are absent. The unchanged focused allocation
+`singularity_test_ea5fbce1015ab3036bd6e01e` was also dropped by its EXIT path.
+
+### Task 9 compatibility design review, not implementation acceptance
+
+The necessary amendment retains every historical assertion, raw inventory,
+barrier and deadline, exact historical target plus latest configuration/head/
+catalog restoration, and separate current grants/seal regressions. Test-only
+observer diagnostics are opt-in process-local, closed and bounded, preserving
+first-inner-error evidence, public errors and all cleanup/privacy assertions.
+Nonauthor SPEC cleared these two scoped portions; fresh separate Sol/high
+QUALITY thread `01a127fa-9df4-73e3-9947-551f0a43e8b0`, process `63690`,
+returned **QUALITY PASS**, zero actionable P0–P2 findings, on draft lines 1–66.
+That scoped review explicitly did not qualify the Asset design or any fix.
+
+The initial Asset design received **SPEC FAIL**, one P2: unrestricted post-wait
+liveness could admit new unheld binding B, and repeated discovery could acquire
+an Asset after Resource locks. Astra supplied bounded architecture refinement,
+not implementation recovery: one trigger-owned INSERT guard, one explicit
+source-only DELETE guard, lock-free Runtime metadata under the actual global
+kind-immutability contract, one pre-Resource candidate discovery and exact
+actually-held binding witnesses for subsequent revalidation.
+
+Revised draft SHA-256
+`d2715741b60a170a2ca5884bc4d0c8731f59f41cd593a5e3bee5045438516093`
+received fresh nonauthor **SPEC PASS** from thread
+`01a12800-313d-7e92-969a-d0c116d0fed4`, process `1081`, then fresh separate
+**QUALITY PASS** from thread `01a12803-f24c-79e1-8fcb-993d65f76040`,
+process `92438`, both with zero actionable P0–P2 findings and unchanged
+HEAD/target/clean tracked state. Real `Api.delete_asset` RED, actual-role
+RLS/ACL and kind immutability, supported same-version upload B and observed
+Asset A barriers, live-witness controls, normal cleanup/history, Note Save/
+finalization/delete interleavings and full post-change qualification remain
+mandatory. These design reviews do not prove an implementation or phase.
+
+After fullgate44472 and these design reviews ended, parent promoted the
+reviewed amendment to the actual Phase4 design/plan and applied the prepared
+four-file historical test patch, SHA-256
+`1c9adf1a3ab7e3f2dc5c5e0930ada5e30b9896ba69e3c70c865c75b7d9f9fd36`.
+No production source was changed for that historical contract repair.
+Formatting passed. Actual six-file historical/current-counterproof process
+`61017` is **FAIL**, exit 2: 134 tests / one failure / one excluded,
+172.2 seconds, seed `215378`. All original historical assertions and latest
+seal/grant counterproofs that executed passed; the only failure is the added
+catalog-restoration query: Postgrex encodes direct `$1::regprocedure` as an OID,
+while the supplied exact function signature is text. Sol repair 2 changes only
+that new query's parameter cast to `$1::text::regprocedure`. It does not filter
+the catalog or change expected values; actual rerun and independent actual
+SPEC then fresh QUALITY remain pending.
+Task9's earlier port-test Sol repair 1 remains PASS. Historical repair round 2
+is now **PASS**: actual six-file process `29391`, exit 0, **134 tests /
+zero failures / one excluded**, 264.7 seconds, seed `215378`. The excluded
+case is the original non-integration forward-only downgrade contract; separate
+static/unit process `47534` executed it successfully: 98 reported tests /
+zero failures / 97 integration cases excluded, 3.0 seconds, same seed, exit 0.
+Complete four-file format checks, warnings-as-errors compilation, xref
+**No cycles found** and whitespace checks passed. No assertion or inventory
+query was weakened; the only second-round change was the new parameter cast.
+
+Fresh nonauthor actual SPEC thread `01a1280d-146a-7863-bb31-92a26b29d699`,
+process `86647`, returned **SPEC PASS**; subsequent fresh separate actual
+QUALITY thread `01a12810-3f8d-7572-ba48-86eee311b378`, process `55363`,
+returned **QUALITY PASS**, both zero actionable P0–P2 findings. HEAD stayed
+`1f760855`; exactly seven changed-file hashes matched before/after both
+read-only reviews. All commands ended; neither reviewer ran tests/services/DB
+or edited files. This paragraph adds final evidence after the frozen reviews,
+not a new behavior contract or Phase4 acceptance.
+
+Owned cluster verification found zero generated integration/migration
+databases. Recorded historical roots including
+`b0d62aa610da26b4713ff987`, `3435d748be3893fdc14f6ce6` and
+`67770ab2a5745ff7fd52516e` are absent; the integration-root directory is empty.
+EXIT shutdown completed and owned postmaster PID/socket are absent.
+Historical counters: **Sol round 1 FAIL, round 2 PASS; one failed validated
+round; Astra recovery 0**. Diagnostic and Asset production repairs remain
+unstarted. Astra architecture/refinement uses zero Asset recovery attempts.
+Prior failures and earlier phase repair counts are preserved separately.
+
+Exact current full and focused commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-full-gate.sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs:88 --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs apps/singularity_storage/test/singularity/storage/document_schema_test.exs apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format --check-formatted apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs apps/singularity_storage/test/singularity/storage/document_schema_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs apps/singularity_storage/test/singularity/storage/document_schema_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
+devenv shell -- bash .devenv/phase4-pg-command.sh psql --no-psqlrc -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%' OR datname LIKE 'singularity_migration_test_%'"
+```
+
+Any changed candidate requires a new frozen whole-candidate SPEC then fresh
+QUALITY review and entire permitted README gate on one clean source. Phase4
+remains NOT ACCEPTED; Phase5 execution, E2E, final browser/release acceptance,
+merge/publication/deployment and production activation remain unperformed.
 
 ## Preserved boundaries and baseline inventory
 

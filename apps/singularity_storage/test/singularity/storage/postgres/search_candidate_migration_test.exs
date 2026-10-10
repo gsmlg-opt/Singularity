@@ -30,62 +30,86 @@ defmodule Singularity.Storage.Postgres.SearchCandidateMigrationTest do
 
   @tag :integration
   test "populated predecessor upgrade adds only the function and preserves immutable search sources" do
-    fresh_catalog = assert_catalog!()
-    fresh_security = security_snapshot()
-    fresh = fixture!()
-    fresh_rows = data_snapshot(fresh.source)
-    assert_write_denials(fresh.source)
-    fresh_page = search!(fresh, "o")
-    assert_exact_sources(fresh_page, fresh)
-    assert Enum.all?(fresh_page.items, &(&1.rank > 0))
-    fresh_ranks = ranks_by_kind(fresh_page)
-    assert data_snapshot(fresh.source) == fresh_rows
+    latest_configs =
+      Enum.map([MigrationRepo, RequestRepo, PreAuthRepo, DispatcherRepo, WorkerRepo], fn repo ->
+        {repo, Application.fetch_env(:singularity_storage, repo)}
+      end)
 
-    MigrationTestEnvironment.with_database(@predecessor, fn _environment ->
-      fixture = fixture!()
-      before_rows = data_snapshot(fixture.source)
-      before_security = security_snapshot()
-      before_relations = relation_storage_snapshot()
-      assert_write_denials(fixture.source)
-      assert before_security == fresh_security
+    latest_head = migration_head()
+    assert latest_head > @migration_version
+    latest_catalog = assert_catalog!()
+    latest_security = security_snapshot()
+    latest_relations = relation_storage_snapshot()
 
-      assert migration_head() == @predecessor
+    MigrationTestEnvironment.with_database(@migration_version, fn _environment ->
+      assert migration_head() == @migration_version
+      fresh_catalog = assert_catalog!()
+      fresh_security = security_snapshot()
+      fresh = fixture!()
+      fresh_rows = data_snapshot(fresh.source)
+      assert_write_denials(fresh.source)
+      fresh_page = search!(fresh, "o")
+      assert_exact_sources(fresh_page, fresh)
+      assert Enum.all?(fresh_page.items, &(&1.rank > 0))
+      fresh_ranks = ranks_by_kind(fresh_page)
+      assert data_snapshot(fresh.source) == fresh_rows
 
-      assert %{rows: [[nil]]} =
-               private_query!(RequestRepo, "SELECT to_regprocedure($1)::text", [@signature])
+      MigrationTestEnvironment.with_database(@predecessor, fn _environment ->
+        fixture = fixture!()
+        before_rows = data_snapshot(fixture.source)
+        before_security = security_snapshot()
+        before_relations = relation_storage_snapshot()
+        assert_write_denials(fixture.source)
+        assert before_security == fresh_security
 
-      assert missing_candidate?(fixture)
-      before_page = search!(fixture, "")
-      assert_exact_sources(before_page, fixture)
-      assert Enum.all?(before_page.items, &(&1.rank == 0))
-      assert data_snapshot(fixture.source) == before_rows
+        assert migration_head() == @predecessor
 
-      assert [@migration_version] = upgrade!()
+        assert %{rows: [[nil]]} =
+                 private_query!(RequestRepo, "SELECT to_regprocedure($1)::text", [@signature])
+
+        assert missing_candidate?(fixture)
+        before_page = search!(fixture, "")
+        assert_exact_sources(before_page, fixture)
+        assert Enum.all?(before_page.items, &(&1.rank == 0))
+        assert data_snapshot(fixture.source) == before_rows
+
+        assert [@migration_version] = upgrade!()
+        assert assert_catalog!() == fresh_catalog
+        assert security_snapshot() == before_security
+        assert relation_storage_snapshot() == before_relations
+        assert data_snapshot(fixture.source) == before_rows
+
+        assert candidate_ids(fixture) == Enum.sort(Enum.map(before_page.items, & &1.entry_id))
+        assert_write_denials(fixture.source)
+        after_page = search!(fixture, "o")
+        assert_exact_sources(after_page, fixture)
+        assert Enum.all?(after_page.items, &(&1.rank > 0))
+        assert ranks_by_kind(after_page) == fresh_ranks
+        assert without_ranks(after_page) == without_ranks(before_page)
+        assert data_snapshot(fixture.source) == before_rows
+
+        assert [] = upgrade!()
+        assert assert_catalog!() == fresh_catalog
+        assert security_snapshot() == before_security
+        assert relation_storage_snapshot() == before_relations
+        assert data_snapshot(fixture.source) == before_rows
+      end)
+
       assert assert_catalog!() == fresh_catalog
-      assert security_snapshot() == before_security
-      assert relation_storage_snapshot() == before_relations
-      assert data_snapshot(fixture.source) == before_rows
-
-      assert candidate_ids(fixture) == Enum.sort(Enum.map(before_page.items, & &1.entry_id))
-      assert_write_denials(fixture.source)
-      after_page = search!(fixture, "o")
-      assert_exact_sources(after_page, fixture)
-      assert Enum.all?(after_page.items, &(&1.rank > 0))
-      assert ranks_by_kind(after_page) == fresh_ranks
-      assert without_ranks(after_page) == without_ranks(before_page)
-      assert data_snapshot(fixture.source) == before_rows
-
-      assert [] = upgrade!()
-      assert assert_catalog!() == fresh_catalog
-      assert security_snapshot() == before_security
-      assert relation_storage_snapshot() == before_relations
-      assert data_snapshot(fixture.source) == before_rows
+      assert security_snapshot() == fresh_security
+      assert data_snapshot(fresh.source) == fresh_rows
+      assert search!(fresh, "o") == fresh_page
+      assert migration_head() == @migration_version
     end)
 
-    assert assert_catalog!() == fresh_catalog
-    assert security_snapshot() == fresh_security
-    assert data_snapshot(fresh.source) == fresh_rows
-    assert search!(fresh, "o") == fresh_page
+    assert Enum.map(latest_configs, fn {repo, _config} ->
+             {repo, Application.fetch_env(:singularity_storage, repo)}
+           end) == latest_configs
+
+    assert migration_head() == latest_head
+    assert assert_catalog!() == latest_catalog
+    assert security_snapshot() == latest_security
+    assert relation_storage_snapshot() == latest_relations
   end
 
   defp fixture! do

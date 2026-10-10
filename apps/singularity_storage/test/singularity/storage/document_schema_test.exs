@@ -1,7 +1,7 @@
 defmodule Singularity.Storage.DocumentSchemaTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo}
+  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, MigrationTestEnvironment}
 
   test "an association to another version cannot replace the Asset's own source version" do
     source = KnowledgeFixtures.source!()
@@ -243,23 +243,119 @@ defmodule Singularity.Storage.DocumentSchemaTest do
   end
 
   test "existing Notes parent-first locking coexists with typed-row deletion guards" do
+    latest_configs =
+      Enum.map([MigrationRepo, RequestRepo, PreAuthRepo, DispatcherRepo, WorkerRepo], fn repo ->
+        {repo, Application.fetch_env(:singularity_storage, repo)}
+      end)
+
+    migration_head = fn ->
+      {:ok, owned} = MigrationRepo.start_link()
+
+      try do
+        %{rows: [[head]]} =
+          query!(MigrationRepo, "SELECT max(version) FROM public.schema_migrations")
+
+        head
+      after
+        Supervisor.stop(owned)
+      end
+    end
+
+    latest_head = migration_head.()
+    assert latest_head > 20_261_010_000_000
+
+    restoration_queries = [
+      "SELECT conrelid::regclass::text,conname,pg_get_constraintdef(oid),condeferrable,condeferred FROM pg_constraint WHERE conrelid IN ('content.resources'::regclass,'content.resource_versions'::regclass,'content.note_versions'::regclass,'content.note_source_set_seals'::regclass) ORDER BY conrelid::regclass::text,conname",
+      "SELECT relname,pg_get_userbyid(relowner),relacl::text,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='content'::regnamespace AND relname IN ('resources','resource_versions','note_versions','note_source_set_seals') ORDER BY relname",
+      "SELECT tablename,policyname,permissive,roles,cmd,qual,with_check FROM pg_policies WHERE schemaname='content' AND tablename IN ('resources','resource_versions','note_versions','note_source_set_seals') ORDER BY tablename,policyname"
+    ]
+
+    latest_catalog = Enum.map(restoration_queries, &query!(RequestRepo, &1).rows)
+
+    MigrationTestEnvironment.with_database(20_261_010_000_000, fn _environment ->
+      assert migration_head.() == 20_261_010_000_000
+      note = Singularity.Storage.NoteFixtures.note!()
+      next = Singularity.Storage.NoteFixtures.insert_note_version!(note, %{})
+      resource = Ecto.UUID.dump!(note.resource_id)
+      version = Ecto.UUID.dump!(next.resource_version_id)
+      # The search projection pins the old head; the existing save transaction
+      # removes it before changing that head as well.
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "DELETE FROM content.note_search_documents WHERE resource_id = $1",
+          [
+            resource
+          ]
+        )
+      end)
+
+      race_head!(
+        resource,
+        version,
+        {"DELETE FROM content.note_versions WHERE resource_version_id = $1", [version]}
+      )
+    end)
+
+    assert Enum.map(latest_configs, fn {repo, _config} ->
+             {repo, Application.fetch_env(:singularity_storage, repo)}
+           end) == latest_configs
+
+    assert migration_head.() == latest_head
+    assert Enum.map(restoration_queries, &query!(RequestRepo, &1).rows) == latest_catalog
+  end
+
+  test "latest source seal rejects typed Note deletion atomically without changing immutable identities" do
     note = Singularity.Storage.NoteFixtures.note!()
     next = Singularity.Storage.NoteFixtures.insert_note_version!(note, %{})
     resource = Ecto.UUID.dump!(note.resource_id)
+    initial = Ecto.UUID.dump!(note.initial_version_id)
     version = Ecto.UUID.dump!(next.resource_version_id)
-    # The search projection pins the old head; the existing save transaction
-    # removes it before changing that head as well.
-    Fixtures.with_owner(fn ->
-      query!(MigrationRepo, "DELETE FROM content.note_search_documents WHERE resource_id = $1", [
-        resource
-      ])
-    end)
+    owner = Ecto.UUID.dump!(note.vault_id)
+    expected_versions = Enum.sort([initial, version])
 
-    race_head!(
-      resource,
-      version,
-      {"DELETE FROM content.note_versions WHERE resource_version_id = $1", [version]}
-    )
+    statements = [
+      "SELECT id,current_version_id,vault_id,classification,kind FROM content.resources WHERE id=$1",
+      "SELECT id,resource_id,vault_id,classification,revision,inserted_at FROM content.resource_versions WHERE resource_id=$1 ORDER BY id",
+      "SELECT resource_version_id,resource_id,vault_id,classification,parent_version_id,merge_parent_version_id,inserted_at FROM content.note_versions WHERE resource_id=$1 ORDER BY resource_version_id",
+      "SELECT note_resource_version_id,note_resource_id,vault_id,classification,attachment_count,citation_count,inserted_at FROM content.note_source_set_seals WHERE note_resource_id=$1 ORDER BY note_resource_version_id"
+    ]
+
+    before =
+      Fixtures.with_owner(fn ->
+        Enum.map(statements, &query!(MigrationRepo, &1, [resource]).rows)
+      end)
+
+    assert [[[^resource, ^initial, ^owner, "private", "note"]], generic, typed, seals] = before
+
+    assert Enum.map(generic, fn [id, ^resource, ^owner, "private", _revision, _inserted] -> id end) ==
+             expected_versions
+
+    assert Enum.map(typed, fn [id, ^resource, ^owner, "private", _parent, _merge, _inserted] ->
+             id
+           end) == expected_versions
+
+    assert Enum.map(seals, fn [id, ^resource, ^owner, "private", 0, 0, _inserted] -> id end) ==
+             expected_versions
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Fixtures.with_owner(fn ->
+          assert %{num_rows: 1} =
+                   query!(
+                     MigrationRepo,
+                     "DELETE FROM content.note_versions WHERE resource_version_id=$1",
+                     [version]
+                   )
+        end)
+      end
+
+    assert error.postgres.code == :foreign_key_violation
+    assert error.postgres.constraint == "note_source_set_seals_note_fkey"
+
+    assert Fixtures.with_owner(fn ->
+             Enum.map(statements, &query!(MigrationRepo, &1, [resource]).rows)
+           end) == before
   end
 
   test "a Document commits with its exact typed head and immutable accepted source" do

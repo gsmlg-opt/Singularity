@@ -475,65 +475,102 @@ defmodule Singularity.Storage.SearchProjectionSchemaTest do
   end
 
   test "final grants allow web reads only and preserve worker Document and tag mutation denials" do
-    for role <- @runtime_roles, table <- ~w(search_entries tags resource_tags) do
-      assert %{rows: [[select?, false, false, false]]} =
-               query!(
-                 RequestRepo,
-                 "SELECT has_table_privilege($1,$2,'SELECT'),has_table_privilege($1,$2,'INSERT'),has_table_privilege($1,$2,'UPDATE'),has_table_privilege($1,$2,'DELETE')",
-                 [role, "content." <> table]
-               )
-
-      assert select? == (role == "singularity_web")
-    end
-
-    for role <- @runtime_roles do
-      assert %{rows: [[usage?, false]]} =
-               query!(
-                 RequestRepo,
-                 "SELECT has_schema_privilege($1,'search_extensions','USAGE'),has_schema_privilege($1,'search_extensions','CREATE')",
-                 [role]
-               )
-
-      assert usage? == (role == "singularity_web")
-
-      assert %{rows: [[count]]} =
-               query!(
-                 RequestRepo,
-                 "SELECT count(*) FROM pg_proc WHERE pronamespace='search_extensions'::regnamespace AND has_function_privilege($1,oid,'EXECUTE')",
-                 [role]
-               )
-
-      assert count == if(role == "singularity_web", do: 2, else: 0)
-    end
-
-    source = KnowledgeFixtures.source!()
-    entry = note_attrs!(KnowledgeFixtures.note!(source))
-    seed!(entry)
-
-    for statement <- [
-          "INSERT INTO content.search_entries(entry_id) VALUES($1)",
-          "UPDATE content.search_entries SET body='changed' WHERE entry_id=$1",
-          "DELETE FROM content.search_entries WHERE entry_id=$1",
-          "UPDATE content.tags SET display_value='changed' WHERE vault_id=$1",
-          "DELETE FROM content.resource_tags WHERE vault_id=$1"
-        ] do
-      params =
-        if String.contains?(statement, "entry_id"), do: [entry.entry_id], else: [source.vault_id]
-
-      assert_sql_error(:insufficient_privilege, fn ->
-        ScopedRepo.transact(RequestRepo, context(source), fn repo ->
-          query!(repo, statement, params)
-        end)
+    latest_configs =
+      Enum.map([MigrationRepo, RequestRepo, PreAuthRepo, DispatcherRepo, WorkerRepo], fn repo ->
+        {repo, Application.fetch_env(:singularity_storage, repo)}
       end)
-    end
 
-    for table <- ~w(search_entries document_versions document_fragments tags resource_tags) do
-      assert_sql_error(:insufficient_privilege, fn ->
-        ScopedRepo.transact(WorkerRepo, context(source), fn repo ->
-          query!(repo, "SELECT 1 FROM content.#{table} LIMIT 1")
+    %{rows: [[latest_head]]} =
+      migration_query!("SELECT max(version) FROM public.schema_migrations", [])
+
+    assert latest_head > 20_261_010_000_000
+    latest_bootstrap = bootstrap_snapshot()
+    latest_legacy_acl = legacy_acl_snapshot()
+
+    restoration_queries = [
+      "SELECT relname,pg_get_userbyid(relowner),relacl::text,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='content'::regnamespace AND relname IN ('search_entries','tags','resource_tags') ORDER BY relname",
+      "SELECT tablename,policyname,permissive,roles,cmd,qual,with_check FROM pg_policies WHERE schemaname='content' AND tablename IN ('search_entries','tags','resource_tags') ORDER BY tablename,policyname"
+    ]
+
+    latest_security = Enum.map(restoration_queries, &query!(RequestRepo, &1).rows)
+
+    MigrationTestEnvironment.with_database(20_261_010_000_000, fn _environment ->
+      assert %{rows: [[20_261_010_000_000]]} =
+               migration_query!("SELECT max(version) FROM public.schema_migrations", [])
+
+      for role <- @runtime_roles, table <- ~w(search_entries tags resource_tags) do
+        assert %{rows: [[select?, false, false, false]]} =
+                 query!(
+                   RequestRepo,
+                   "SELECT has_table_privilege($1,$2,'SELECT'),has_table_privilege($1,$2,'INSERT'),has_table_privilege($1,$2,'UPDATE'),has_table_privilege($1,$2,'DELETE')",
+                   [role, "content." <> table]
+                 )
+
+        assert select? == (role == "singularity_web")
+      end
+
+      for role <- @runtime_roles do
+        assert %{rows: [[usage?, false]]} =
+                 query!(
+                   RequestRepo,
+                   "SELECT has_schema_privilege($1,'search_extensions','USAGE'),has_schema_privilege($1,'search_extensions','CREATE')",
+                   [role]
+                 )
+
+        assert usage? == (role == "singularity_web")
+
+        assert %{rows: [[count]]} =
+                 query!(
+                   RequestRepo,
+                   "SELECT count(*) FROM pg_proc WHERE pronamespace='search_extensions'::regnamespace AND has_function_privilege($1,oid,'EXECUTE')",
+                   [role]
+                 )
+
+        assert count == if(role == "singularity_web", do: 2, else: 0)
+      end
+
+      source = KnowledgeFixtures.source!()
+      entry = note_attrs!(KnowledgeFixtures.note!(source))
+      seed!(entry)
+
+      for statement <- [
+            "INSERT INTO content.search_entries(entry_id) VALUES($1)",
+            "UPDATE content.search_entries SET body='changed' WHERE entry_id=$1",
+            "DELETE FROM content.search_entries WHERE entry_id=$1",
+            "UPDATE content.tags SET display_value='changed' WHERE vault_id=$1",
+            "DELETE FROM content.resource_tags WHERE vault_id=$1"
+          ] do
+        params =
+          if String.contains?(statement, "entry_id"),
+            do: [entry.entry_id],
+            else: [source.vault_id]
+
+        assert_sql_error(:insufficient_privilege, fn ->
+          ScopedRepo.transact(RequestRepo, context(source), fn repo ->
+            query!(repo, statement, params)
+          end)
         end)
-      end)
-    end
+      end
+
+      for table <- ~w(search_entries document_versions document_fragments tags resource_tags) do
+        assert_sql_error(:insufficient_privilege, fn ->
+          ScopedRepo.transact(WorkerRepo, context(source), fn repo ->
+            query!(repo, "SELECT 1 FROM content.#{table} LIMIT 1")
+          end)
+        end)
+      end
+    end)
+
+    assert Enum.map(latest_configs, fn {repo, _config} ->
+             {repo, Application.fetch_env(:singularity_storage, repo)}
+           end) == latest_configs
+
+    assert %{rows: [[^latest_head]]} =
+             migration_query!("SELECT max(version) FROM public.schema_migrations", [])
+
+    assert bootstrap_snapshot() == latest_bootstrap
+    assert legacy_acl_snapshot() == latest_legacy_acl
+    assert Enum.map(restoration_queries, &query!(RequestRepo, &1).rows) == latest_security
   end
 
   test "real web tag and resource tag reads hide missing foreign mismatched and revoked scopes" do
