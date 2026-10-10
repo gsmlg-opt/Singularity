@@ -3,6 +3,9 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
 
   @moduletag :integration
 
+  alias Singularity.Core.{DocumentFragment, SourceLocator}
+  alias Singularity.Storage.Postgres.KnowledgeSearchStore
+
   alias Singularity.Storage.{
     Fixtures,
     KnowledgeFixtures,
@@ -444,6 +447,617 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
     assert canonical_snapshot(control.source) == snapshot
   end
 
+  for revocation <- [:capability, :membership, :principal] do
+    @revocation revocation
+
+    test "exact authorization wait rechecks committed #{@revocation} revocation before content access" do
+      control = control!()
+      snapshot = canonical_snapshot(control.source)
+      assert_control(control)
+
+      result =
+        with_held_authorization(
+          control.source,
+          &revoke_in_transaction!(&1, control.source, @revocation),
+          fn holder ->
+            with_reader(
+              control.source,
+              holder,
+              fn repo -> candidate_query(repo, "o", "all", []) end,
+              fn reader, backend ->
+                assert await_exact_authorization_wait(
+                         backend,
+                         holder,
+                         System.monotonic_time(:millisecond) + 4_000
+                       )
+
+                assert_no_content_read_locks(backend)
+                release_holder(holder)
+                assert :ok = Task.await(holder.task, 5_000)
+                Task.await(reader, 5_000)
+              end
+            )
+          end
+        )
+
+      assert result == @denied
+      assert canonical_snapshot(control.source) == snapshot
+      assert_control(control!())
+    end
+  end
+
+  test "a different actual authority key does not block or satisfy the exact wait barrier" do
+    control = control!()
+    foreign = control!()
+    snapshot = canonical_snapshot(control.source)
+    assert_control(control)
+    assert_control(foreign)
+    refute authorization_key(control.source) == authorization_key(foreign.source)
+
+    result =
+      with_held_authorization(foreign.source, fn _repo -> :ok end, fn holder ->
+        with_reader(
+          control.source,
+          holder,
+          fn repo -> candidate_query(repo, "o", "all", []) end,
+          fn reader, backend ->
+            result = Task.await(reader, 4_000)
+            assert Process.alive?(holder.task.pid)
+            refute exact_authorization_wait?(backend, holder)
+            release_holder(holder)
+            assert :ok = Task.await(holder.task, 5_000)
+            result
+          end
+        )
+      end)
+
+    assert result == {:ok, control.entries}
+    assert_control(control)
+    assert canonical_snapshot(control.source) == snapshot
+  end
+
+  for mutation <- [:head, :tag_remove, :tag_add, :tombstone, :restore] do
+    @mutation mutation
+
+    test "Store keeps a conservative immutable-source intersection across committed #{@mutation}" do
+      source = source!()
+      note = literal_note!(source, "Coherence", "coherence")
+      {document, _fragment} = KnowledgeFixtures.ready_document!(source)
+      project!(source, [note, document])
+      query = store_query(source)
+
+      assert {:ok, %{items: [original], next_cursor: :done} = original_page} =
+               store_search(source, query)
+
+      tag =
+        if Enum.member?([:tag_remove, :tag_add], @mutation),
+          do: tagged_note!(source, note),
+          else: nil
+
+      replacement = if @mutation == :head, do: KnowledgeFixtures.uuid(), else: nil
+
+      if @mutation == :tag_add do
+        Fixtures.with_owner(fn ->
+          assert {:ok, %{num_rows: 1}} =
+                   query(
+                     MigrationRepo,
+                     "DELETE FROM content.resource_tags WHERE resource_id=$1 AND tag_id=$2",
+                     [note.resource_id, tag]
+                   )
+        end)
+      end
+
+      if @mutation == :restore do
+        Fixtures.with_owner(fn ->
+          assert {:ok, %{num_rows: 1}} =
+                   query(
+                     MigrationRepo,
+                     "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+                     [note.resource_id]
+                   )
+        end)
+      end
+
+      query = if tag, do: %{query | tag_ids: [Ecto.UUID.load!(tag)]}, else: query
+
+      before_page =
+        if Enum.member?([:tag_add, :restore], @mutation),
+          do: %{items: [], next_cursor: :done},
+          else: original_page
+
+      assert store_search(source, query) == {:ok, before_page}
+      before_snapshot = canonical_snapshot(source)
+
+      {waiting_result, committed_snapshot} =
+        with_held_authorization(
+          source,
+          &write_source_race!(&1, source, note, @mutation, tag, replacement),
+          fn holder ->
+            with_reader(source, holder, &KnowledgeSearchStore.search(&1, query), fn reader,
+                                                                                    backend ->
+              assert await_exact_authorization_wait(
+                       backend,
+                       holder,
+                       System.monotonic_time(:millisecond) + 4_000
+                     )
+
+              # Store legitimately holds its outer content relation locks already.
+              release_holder(holder)
+              assert :ok = Task.await(holder.task, 5_000)
+              snapshot = owner_transaction_snapshot(source)
+              {Task.await(reader, 5_000), snapshot}
+            end)
+          end
+        )
+
+      assert waiting_result == {:ok, %{items: [], next_cursor: :done}}
+      refute committed_snapshot == before_snapshot
+      assert canonical_snapshot(source) == committed_snapshot
+
+      current_page =
+        case @mutation do
+          mutation when mutation in [:tag_remove, :tombstone] ->
+            %{items: [], next_cursor: :done}
+
+          :head ->
+            inserted_at = version_inserted_at(replacement)
+
+            %{
+              original_page
+              | items: [
+                  %{
+                    original
+                    | resource_version_id: Ecto.UUID.load!(replacement),
+                      entry_id: "note:" <> Ecto.UUID.load!(replacement),
+                      source_inserted_at: inserted_at
+                  }
+                ]
+            }
+
+          _mutation ->
+            original_page
+        end
+
+      assert store_search(source, query) == {:ok, current_page}
+      assert canonical_snapshot(source) == committed_snapshot
+    end
+  end
+
+  test "candidate union is uncapped deduplicated and applies canonical AND tags beyond one Store page" do
+    source = source!()
+
+    notes =
+      Enum.flat_map(Enum.chunk_every(Enum.to_list(1..66), 33), fn batch ->
+        Fixtures.with_owner(fn ->
+          Enum.map(batch, fn _index ->
+            insert_literal_note!(MigrationRepo, source, "Coherence", "coherence")
+          end)
+        end)
+      end)
+
+    project!(source, notes)
+    [first, second, third | _rest] = notes
+    first_tag = tagged_note!(source, first)
+    second_tag = tagged_note!(source, second, "second-boundary-tag")
+
+    Fixtures.with_owner(fn ->
+      attach_tag!(MigrationRepo, source, second, first_tag)
+      attach_tag!(MigrationRepo, source, third, second_tag)
+    end)
+
+    foreign = source!()
+    foreign_note = literal_note!(foreign, "Foreign", "coherence")
+    foreign_tag = tagged_note!(foreign, foreign_note)
+    snapshot = canonical_snapshot(source)
+    expected = Enum.sort(Enum.map(notes, &["note:" <> Ecto.UUID.load!(&1.resource_version_id)]))
+    assert candidates(source, "coherence", "note") == {:ok, expected}
+
+    assert candidates(RequestRepo, source, "coherence", "note", [first_tag]) ==
+             {:ok,
+              Enum.sort(
+                Enum.map([first, second], &["note:" <> Ecto.UUID.load!(&1.resource_version_id)])
+              )}
+
+    assert candidates(RequestRepo, source, "coherence", "note", [first_tag, second_tag]) ==
+             {:ok, [["note:" <> Ecto.UUID.load!(second.resource_version_id)]]}
+
+    assert candidates(RequestRepo, source, "coherence", "note", [KnowledgeFixtures.uuid()]) ==
+             {:ok, []}
+
+    assert candidates(RequestRepo, source, "coherence", "note", [foreign_tag]) == {:ok, []}
+
+    query = %{store_query(source) | limit: 50}
+    assert {:ok, %{items: first_page, next_cursor: cursor}} = store_search(source, query)
+    assert length(first_page) == 50
+    assert is_binary(cursor)
+
+    assert {:ok, %{items: second_page, next_cursor: :done}} =
+             store_search(source, %{query | cursor: cursor})
+
+    assert length(second_page) == 16
+    assert Enum.sort(Enum.map(first_page ++ second_page, &[&1.entry_id])) == expected
+    assert candidates(source, "coherence", "all") == {:ok, expected}
+    assert canonical_snapshot(source) == snapshot
+  end
+
+  test "admissible historical conflict and tombstoned projections exclude stale Note identities" do
+    source = source!()
+    live = literal_note!(source, "Signal", "signal")
+    historical = literal_note!(source, "Signal", "signal")
+    conflicted = literal_note!(source, "Base", "base")
+    deleted = literal_note!(source, "Signal", "signal")
+    project!(source, [live, historical, conflicted, deleted])
+    foreign = control!()
+    assert_typed_control(foreign)
+
+    Fixtures.with_owner(fn ->
+      replacement = KnowledgeFixtures.uuid()
+      canonical = KnowledgeFixtures.uuid()
+      competing = KnowledgeFixtures.uuid()
+
+      insert_note_revision!(
+        MigrationRepo,
+        source,
+        historical,
+        replacement,
+        1,
+        "Replacement",
+        "replacement"
+      )
+
+      insert_note_revision!(
+        MigrationRepo,
+        source,
+        conflicted,
+        canonical,
+        1,
+        "Canonical",
+        "canonical"
+      )
+
+      insert_note_revision!(MigrationRepo, source, conflicted, competing, 2, "Signal", "signal")
+
+      for {note, version} <- [{historical, replacement}, {conflicted, canonical}] do
+        assert {:ok, %{num_rows: 1}} =
+                 query(
+                   MigrationRepo,
+                   "UPDATE content.resources SET current_version_id=$2 WHERE id=$1",
+                   [note.resource_id, version]
+                 )
+      end
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "INSERT INTO content.note_conflicts(id,resource_id,vault_id,classification,base_version_id,canonical_version_id,competing_version_id,state) VALUES($1,$2,$3,'private',$4,$5,$6,'open')",
+                 [
+                   KnowledgeFixtures.uuid(),
+                   conflicted.resource_id,
+                   source.vault_id,
+                   conflicted.resource_version_id,
+                   canonical,
+                   competing
+                 ]
+               )
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "UPDATE content.search_entries SET entry_id='note:'||$2::uuid::text,resource_version_id=$2,note_resource_version_id=$2,title='Signal',body='signal',source_inserted_at=(SELECT inserted_at FROM content.resource_versions WHERE id=$2) WHERE resource_id=$1",
+                 [conflicted.resource_id, competing]
+               )
+
+      assert {:ok, %{num_rows: 1}} =
+               query(
+                 MigrationRepo,
+                 "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+                 [deleted.resource_id]
+               )
+    end)
+
+    canonical = canonical_snapshot(source)
+    projection = projection_snapshot(source)
+    assert projection.rows == 4
+    expected = [["note:" <> Ecto.UUID.load!(live.resource_version_id)]]
+    assert candidates(source, "signal", "note") == {:ok, expected}
+    assert candidates(source, "signal", "all") == {:ok, expected}
+    assert candidates(source, "signal", "document") == {:ok, []}
+    assert candidates(source, "o", "all") == {:ok, []}
+    assert_typed_control(foreign)
+    assert canonical_snapshot(source) == canonical
+    assert projection_snapshot(source) == projection
+  end
+
+  test "a real extracting Document staged fragment is not a ready search candidate" do
+    control = control!()
+    document = KnowledgeFixtures.document!(control.source)
+    fragment = fragment!(document, 0, "staged signal")
+
+    Fixtures.with_owner(fn ->
+      extraction_context!(control.source)
+
+      assert {:ok, %{rows: [["extracting"]]}} =
+               query(
+                 MigrationRepo,
+                 "SELECT (content.claim_document_extraction($1,0,$1,'plain',1)).state",
+                 [document.resource_version_id]
+               )
+
+      assert {:ok, %{num_rows: 1}} = insert_fragment(MigrationRepo, document, fragment)
+      assert {:ok, %{num_rows: 1}} = insert_document_projection(MigrationRepo, document, fragment)
+    end)
+
+    canonical = canonical_snapshot(control.source)
+    projection = projection_snapshot(control.source)
+    assert projection.rows == 3
+    assert_typed_control(control)
+    assert candidates(control.source, "staged signal", "all") == {:ok, []}
+    assert candidates(control.source, "staged signal", "document") == {:ok, []}
+    assert canonical_snapshot(control.source) == canonical
+    assert projection_snapshot(control.source) == projection
+  end
+
+  for {mutation, code, constraint} <- [
+        {:foreign_owner, "23503", "search_entries_resource_version_fkey"},
+        {:wrong_kind, "23503", "search_entries_note_version_fkey"},
+        {:ordinal, "23514", "search_entries_source_shape_check"},
+        {:fragment, "23503", "search_entries_document_fragment_fkey"}
+      ] do
+    @projection_mutation mutation
+    @projection_code code
+    @projection_constraint constraint
+
+    test "impossible #{@projection_mutation} projection tuple fails its exact persistence constraint" do
+      control = control!()
+      foreign = control!()
+      assert_typed_control(control)
+      assert_typed_control(foreign)
+      canonical = canonical_snapshot(control.source)
+      projection = projection_snapshot(control.source)
+      foreign_canonical = canonical_snapshot(foreign.source)
+      foreign_projection = projection_snapshot(foreign.source)
+
+      result =
+        rejected_write(fn repo ->
+          reject_projection_tuple(repo, control, foreign, @projection_mutation)
+        end)
+
+      assert result == {:error, {:constraint, @projection_code, @projection_constraint}}
+      assert canonical_snapshot(control.source) == canonical
+      assert projection_snapshot(control.source) == projection
+      assert canonical_snapshot(foreign.source) == foreign_canonical
+      assert projection_snapshot(foreign.source) == foreign_projection
+      assert_typed_control(control)
+      assert_typed_control(foreign)
+    end
+  end
+
+  for state <- [:pending, :failed] do
+    @document_state state
+
+    test "#{@document_state} Document cannot persist a canonical or derived fragment" do
+      control = control!()
+      document = KnowledgeFixtures.document!(control.source)
+      fragment = fragment!(document, 0, "staged signal")
+
+      if Enum.member?([:failed], @document_state) do
+        Fixtures.with_owner(fn ->
+          extraction_context!(control.source)
+
+          assert {:ok, %{rows: [["extracting"]]}} =
+                   query(
+                     MigrationRepo,
+                     "SELECT (content.claim_document_extraction($1,0,$1,'plain',1)).state",
+                     [document.resource_version_id]
+                   )
+
+          assert {:ok, %{rows: [["failed"]]}} =
+                   query(
+                     MigrationRepo,
+                     "SELECT (content.fail_document_extraction($1,$1,1,'failed','extractor_failed')).state",
+                     [document.resource_version_id]
+                   )
+        end)
+      end
+
+      assert {:ok, %{rows: [[state, 0]]}} =
+               Fixtures.with_owner(fn ->
+                 query(
+                   MigrationRepo,
+                   "SELECT document.state,(SELECT count(*) FROM content.document_fragments WHERE resource_version_id=document.resource_version_id) FROM content.document_versions AS document WHERE resource_version_id=$1",
+                   [document.resource_version_id]
+                 )
+               end)
+
+      assert state == Atom.to_string(@document_state)
+      canonical = canonical_snapshot(control.source)
+      projection = projection_snapshot(control.source)
+      assert_typed_control(control)
+
+      assert rejected_write(&insert_document_projection(&1, document, fragment)) ==
+               {:error, {:constraint, "23503", "search_entries_document_fragment_fkey"}}
+
+      assert rejected_write(fn repo ->
+               assert {:ok, %{num_rows: 1}} = insert_fragment(repo, document, fragment)
+
+               query(
+                 repo,
+                 "SET CONSTRAINTS content.document_fragments_completion_check IMMEDIATE"
+               )
+             end) == {:error, {:constraint, "23514", "document_versions_completion_check"}}
+
+      assert canonical_snapshot(control.source) == canonical
+      assert projection_snapshot(control.source) == projection
+      assert_typed_control(control)
+      assert candidates(control.source, "staged signal", "document") == {:ok, []}
+    end
+  end
+
+  defp with_held_authorization(source, write, callback) do
+    {:ok, owner_pid} = MigrationRepo.start_link(pool_size: 2)
+    parent = self()
+    reference = make_ref()
+    key = authorization_key(source)
+
+    holder =
+      Task.async(fn ->
+        assert {:ok, :ok} =
+                 MigrationRepo.transaction(fn ->
+                   assert {:ok, _result} =
+                            query(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+                   assert {:ok, %{rows: [[backend, hash]]}} =
+                            query(
+                              MigrationRepo,
+                              """
+                              SELECT pg_catalog.pg_backend_pid(),pg_catalog.hashtextextended($1,0)
+                              """,
+                              [key]
+                            )
+
+                   assert {:ok, %{num_rows: 1}} =
+                            query(
+                              MigrationRepo,
+                              "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))",
+                              [key]
+                            )
+
+                   write.(MigrationRepo)
+                   send(parent, {reference, :authorization_held, backend, hash})
+
+                   receive do
+                     {^reference, :release} -> :ok
+                   after
+                     15_000 -> flunk("candidate authorization holder expired")
+                   end
+                 end)
+
+        :ok
+      end)
+
+    try do
+      assert_receive {^reference, :authorization_held, backend, hash}, 5_000
+      callback.(%{task: holder, backend: backend, hash: hash, key: key, reference: reference})
+    after
+      send(holder.pid, {reference, :release})
+
+      try do
+        drain_candidate_task(holder)
+      after
+        Supervisor.stop(owner_pid)
+      end
+    end
+  end
+
+  defp with_reader(source, holder, read, callback) do
+    parent = self()
+    reference = make_ref()
+
+    reader =
+      Task.async(fn ->
+        ScopedRepo.transact(RequestRepo, Map.take(source, [:principal_id, :vault_id]), fn repo ->
+          assert {:ok, %{rows: [[backend]]}} = query(repo, "SELECT pg_catalog.pg_backend_pid()")
+          send(parent, {reference, :candidate_reader, backend})
+          read.(repo)
+        end)
+      end)
+
+    try do
+      assert_receive {^reference, :candidate_reader, backend}, 5_000
+      callback.(reader, backend)
+    after
+      release_holder(holder)
+      drain_candidate_task(reader)
+    end
+  end
+
+  defp release_holder(holder), do: send(holder.task.pid, {holder.reference, :release})
+
+  defp authorization_key(source),
+    do:
+      "singularity:authorization:" <>
+        Ecto.UUID.load!(source.principal_id) <>
+        ":" <>
+        Ecto.UUID.load!(source.vault_id)
+
+  defp revoke_in_transaction!(repo, source, revocation) do
+    {statement, parameters, count} =
+      case revocation do
+        :capability ->
+          {"UPDATE core.principal_capabilities SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+           [source.principal_id, source.vault_id], 2}
+
+        :membership ->
+          {"UPDATE core.vault_members SET revoked_at=CURRENT_TIMESTAMP WHERE principal_id=$1 AND vault_id=$2",
+           [source.principal_id, source.vault_id], 1}
+
+        :principal ->
+          {"UPDATE identity.principals SET revoked_at=CURRENT_TIMESTAMP WHERE id=$1",
+           [source.principal_id], 1}
+      end
+
+    assert {:ok, %{num_rows: ^count}} = query(repo, statement, parameters)
+    :ok
+  end
+
+  defp await_exact_authorization_wait(backend, holder, deadline) do
+    cond do
+      exact_authorization_wait?(backend, holder) -> true
+      System.monotonic_time(:millisecond) >= deadline -> false
+      true -> await_exact_authorization_wait(backend, holder, deadline)
+    end
+  end
+
+  defp exact_authorization_wait?(backend, holder) do
+    assert {:ok, %{rows: [[waiting]]}} =
+             query(
+               MigrationRepo,
+               """
+               SELECT $4::bigint=pg_catalog.hashtextextended($3,0) AND EXISTS (
+                 SELECT FROM pg_locks AS waiting JOIN pg_locks AS held
+                   ON held.locktype=waiting.locktype AND held.database=waiting.database
+                  AND held.classid=waiting.classid AND held.objid=waiting.objid
+                  AND held.objsubid=waiting.objsubid
+                 WHERE waiting.pid=$1 AND held.pid=$2 AND waiting.locktype='advisory'
+                   AND waiting.mode='ShareLock' AND NOT waiting.granted
+                   AND held.mode='ExclusiveLock' AND held.granted
+                   AND waiting.classid=((pg_catalog.hashtextextended($3,0) >> 32) & 4294967295)::oid
+                   AND waiting.objid=(pg_catalog.hashtextextended($3,0) & 4294967295)::oid
+                   AND waiting.objsubid=1
+               ) AND $2::integer=ANY(pg_catalog.pg_blocking_pids($1))
+               """,
+               [backend, holder.backend, holder.key, holder.hash]
+             )
+
+    waiting
+  end
+
+  defp assert_no_content_read_locks(backend) do
+    assert {:ok, %{rows: [[false]]}} =
+             query(
+               MigrationRepo,
+               """
+               SELECT EXISTS (
+                 SELECT FROM pg_locks AS lock JOIN pg_class AS relation ON relation.oid=lock.relation
+                 JOIN pg_namespace AS namespace ON namespace.oid=relation.relnamespace
+                 WHERE lock.pid=$1 AND lock.locktype='relation' AND lock.granted
+                   AND lock.mode='AccessShareLock' AND namespace.nspname='content'
+               )
+               """,
+               [backend]
+             )
+  end
+
+  defp drain_candidate_task(task) do
+    if Process.alive?(task.pid) do
+      Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill)
+    else
+      Task.shutdown(task, :brutal_kill)
+    end
+
+    refute Process.alive?(task.pid)
+  end
+
   defp control! do
     source = source!()
     note = KnowledgeFixtures.note!(source)
@@ -453,6 +1067,8 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
     %{
       source: source,
       note: note,
+      document: document,
+      fragment: fragment,
       entries:
         Enum.sort([
           ["note:" <> Ecto.UUID.load!(note.resource_version_id)],
@@ -464,62 +1080,314 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   defp assert_control(control),
     do: assert(candidates(control.source, "o", "all") == {:ok, control.entries})
 
+  defp assert_typed_control(control) do
+    assert_control(control)
+
+    assert candidates(control.source, "o", "note") ==
+             {:ok, [["note:" <> Ecto.UUID.load!(control.note.resource_version_id)]]}
+
+    assert candidates(control.source, "o", "document") ==
+             {:ok, [["document:" <> control.fragment.fragment_id]]}
+  end
+
+  defp fragment!(document, ordinal, text) do
+    assert {:ok, fragment} =
+             DocumentFragment.new(%{
+               resource_id: Ecto.UUID.load!(document.resource_id),
+               resource_version_id: Ecto.UUID.load!(document.resource_version_id),
+               owner_scope_id: Ecto.UUID.load!(document.vault_id),
+               classification: :private,
+               ordinal: ordinal,
+               text: text,
+               locator: %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
+             })
+
+    fragment
+  end
+
+  defp extraction_context!(source) do
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               MigrationRepo,
+               "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+               [Ecto.UUID.load!(source.principal_id), Ecto.UUID.load!(source.vault_id)]
+             )
+
+    :ok
+  end
+
+  defp insert_fragment(repo, document, fragment) do
+    query(
+      repo,
+      "INSERT INTO content.document_fragments(id,resource_id,resource_version_id,vault_id,classification,ordinal,text,digest,locator,inserted_at) VALUES($1,$2,$3,$4,'private',$5,$6,$7,$8,CURRENT_TIMESTAMP)",
+      [
+        fragment.fragment_id,
+        document.resource_id,
+        document.resource_version_id,
+        document.vault_id,
+        fragment.ordinal,
+        fragment.text,
+        fragment.digest,
+        SourceLocator.to_map(fragment.locator)
+      ]
+    )
+  end
+
+  defp insert_document_projection(repo, document, fragment) do
+    query(
+      repo,
+      "INSERT INTO content.search_entries(entry_id,vault_id,classification,resource_id,resource_version_id,kind,fragment_id,ordinal,title,body,locator,source_inserted_at,projection_version) SELECT 'document:'||$1,$2,'private',$3,$4,'document',$1,$5,'Document',$6,$7,inserted_at,1 FROM content.resource_versions WHERE id=$4",
+      [
+        fragment.fragment_id,
+        document.vault_id,
+        document.resource_id,
+        document.resource_version_id,
+        fragment.ordinal,
+        fragment.text,
+        SourceLocator.to_map(fragment.locator)
+      ]
+    )
+  end
+
+  defp rejected_write(write) do
+    Fixtures.with_owner(fn ->
+      assert {:ok, _result} = query(MigrationRepo, "SAVEPOINT candidate_constraint_boundary")
+
+      try do
+        write.(MigrationRepo)
+      after
+        assert {:ok, _result} =
+                 query(MigrationRepo, "ROLLBACK TO SAVEPOINT candidate_constraint_boundary")
+
+        assert {:ok, _result} =
+                 query(MigrationRepo, "RELEASE SAVEPOINT candidate_constraint_boundary")
+      end
+    end)
+  end
+
+  defp reject_projection_tuple(repo, control, foreign, :foreign_owner) do
+    query(repo, "UPDATE content.search_entries SET vault_id=$2 WHERE entry_id=$1", [
+      "document:" <> control.fragment.fragment_id,
+      foreign.source.vault_id
+    ])
+  end
+
+  defp reject_projection_tuple(repo, control, _foreign, :wrong_kind) do
+    query(
+      repo,
+      """
+      UPDATE content.search_entries
+      SET kind='note',note_resource_version_id=resource_version_id,fragment_id=NULL,
+          ordinal=0,entry_id='note:'||resource_version_id::text,locator=$2
+      WHERE entry_id=$1
+      """,
+      [
+        "document:" <> control.fragment.fragment_id,
+        %{"version" => 1, "kind" => "markdown", "heading_path" => []}
+      ]
+    )
+  end
+
+  defp reject_projection_tuple(repo, control, _foreign, :ordinal) do
+    query(repo, "UPDATE content.search_entries SET ordinal=1 WHERE entry_id=$1", [
+      "document:" <> control.fragment.fragment_id
+    ])
+  end
+
+  defp reject_projection_tuple(repo, control, _foreign, :fragment) do
+    fragment = fragment!(control.document, 1, control.fragment.text)
+
+    query(
+      repo,
+      "UPDATE content.search_entries SET fragment_id=$2,entry_id='document:'||$2,ordinal=1 WHERE entry_id=$1",
+      ["document:" <> control.fragment.fragment_id, fragment.fragment_id]
+    )
+  end
+
   defp literal_note!(source, title, body) do
+    Fixtures.with_owner(fn -> insert_literal_note!(MigrationRepo, source, title, body) end)
+  end
+
+  defp insert_literal_note!(repo, source, title, body) do
     row = %{resource_id: KnowledgeFixtures.uuid(), resource_version_id: KnowledgeFixtures.uuid()}
 
-    Fixtures.with_owner(fn ->
-      assert {:ok, %{num_rows: 1}} =
-               query(
-                 MigrationRepo,
-                 "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,$4)",
-                 [row.resource_id, source.vault_id, row.resource_version_id, title]
-               )
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,$4)",
+               [row.resource_id, source.vault_id, row.resource_version_id, title]
+             )
 
-      assert {:ok, %{num_rows: 1}} =
-               query(
-                 MigrationRepo,
-                 "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
-                 [row.resource_version_id, row.resource_id, source.vault_id]
-               )
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
+               [row.resource_version_id, row.resource_id, source.vault_id]
+             )
 
-      assert {:ok, %{num_rows: 1}} =
-               query(
-                 MigrationRepo,
-                 "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private',$4,$5,$6,CURRENT_TIMESTAMP)",
-                 [
-                   row.resource_version_id,
-                   row.resource_id,
-                   source.vault_id,
-                   title,
-                   body,
-                   source.principal_id
-                 ]
-               )
-    end)
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private',$4,$5,$6,CURRENT_TIMESTAMP)",
+               [
+                 row.resource_version_id,
+                 row.resource_id,
+                 source.vault_id,
+                 title,
+                 body,
+                 source.principal_id
+               ]
+             )
 
     row
   end
 
-  defp tagged_note!(source, note) do
+  defp tagged_note!(source, note, key \\ "boundary-tag") do
     tag = KnowledgeFixtures.uuid()
 
     Fixtures.with_owner(fn ->
       assert {:ok, %{num_rows: 1}} =
                query(
                  MigrationRepo,
-                 "INSERT INTO content.tags(id,vault_id,classification,display_value,normalized_key,created_by_principal_id,inserted_at) VALUES($1,$2,'private','boundary-tag','boundary-tag',$3,CURRENT_TIMESTAMP)",
-                 [tag, source.vault_id, source.principal_id]
+                 "INSERT INTO content.tags(id,vault_id,classification,display_value,normalized_key,created_by_principal_id,inserted_at) VALUES($1,$2,'private',$4,$4,$3,CURRENT_TIMESTAMP)",
+                 [tag, source.vault_id, source.principal_id, key]
                )
 
-      assert {:ok, %{num_rows: 1}} =
-               query(
-                 MigrationRepo,
-                 "INSERT INTO content.resource_tags(resource_id,tag_id,vault_id,classification,inserted_at) VALUES($1,$2,$3,'private',CURRENT_TIMESTAMP)",
-                 [note.resource_id, tag, source.vault_id]
-               )
+      attach_tag!(MigrationRepo, source, note, tag)
     end)
 
     tag
+  end
+
+  defp attach_tag!(repo, source, note, tag) do
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.resource_tags(resource_id,tag_id,vault_id,classification,inserted_at) VALUES($1,$2,$3,'private',CURRENT_TIMESTAMP)",
+               [note.resource_id, tag, source.vault_id]
+             )
+
+    :ok
+  end
+
+  defp store_query(source) do
+    %{
+      owner_scope_id: Ecto.UUID.load!(source.vault_id),
+      classification: :private,
+      q: "coherence",
+      kind: :note,
+      tag_ids: [],
+      limit: 20,
+      cursor: nil,
+      policy_version: 1
+    }
+  end
+
+  defp store_search(source, query) do
+    ScopedRepo.transact(
+      RequestRepo,
+      Map.take(source, [:principal_id, :vault_id]),
+      &KnowledgeSearchStore.search(&1, query)
+    )
+  end
+
+  defp insert_note_revision!(repo, source, note, version, revision, title, body) do
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',$4)",
+               [version, note.resource_id, source.vault_id, revision]
+             )
+
+    assert {:ok, %{num_rows: 1}} =
+             query(
+               repo,
+               "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,parent_version_id,inserted_at) VALUES($1,$2,$3,'private',$4,$5,$6,$7,CURRENT_TIMESTAMP)",
+               [
+                 version,
+                 note.resource_id,
+                 source.vault_id,
+                 title,
+                 body,
+                 source.principal_id,
+                 note.resource_version_id
+               ]
+             )
+
+    :ok
+  end
+
+  defp write_source_race!(repo, source, note, mutation, tag, replacement) do
+    case mutation do
+      :head ->
+        insert_note_revision!(repo, source, note, replacement, 1, "Coherence", "coherence")
+
+        assert {:ok, %{num_rows: 1}} =
+                 query(repo, "UPDATE content.resources SET current_version_id=$2 WHERE id=$1", [
+                   note.resource_id,
+                   replacement
+                 ])
+
+      :tag_remove ->
+        assert {:ok, %{num_rows: 1}} =
+                 query(
+                   repo,
+                   "DELETE FROM content.resource_tags WHERE resource_id=$1 AND tag_id=$2",
+                   [note.resource_id, tag]
+                 )
+
+      :tag_add ->
+        attach_tag!(repo, source, note, tag)
+
+      :tombstone ->
+        assert {:ok, %{num_rows: 1}} =
+                 query(
+                   repo,
+                   "UPDATE content.resources SET deleted_at=CURRENT_TIMESTAMP WHERE id=$1",
+                   [note.resource_id]
+                 )
+
+      :restore ->
+        assert {:ok, %{num_rows: 1}} =
+                 query(repo, "UPDATE content.resources SET deleted_at=NULL WHERE id=$1", [
+                   note.resource_id
+                 ])
+    end
+
+    expected = if mutation == :tombstone, do: 0, else: 1
+
+    assert {:ok, %{rows: [[^expected]]}} =
+             query(repo, "SELECT content.reconcile_search_resource_internal($1,$2)", [
+               source.vault_id,
+               note.resource_id
+             ])
+
+    :ok
+  end
+
+  defp version_inserted_at(version) do
+    Fixtures.with_owner(fn ->
+      assert {:ok, %{rows: [[inserted_at]]}} =
+               query(
+                 MigrationRepo,
+                 "SELECT inserted_at FROM content.resource_versions WHERE id=$1",
+                 [version]
+               )
+
+      inserted_at
+    end)
+  end
+
+  defp owner_transaction_snapshot(source) do
+    assert {:ok, snapshot} =
+             MigrationRepo.transaction(fn ->
+               assert {:ok, _result} =
+                        query(MigrationRepo, "SET LOCAL ROLE singularity_table_owner")
+
+               canonical_snapshot_from(MigrationRepo, source)
+             end)
+
+    snapshot
   end
 
   defp reject_authority!(source, :wrong_owner) do
@@ -575,25 +1443,43 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
   end
 
   defp canonical_snapshot(source) do
-    Fixtures.with_owner(fn ->
-      Map.new(
-        ~w(resources resource_versions note_versions document_versions document_fragments resource_assets asset_objects assets tags resource_tags),
-        fn table ->
-          case query(
-                 MigrationRepo,
-                 "SELECT to_jsonb(canonical)::text FROM content." <>
-                   table <>
-                   " AS canonical WHERE vault_id=$1 ORDER BY to_jsonb(canonical)::text COLLATE \"C\"",
-                 [source.vault_id]
-               ) do
-            {:ok, %{rows: rows, num_rows: count}} ->
-              {table, %{rows: count, digest: :crypto.hash(:sha256, :erlang.term_to_binary(rows))}}
+    Fixtures.with_owner(fn -> canonical_snapshot_from(MigrationRepo, source) end)
+  end
 
-            {:error, _reason} ->
-              flunk("canonical candidate snapshot failed")
-          end
+  defp canonical_snapshot_from(repo, source) do
+    Map.new(
+      ~w(resources resource_versions note_versions note_conflicts document_versions document_fragments resource_assets asset_objects assets tags resource_tags),
+      fn table ->
+        case query(
+               repo,
+               "SELECT to_jsonb(canonical)::text FROM content." <>
+                 table <>
+                 " AS canonical WHERE vault_id=$1 ORDER BY to_jsonb(canonical)::text COLLATE \"C\"",
+               [source.vault_id]
+             ) do
+          {:ok, %{rows: rows, num_rows: count}} ->
+            {table, %{rows: count, digest: :crypto.hash(:sha256, :erlang.term_to_binary(rows))}}
+
+          {:error, _reason} ->
+            flunk("canonical candidate snapshot failed")
         end
-      )
+      end
+    )
+  end
+
+  defp projection_snapshot(source) do
+    Fixtures.with_owner(fn ->
+      case query(
+             MigrationRepo,
+             "SELECT to_jsonb(entry)::text FROM content.search_entries AS entry WHERE vault_id=$1 ORDER BY entry_id COLLATE \"C\"",
+             [source.vault_id]
+           ) do
+        {:ok, %{rows: rows, num_rows: count}} ->
+          %{rows: count, digest: :crypto.hash(:sha256, :erlang.term_to_binary(rows))}
+
+        _other ->
+          flunk("candidate projection snapshot failed")
+      end
     end)
   end
 
@@ -873,6 +1759,36 @@ defmodule Singularity.Storage.Postgres.SearchCandidateIdsTest do
 
   defp candidate_error(%{code: :undefined_function}),
     do: {:error, :candidate_function_missing}
+
+  defp candidate_error(%{
+         code: :foreign_key_violation,
+         pg_code: "23503",
+         schema: "content",
+         table: "search_entries",
+         constraint: constraint
+       })
+       when constraint in [
+              "search_entries_resource_version_fkey",
+              "search_entries_note_version_fkey",
+              "search_entries_document_fragment_fkey"
+            ],
+       do: {:error, {:constraint, "23503", constraint}}
+
+  defp candidate_error(%{
+         code: :check_violation,
+         pg_code: "23514",
+         schema: "content",
+         table: "search_entries",
+         constraint: "search_entries_source_shape_check"
+       }),
+       do: {:error, {:constraint, "23514", "search_entries_source_shape_check"}}
+
+  defp candidate_error(%{
+         code: :check_violation,
+         pg_code: "23514",
+         constraint: "document_versions_completion_check"
+       }),
+       do: {:error, {:constraint, "23514", "document_versions_completion_check"}}
 
   defp candidate_error(%{
          code: :check_violation,
