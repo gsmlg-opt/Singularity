@@ -42,41 +42,97 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
     :observer_evidence_missing
   ]
 
+  @diagnostic_key {__MODULE__, :diagnostic}
+  @diagnostic_absent {__MODULE__, :diagnostic_absent}
+  @diagnostic_stages [
+    :setup,
+    :callback,
+    :search_result,
+    :drain_result,
+    :trace_delivery,
+    :pair_collection,
+    :trace_cleanup,
+    :plan_validation,
+    :local_settings,
+    :observer_cleanup
+  ]
+  @diagnostic_errors @errors ++ [:forbidden, :invalid, :conflict, :storage_unavailable]
+  @diagnostic_classes [
+    RuntimeError,
+    ExUnit.AssertionError,
+    MatchError,
+    ArgumentError,
+    FunctionClauseError,
+    KeyError,
+    JSON.DecodeError,
+    Postgrex.Error,
+    DBConnection.ConnectionError
+  ]
+  @diagnostic_sources [
+    {Path.expand(__ENV__.file), :knowledge_search_plan_observer},
+    {Path.expand(
+       "../singularity/storage/postgres/knowledge_search_plan_observer_test.exs",
+       __DIR__
+     ), :knowledge_search_plan_observer_test},
+    {Path.expand("../singularity/storage/postgres/knowledge_search_plan_test.exs", __DIR__),
+     :knowledge_search_plan_test}
+  ]
+
+  # Opt-in, caller-local evidence only. Do not turn callback unwinds into results.
+  def with_diagnostics(callback) when is_function(callback, 0) do
+    previous = Process.get(@diagnostic_key, @diagnostic_absent)
+    Process.put(@diagnostic_key, %{stage: :setup, first: nil})
+
+    try do
+      result = callback.()
+      {result, Process.get(@diagnostic_key).first}
+    after
+      if previous == @diagnostic_absent,
+        do: Process.delete(@diagnostic_key),
+        else: Process.put(@diagnostic_key, previous)
+    end
+  end
+
   def with_observer(database, callback, fault \\ :none)
-      when is_function(callback, 1) and fault in [:none, :after_install] do
+      when is_function(callback, 1) and
+             fault in [:none, :after_install, :admin_setup_and_cleanup, :repo_setup_and_cleanup] do
     with {:ok, target} <- target(database) do
-      with_admin(target, fn connection ->
-        safe_settings!(settings(connection, target))
-        require_ok!(with_fresh_repo(&ordinary_connection!(&1, target)))
-        baseline = change_defaults!(connection, target, @defaults, :install)
+      with_admin(
+        target,
+        fn connection ->
+          safe_settings!(settings(connection, target))
+          require_ok!(with_fresh_repo(&ordinary_connection!(&1, target), fault))
+          baseline = change_defaults!(connection, target, @defaults, :install)
 
-        # Before reset, this scope owns the installed defaults. After reset,
-        # only the dedicated repo remains owned: callback cleanup never resets.
-        started =
-          protect(:observer_setup_failed, fn ->
-            ensure!(fault != :after_install)
-            start_observer_repo!()
-          end)
-
-        case started do
-          {:error, _} ->
-            cleanup_before_reset(connection, target, baseline)
-
-          owned when is_pid(owned) ->
-            using_owned_repo(owned, fn ->
-              ready =
-                protect(:observer_setup_failed, fn ->
-                  observer_connection!(Repo, target)
-                  change_defaults!(connection, target, @defaults, :reset, baseline)
-                end)
-
-              case ready do
-                :ok -> invoke_callback(callback, Repo)
-                {:error, _} -> cleanup_before_reset(connection, target, baseline)
-              end
+          # Before reset, this scope owns the installed defaults. After reset,
+          # only the dedicated repo remains owned: callback cleanup never resets.
+          started =
+            protect(:observer_setup_failed, fn ->
+              ensure!(fault != :after_install)
+              start_observer_repo!()
             end)
-        end
-      end)
+
+          case started do
+            {:error, _} ->
+              cleanup_before_reset(connection, target, baseline)
+
+            owned when is_pid(owned) ->
+              using_owned_repo(owned, fn ->
+                ready =
+                  protect(:observer_setup_failed, fn ->
+                    observer_connection!(Repo, target)
+                    change_defaults!(connection, target, @defaults, :reset, baseline)
+                  end)
+
+                case ready do
+                  :ok -> invoke_callback(callback, Repo)
+                  {:error, _} -> cleanup_before_reset(connection, target, baseline)
+                end
+              end)
+          end
+        end,
+        fault
+      )
     end
   end
 
@@ -115,10 +171,18 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
     baseline = change_defaults!(connection, target, defaults, :install, nil, scope)
 
     try do
-      before = settings(connection, target)
-      result = protect(:observer_callback_failed, callback)
-      ensure!(settings(connection, target) == before, :observer_cleanup_failed)
-      result
+      diagnostic_stage(:setup, fn ->
+        before = settings(connection, target)
+
+        result =
+          diagnostic_stage(:callback, fn -> protect(:observer_callback_failed, callback) end)
+
+        diagnostic_stage(:observer_cleanup, fn ->
+          ensure!(settings(connection, target) == before, :observer_cleanup_failed)
+        end)
+
+        result
+      end)
     after
       protect_cleanup!(fn ->
         change_defaults!(connection, target, defaults, :reset, baseline, scope)
@@ -246,93 +310,113 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
   ]
 
   def search_summary(Repo = repo, scope, query) do
-    protect(:observer_evidence_missing, fn ->
-      require_search_trace_free!()
+    diagnostic_stage(:search_result, fn ->
+      protect(:observer_evidence_missing, fn ->
+        diagnostic_stage(:trace_cleanup, fn -> require_search_trace_free!() end)
 
-      with {:ok, target} <- target(RequestRepo.config()[:database]) do
-        backend = observer_connection!(repo, target)
-        candidate_sql = candidate_source!(repo)
+        with {:ok, target} <- target(RequestRepo.config()[:database]) do
+          backend = diagnostic_stage(:setup, fn -> observer_connection!(repo, target) end)
+          candidate_sql = diagnostic_stage(:setup, fn -> candidate_source!(repo) end)
 
-        ScopedRepo.transact(repo, scope, fn scoped ->
-          case capture_original_search!(scoped, query) do
-            {{:ok, page}, calls} ->
-              case validate_search_envelope(%{
-                     repo: scoped,
-                     backend: backend,
-                     candidate_sql: candidate_sql,
-                     q: query.q,
-                     calls: calls
-                   }) do
-                {:ok, summary} ->
-                  # Preserve the original plan test's exact local settings
-                  # assertion after the captured pair and owned trace teardown.
-                  require_search_trace_free!()
+          ScopedRepo.transact(repo, scope, fn scoped ->
+            case capture_original_search!(scoped, query) do
+              {{:ok, page}, calls} ->
+                case validate_search_envelope(%{
+                       repo: scoped,
+                       backend: backend,
+                       candidate_sql: candidate_sql,
+                       q: query.q,
+                       calls: calls
+                     }) do
+                  {:ok, summary} ->
+                    # Preserve the original plan test's exact local settings
+                    # assertion after the captured pair and owned trace teardown.
+                    diagnostic_stage(:trace_cleanup, fn -> require_search_trace_free!() end)
 
-                  case SafeSQL.query(scoped, """
-                       SELECT current_user, current_setting('row_security'),
-                              current_setting('enable_seqscan'), current_setting('statement_timeout'),
-                              current_setting('pg_trgm.similarity_threshold')
-                       """) do
-                    {:ok, %{rows: [["singularity_web", "on", "on", "5s", "0.3"]]}} ->
-                      {:ok, page, summary}
+                    diagnostic_stage(:local_settings, fn ->
+                      case SafeSQL.query(scoped, """
+                           SELECT current_user, current_setting('row_security'),
+                                  current_setting('enable_seqscan'), current_setting('statement_timeout'),
+                                  current_setting('pg_trgm.similarity_threshold')
+                           """) do
+                        {:ok, %{rows: [["singularity_web", "on", "on", "5s", "0.3"]]}} ->
+                          {:ok, page, summary}
 
-                    _ ->
-                      {:error, :observer_evidence_missing}
-                  end
+                        _ ->
+                          diagnose_result(
+                            {:error, :observer_evidence_missing},
+                            :local_settings,
+                            __ENV__.line
+                          )
+                      end
+                    end)
 
-                _ ->
-                  {:error, :observer_evidence_missing}
-              end
+                  _ ->
+                    {:error, :observer_evidence_missing}
+                end
 
-            _ ->
-              {:error, :observer_evidence_missing}
-          end
-        end)
-      end
+              _ ->
+                {:error, :observer_evidence_missing}
+            end
+          end)
+        end
+      end)
     end)
   end
 
-  def search_summary(_repo, _scope, _query), do: {:error, :observer_evidence_missing}
+  def search_summary(_repo, _scope, _query),
+    do: diagnose_result({:error, :observer_evidence_missing}, :search_result, __ENV__.line)
 
   # Synthetic test envelopes use the same private validator as actual capture.
   # Only search_summary performs the mandatory live catalog/migration proof.
   def validate_search_envelope(envelope) do
-    protect(:observer_evidence_missing, fn ->
-      %{repo: Repo, backend: backend, candidate_sql: candidate_sql, q: q, calls: calls} = envelope
+    diagnostic_stage(:plan_validation, fn ->
+      protect(:observer_evidence_missing, fn ->
+        %{repo: Repo, backend: backend, candidate_sql: candidate_sql, q: q, calls: calls} =
+          envelope
 
-      ensure!(
-        bounded(backend) > 0 and is_binary(candidate_sql) and
-          byte_size(candidate_sql) <= @record_limit and is_binary(q),
-        :observer_evidence_missing
-      )
+        ensure!(
+          bounded(backend) > 0 and is_binary(candidate_sql) and
+            byte_size(candidate_sql) <= @record_limit and is_binary(q),
+          :observer_evidence_missing
+        )
 
-      {statement, parameters, original, drained} = search_drain_pair!(calls)
+        {statement, parameters, original, drained} = search_drain_pair!(calls)
 
-      ensure!(
-        original.command == :select and original.connection_id === backend and
-          drained.command == :select and drained.connection_id === backend and
-          drained.num_rows === 1 and drained.rows === [[backend]] and
-          length(parameters) == 13 and Enum.at(parameters, 1) == q,
-        :observer_evidence_missing
-      )
+        ensure!(
+          original.command == :select and original.connection_id === backend and
+            drained.command == :select and drained.connection_id === backend and
+            drained.num_rows === 1 and drained.rows === [[backend]] and
+            length(parameters) == 13 and Enum.at(parameters, 1) == q,
+          :observer_evidence_missing
+        )
 
-      bounded(original.num_rows)
+        bounded(original.num_rows)
 
-      {candidate_plans, outer} =
-        original_search_plans!(original, drained, statement, candidate_sql)
+        {candidate_plans, outer} =
+          original_search_plans!(original, drained, statement, candidate_sql)
 
-      candidate_nodes = Enum.flat_map(candidate_plans, &search_nodes!/1)
-      outer_nodes = search_nodes!(outer)
+        candidate_nodes = Enum.flat_map(candidate_plans, &search_nodes!/1)
+        outer_nodes = search_nodes!(outer)
 
-      ensure!(
-        length(candidate_nodes) + length(outer_nodes) <= @node_limit,
-        :observer_evidence_missing
-      )
+        ensure!(
+          length(candidate_nodes) + length(outer_nodes) <= @node_limit,
+          :observer_evidence_missing
+        )
 
-      calls = original_candidate_calls!(outer_nodes, candidate_plans, q)
+        calls = original_candidate_calls!(outer_nodes, candidate_plans, q)
 
-      {:ok,
-       search_metadata!(backend, original, parameters, calls, candidate_nodes, outer, outer_nodes)}
+        {:ok,
+         search_metadata!(
+           backend,
+           original,
+           parameters,
+           calls,
+           candidate_nodes,
+           outer,
+           outer_nodes
+         )}
+      end)
     end)
   end
 
@@ -437,7 +521,7 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
   end
 
   defp capture_original_search!(repo, query) do
-    require_search_trace_free!()
+    diagnostic_stage(:trace_cleanup, fn -> require_search_trace_free!() end)
     caller = self()
     reference = make_ref()
     function = {SafeSQL, :query, 4}
@@ -454,51 +538,73 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
       end)
 
     try do
-      ensure!(
-        :erlang.trace_pattern(function, [{:_, [], [{:return_trace}]}], [:local]) == 1,
-        :observer_evidence_missing
-      )
-
-      try do
+      diagnostic_stage(:trace_delivery, fn ->
         ensure!(
-          :erlang.trace(caller, true, [:call, {:tracer, collector}]) == 1,
+          :erlang.trace_pattern(function, [{:_, [], [{:return_trace}]}], [:local]) == 1,
           :observer_evidence_missing
         )
+      end)
 
-        result = Singularity.Storage.Postgres.KnowledgeSearchStore.search(repo, query)
+      try do
+        diagnostic_stage(:trace_delivery, fn ->
+          ensure!(
+            :erlang.trace(caller, true, [:call, {:tracer, collector}]) == 1,
+            :observer_evidence_missing
+          )
+        end)
+
+        result =
+          diagnostic_stage(:search_result, fn ->
+            Singularity.Storage.Postgres.KnowledgeSearchStore.search(repo, query)
+            |> diagnose_result(:search_result, __ENV__.line)
+          end)
 
         # This fixed unnamed Bind closes the original portal, without replaying
         # the search. Its result owns the delayed original outer-plan NOTICE.
         case result do
-          {:ok, _page} -> SafeSQL.query(repo, @drain_statement, [], [])
-          _ -> :ok
+          {:ok, _page} ->
+            diagnostic_stage(:drain_result, fn ->
+              SafeSQL.query(repo, @drain_statement, [], [])
+              |> diagnose_result(:drain_result, __ENV__.line)
+            end)
+
+          _ ->
+            :ok
         end
 
-        delivered = :erlang.trace_delivered(caller)
+        diagnostic_stage(:trace_delivery, fn ->
+          delivered = :erlang.trace_delivered(caller)
 
-        receive do
-          {:trace_delivered, ^caller, ^delivered} -> :ok
-        after
-          5_000 -> throw(:observer_evidence_missing)
-        end
+          receive do
+            {:trace_delivered, ^caller, ^delivered} -> :ok
+          after
+            5_000 -> throw(:observer_evidence_missing)
+          end
+        end)
 
-        send(collector, {reference, :collect})
+        diagnostic_stage(:pair_collection, fn ->
+          send(collector, {reference, :collect})
 
-        receive do
-          {^reference, :pairs, true, pairs} -> {result, pairs}
-          {^reference, :pairs, _valid, _pairs} -> throw(:observer_evidence_missing)
-        after
-          5_000 -> throw(:observer_evidence_missing)
-        end
+          receive do
+            {^reference, :pairs, true, pairs} -> {result, pairs}
+            {^reference, :pairs, _valid, _pairs} -> throw(:observer_evidence_missing)
+          after
+            5_000 -> throw(:observer_evidence_missing)
+          end
+        end)
       after
-        :erlang.trace(caller, false, [:call])
+        diagnostic_stage(:trace_cleanup, fn -> :erlang.trace(caller, false, [:call]) end)
       end
     after
-      try do
-        :erlang.trace_pattern(function, false, [:local])
-      after
-        stop_search_collector!(collector, monitor, reference)
-      end
+      diagnostic_stage(:trace_cleanup, fn ->
+        try do
+          diagnostic_stage(:trace_cleanup, fn ->
+            :erlang.trace_pattern(function, false, [:local])
+          end)
+        after
+          stop_search_collector!(collector, monitor, reference)
+        end
+      end)
     end
   end
 
@@ -881,7 +987,7 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
   defp bounded(value) when is_integer(value) and value in 0..1_000_000_000, do: value
   defp bounded(_), do: throw(:observer_evidence_missing)
 
-  defp with_admin(target, callback) do
+  defp with_admin(target, callback, fault \\ :none) do
     protect(:observer_admin_failed, fn ->
       options =
         admin_options(
@@ -893,41 +999,49 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
       Process.unlink(connection)
 
       try do
-        identity =
-          private_query!(
-            connection,
-            """
-            SELECT current_database(), current_setting('data_directory'),
-                   current_setting('listen_addresses'), rolsuper
-            FROM pg_catalog.pg_roles WHERE rolname = session_user
-            """,
-            []
-          ).rows
+        diagnostic_stage(:setup, fn ->
+          identity =
+            private_query!(
+              connection,
+              """
+              SELECT current_database(), current_setting('data_directory'),
+                     current_setting('listen_addresses'), rolsuper
+              FROM pg_catalog.pg_roles WHERE rolname = session_user
+              """,
+              []
+            ).rows
 
-        ensure!(identity == [[target.database, target.data, "", true]], :observer_admin_failed)
+          ensure!(identity == [[target.database, target.data, "", true]], :observer_admin_failed)
 
-        preloads =
-          private_query!(
-            connection,
-            """
-            SELECT name, setting, source, reset_val, pending_restart
-            FROM pg_catalog.pg_settings WHERE name = ANY($1::text[]) ORDER BY name
-            """,
-            [@preloads]
-          ).rows
+          preloads =
+            private_query!(
+              connection,
+              """
+              SELECT name, setting, source, reset_val, pending_restart
+              FROM pg_catalog.pg_settings WHERE name = ANY($1::text[]) ORDER BY name
+              """,
+              [@preloads]
+            ).rows
 
-        ensure!(
-          length(preloads) == length(@preloads) and
-            Enum.all?(preloads, fn [name, setting, source, reset, pending] ->
-              name in @preloads and setting == "" and reset == "" and pending == false and
-                source in ["default", "configuration file", "command line"]
-            end),
-          :observer_configuration_conflict
-        )
+          ensure!(
+            length(preloads) == length(@preloads) and
+              Enum.all?(preloads, fn [name, setting, source, reset, pending] ->
+                name in @preloads and setting == "" and reset == "" and pending == false and
+                  source in ["default", "configuration file", "command line"]
+              end),
+            :observer_configuration_conflict
+          )
 
-        callback.(connection)
+          if fault == :admin_setup_and_cleanup, do: throw(:observer_admin_failed)
+          callback.(connection)
+        end)
       after
         stop_owned!(connection)
+
+        if fault == :admin_setup_and_cleanup do
+          send(self(), {:observer_fault_owned_stopped, :admin, connection})
+          protect_cleanup!(fn -> throw(:observer_cleanup_failed) end)
+        end
       end
     end)
   end
@@ -1188,19 +1302,33 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
     owned
   end
 
-  defp with_fresh_repo(callback) do
+  defp with_fresh_repo(callback, fault \\ :none) do
     protect(:observer_setup_failed, fn ->
       {:ok, owned} = RequestRepo.start_link(name: nil, pool_size: 1)
       Process.unlink(owned)
-      using_owned_repo(owned, fn -> callback.(owned) end)
+
+      using_owned_repo(
+        owned,
+        fn ->
+          result = callback.(owned)
+          if fault == :repo_setup_and_cleanup, do: throw(:observer_setup_failed)
+          result
+        end,
+        fault
+      )
     end)
   end
 
-  defp using_owned_repo(owned, callback) do
+  defp using_owned_repo(owned, callback, fault \\ :none) do
     try do
-      callback.()
+      diagnostic_stage(:setup, callback)
     after
       stop_owned!(owned)
+
+      if fault == :repo_setup_and_cleanup do
+        send(self(), {:observer_fault_owned_stopped, :repo, owned})
+        protect_cleanup!(fn -> throw(:observer_cleanup_failed) end)
+      end
     end
   end
 
@@ -1225,29 +1353,155 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
   end
 
   defp protect_cleanup!(callback) do
-    case protect(:observer_cleanup_failed, callback) do
-      :ok -> :ok
-      _ -> throw(:observer_cleanup_failed)
-    end
+    diagnostic_stage(:observer_cleanup, fn ->
+      case protect(:observer_cleanup_failed, callback) do
+        :ok -> :ok
+        _ -> throw(:observer_cleanup_failed)
+      end
+    end)
   end
 
   defp invoke_callback(callback, repo) do
-    try do
-      {:ok, callback.(repo)}
-    rescue
-      _ -> {:error, :observer_callback_failed}
-    catch
-      _, _ -> {:error, :observer_callback_failed}
-    end
+    diagnostic_stage(:callback, fn ->
+      try do
+        {:ok, callback.(repo)}
+      rescue
+        exception ->
+          record_failure(:observer_callback_failed, exception.__struct__, __STACKTRACE__)
+          {:error, :observer_callback_failed}
+      catch
+        _, _ ->
+          record_failure(:observer_callback_failed, nil, __STACKTRACE__)
+          {:error, :observer_callback_failed}
+      end
+    end)
   end
 
   defp protect(error, callback) do
     callback.()
   rescue
-    _ -> {:error, error}
+    exception ->
+      record_failure(error, exception.__struct__, __STACKTRACE__)
+      {:error, error}
   catch
-    :throw, reason when reason in @errors -> {:error, reason}
-    _, _ -> {:error, error}
+    :throw, reason when reason in @errors ->
+      record_failure(reason, nil, __STACKTRACE__)
+      {:error, reason}
+
+    _, _ ->
+      record_failure(error, nil, __STACKTRACE__)
+      {:error, error}
+  end
+
+  defp diagnostic_stage(stage, callback) when stage in @diagnostic_stages do
+    case Process.get(@diagnostic_key) do
+      %{stage: previous} = state ->
+        Process.put(@diagnostic_key, %{state | stage: stage})
+
+        try do
+          callback.()
+        rescue
+          exception ->
+            record_failure(stage_error(stage), exception.__struct__, __STACKTRACE__)
+            :erlang.raise(:error, exception, __STACKTRACE__)
+        catch
+          kind, reason ->
+            error = if reason in @errors, do: reason, else: stage_error(stage)
+            record_failure(error, nil, __STACKTRACE__)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        after
+          current = Process.get(@diagnostic_key)
+          Process.put(@diagnostic_key, %{current | stage: previous})
+        end
+
+      _ ->
+        callback.()
+    end
+  end
+
+  defp stage_error(:setup), do: :observer_setup_failed
+  defp stage_error(:callback), do: :observer_callback_failed
+  defp stage_error(:observer_cleanup), do: :observer_cleanup_failed
+  defp stage_error(_stage), do: :observer_evidence_missing
+
+  defp diagnose_result({:error, error} = result, stage, line) do
+    {code, exception_class} =
+      case error do
+        %Singularity.Core.Error{code: code} when code in @diagnostic_errors -> {code, nil}
+        code when code in @errors -> {code, nil}
+        %{__struct__: class} -> {:observer_evidence_missing, class}
+        _ -> {:observer_evidence_missing, nil}
+      end
+
+    stack = [{__MODULE__, :diagnose_result, 3, [file: __ENV__.file, line: line]}]
+    record_diagnostic(stage, code, exception_class, stack)
+    result
+  end
+
+  defp diagnose_result(result, _stage, _line), do: result
+
+  defp record_failure(error, exception_class, stack) do
+    case Process.get(@diagnostic_key) do
+      %{stage: stage} -> record_diagnostic(stage, error, exception_class, stack)
+      _ -> :ok
+    end
+  end
+
+  defp record_diagnostic(stage, error, exception_class, stack)
+       when stage in @diagnostic_stages and error in @diagnostic_errors do
+    case Process.get(@diagnostic_key) do
+      %{first: nil} = state ->
+        {source, line} = diagnostic_source(stack)
+        class = if exception_class in @diagnostic_classes, do: exception_class, else: nil
+
+        diagnostic = %{
+          stage: stage,
+          error: error,
+          exception_class: class,
+          source: source,
+          line: line
+        }
+
+        Process.put(@diagnostic_key, %{state | first: diagnostic})
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp diagnostic_source(stack) do
+    stack
+    |> Enum.take(64)
+    |> Enum.find_value({nil, nil}, fn
+      {_module, _function, _arity, location} when is_list(location) ->
+        file = Keyword.get(location, :file)
+        line = Keyword.get(location, :line)
+
+        if is_integer(line) and line in 1..1_000_000_000 do
+          path =
+            cond do
+              is_binary(file) and byte_size(file) <= 4_096 ->
+                Path.expand(file)
+
+              is_list(file) and length(file) <= 4_096 and Enum.all?(file, &is_integer/1) ->
+                file |> List.to_string() |> Path.expand()
+
+              true ->
+                nil
+            end
+
+          case List.keyfind(@diagnostic_sources, path, 0) do
+            {_path, source} -> {source, line}
+            nil -> nil
+          end
+        end
+
+      _ ->
+        nil
+    end)
+  rescue
+    _ -> {nil, nil}
   end
 
   defp ensure!(condition, error \\ :observer_setup_failed) do
@@ -1285,9 +1539,11 @@ defmodule Singularity.Storage.KnowledgeSearchPlanObserver do
          File.read(Path.join(data, "PG_VERSION")) == {:ok, "17\n"} do
       {:ok, %{database: database, socket: socket, port: config[:port], data: data}}
     else
-      {:error, :observer_invalid_target}
+      diagnose_result({:error, :observer_invalid_target}, :setup, __ENV__.line)
     end
   rescue
-    _ -> {:error, :observer_invalid_target}
+    exception ->
+      record_diagnostic(:setup, :observer_invalid_target, exception.__struct__, __STACKTRACE__)
+      {:error, :observer_invalid_target}
   end
 end

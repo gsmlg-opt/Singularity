@@ -26,6 +26,392 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanObserverTest do
     "Bitmap Index Scan"
   ]
 
+  for {fault, kind, first_error} <- [
+        {:admin_setup_and_cleanup, :admin, :observer_admin_failed},
+        {:repo_setup_and_cleanup, :repo, :observer_setup_failed}
+      ] do
+    @fault fault
+    @owned_kind kind
+    @first_error first_error
+    @tag :integration
+    @tag :observer_diagnostics
+    @tag :observer_first_error
+    test "#{kind} setup evidence survives actual owned cleanup followed by cleanup failure" do
+      require_diagnostics!()
+      state = observer_state()
+      watch_query_events!()
+      before = Map.new(Process.get())
+      kind = @owned_kind
+
+      callback = fn _repo ->
+        send(self(), :unexpected_first_error_fault_callback)
+        :unexpected_result
+      end
+
+      stdout =
+        ExUnit.CaptureIO.capture_io(fn ->
+          log =
+            capture_log(fn ->
+              # The old public after-error precedence is deliberately retained
+              # both without and with diagnostic collection.
+              assert {:error, :observer_cleanup_failed} =
+                       KnowledgeSearchPlanObserver.with_observer(state.database, callback, @fault)
+
+              assert_receive {:observer_fault_owned_stopped, ^kind, ordinary_owned}
+              refute Process.alive?(ordinary_owned)
+              assert_observer_restored(state)
+
+              assert {{:error, :observer_cleanup_failed}, diagnostic} =
+                       observer(:with_diagnostics, [
+                         fn ->
+                           KnowledgeSearchPlanObserver.with_observer(
+                             state.database,
+                             callback,
+                             @fault
+                           )
+                         end
+                       ])
+
+              assert_receive {:observer_fault_owned_stopped, ^kind, diagnostic_owned}
+              refute Process.alive?(diagnostic_owned)
+              assert_observer_restored(state)
+              refute_receive :unexpected_first_error_fault_callback
+              refute_receive :unexpected_observer_query_event
+              restored? = Map.new(Process.get()) == before
+
+              assert restored?,
+                     "first-error diagnostic state was not restored (contents withheld)"
+
+              assert_closed_diagnostic(diagnostic)
+              assert diagnostic.stage == :setup
+              assert diagnostic.error == @first_error
+              assert diagnostic.exception_class == nil
+              assert diagnostic.source == :knowledge_search_plan_observer
+              assert is_integer(diagnostic.line) and diagnostic.line in 1..1_000_000_000
+            end)
+
+          assert_no_diagnostics(log)
+        end)
+
+      assert_no_diagnostics(stdout)
+      assert_observer_restored(state)
+      refute_receive :unexpected_first_error_fault_callback
+      refute_receive :unexpected_observer_query_event
+    end
+  end
+
+  @tag :observer_diagnostics
+  test "diagnostics are opt-in and preserve successful validator results without process residue" do
+    require_diagnostics!()
+    require_envelope_validator!()
+    envelope = search_envelope()
+    expected = observer(:validate_search_envelope, [envelope])
+    assert {:ok, summary} = expected
+    assert closed_search_summary?(summary)
+    before = Map.new(Process.get())
+
+    assert {^expected, nil} =
+             observer(:with_diagnostics, [
+               fn ->
+                 observer(:validate_search_envelope, [envelope])
+               end
+             ])
+
+    assert_envelope_missing(%{envelope | calls: []})
+    assert {:ok, nil} = observer(:with_diagnostics, [fn -> :ok end])
+    restored? = Map.new(Process.get()) == before
+    assert restored?, "diagnostic process state was not restored (contents withheld)"
+  end
+
+  @tag :observer_diagnostics
+  test "malformed real validator envelopes produce only closed bounded content-free diagnostics" do
+    require_diagnostics!()
+    require_envelope_validator!()
+    envelope = search_envelope()
+    canary = "CANARY_OBSERVER_DIAGNOSTIC_" <> String.duplicate("private", 1_024)
+    before = Map.new(Process.get())
+
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        log =
+          capture_log(fn ->
+            for invalid <- [
+                  nil,
+                  %{envelope | q: canary, calls: []},
+                  change_envelope_notice(envelope, 0, &Map.put(&1, :message, canary)),
+                  change_envelope_notice(envelope, 0, &Map.put(&1, :where, canary))
+                ] do
+              assert {{:error, :observer_evidence_missing}, diagnostic} =
+                       observer(:with_diagnostics, [
+                         fn ->
+                           observer(:validate_search_envelope, [invalid])
+                         end
+                       ])
+
+              assert_closed_diagnostic(diagnostic)
+              assert diagnostic.stage == :plan_validation
+              assert diagnostic.error == :observer_evidence_missing
+              assert diagnostic.source == :knowledge_search_plan_observer
+              assert is_integer(diagnostic.line) and diagnostic.line in 1..1_000_000_000
+              refute closed_diagnostic?(Map.put(diagnostic, :message, canary))
+              refute closed_diagnostic?(%{diagnostic | stage: :untrusted_stage})
+              refute closed_diagnostic?(%{diagnostic | error: :untrusted_error})
+              refute closed_diagnostic?(%{diagnostic | source: canary})
+              refute closed_diagnostic?(%{diagnostic | line: 1_000_000_001})
+            end
+          end)
+
+        assert_no_diagnostics(log)
+      end)
+
+    assert_no_diagnostics(stdout)
+    restored? = Map.new(Process.get()) == before
+    assert restored?, "diagnostic process state was not restored (contents withheld)"
+  end
+
+  @tag :observer_diagnostics
+  test "first validator failure survives later failures and isolated nested diagnostic scopes" do
+    require_diagnostics!()
+    require_envelope_validator!()
+    invalid = %{search_envelope() | calls: []}
+    before = Map.new(Process.get())
+
+    assert {{:error, :observer_evidence_missing}, first} =
+             observer(:with_diagnostics, [
+               fn ->
+                 observer(:validate_search_envelope, [invalid])
+               end
+             ])
+
+    assert_closed_diagnostic(first)
+    assert first.exception_class == nil
+
+    assert {{:error, :observer_evidence_missing}, second} =
+             observer(:with_diagnostics, [
+               fn ->
+                 observer(:validate_search_envelope, [nil])
+               end
+             ])
+
+    assert_closed_diagnostic(second)
+    assert second.exception_class == MatchError
+    refute first == second
+
+    assert {{{:error, :observer_evidence_missing}, {:error, :observer_evidence_missing}}, ^first} =
+             observer(:with_diagnostics, [
+               fn ->
+                 {observer(:validate_search_envelope, [invalid]),
+                  observer(:validate_search_envelope, [nil])}
+               end
+             ])
+
+    assert {{{:error, :observer_evidence_missing}, ^second}, ^first} =
+             observer(:with_diagnostics, [
+               fn ->
+                 assert_envelope_missing(invalid)
+
+                 observer(:with_diagnostics, [
+                   fn ->
+                     observer(:validate_search_envelope, [nil])
+                   end
+                 ])
+               end
+             ])
+
+    assert {{{:error, :observer_evidence_missing}, ^second}, nil} =
+             observer(:with_diagnostics, [
+               fn ->
+                 observer(:with_diagnostics, [
+                   fn ->
+                     observer(:validate_search_envelope, [nil])
+                   end
+                 ])
+               end
+             ])
+
+    restored? = Map.new(Process.get()) == before
+    assert restored?, "nested diagnostic process state was not restored (contents withheld)"
+  end
+
+  @tag :observer_diagnostics
+  test "diagnostic scopes preserve raises throws and exits and restore state on every unwind" do
+    require_diagnostics!()
+    require_envelope_validator!()
+    invalid = %{search_envelope() | calls: []}
+    canary = "CANARY_OBSERVER_DIAGNOSTIC_UNWIND"
+    before = Map.new(Process.get())
+
+    error =
+      assert_raise RuntimeError, fn ->
+        observer(:with_diagnostics, [
+          fn ->
+            assert_envelope_missing(invalid)
+            raise RuntimeError, message: canary
+          end
+        ])
+      end
+
+    unchanged? = error.message == canary
+    assert unchanged?, "diagnostic wrapper changed the original exception (contents withheld)"
+    thrown = catch_throw(observer(:with_diagnostics, [fn -> throw(canary) end]))
+    unchanged? = thrown == canary
+    assert unchanged?, "diagnostic wrapper changed the original throw (contents withheld)"
+    exited = catch_exit(observer(:with_diagnostics, [fn -> exit(canary) end]))
+    unchanged? = exited == canary
+    assert unchanged?, "diagnostic wrapper changed the original exit (contents withheld)"
+
+    assert {{:error, :observer_evidence_missing}, first} =
+             observer(:with_diagnostics, [
+               fn ->
+                 observer(:validate_search_envelope, [invalid])
+               end
+             ])
+
+    assert {:outer_result, ^first} =
+             observer(:with_diagnostics, [
+               fn ->
+                 assert_envelope_missing(invalid)
+
+                 assert_raise RuntimeError, fn ->
+                   observer(:with_diagnostics, [fn -> raise RuntimeError, message: canary end])
+                 end
+
+                 :outer_result
+               end
+             ])
+
+    assert {:ok, nil} = observer(:with_diagnostics, [fn -> :ok end])
+    restored? = Map.new(Process.get()) == before
+    assert restored?, "unwound diagnostic process state was not restored (contents withheld)"
+  end
+
+  @tag :integration
+  @tag :observer_diagnostics
+  test "real observer callback exceptions return unchanged errors and only their owned source line" do
+    require_diagnostics!()
+    state = observer_state()
+    watch_query_events!()
+    canary = "CANARY_OBSERVER_DIAGNOSTIC_RUNTIME_ERROR"
+
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        log =
+          capture_log(fn ->
+            assert {{:error, :observer_callback_failed}, diagnostic} =
+                     observer(:with_diagnostics, [
+                       fn ->
+                         KnowledgeSearchPlanObserver.with_observer(state.database, fn _repo ->
+                           raise_line = __ENV__.line + 2
+                           send(self(), {:diagnostic_callback_line, raise_line})
+                           raise RuntimeError, message: canary
+                         end)
+                       end
+                     ])
+
+            assert_closed_diagnostic(diagnostic)
+            assert diagnostic.stage == :callback
+            assert diagnostic.error == :observer_callback_failed
+            assert diagnostic.exception_class == RuntimeError
+            assert diagnostic.source == :knowledge_search_plan_observer_test
+            assert_receive {:diagnostic_callback_line, line}
+            assert diagnostic.line == line
+          end)
+
+        assert_no_diagnostics(log)
+      end)
+
+    assert_no_diagnostics(stdout)
+    assert_observer_restored(state)
+    refute_receive :unexpected_observer_query_event
+  end
+
+  @tag :integration
+  @tag :observer_diagnostics
+  test "inner validation diagnostic survives callback failure after real search and owned cleanup" do
+    require_diagnostics!()
+    fixture = search_fixture!()
+    state = observer_state()
+    watch_query_events!()
+    invalid = %{search_envelope() | calls: []}
+    canary = "CANARY_OBSERVER_DIAGNOSTIC_FIRST_FAILURE"
+
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        log =
+          capture_log(fn ->
+            assert {{:error, :observer_callback_failed}, diagnostic} =
+                     observer(:with_diagnostics, [
+                       fn ->
+                         KnowledgeSearchPlanObserver.with_observer(state.database, fn repo ->
+                           assert_search_summary(repo, fixture)
+                           assert_envelope_missing(invalid)
+                           raise RuntimeError, message: canary
+                         end)
+                       end
+                     ])
+
+            assert_closed_diagnostic(diagnostic)
+            assert diagnostic.stage == :plan_validation
+            assert diagnostic.error == :observer_evidence_missing
+            assert diagnostic.exception_class == nil
+            assert diagnostic.source == :knowledge_search_plan_observer
+          end)
+
+        assert_no_diagnostics(log)
+      end)
+
+    assert_no_diagnostics(stdout)
+    assert_observer_restored(state)
+    refute_receive :unexpected_observer_query_event
+  end
+
+  @tag :integration
+  @tag :observer_diagnostics
+  test "real forbidden Store search retains its missing-evidence result and sanitized error diagnostic" do
+    require_diagnostics!()
+    fixture = search_fixture!([])
+    state = observer_state()
+    watch_query_events!()
+
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        log =
+          capture_log(fn ->
+            assert {{:ok, {:error, :observer_evidence_missing}}, diagnostic} =
+                     observer(:with_diagnostics, [
+                       fn ->
+                         KnowledgeSearchPlanObserver.with_observer(state.database, fn repo ->
+                           monitors = caller_monitors()
+
+                           result =
+                             observer(:search_summary, [repo, fixture.scope, fixture.query])
+
+                           missing? = result == {:error, :observer_evidence_missing}
+
+                           assert missing?,
+                                  "failed search changed its closed error (contents withheld)"
+
+                           assert_search_trace_clean(monitors)
+                           result
+                         end)
+                       end
+                     ])
+
+            assert_closed_diagnostic(diagnostic)
+            assert diagnostic.stage == :search_result
+            assert diagnostic.error == :forbidden
+            assert diagnostic.exception_class == nil
+            assert diagnostic.source == :knowledge_search_plan_observer
+          end)
+
+        assert_no_diagnostics(log)
+      end)
+
+    assert_no_diagnostics(stdout)
+    assert_observer_restored(state)
+    refute_receive :unexpected_observer_query_event
+  end
+
   test "missing, malformed, non-test and mismatched targets fail before callback" do
     assert Code.ensure_loaded?(KnowledgeSearchPlanObserver)
     assert function_exported?(KnowledgeSearchPlanObserver, :with_observer, 2)
@@ -690,6 +1076,68 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanObserverTest do
 
     assert_envelope_missing(without_outer_buffers)
   end
+
+  defp require_diagnostics! do
+    assert Code.ensure_loaded?(KnowledgeSearchPlanObserver)
+    assert function_exported?(KnowledgeSearchPlanObserver, :with_diagnostics, 1)
+  end
+
+  defp assert_closed_diagnostic(diagnostic) do
+    closed? = closed_diagnostic?(diagnostic)
+    assert closed?, "observer diagnostic escaped its closed shape (contents withheld)"
+    bounded? = byte_size(:erlang.term_to_binary(diagnostic)) <= 512
+    assert bounded?, "observer diagnostic exceeded its fixed-field bound (contents withheld)"
+  end
+
+  defp closed_diagnostic?(diagnostic) when is_map(diagnostic) and not is_struct(diagnostic) do
+    Enum.sort(Map.keys(diagnostic)) ==
+      Enum.sort([:stage, :error, :exception_class, :source, :line]) and
+      diagnostic.stage in [
+        :setup,
+        :callback,
+        :search_result,
+        :drain_result,
+        :trace_delivery,
+        :pair_collection,
+        :trace_cleanup,
+        :plan_validation,
+        :local_settings,
+        :observer_cleanup
+      ] and
+      diagnostic.error in [
+        :observer_invalid_target,
+        :observer_admin_failed,
+        :observer_configuration_conflict,
+        :observer_setup_failed,
+        :observer_callback_failed,
+        :observer_cleanup_failed,
+        :observer_evidence_missing,
+        :forbidden,
+        :invalid,
+        :conflict,
+        :storage_unavailable
+      ] and
+      diagnostic.exception_class in [
+        nil,
+        RuntimeError,
+        ExUnit.AssertionError,
+        MatchError,
+        ArgumentError,
+        FunctionClauseError,
+        KeyError,
+        JSON.DecodeError,
+        Postgrex.Error,
+        DBConnection.ConnectionError
+      ] and
+      ((diagnostic.source == nil and diagnostic.line == nil) or
+         (diagnostic.source in [
+            :knowledge_search_plan_observer,
+            :knowledge_search_plan_observer_test,
+            :knowledge_search_plan_test
+          ] and is_integer(diagnostic.line) and diagnostic.line in 1..1_000_000_000))
+  end
+
+  defp closed_diagnostic?(_diagnostic), do: false
 
   defp remove_plan_buffers(plan) do
     plan =

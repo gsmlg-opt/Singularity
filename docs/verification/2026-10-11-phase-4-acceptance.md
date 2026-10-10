@@ -19,8 +19,10 @@ passed focused checks and independent SPEC then separate QUALITY and was
 committed at `1f760855e8a861406ad467b98ffecc21be89dcd7` (exact three files).
 The clean complete rerun failed with five Storage integration failures;
 separate whole-candidate QUALITY found two Asset lifecycle defects. The historical
-contract repair is now locally qualified; reviewed observer-diagnosis and Asset
-lifecycle amendments await actual RED and implementation. Prior failures remain
+contract repair is now locally qualified and locally committed at `ee37cfa`.
+Observer diagnostics have actual RED and owning SQL/unit/static GREEN, with
+independent implementation SPEC then fresh QUALITY PASS. Real Asset deletion has two semantic
+RED failures; the reviewed lifecycle repair is in preparation. Prior failures remain
 FAIL; Phase4 acceptance and Phase5 execution
 remain pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
@@ -1952,7 +1954,147 @@ round; Astra recovery 0**. Diagnostic and Asset production repairs remain
 unstarted. Astra architecture/refinement uses zero Asset recovery attempts.
 Prior failures and earlier phase repair counts are preserved separately.
 
-Exact current full and focused commands:
+### Task 9 diagnostic and real Asset-deletion RED
+
+The exact seven-file historical contract repair was committed locally as
+`ee37cfa726a695da8ab774f80d8b77c5671b760a`
+(`test(storage): preserve historical migration contract oracles`). The owning
+SQL/static results and two independent reviews above qualify only that repair,
+not the still-failing complete Phase4 gate.
+
+At that baseline, seven additive diagnostic contracts first ran before the
+observer API existed. Actual process `47233` exited 2: **25 reported tests /
+seven expected missing-API failures / 18 excluded**, 2.0 seconds, seed `215378`.
+All seven stopped at `require_diagnostics!`; no live observer/database behavior
+was qualified by that run. The selector also selected integration-tagged cases,
+so their GREEN must run on the owned database, not on a database-free unit command.
+
+Two additive Runtime regressions use actual `Api.delete_asset`, Runtime Delete,
+Authorize, OperationScope and permanent SQL grants, rather than direct Resource
+tombstoning or a deletion double. First process `49285` exited 2: 33 reported /
+two failures / 31 excluded, 6.1 seconds. Organization deletion reached its genuine
+semantic failure. Markdown export instead failed at setup because its existing
+Custodian fixture is defined in the separately owning authorization test module.
+The correction changes only the test invocation to load that existing module;
+its cases are excluded by the two location selectors, not claimed as executed.
+
+Actual corrected process `56221` exited 2: **46 reported tests / two genuine
+semantic failures / 44 excluded**, 7.5 seconds, seed `215378`. The Markdown
+regression proves pending-delete state, exact association release and an
+undeleted Resource, then fails because exact historical metadata still returns
+`deleted?: false` instead of true. The organization regression proves the same
+real lifecycle transition, then fails because a one-item tag page returns the
+deleted Asset instead of its live Note. Post-deletion assertions and normal
+logical-cleanup checks beyond these failure lines remain NOT RUN; none were
+removed or weakened. The recorded database/root suffix
+`b20bcc521d3f790cf2cfe9ef` is gone, and owned shutdown/PID/socket cleanup passed.
+
+Parent subsequently applied the prepared test-only diagnostic implementation
+artifact, SHA-256
+`5f7c112f3a280c3eb73dc8ba599abe19dd208ba90d6dadc0f5443df8843e7140`,
+to observer support and the plan wrapper. Formatting passed; actual owning
+GREEN, source-line attribution, unchanged error/privacy/cleanup contracts and
+independent SPEC then fresh QUALITY are still required. Search's short-literal
+failure cause remains **UNKNOWN**; no production search behavior is changed.
+Asset production repair remains in preparation only. Diagnostic/Asset failed
+validated repair rounds are zero; Astra recovery remains zero for both.
+
+Diagnostic first owning GREEN is **PASS**: actual SQL process `18832`, exit 0,
+**29 reported tests / zero failures / 11 pure cases excluded**, 55.2 seconds,
+seed `215378`, warnings as errors. All three new live diagnostic cases execute,
+including exact callback source-line attribution, first-error preservation after
+real search and the actual forbidden Store code. All four unchanged plan cases
+execute, including the fixed five-second production deadline. The short-literal
+case passes this scoped run; the earlier complete-gate failure cause remains
+UNKNOWN and is not declared repaired, flaky or waived.
+
+Separate unit/static process `72931` is **PASS**, exit 0: **29 reported tests /
+zero failures / 18 integration cases excluded**, 2.1 seconds, same seed. All four
+new pure diagnostic cases execute. Format checks for all three actual diagnostic
+files, warnings-as-errors compilation, xref **No cycles found** and whitespace
+checks pass. The database/root suffix `b134669b1db944b4d410c189` is gone and
+owned PostgreSQL shutdown/PID/socket checks pass. Fresh read-only implementation
+SPEC process `91572`, thread `01a1281e-5b5c-7030-a471-968657cf7727`, completed
+**SPEC FAIL** with one P2: setup failures inside `with_admin` / `using_owned_repo`
+can be overwritten by their `after` cleanup before the outer catch records the
+first diagnostic. All three actual hashes/HEAD stayed unchanged. QUALITY has
+not started. Owning GREEN is preserved, but Sol diagnostic round 1 fails its
+independent review; **one failed validated Sol round, Astra recovery zero**.
+Round 2 prepares deterministic actual setup-plus-cleanup boundary regressions
+before the minimal recording repair. Existing public cleanup-error precedence,
+deadlines, cleanup and production search behavior must remain unchanged.
+These are owning diagnostic results, not a successful whole gate or phase acceptance.
+
+First-error RED process `55633` is the intended **FAIL**, exit 2:
+**27 reported tests / two semantic failures / 25 excluded**, 2.8 seconds,
+seed `215378`. Both generated tests reach the first-diagnostic assertion only
+after proving unchanged public cleanup-error precedence, actual stopped owned
+administrator/repository PID, default/repository/trace restoration, no query
+events or unexpected callback and restored process state. The first stage is
+`:observer_cleanup` instead of required `:setup`, reproducing the reviewed P2.
+No assertion is weakened. Test-only fault seams add no normal-path SQL/wait,
+and inject cleanup failure only after the actual process cleanup completes.
+Owned shutdown/PID/socket and recorded root `ed1a8f33b42154be75ffddd7` checks pass.
+
+Parent applied the minimal pre-`after` recording repair artifact, SHA-256
+`9a7fbaefd0b25c279926c2e2eb136a12485b3d7f7abcdccff4dac55717baf34b`.
+The final unchanged settings-equality check has explicit cleanup attribution;
+public error precedence and deadlines remain unchanged. Sol round 2 owning
+GREEN and fresh implementation SPEC then separate QUALITY are pending.
+Asset implementation remains ignored artifact preparation only; no Asset
+production source/migration has been applied. Its two real-deletion RED failures
+remain open. Parent's additive cleanup regression now also requires retained
+Save after cleared object pointers and exact rejection of new source references;
+those assertions are still NOT RUN beyond the earlier metadata failure.
+
+Diagnostic Sol round 2 owning checks are **PASS**: full two-file SQL process
+`57684`, exit 0, **31 reported tests / zero failures / 11 pure cases excluded**,
+52.1 seconds, seed `215378`, warnings as errors. Both newly reproduced
+setup-plus-cleanup regressions now pass, along with all previous original and
+additive SQL/plan/deadline/privacy/cleanup assertions. Separate unit/static
+process `41629`, exit 0, reports **31 tests / zero failures / 20 integration
+cases excluded**, 2.4 seconds, same seed; all eleven pure cases execute.
+Three-file format checks, warnings-as-errors compilation, xref **No cycles found**
+and whitespace checks pass. The recorded root/database
+`a4f5f77097fdb5bb6b0abc55` and owned PID/socket are absent after EXIT shutdown.
+Fresh read-only SPEC process `37157`, thread
+`01a12829-57a2-7f70-9f29-0adeddbcaeb9`, completed **SPEC PASS**, zero actionable
+P0–P2 findings. Subsequent fresh separate QUALITY process `47470`, thread
+`01a1282c-05bf-7050-83ed-65f7f264ffef`, completed **QUALITY PASS**, zero actionable
+P0–P2 findings and no lesser concerns. Both reviewed the complete actual three-file
+code and diff, with unchanged HEAD `ee37cfa` and exact hashes before/after:
+
+- Observer support: `4442c635b79d3ebcdc01095edcb33b8c768473e0294c4c6a75efcae7ee2a25b3`.
+- Plan test: `51d456bfe6d893c239127734e5f98b790fd412871aeddb05928e682689d3306e`.
+- Observer test: `052e41e089288c1881b0e00b746f542446d5deb644f5f703c6f49cdbfe455761`.
+
+Every review command completed with exit 0; neither reviewer ran tests, services,
+mutations or further agents. SQL/unit passes are separately recorded parent-run
+evidence, not claimed as reviewer reruns. Diagnostic Sol round 2 is locally
+qualified; cumulative failed validated Sol rounds **one**, Astra recovery **zero**.
+A draft review
+prompt initially copied 2.1 seconds from the prior unit run; the actual round-2
+unit result above is **2.4 seconds**, and the ignored prompt was corrected.
+No full-gate failure or phase acceptance is closed by these focused results.
+
+Exact diagnostic round-2 RED and owning verification commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs:39 --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/test/support/knowledge_search_plan_observer.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --warnings-as-errors --seed 215378'
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format --check-formatted apps/singularity_storage/test/support/knowledge_search_plan_observer.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
+```
+
+Exact RED commands:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --only observer_diagnostics --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs:787 apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs:175 --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs:787 apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs:175 --warnings-as-errors --seed 215378
+```
+
+Exact historical complete-gate and focused commands (the complete-gate script
+was pinned to clean `1f760855`; a later candidate requires a new exact pin):
 
 ```sh
 devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-full-gate.sh

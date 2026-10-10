@@ -233,12 +233,14 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
     dynamic = RequestRepo.get_dynamic_repo()
     monitors = caller_monitors()
 
-    result =
-      KnowledgeSearchPlanObserver.with_observer(database, fn repo ->
-        assert repo == ObserverRepo
-        assert Process.whereis(RequestRepo) == shared
-        assert RequestRepo.get_dynamic_repo() == dynamic
-        callback.(repo)
+    {result, diagnostic} =
+      KnowledgeSearchPlanObserver.with_diagnostics(fn ->
+        KnowledgeSearchPlanObserver.with_observer(database, fn repo ->
+          assert repo == ObserverRepo
+          assert Process.whereis(RequestRepo) == shared
+          assert RequestRepo.get_dynamic_repo() == dynamic
+          callback.(repo)
+        end)
       end)
 
     assert Process.whereis(RequestRepo) == shared
@@ -249,9 +251,74 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
 
     case result do
       {:ok, value} -> value
-      _ -> flunk("plan observer failed or leaked state (contents withheld)")
+      _ -> observer_failure(diagnostic)
     end
   end
+
+  # Validate independently before reporting, and only after the original cleanup
+  # assertions. Never inspect an unvalidated diagnostic or the failed result.
+  defp observer_failure(nil),
+    do: flunk("plan observer failed or leaked state (contents withheld)")
+
+  defp observer_failure(diagnostic) do
+    closed? = closed_diagnostic?(diagnostic)
+    assert closed?, "plan observer returned non-closed diagnostic (contents withheld)"
+
+    flunk(
+      "plan observer failed or leaked state (contents withheld); diagnostic=" <>
+        inspect(diagnostic)
+    )
+  end
+
+  defp closed_diagnostic?(diagnostic) when is_map(diagnostic) and not is_struct(diagnostic) do
+    Enum.sort(Map.keys(diagnostic)) ==
+      Enum.sort([:stage, :error, :exception_class, :source, :line]) and
+      diagnostic.stage in [
+        :setup,
+        :callback,
+        :search_result,
+        :drain_result,
+        :trace_delivery,
+        :pair_collection,
+        :trace_cleanup,
+        :plan_validation,
+        :local_settings,
+        :observer_cleanup
+      ] and
+      diagnostic.error in [
+        :observer_invalid_target,
+        :observer_admin_failed,
+        :observer_configuration_conflict,
+        :observer_setup_failed,
+        :observer_callback_failed,
+        :observer_cleanup_failed,
+        :observer_evidence_missing,
+        :forbidden,
+        :invalid,
+        :conflict,
+        :storage_unavailable
+      ] and
+      diagnostic.exception_class in [
+        nil,
+        RuntimeError,
+        ExUnit.AssertionError,
+        MatchError,
+        ArgumentError,
+        FunctionClauseError,
+        KeyError,
+        JSON.DecodeError,
+        Postgrex.Error,
+        DBConnection.ConnectionError
+      ] and
+      ((diagnostic.source == nil and diagnostic.line == nil) or
+         (diagnostic.source in [
+            :knowledge_search_plan_observer,
+            :knowledge_search_plan_observer_test,
+            :knowledge_search_plan_test
+          ] and is_integer(diagnostic.line) and diagnostic.line in 1..1_000_000_000))
+  end
+
+  defp closed_diagnostic?(_diagnostic), do: false
 
   defp closed_summary?(summary) when is_map(summary) do
     Enum.sort(Map.keys(summary)) == Enum.sort(@summary_keys) and
