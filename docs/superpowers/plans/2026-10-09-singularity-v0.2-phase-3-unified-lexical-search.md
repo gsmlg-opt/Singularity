@@ -2149,6 +2149,14 @@ plan-test hash. The proposed candidate-identity-only read definer requires a
 documented and independently reviewed architecture amendment, forward migration,
 and authoritative inner-plan proof; it was not implemented in that diagnosis.
 Astra production repair attempts at diagnosis completion: zero.
+The resulting [guarded search-index repair design](../specs/2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md)
+was self-reviewed by Astra and independently reviewed by Sol on SHA-256
+`9ddbe4f8effd1ad20a216dcb3e3528d9115a39cdbbe48a37d623638c28f7486a`.
+Specification review passed. First prove actual real-web-login nested-plan
+observation with synthetic data and complete observer cleanup; only then
+implement the guarded function and Store join through a detailed repair plan.
+This architecture handoff is not a production repair attempt or a passing gate.
+
 Initial privacy validation (`74303`) ran eight contracts with three failures.
 Two bounded test-only repair rounds resolved fixture/contract mismatches and
 closed an independent review's consumed-event coverage finding. Final owning

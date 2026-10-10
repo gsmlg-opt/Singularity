@@ -313,6 +313,38 @@ production repair had been implemented. Astra repair attempts: **0**; completed
 advisory attempts: **1**. The later continuous authorization permits the bounded
 repair process; it does not turn this proposal or the failed gate into acceptance.
 
+### Reviewed repair architecture, 2026-10-10
+
+Astra completed the bounded [guarded search-index design](../superpowers/specs/2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md)
+under `PROJECT_ARCHITECTURE`, after governance commit
+`799e36308660f9b6b9fc8ade7d4261b264d995a7`. Its self-reviewed document hash is
+`9ddbe4f8effd1ad20a216dcb3e3528d9115a39cdbbe48a37d623638c28f7486a`.
+Independent Sol specification review passed that exact document against the
+existing Store, authorization guards, and failed-plan evidence.
+
+The design keeps candidate authority read-only and ID-only, preserves outer
+web-RLS content/rank/cursor/timeout checks, and leaves empty queries unchanged.
+It explicitly records VOLATILE authorization freshness and conservative
+concurrent snapshot visibility. Actual nested execution must be captured only
+on an owned synthetic database's dedicated web-login connection, using
+`auto_explain` NOTICE messages without server plan logging. Feasibility, cleanup,
+five-second overhead, selective cold/warm plans, and regressions remain unproven.
+The locked PostgreSQL 17.10 installation contains `lib/auto_explain.so`; an
+initial environment probe could not use `pg_config` because that utility was
+not in PATH, and did not establish a missing-module failure.
+
+No production code, migration, role grant, or database observation setting has
+changed at this architecture handoff. Astra repair attempts remain **0**;
+completed diagnosis attempts **1**, completed architecture-design handoffs **1**.
+The parent will execute the observer prerequisite before the production repair.
+
+After linking the amendment, the same two architecture suites passed again
+(`43703`, exit 0, seed `215378`, **31 tests, zero failures**, 2.4 seconds), using
+the focused command recorded in the governance section. All 16 local links in
+the four changed architecture/evidence documents resolved (`00b79f`, exit 0),
+and `git diff --check` passed. This verifies documentation consistency, not the
+proposed observer or candidate function.
+
 ## Final local hygiene for this qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with

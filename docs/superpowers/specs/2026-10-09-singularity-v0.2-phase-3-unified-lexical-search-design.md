@@ -12,6 +12,11 @@ independent review, local commits, and later phase development without routine
 approval waits. Phase dependencies and required acceptance gates remain;
 publication, deployment, E2E, production data, and Vault restrictions are unchanged.
 
+The [2026-10-10 guarded search-index amendment](2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md)
+addresses the executed selective-index failures. Its candidate-ID authority and
+test-only nested-plan observation require their own implementation evidence;
+independent design review is not a passing search gate.
+
 The governing scope is [Phase 3 of the release plan](../plans/2026-08-31-singularity-v0.2-release.md#phase-3--unified-lexical-retrieval-and-source-provenance).
 The base is the [qualified Phase 2 acceptance](../../verification/2026-10-09-phase-2-acceptance.md):
 tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`, followed by the
