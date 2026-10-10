@@ -503,6 +503,8 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
          :ok <- verify_note_aggregate_integrity(repo, vault_id),
          :ok <- NoteProjectionReconciler.rebuild_vault(repo, vault_id),
          :ok <- verify_note_projection_identity(repo, vault_id),
+         :ok <- rebuild_unified_notes(repo, vault_id),
+         :ok <- verify_unified_note_identity(repo, vault_id),
          {:ok, asset_rows} <- search_result_rows(repo, vault_id),
          {:ok, note_rows} <- note_search_result_rows(repo, vault_id) do
       evidence = %{assets: asset_rows, notes: note_rows}
@@ -713,6 +715,75 @@ defmodule Singularity.Storage.Backup.IntegrityAudit do
                  ))
                  OR (resource.deleted_at IS NOT NULL AND document.resource_id IS NOT NULL)
                )
+           )
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, _invalid} -> integrity_failure()
+      {:error, _reason} -> unavailable()
+    end
+  end
+
+  defp rebuild_unified_notes(repo, vault_id) do
+    # Restore already owns this transaction; it must not enter the live read/write definers.
+    case SQL.query(
+           repo,
+           """
+           SELECT content.reconcile_search_resource_internal($1, resource.id)
+           FROM content.resources AS resource
+           WHERE resource.vault_id = $1 AND resource.kind = 'note'
+           ORDER BY resource.id
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: rows}} when is_list(rows) ->
+        if Enum.all?(rows, &(&1 in [[0], [1]])), do: :ok, else: integrity_failure()
+
+      {:ok, _invalid} ->
+        integrity_failure()
+
+      {:error, _reason} ->
+        unavailable()
+    end
+  end
+
+  defp verify_unified_note_identity(repo, vault_id) do
+    case SQL.query(
+           repo,
+           """
+           WITH expected AS (
+             SELECT 'note:' || version.id::text AS entry_id,
+                    resource.vault_id, resource.classification,
+                    resource.id AS resource_id, version.id AS resource_version_id,
+                    'note'::text AS kind, version.id AS note_resource_version_id,
+                    NULL::text AS fragment_id, 0 AS ordinal,
+                    note.title, note.markdown AS body,
+                    '{"version":1,"kind":"markdown","heading_path":[]}'::jsonb AS locator,
+                    version.inserted_at AS source_inserted_at, 1 AS projection_version
+             FROM content.resources AS resource
+             JOIN content.resource_versions AS version
+               ON version.id = resource.current_version_id
+              AND version.resource_id = resource.id
+              AND version.vault_id = resource.vault_id
+              AND version.classification = resource.classification
+             JOIN content.note_versions AS note
+               ON note.resource_version_id = version.id
+              AND note.resource_id = version.resource_id
+              AND note.vault_id = version.vault_id
+              AND note.classification = version.classification
+             WHERE resource.vault_id = $1 AND resource.kind = 'note'
+               AND resource.deleted_at IS NULL
+           ), actual AS (
+             SELECT entry_id, vault_id, classification, resource_id, resource_version_id,
+                    kind, note_resource_version_id, fragment_id, ordinal, title, body,
+                    locator, source_inserted_at, projection_version
+             FROM content.search_entries WHERE vault_id = $1 AND kind = 'note'
+           )
+           SELECT NOT EXISTS (
+             (TABLE expected EXCEPT TABLE actual)
+             UNION ALL
+             (TABLE actual EXCEPT TABLE expected)
            )
            """,
            [Ecto.UUID.dump!(vault_id)]

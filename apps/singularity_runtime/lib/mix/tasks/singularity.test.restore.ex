@@ -429,6 +429,8 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     v1_stage(:login)
     session = login_and_unlock!(%{login: login}, new_password) |> api_session()
 
+    {:ok, %{items: [], next_cursor: nil}} = Api.search_knowledge(session, %{kind: :note})
+
     v1_stage(:create_note)
 
     created =
@@ -839,6 +841,34 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
 
     session = login_and_unlock!(%{login: source.owner_login}, new_password) |> api_session()
+
+    {:ok, %{items: search_items, next_cursor: nil}} =
+      Api.search_knowledge(session, %{kind: :note, limit: 50})
+
+    Mix.shell().info(
+      "restore_oracle_stage=unified_note_search rows=#{length(search_items)} expected=#{length(source.note_live_resource_ids)}"
+    )
+
+    assert Enum.sort(Enum.map(search_items, & &1.resource_id)) ==
+             Enum.sort(source.note_live_resource_ids)
+
+    for item <- search_items do
+      {:ok, note} = Api.get_note(session, item.resource_id)
+      assert item.kind == :note
+      assert item.fragment_id == nil
+      assert item.resource_version_id == note.resource_version_id
+      assert item.title == note.title
+
+      {:ok, exact} =
+        Api.resolve_search_source(session, %{
+          kind: :note,
+          resource_id: item.resource_id,
+          resource_version_id: item.resource_version_id,
+          fragment_id: nil
+        })
+
+      assert exact.body == note.markdown
+    end
 
     exports =
       Map.new(source.note_live_resource_ids, fn resource_id ->

@@ -583,6 +583,54 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
     end)
   end
 
+  @tag :integration
+  test "V2 replay refuses derived unified search rows in an imported destination" do
+    with_clean_destination(fn storage_root ->
+      fixture = note_v2_verified_fixture()
+      source_root = Path.join(storage_root, "bounded-source")
+      object_root = Path.join(storage_root, "bounded-objects")
+      source_path = Path.join(source_root, "restore.bundle")
+      File.mkdir_p!(source_root)
+      File.write!(source_path, encode_bounded_source(fixture))
+      context = %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}}
+
+      import = fn ->
+        verified = authenticate_bounded_fixture!(fixture, source_root, source_path)
+
+        Restorer.import(context, MigrationRepo, %{
+          verified: verified,
+          cut: fixture.cut,
+          binding: fixture.binding
+        })
+      end
+
+      assert {:ok, %Restorer.Imported{}} = import.()
+      assert {:ok, %Restorer.Imported{}} = import.()
+      assert_note_v2_rows(fixture.ids)
+      assert_note_runtime_tables_empty()
+
+      owner_transaction(fn ->
+        assert %{rows: [[1]]} =
+                 query("SELECT content.reconcile_search_resource_internal($1,$2)", [
+                   Ecto.UUID.dump!(fixture.ids.vault_id),
+                   Ecto.UUID.dump!(fixture.ids.resource_id)
+                 ])
+
+        assert %{rows: [[1]]} = query("SELECT count(*) FROM content.search_entries")
+      end)
+
+      assert {:error, %Error{code: :conflict}} = import.()
+      assert_note_v2_rows(fixture.ids)
+
+      owner_transaction(fn ->
+        assert %{rows: [[1]]} = query("SELECT count(*) FROM content.search_entries")
+        query("DELETE FROM content.search_entries")
+      end)
+
+      assert {:ok, %Restorer.Imported{}} = import.()
+    end)
+  end
+
   defp encode_bounded_source(fixture) do
     {:ok, encoded_manifest} = Manifest.encode(fixture.verified.manifest)
 
@@ -1971,6 +2019,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                    ('content.upload_grants', (SELECT count(*) FROM content.upload_grants)),
                    ('content.asset_search_documents', (SELECT count(*) FROM content.asset_search_documents)),
                    ('content.note_search_documents', (SELECT count(*) FROM content.note_search_documents)),
+                   ('content.search_entries', (SELECT count(*) FROM content.search_entries)),
                    ('content.note_mutation_receipts', (SELECT count(*) FROM content.note_mutation_receipts)),
                    ('audit.backup_manifests', (SELECT count(*) FROM audit.backup_manifests)),
                    ('audit.backup_manifest_objects', (SELECT count(*) FROM audit.backup_manifest_objects)),

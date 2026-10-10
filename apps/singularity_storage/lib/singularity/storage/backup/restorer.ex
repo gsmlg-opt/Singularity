@@ -124,6 +124,7 @@ defmodule Singularity.Storage.Backup.Restorer do
     content.upload_grants
     content.asset_search_documents
     content.note_search_documents
+    content.search_entries
     content.note_mutation_receipts
     audit.backup_manifests
     audit.backup_manifest_objects
