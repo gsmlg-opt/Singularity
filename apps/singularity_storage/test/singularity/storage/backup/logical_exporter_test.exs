@@ -937,11 +937,10 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
   end
 
   defp insert_unsupported_inventory!("note_attachments", raw) do
-    note = KnowledgeFixtures.note!(raw)
     target = KnowledgeFixtures.note!(raw)
     label = "private-attachment-label-canary-#{Ecto.UUID.generate()}"
 
-    Fixtures.with_owner(fn ->
+    KnowledgeFixtures.note!(raw, fn note ->
       owner_query!(
         """
         INSERT INTO content.note_attachments
@@ -965,10 +964,9 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
   end
 
   defp insert_unsupported_inventory!("note_citations", raw) do
-    note = KnowledgeFixtures.note!(raw)
     {document, fragment} = KnowledgeFixtures.ready_document!(raw)
 
-    Fixtures.with_owner(fn ->
+    KnowledgeFixtures.note!(raw, fn note ->
       owner_query!(
         """
         INSERT INTO content.note_citations

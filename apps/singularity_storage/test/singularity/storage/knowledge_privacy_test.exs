@@ -52,7 +52,7 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
          )}
       end)
 
-    note = KnowledgeFixtures.note!(binary_source)
+    note = KnowledgeFixtures.note_identity!(binary_source)
 
     Fixtures.with_owner(fn ->
       query!(
@@ -89,7 +89,14 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler) end)
-    %{source: source, context: context, command: command, note: note}
+
+    %{
+      source: source,
+      binary_source: binary_source,
+      context: context,
+      command: command,
+      note: note
+    }
   end
 
   test "Document and Link success and failure keep source content out of diagnostic surfaces",
@@ -167,6 +174,7 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
 
           assert {:ok, ^set} =
                    transact(c, fn ->
+                     KnowledgeFixtures.insert_note!(RequestRepo, c.binary_source, c.note)
                      KnowledgeLinkRepository.insert_set(c.context, set)
                    end)
 
@@ -205,6 +213,12 @@ defmodule Singularity.Storage.KnowledgePrivacyTest do
     logs =
       capture_log(fn ->
         grants(fn ->
+          assert {:ok, :created} =
+                   transact(c, fn ->
+                     KnowledgeFixtures.insert_note!(RequestRepo, c.binary_source, c.note)
+                     {:ok, :created}
+                   end)
+
           {document, _, _} = complete_document(c)
 
           {:ok, tag} =

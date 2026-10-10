@@ -3,7 +3,9 @@
 ## Current status
 
 **IN PROGRESS — NOT ACCEPTED.** E2E is deferred and NOT RUN, not a passing
-browser/release gate. No Phase 4 implementation deliverable is claimed complete.
+browser/release gate. Tasks 1 and 2 are qualified locally after their owning
+checks and independent SPEC then QUALITY review. Restore compatibility and
+remaining Phase 4 deliverables/whole-phase acceptance are pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -195,6 +197,234 @@ test failures. Exact command:
 
 ```sh
 devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/knowledge_migration_test.exs --seed 215378
+```
+
+## Task 2 initial RED and harness diagnosis
+
+Two Sol implementers prepared tests/support fixtures before production edits:
+21 new real PostgreSQL sealing/retention contracts, plus atomic construction in
+the five established fixture/test files. Existing RLS fixtures were already
+atomic and remain unchanged. Parent format/compile `87707` exited 0 with
+warnings as errors, also checking separately owned Task 8 test-tooling changes.
+
+Initial `94616` exited 2, seed `215378`: **78 tests, 22 failures**, 50.6 seconds.
+The revised committed-citation append contract failed because old SQL still
+accepted it; the other **56 established cases passed**, including the real
+101-row reader rejection, publication barrier, privacy canaries and unsupported
+backup rejection. New tests observed accepted empty/nonempty/concurrent appends,
+accepted self ancestry and union overflow, absent seals/finalizers/migration,
+and rejected historical retention. These are genuine missing behavior.
+
+However, this run also contains **two unexpected new fixture defects**, not
+valid missing-feature RED evidence: the reverse-parent test omitted the resource
+row required by an immediate established FK, and the isolated empty-set adapter
+test omitted necessary temporary test-only link read permissions, returning
+`forbidden`. Production implementation remains held while bounded Sol harness
+repair 1 fixes those setups without changing assertions, constraints, production
+grants or seal write privileges. Neither defect is declared passing.
+
+Harness repair 1 created the containing resource before inserting a child-first
+version sequence, and temporarily granted only the missing web SELECT rights
+on the three existing source tables, restoring exactly prior privileges. The
+test now directly asserts its deliberate rollback error instead of a wrapper
+that masked other errors. All enforced assertions and established FKs remain.
+Parent repaired RED `2359` exited 2, same seed: **21 tests, 21 expected missing-
+feature failures**, 16.1 seconds. Both corrected constructions now reach their
+intended absent-seal assertions; neither original fixture defect remains.
+The real invisible-append transaction still commits when it should be rejected.
+Counters: **Sol harness repair 1 PASS, zero failed harness repair rounds;
+production repairs 0; Astra 0**. SQL implementation may now start, not acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs, singularity.test.integration apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs --seed 215378
+```
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/knowledge_migration_test.exs --seed 215378
+```
+
+## Task 8 early restore characterization
+
+Before adding derived-seal checks, `27089` exited 0, seed `215378`: the three
+complete owning restore suites reported **17 cases, 4 excluded — 13 integration
+cases executed**, zero failures, 8.2 seconds. Unit `28044` exited 0: **17 cases,
+13 excluded — 4 unit cases executed**, zero failures, 2.8 seconds. Thus all
+17 original cases were characterized; excluded cases are never counted as run.
+The integration database/root were
+`singularity_test_f07aefbf6527bae2153a5352` and
+`/tmp/singularity/integration/f07aefbf6527bae2153a5352`; the owned server stopped.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs --seed 215378
+```
+
+Parent prepared a real table-lock barrier regression, exact six-version restored
+empty-seal assertions, immutable three-version Note-sentinel seals through the
+existing rewrap oracle, and nine-version source/destination seal equality in the
+full Runtime V1/V2 oracle. Only derived Note inventory/assertions changed; every
+existing password/crypto/canonical assertion remains. These test/tooling checks
+are pending the Task 2 schema; production Restorer is still unchanged. Its
+future minimal destination-inventory patch remains separately reported/reviewed.
+Independent `phase4_design_plan_spec` SPEC review passed for this early
+three-file test preparation. It explicitly verified the real lock barrier,
+committed Note-only sentinel snapshot, exact seal counts/identity and preserved
+original assertions; it did not claim SQL behavior or Task 8 completion.
+Preparation QUALITY review then failed with one Important finding: an await
+timeout (an exit) or holder-transaction commit failure could leave the linked
+restore task running during destination cleanup. Parent verified the actual
+code and applied review fix 1: spawn a known bounded-start task, wrap the whole
+holder transaction, await and assertions in outer `try/after`, and shut down
+that task before destination reset/delete. The original lock assertions and
+wait bounds remain unchanged. Fresh preparation SPEC recheck passed, followed
+by QUALITY re-review PASS with no remaining findings. Review fix 1 is qualified
+for test preparation only; actual restore runtime validation and Task 8
+acceptance remain pending. This initial review failure was not treated as a
+passing gate or an Astra recovery attempt.
+
+## Task 2 first implementation validation
+
+Sol implemented the forward-only seal migration and seal-aware adapter, adding
+one further real adapter retention contract (22 new sealing cases in total).
+The parent static check `68277` exited 0: the four selected changed Elixir files
+formatted, compilation with warnings as errors passed, and xref found zero
+cycles. No released migration was edited. Real SQL, concurrency and full owning
+suite validation remained pending; this static result is not Task 2 acceptance.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/priv/repo/migrations/20261011000000_seal_note_source_sets.exs apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+First implementation integration `97654` exited 2, seed `215378`: **79 tests,
+one failure**, 85.1 seconds. All 22 new sealing cases passed, but the established
+cross-owner RLS INSERT assertion received `check_violation` instead of the
+required `insufficient_privilege`: the privileged visible-seal BEFORE trigger
+masked row-security rejection on an already committed Note. This complete gate
+is FAIL, not qualified acceptance. Bounded Sol production repair 1 must restore
+the authenticated denial boundary without changing the original RLS assertion
+or bypassing seal enforcement. Production failed repair rounds remain zero;
+Astra attempts remain zero. The generated database/root were
+`singularity_test_090c9d36f4cb0e0fe2374159` and
+`/tmp/singularity/integration/090c9d36f4cb0e0fe2374159`; the owned server stopped.
+
+Sol production repair 1 added an authorization-aware seal check and an extra
+real nondisclosure regression without changing the original RLS test or grants.
+Parent `56816` included the full migration-history suite and exited 2:
+**115 tests, 66 failures**, 110.9 seconds, same seed. Root failure: the new
+SECURITY DEFINER guard called the established authorization function as table
+owner, which deliberately lacks its EXECUTE privilege. Splitting a Boolean
+expression alone would not solve that runtime boundary. A child race task then
+accessed a missing constraint key on the unexpected SQL error, causing a linked
+exit, leaked test repository and cascading `already_started` fixture failures.
+These cascading failures are recorded, not treated as separate missing features.
+
+Bounded Sol production repair 2 must preserve native RLS nondisclosure without
+changing authorization grants/policies, and make the race's unexpected-error
+diagnostics safe while retaining its exact expected constraint assertion. The
+parent also addressed the SPEC review's independent lifecycle finding in the
+legacy publication race: both task lifetimes now have unconditional shutdown
+covering handshakes, bounded lock checks, await and assertions. All original
+assertions and wait bounds remain. The full source review is held, not PASS.
+Counters: **failed Sol production repair rounds 1; Astra 0**. If repair 2 fails,
+the next implementation recovery must use `SOL_REPEATED_FAILURE` Astra with
+at least three bounded attempts available. Database/root:
+`singularity_test_2ea1c33281566833f79051ab` and
+`/tmp/singularity/integration/2ea1c33281566833f79051ab`; the owned server stopped.
+
+Sol repair 2 changes only the new read-only BEFORE guard to SECURITY INVOKER:
+its exact Note/version/owner/private seal lookup uses the caller's existing
+SELECT grant and forced RLS. Native child RLS denies unauthorized web rows;
+excluded roles still lack seal SELECT. All privileged write/provenance/parent
+finalizers remain hardened SECURITY DEFINER. No existing authorization function,
+grant, policy, role membership or capability is changed. The original security
+regressions remain, with exact function owner/security/search-path/ACL assertions
+added. Both new race tasks now return unexpected SQL/error/exit outcomes safely,
+including an optional constraint lookup, and shut down unconditionally; the
+required exact consistency-error assertion and existing time bounds remain.
+Fresh real SQL/history validation is pending. Independent SPEC source mapping
+found no further gap but correctly holds its final verdict for that gate.
+
+Parent repair-2 gate `82416` exited 2: **115 tests, one failure**, 97.6 seconds,
+same seed. The other 114 cases passed, including original RLS and concurrency
+contracts. The remaining failure is the added function-catalog assertion:
+binding a signature string directly to `$1::regprocedure` selects Postgrex's
+integer OID codec. It does not invalidate the assertion or qualify the complete
+gate. No leaked-repository cascade recurred. Database/root:
+`singularity_test_fa8b9e34329aca494ad5ec61` and
+`/tmp/singularity/integration/fa8b9e34329aca494ad5ec61`; the owned server stopped.
+
+Two successive Sol qualification-repair rounds have failed, so parent routed
+the bounded catalog-query encoding recovery to
+`phase4_source_seal_catalog_recovery` Astra under `SOL_REPEATED_FAILURE`,
+attempt 1. At least three bounded attempts remain available if needed. Only
+the new test's query binding may change; every owner/security/search-path/ACL
+assertion and the complete SQL/history rerun remains required. No production
+or authorization change is requested for this recovery.
+
+Astra recovery attempt 1 verified the supplied failing command/error against
+the local Postgrex integer-only OID encoder and changed exactly one binding to
+`$1::text::regprocedure`. The complete catalog assertion is unchanged, as are
+all production files and existing test edits. Source/diff checks passed; parent
+fresh full SQL/history execution is pending. This is bounded implementation
+recovery, not Astra routine review or a passing test claim.
+
+Parent Astra-1 GREEN `20944` exited 0, seed `215378`: **115 tests, zero
+failures**, 98.8 seconds. This includes all **23** new sealing cases, all **57**
+established owning cases and **35** full migration-environment/history cases.
+No task/repository cascade recurred. Exact command:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs, singularity.test.integration apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/knowledge_migration_test.exs apps/singularity_storage/test/singularity/storage/migrations_test.exs --seed 215378
+```
+
+Counters: Sol harness repair 1 PASS; two failed Sol qualification-repair rounds;
+**Astra recovery 1 PASS**, zero failed Astra rounds. Database/root:
+`singularity_test_3e7fc4692614cdd3f72a20e3` and
+`/tmp/singularity/integration/3e7fc4692614cdd3f72a20e3`; the owned server stopped
+and temporary root absence was verified. `git diff --check` passed. Final
+static `47326` exited 0: complete formatter check, compilation with warnings as
+errors and xref zero cycles. Independent `phase4_source_seal_spec` reviewed the
+actual eight-file Task 2 candidate after repair and returned SPEC PASS with no
+findings. Separate `phase4_source_seal_quality` then returned QUALITY PASS,
+with no Critical, Important or Minor findings. Task 2 is qualified locally;
+authenticated Note composition, runtime activation and whole-phase acceptance
+remain pending. This reviewed slice changes no Vault production file or feature.
+
+## Task 8 observed restore RED and compatibility patch
+
+After the seal schema existed, focused `40015` exited 2, seed `215378`: **12
+reported cases, 11 excluded — one actual case executed and failed**, 5.3 seconds.
+The real restore task never waited for the derived seal table's ACCESS EXCLUSIVE
+lock while the holder retained ACCESS SHARE; the bounded actual `pg_locks` /
+`pg_blocking_pids` assertion failed as designed. This is a genuine missing-lock
+RED, not a fake restore or a missing-schema fixture error. Task cleanup completed
+and the owned server stopped. Database/root:
+`singularity_test_67dcb585f0316cd3b1110729` and
+`/tmp/singularity/integration/67dcb585f0316cd3b1110729`.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs:264 --seed 215378
+```
+
+The parent applied the plan's smallest frozen-substrate compatibility patch:
+`backup/restorer.ex` adds `content.note_source_set_seals` only to the derived
+destination inventory used by pre-restore locking and emptiness checks. It does
+not add seals to post-restore excluded data, because legitimate Note INSERT
+finalizers regenerate them. No wire columns, V1/V2 schema/export, cryptographic
+or Vault unlock/key/recovery behavior changed. Full owning restore suites and
+the complete independent Runtime V1/V2 oracle remain required.
+
+First implementation `13434` exited 0 after compiling with warnings as errors:
+**18 reported cases, 4 excluded — 14 integration cases executed**, zero
+failures, 12.6 seconds, seed `215378`, across all three complete owning files.
+The actual seal-lock barrier and exact restored/rewrapped seal checks passed.
+Database/root: `singularity_test_423df3a94abc1d1ec5f0819d` and
+`/tmp/singularity/integration/423df3a94abc1d1ec5f0819d`; the owned server stopped.
+Unit contracts, full Runtime oracle and implementation SPEC then QUALITY review
+remain pending; Task 8 is not accepted yet.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/lib/singularity/storage/backup/restorer.ex, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs --seed 215378
 ```
 
 ## Preserved boundaries and baseline inventory

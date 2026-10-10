@@ -106,9 +106,13 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
 
   test "versioned attachments accept complete private tuples and preserve immutable source rows" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
+    note = KnowledgeFixtures.note_identity!(source)
     row = attachment(note, source)
-    owner(fn -> insert!("note_attachments", row) end)
+
+    owner(fn ->
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
+      insert!("note_attachments", row)
+    end)
 
     for operation <- [
           "UPDATE content.note_attachments SET label = 'changed'",
@@ -124,8 +128,7 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
   test "attachments reject wrong Note identity, target tuple, kind, self reference, ordinal and owner" do
     source = KnowledgeFixtures.source!()
     other = KnowledgeFixtures.source!()
-    note = note!(source)
-    base = attachment(note, source)
+    note = KnowledgeFixtures.note_identity!(source)
 
     for attrs <- [
           %{note_resource_version_id: source.resource_version_id},
@@ -147,31 +150,50 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
           %{classification: "public"},
           %{label: String.duplicate("é", 128)}
         ] do
-      rejects(fn -> insert!("note_attachments", Map.merge(base, attrs)) end)
+      rejects(fn ->
+        fresh = KnowledgeFixtures.note_identity!(source)
+        KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+
+        attrs =
+          Map.new(attrs, fn
+            {:target_resource_id, id} when id == note.resource_id ->
+              {:target_resource_id, fresh.resource_id}
+
+            {:target_resource_version_id, id} when id == note.resource_version_id ->
+              {:target_resource_version_id, fresh.resource_version_id}
+
+            field ->
+              field
+          end)
+
+        insert!("note_attachments", Map.merge(attachment(fresh, source), attrs))
+      end)
     end
 
-    owner(fn -> insert!("note_attachments", base) end)
-
-    rejects(
-      fn -> insert!("note_attachments", %{base | id: KnowledgeFixtures.uuid()}) end,
-      :unique_violation
-    )
-
-    rejects(
-      fn -> insert!("note_attachments", %{base | id: KnowledgeFixtures.uuid(), ordinal: 1}) end,
-      :unique_violation
-    )
+    for ordinal <- [0, 1] do
+      rejects(
+        fn ->
+          fresh = KnowledgeFixtures.note_identity!(source)
+          KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+          base = attachment(fresh, source)
+          insert!("note_attachments", base)
+          insert!("note_attachments", %{base | id: KnowledgeFixtures.uuid(), ordinal: ordinal})
+        end,
+        :unique_violation
+      )
+    end
   end
 
   test "pending Documents and unavailable Assets cannot become attachment sources" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
     document = KnowledgeFixtures.document!(source)
-    row = attachment(note, source)
 
     rejects(fn ->
+      note = KnowledgeFixtures.note_identity!(source)
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
+
       insert!("note_attachments", %{
-        row
+        attachment(note, source)
         | target_resource_id: document.resource_id,
           target_resource_version_id: document.resource_version_id,
           target_kind: "document"
@@ -184,20 +206,44 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
       ])
     end)
 
-    rejects(fn -> insert!("note_attachments", row) end)
+    rejects(fn ->
+      note = KnowledgeFixtures.note_identity!(source)
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
+      insert!("note_attachments", attachment(note, source))
+    end)
   end
 
   test "citations pin exact ready fragments with version-local citation identity" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
+    note = KnowledgeFixtures.note_identity!(source)
     {document, fragment} = ready_document!(source)
     row = citation(note, document, fragment)
-    owner(fn -> insert!("note_citations", row) end)
-    rejects(fn -> insert!("note_citations", %{row | ordinal: 1}) end, :unique_violation)
-    owner(fn -> insert!("note_citations", %{row | id: KnowledgeFixtures.uuid(), ordinal: 1}) end)
-    second = next_note_version!(note, source)
 
     owner(fn ->
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
+      insert!("note_citations", row)
+      insert!("note_citations", %{row | id: KnowledgeFixtures.uuid(), ordinal: 1})
+    end)
+
+    rejects(
+      fn ->
+        insert!("note_citations", %{row | id: KnowledgeFixtures.uuid(), ordinal: 2})
+      end,
+      :check_violation
+    )
+
+    rejects(
+      fn ->
+        fresh = KnowledgeFixtures.note_identity!(source)
+        KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+        duplicate = citation(fresh, document, fragment)
+        insert!("note_citations", duplicate)
+        insert!("note_citations", %{duplicate | ordinal: 1})
+      end,
+      :unique_violation
+    )
+
+    next_note_version!(note, source, fn second ->
       insert!("note_citations", %{
         row
         | note_resource_id: second.resource_id,
@@ -218,9 +264,7 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
 
   test "citations reject mismatched source tuples, locators, Note versions and ordinal gaps" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
     {document, fragment} = ready_document!(source)
-    row = citation(note, document, fragment)
 
     for attrs <- [
           %{note_resource_version_id: document.resource_version_id},
@@ -231,13 +275,17 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
           %{ordinal: 1},
           %{vault_id: KnowledgeFixtures.uuid()}
         ] do
-      rejects(fn -> insert!("note_citations", Map.merge(row, attrs)) end)
+      rejects(fn ->
+        fresh = KnowledgeFixtures.note_identity!(source)
+        KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+        insert!("note_citations", Map.merge(citation(fresh, document, fragment), attrs))
+      end)
     end
   end
 
   test "complete source ordering is checked at commit and accepts reverse insertion order" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
+    note = KnowledgeFixtures.note_identity!(source)
     {document, fragment} = ready_document!(source)
     first = attachment(note, source)
 
@@ -253,6 +301,7 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
     cite = citation(note, document, fragment)
 
     owner(fn ->
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
       insert!("note_attachments", second)
       insert!("note_attachments", first)
       insert!("note_citations", %{cite | id: KnowledgeFixtures.uuid(), ordinal: 1})
@@ -273,11 +322,12 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
 
   test "tombstoning keeps source links and organization rows and no new foreign key cascades" do
     source = KnowledgeFixtures.source!()
-    note = note!(source)
+    note = KnowledgeFixtures.note_identity!(source)
     {document, fragment} = ready_document!(source)
     tag = tag(source)
 
     owner(fn ->
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
       insert!("tags", tag)
       insert!("note_attachments", attachment(note, source))
       insert!("note_citations", citation(note, document, fragment))
@@ -327,8 +377,11 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
     end)
 
     rejects(fn ->
+      fresh = KnowledgeFixtures.note_identity!(source)
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+
       insert!("note_attachments", %{
-        attachment(note, source)
+        attachment(fresh, source)
         | ordinal: 1,
           target_resource_id: document.resource_id,
           target_resource_version_id: document.resource_version_id,
@@ -420,7 +473,7 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
   test "SQL source identity violations name their constraint and roll back every inserted row" do
     source = KnowledgeFixtures.source!()
     other = KnowledgeFixtures.source!()
-    note = note!(source)
+    note = KnowledgeFixtures.note_identity!(source)
     {document, fragment} = ready_document!(source)
     attached = attachment(note, source)
     cited = citation(note, document, fragment)
@@ -449,10 +502,18 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
 
     for {table, row, code, constraint} <- cases do
       marker = %{tag(source) | id: KnowledgeFixtures.uuid()}
+      fresh = KnowledgeFixtures.note_identity!(source)
+
+      row = %{
+        row
+        | note_resource_id: fresh.resource_id,
+          note_resource_version_id: fresh.resource_version_id
+      }
 
       error =
         assert_raise Postgrex.Error, fn ->
           owner(fn ->
+            KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
             # Select the composite FK explicitly without disabling any constraint.
             if code == :foreign_key_violation do
               query!(MigrationRepo, "SET CONSTRAINTS content.#{constraint} IMMEDIATE", [])
@@ -585,37 +646,9 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
     )
   end
 
-  defp note!(source) do
-    row = %{
-      resource_id: KnowledgeFixtures.uuid(),
-      resource_version_id: KnowledgeFixtures.uuid(),
-      vault_id: source.vault_id
-    }
+  defp note!(source), do: KnowledgeFixtures.note!(source)
 
-    owner(fn ->
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,'Note')",
-        [row.resource_id, row.vault_id, row.resource_version_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
-        [row.resource_version_id, row.resource_id, row.vault_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private','Note','body',$4,CURRENT_TIMESTAMP)",
-        [row.resource_version_id, row.resource_id, row.vault_id, source.principal_id]
-      )
-    end)
-
-    row
-  end
-
-  defp next_note_version!(note, source) do
+  defp next_note_version!(note, source, fun) do
     row = %{note | resource_version_id: KnowledgeFixtures.uuid()}
 
     owner(fn ->
@@ -636,6 +669,8 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
           note.resource_version_id
         ]
       )
+
+      fun.(row)
     end)
 
     row

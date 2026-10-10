@@ -125,28 +125,40 @@ defmodule Singularity.Storage.KnowledgeFixtures do
 
   def uuid, do: Ecto.UUID.generate() |> Ecto.UUID.dump!()
 
-  def note!(source) do
-    row = %{resource_id: uuid(), resource_version_id: uuid(), vault_id: source.vault_id}
+  def note_identity!(source),
+    do: %{resource_id: uuid(), resource_version_id: uuid(), vault_id: source.vault_id}
+
+  def note!(source), do: note!(source, fn _ -> :ok end)
+
+  def note!(source, fun) when is_function(fun, 1) do
+    row = note_identity!(source)
 
     Fixtures.with_owner(fn ->
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,'Note')",
-        [row.resource_id, row.vault_id, row.resource_version_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
-        [row.resource_version_id, row.resource_id, row.vault_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private','Note','body',$4,CURRENT_TIMESTAMP)",
-        [row.resource_version_id, row.resource_id, row.vault_id, source.principal_id]
-      )
+      insert_note!(MigrationRepo, source, row)
+      fun.(row)
     end)
+
+    row
+  end
+
+  def insert_note!(repo, source, row) do
+    query!(
+      repo,
+      "INSERT INTO content.resources(id,vault_id,classification,kind,current_version_id,title) VALUES($1,$2,'private','note',$3,'Note')",
+      [row.resource_id, row.vault_id, row.resource_version_id]
+    )
+
+    query!(
+      repo,
+      "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',0)",
+      [row.resource_version_id, row.resource_id, row.vault_id]
+    )
+
+    query!(
+      repo,
+      "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,inserted_at) VALUES($1,$2,$3,'private','Note','body',$4,CURRENT_TIMESTAMP)",
+      [row.resource_version_id, row.resource_id, row.vault_id, source.principal_id]
+    )
 
     row
   end

@@ -143,32 +143,32 @@ and `backup/logical_exporter_test.exs` as required. These established source-set
 fixtures must change together so the new seal does not mask their existing
 privacy, provenance, replay or unsupported-backup assertions.
 
-- [ ] Add integration RED proving a committed empty/nonempty version can still
+- [x] Add integration RED proving a committed empty/nonempty version can still
   be appended; preserve every original FK/ordinal/locator/identity negative.
-- [ ] Add the immutable owner-scoped seal table and composite typed-Note FK;
+- [x] Add the immutable owner-scoped seal table and composite typed-Note FK;
   forced RLS, exact grants and bounded counts. Runtime gets no direct seal
   INSERT/UPDATE/DELETE/TRUNCATE; no role attributes/membership changes.
-- [ ] Under write-excluding table locks, validate/backfill old structural sets
+- [x] Under write-excluding table locks, validate/backfill old structural sets
   including empty versions, without child rewriting or historical live checks.
   Add migration vectors for old nonempty membership and malformed old sets.
-- [ ] Add visible-seal child INSERT guard and named deferred finalizers for
+- [x] Add visible-seal child INSERT guard and named deferred finalizers for
   both Note versions and children. Validate counts/contiguous ordinals/bounds;
   compare existing seals exactly, never silently ignore conflicts or reseal.
-- [ ] Extend new-member provenance guards to derive unchanged retention from
+- [x] Extend new-member provenance guards to derive unchanged retention from
   stored direct parent(s), comparing member UUID and every semantic field except
   ordinal/new container/time. Retained deleted evidence can reorder; changed or
   new fields require live typed/ready exact sources. A mixed target cannot grant
   a blanket retention exemption. Never trust caller flags or a custom GUC.
-- [ ] Independently require retained parents to belong to the same Note/owner/
+- [x] Independently require retained parents to belong to the same Note/owner/
   private identity and have strictly lower canonical resource revisions than
   the containing new version. Add raw-SQL self-parent, non-lower parent and
   two-version-cycle rejection vectors; the old same-resource FK is insufficient.
-- [ ] Make `insert_set` flush only named full-set provenance/finalizer
+- [x] Make `insert_set` flush only named full-set provenance/finalizer
   constraints after both collections, including empty Note finalization.
   The adapter owns only these named initially-deferred modes: flush immediate
   then re-defer them, leaving every unrelated constraint mode untouched.
   Do not claim arbitrary prior-mode restoration; no `SET CONSTRAINTS ALL`.
-- [ ] Replace complete-set fixtures that append after Note commit with atomic
+- [x] Replace complete-set fixtures that append after Note commit with atomic
   same-transaction construction. The former positive second-transaction append
   assertion becomes a sealed negative, not deleted/skipped coverage.
   Split fixture identity allocation from `insert_note!(repo, source, row)`;
@@ -185,11 +185,11 @@ privacy, provenance, replay or unsupported-backup assertions.
   Separately prove actual oversized-set commit rejection; no disabled triggers,
   faked SQL or weaker cardinality assertions. Unsupported-backup fixtures must
   still contain real legal nonempty metadata, constructed atomically.
-- [ ] Prove reverse ordinal and parent/child construction, gap/101-member
+- [x] Prove reverse ordinal and parent/child construction, gap/101-member
   rejection, early-immediate sealing and irreversible re-deferral, rollback,
   append/update/delete/reseal rejection, cross-owner denial, and a barrier
   controlled concurrent child append during Note/seal commit.
-- [ ] Run full changed sealing/schema/link/RLS suites and migration history
+- [x] Run full changed sealing/schema/link/RLS suites and migration history
   contracts, SPEC then QUALITY review; commit `feat(storage): seal note version sources`.
 
 ## Task 3: Atomic Note mutation source composition and ordered locks

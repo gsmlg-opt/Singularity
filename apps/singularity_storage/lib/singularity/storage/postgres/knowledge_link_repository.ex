@@ -21,7 +21,22 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
   alias Singularity.Storage.Schema.Content.NoteCitation, as: StoredCitation
   alias Singularity.Storage.Schema.Content.DocumentFragment, as: StoredFragment
 
-  @constraints "content.note_attachments_note_fkey, content.note_attachments_target_fkey, content.note_attachments_source_set_check, content.note_citations_note_fkey, content.note_citations_fragment_fkey, content.note_citations_source_set_check"
+  @constraints "content.note_attachments_note_fkey, content.note_attachments_target_fkey, content.note_attachments_source_set_check, content.note_citations_note_fkey, content.note_citations_fragment_fkey, content.note_citations_source_set_check, content.note_versions_source_set_seal_check, content.note_attachments_source_set_seal_check, content.note_citations_source_set_seal_check"
+  @attachment_semantics [
+    :attachment_id,
+    :target_resource_id,
+    :target_resource_version_id,
+    :target_kind,
+    :role,
+    :label
+  ]
+  @citation_semantics [
+    :citation_id,
+    :source_resource_id,
+    :source_resource_version_id,
+    :fragment_id,
+    :locator
+  ]
 
   @impl true
   def insert_set(context, input) do
@@ -80,7 +95,42 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
     exception -> {:error, KnowledgeError.from(exception)}
   end
 
-  defp persist(repo, context, set, %{attachments: [], citations: []}) do
+  defp persist(repo, context, set, old) do
+    with {:ok, sealed?} <- sealed?(repo, set, old) do
+      if sealed? or old.attachments != [] or old.citations != [] do
+        if set.attachments == old.attachments and set.citations == old.citations,
+          do: {:ok, old},
+          else: error(:conflict)
+      else
+        insert_members(repo, context, set)
+      end
+    end
+  end
+
+  defp sealed?(repo, set, old) do
+    %{rows: rows} =
+      SafeSQL.query!(
+        repo,
+        "SELECT note_resource_id::text,vault_id::text,classification,attachment_count,citation_count FROM content.note_source_set_seals WHERE note_resource_version_id=$1",
+        [Ecto.UUID.dump!(set.note_resource_version_id)]
+      )
+
+    expected = [
+      set.note_resource_id,
+      set.owner_scope_id,
+      "private",
+      length(old.attachments),
+      length(old.citations)
+    ]
+
+    case rows do
+      [] -> {:ok, false}
+      [^expected] -> {:ok, true}
+      _ -> error(:invalid)
+    end
+  end
+
+  defp insert_members(repo, context, set) do
     now = DateTime.utc_now(:microsecond)
 
     Enum.each(set.attachments, fn attachment ->
@@ -113,12 +163,6 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
     end)
 
     read_set(repo, context, set.note_resource_id, set.note_resource_version_id)
-  end
-
-  defp persist(_repo, _context, set, old) do
-    if set.attachments == old.attachments and set.citations == old.citations,
-      do: {:ok, old},
-      else: error(:conflict)
   end
 
   defp insert!(repo, changeset) do
@@ -250,7 +294,10 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
   end
 
   defp validate_evidence(repo, set) do
-    with {:ok, _} <-
+    with {:ok, parents} <- retained_parent_members(repo, set),
+         new_identities = new_source_identities(set, parents),
+         referenced = source_identities(set),
+         {:ok, _} <-
            collect(witness_targets(set), fn target ->
              with {:ok, actual} <-
                     target_value(
@@ -258,7 +305,14 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
                       set.owner_scope_id,
                       target.resource_id,
                       target.resource_version_id,
-                      true
+                      MapSet.member?(
+                        new_identities,
+                        {target.resource_id, target.resource_version_id}
+                      ) or
+                        not MapSet.member?(
+                          referenced,
+                          {target.resource_id, target.resource_version_id}
+                        )
                     ),
                   true <- actual == target do
                {:ok, actual}
@@ -287,6 +341,90 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
              end
            end),
          do: :ok
+  end
+
+  defp retained_parent_members(repo, set) do
+    %{rows: rows} =
+      SafeSQL.query!(
+        repo,
+        """
+        SELECT parent_id::text,COALESCE((p.resource_id,p.vault_id,p.classification)=(n.resource_id,n.vault_id,n.classification)
+          AND p.classification='private' AND pv.revision<nv.revision,false)
+        FROM content.note_versions n
+        JOIN content.resource_versions nv ON (nv.id,nv.resource_id,nv.vault_id,nv.classification)=(n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+        CROSS JOIN LATERAL unnest(ARRAY[n.parent_version_id,n.merge_parent_version_id]) parents(parent_id)
+        LEFT JOIN content.note_versions p ON p.resource_version_id=parent_id
+        LEFT JOIN content.resource_versions pv ON (pv.id,pv.resource_id,pv.vault_id,pv.classification)=(p.resource_version_id,p.resource_id,p.vault_id,p.classification)
+        WHERE (n.resource_version_id,n.resource_id,n.vault_id,n.classification)=($1,$2,$3,'private') AND parent_id IS NOT NULL
+        """,
+        [
+          Ecto.UUID.dump!(set.note_resource_version_id),
+          Ecto.UUID.dump!(set.note_resource_id),
+          Ecto.UUID.dump!(set.owner_scope_id)
+        ]
+      )
+
+    if Enum.all?(rows, fn [_, valid?] -> valid? end) do
+      parents = Enum.map(rows, fn [id, true] -> id end)
+
+      attachments =
+        repo.all(
+          from(a in StoredAttachment,
+            where:
+              a.note_resource_version_id in ^parents and
+                a.note_resource_id == ^set.note_resource_id and a.vault_id == ^set.owner_scope_id,
+            limit: 201
+          ),
+          log: false,
+          telemetry_event: nil
+        )
+
+      citations =
+        repo.all(
+          from(c in StoredCitation,
+            where:
+              c.note_resource_version_id in ^parents and
+                c.note_resource_id == ^set.note_resource_id and c.vault_id == ^set.owner_scope_id,
+            limit: 201
+          ),
+          log: false,
+          telemetry_event: nil
+        )
+
+      with true <- length(attachments) <= 200 and length(citations) <= 200,
+           {:ok, attachments} <- collect(attachments, &attachment_value/1),
+           {:ok, citations} <- collect(citations, &citation_value/1) do
+        {:ok, %{attachments: attachments, citations: citations}}
+      else
+        false -> error(:invalid)
+        {:error, _} = failure -> failure
+      end
+    else
+      error(:invalid)
+    end
+  end
+
+  defp new_source_identities(set, parents) do
+    attachments =
+      Enum.reject(
+        set.attachments,
+        &retained_member?(&1, parents.attachments, @attachment_semantics)
+      )
+
+    citations =
+      Enum.reject(set.citations, &retained_member?(&1, parents.citations, @citation_semantics))
+
+    source_identities(%{attachments: attachments, citations: citations})
+  end
+
+  defp retained_member?(member, parents, semantics) do
+    Enum.any?(parents, &(Map.take(&1, semantics) == Map.take(member, semantics)))
+  end
+
+  defp source_identities(set) do
+    (Enum.map(set.attachments, &{&1.target_resource_id, &1.target_resource_version_id}) ++
+       Enum.map(set.citations, &{&1.source_resource_id, &1.source_resource_version_id}))
+    |> MapSet.new()
   end
 
   defp witness_targets(set) do
