@@ -2157,6 +2157,27 @@ observation with synthetic data and complete observer cleanup; only then
 implement the guarded function and Store join through a detailed repair plan.
 This architecture handoff is not a production repair attempt or a passing gate.
 
+The [observer prerequisite](2026-10-10-singularity-v0.2-phase-3-search-plan-observer.md)
+is now implemented and locally committed at
+`cdfa29ab46913d65a7611a2f2e9f820f120c9cc7`. Parent validation passed one pure
+case and five integration cases, including actual analyzed nested authorization
+SQL on a dedicated real-Web Repo, exact default restoration, fault cleanup,
+and diagnostic confinement. Independent Sol SPEC then QUALITY reviews passed.
+Full xref reports zero cycles; generated databases and recorded storage roots
+are absent and the owned PostgreSQL instance is stopped. This establishes the
+observation prerequisite only. The two original selective-index assertions
+remain failed pending the separately planned candidate-function/Store repair;
+no Task 11 acceptance checkbox is advanced by this scoped result.
+
+The separate [candidate-function/Store implementation plan](2026-10-10-singularity-v0.2-phase-3-search-index-repair.md)
+was self-reviewed by Sol and independently reviewed by the parent after fixture
+definition, diagnostic confinement, invocation evidence, and migration-literal
+provenance corrections. The reviewed plan hash is
+`63d68d6dada194e215a40976684adac0312758e59ba7af5cb9058114e8206496`.
+It proceeds through failing owning contracts, the forward function and Store
+join, controlled authorization/source races, and actual cold/warm index proof.
+This is a completed plan, not a completed production repair.
+
 Initial privacy validation (`74303`) ran eight contracts with three failures.
 Two bounded test-only repair rounds resolved fixture/contract mismatches and
 closed an independent review's consumed-event coverage finding. Final owning

@@ -519,6 +519,52 @@ second passed its owning tests); diagnostic probes are not repair rounds.
 Original selective-index contracts remain FAIL pending the separate product
 repair; E2E remains NOT RUN. No production or Vault file has changed.
 
+The qualified prerequisite, synchronized observation design/plan, and evidence
+were committed locally as `cdfa29ab46913d65a7611a2f2e9f820f120c9cc7`
+(`test(storage): prove isolated nested search-plan observation`). Only five
+owned files were staged; the original privacy and failed plan contracts remain
+untracked and unchanged. No merge or push occurred.
+
+Post-commit governance/architecture recheck `47262`, exit 0, seed `215378`,
+passed all **31 tests** in 2.6 seconds against the committed implementation
+(only documentation status edits were pending):
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs --seed 215378
+```
+
+## Guarded candidate repair: unchanged direct-search characterization
+
+Before any candidate function or Store change, parent session `70425`, exit 0,
+seed `215378`, passed **21 integration tests** in 19.5 seconds at production
+source `cdfa29ab46913d65a7611a2f2e9f820f120c9cc7` (only documentation status
+updates were pending). The existing Store and pagination suites were unchanged:
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs --seed 215378
+```
+
+The harness allocated `singularity_test_96ca97c71c2cd646a17c973a`, disposed of
+its database/storage root, and stopped its owned PostgreSQL server. This is
+pre-repair behavior characterization, not evidence that the two selective-index
+failures or a final-candidate gate have passed.
+
+Read-only cleanup inventory `30218`, exit 0, independently verified zero
+generated/recorded test databases and absent recorded storage roots, including
+this allocation, then stopped the owned server. It used the unchanged command
+`devenv shell -- bash .devenv/phase3-cleanup-inventory.sh`.
+
+The concrete [candidate repair plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-search-index-repair.md)
+was authored/self-reviewed by Sol and independently reviewed by the parent.
+Review corrected fixture-local seeding of existing product capability
+definitions, private reduction of raw errors, actual-call candidate invocation
+evidence, exact compiled migration-literal identity, and the historical ceiling
+`20261009000400`. Final reviewed plan hash:
+`63d68d6dada194e215a40976684adac0312758e59ba7af5cb9058114e8206496`.
+Local-link check `ba81d4` passed four documents and 18 links; `git diff --check`
+passed. Candidate implementation qualification remains NOT RUN at this plan
+handoff. There is no outstanding user choice or routine approval gate.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with

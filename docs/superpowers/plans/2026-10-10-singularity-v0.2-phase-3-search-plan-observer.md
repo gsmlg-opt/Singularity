@@ -591,7 +591,7 @@ devenv shell -- bash .devenv/phase3-cleanup-inventory.sh
 
 - [x] Obtain independent SPEC review first, then QUALITY review. Resolve important findings and retain failed prerequisite evidence. Ordinary repair follows the documented cumulative Sol/Astra policy; missing module/permission or uncontrollable notice leakage is an environment/evidence blocker, never a reason to broaden privilege or weaken proof.
 
-- [ ] After owning/static checks and independent reviews pass, parent stages only the prerequisite implementation, this plan, and its dated evidence update and makes a small local commit:
+- [x] After owning/static checks and independent reviews pass, parent stages only the prerequisite implementation, its synchronized design/plan, and its dated evidence update and makes a small local commit:
 
 ```sh
 git add apps/singularity_storage/test/support/knowledge_search_plan_observer.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs docs/superpowers/specs/2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md docs/superpowers/plans/2026-10-10-singularity-v0.2-phase-3-search-plan-observer.md docs/verification/2026-10-09-phase-3-acceptance.md
@@ -629,7 +629,8 @@ links across three documents. Exact commands, failed attempts, closed proof
 summary, and cumulative repair counters remain in the
 [acceptance record](../../verification/2026-10-09-phase-3-acceptance.md).
 
-The prerequisite is ready for its local commit and the separate concrete
+The prerequisite is locally committed at
+`cdfa29ab46913d65a7611a2f2e9f820f120c9cc7` and is ready for the separate concrete
 candidate-function/Store repair plan. Existing privacy, failed query-plan, and
 legacy concurrency tests remain byte-identical. No production, migration,
 Vault, E2E, publication, deployment, activation, or backfill change occurred.
