@@ -241,15 +241,20 @@ and strengthen combined-mismatch precedence/unchanged-row/effect assertions.
 
 The bounded winning-source mutation slice has passed its actual Runtime units,
 real Storage/Runtime authorization suites, static gates and independent SPEC
-then QUALITY. DTOs, selected historical resolution, permanent grants and the
-remaining Task 4 acceptance checks are still pending; this is not whole-task or
-phase acceptance.
+then QUALITY. The narrow Storage selected-reader slice has also passed its
+actual port/owning SQL suites, static gates and separate SPEC then QUALITY.
+Runtime DTO/composer/resolution integration, permanent grants and the remaining
+Task 4 acceptance checks are still pending; this is not whole-task or phase
+acceptance.
 
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
 `dto/note_citation.ex`, `notes/source_collections.ex`, and the source owning tests.
 **Modify:** Runtime `notes/create.ex` (contains Mutation), `notes/dto.ex`,
 `notes/get.ex` and `notes/export.ex` for shared metadata-only source composition,
-`dto/note.ex`, `dto/note_version.ex`, `api.ex`, existing Notes owning tests
+`dto/note.ex`, `dto/note_version.ex`, the shared `NoteValidation` section in
+`dto/note_summary.ex` (without changing summary fields/behavior), `api.ex`,
+existing Notes owning tests and new `note_source_collections_test.exs` and
+`note_source_collection_routes_test.exs`
 (`note_mutations_test.exs`, `note_reads_test.exs`, `note_api_test.exs`,
 `note_authorization_integration_test.exs`, `note_observability_test.exs`);
 Storage `postgres/note_repository.ex` and `postgres/note_sources_test.exs` for
@@ -305,7 +310,7 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   Do not reuse live-only search resolution or content-hydrating whole-set reads
   unchanged for pre-authorization selection. Keep ordinary live-only resource
   read behavior intact; missing/foreign members are nondisclosing.
-- [ ] Add the four `select_attachment_in_scope/4`, `select_citation_in_scope/4`,
+- [x] Add the four `select_attachment_in_scope/4`, `select_citation_in_scope/4`,
   `resolve_attachment_in_scope/2` and `resolve_citation_in_scope/2` operations
   with named explicit owner-free metadata/fragment/resolution port types.
   Selectors validate the live/private/sealed containing tuple and matching

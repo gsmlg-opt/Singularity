@@ -1087,6 +1087,122 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs --warnings-as-errors --seed 215378
 ```
 
+Runtime test-only preparation now includes 15 explicit source-collection/DTO
+cases requiring strict owner-free nested references, both Note/version arrays,
+canonical order, bounds/uniqueness, exact session/row/revision binding, and
+fail-closed missing/malformed membership replies. Its reader is an explicit
+unit fake, not evidence of SQL membership or live authorization.
+The shared `NoteValidation` helper is physically in `dto/note_summary.ex`, not
+a separate file; the plan now includes only that necessary validation section,
+without modifying summary fields or behavior. This inventory correction does
+not change the reviewed composition contract.
+
+### Task 4 selected readers implementation and Runtime collections RED
+
+The reviewed detail is recorded by local commit
+`dbf579167504f1e6c8b1b95ab7a983698145459b`, with only the exact three
+governing/evidence documents staged. Selected-reader implementation adds four
+callbacks and four explicit named result types to the existing Domains port,
+and four matching scoped selectors/resolvers to the existing Storage adapter.
+Legacy reader/write/lock contracts remain unchanged. Production is frozen
+pending the parent's real owning integration and independent SPEC then QUALITY.
+
+Fresh `64390` passed scoped formatting and production warnings-as-errors
+compilation, and all five Domains port cases, but the new Runtime suite did not
+compile: its session fixture omitted the enforced `expires_at`. This is a
+test-harness FAIL, not semantic RED or implementation failure. Harness repair 1
+adds the normal explicit expiry without changing production or any assertion.
+`91209` compiled and ran the 15 expected missing-DTO/composer failures, but
+generated literal-mode comparisons emitted compiler warnings; that warning gate
+is not accepted. Harness repair 2 replaces only constant comparison fixture
+selection with four explicit mode clauses, preserving all four cases and
+business assertions.
+
+Fresh `89624` passed formatting and warnings-as-errors compilation with no
+compiler warnings. Domains **five cases, zero failures**, 0.2 seconds; Runtime
+**15 cases, 15 expected semantic failures**, 0.6 seconds, seed `215378`,
+exit 2. Undefined new DTO/composer functions and current constructors' rejection
+of the required arrays are the expected failures. No Runtime DTO/composer
+production existed during this RED. Harness repair 2 PASS; no failed production
+repair round or Astra attempt in this new slice. This does not accept Task 4.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs, compile --warnings-as-errors, test apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs --warnings-as-errors --seed 215378
+```
+
+### Task 4 selected readers qualified locally
+
+Fresh real owning integration `91302` uses the repository's isolated task,
+not ordinary `mix test --include integration`. KnowledgeLink **37**, atomic
+NoteSources **48**, and knowledge RLS **two**: **87 actual cases, zero
+failures**, 98.9 seconds, seed `215378`, exit 0; the owned private server stopped.
+All 15 original KnowledgeLink cases remain unchanged. No selected-reader
+production repair round or Astra attempt was needed.
+
+Actual four-file independent `phase4_internal_detail_spec_review` SPEC passed
+with zero actionable findings; subsequent separate
+`phase4_internal_detail_quality_review` selected-reader QUALITY passed with
+zero findings. The exact four source/test hashes matched before and after both
+read-only reviews, including the legal sealed fixtures and privilege-restoring
+SELECT revocation probes. Scoped diff checks passed.
+
+Fresh `85568` passed selected four-file `format --check-formatted`, production
+`compile --warnings-as-errors`, the five Domains port cases and zero-cycle
+xref (**No cycles found**). Cleanup `2906` confirmed **zero generated test
+databases** and stopped only the owned private server. Both selected-reader
+allocated roots `114fb29f8ef042df19fddd1b` and
+`bea56073351c94f8f5d43c93`, and its `postmaster.pid`, are verified absent by
+three separate read-only checks. The ignored private cluster remains available;
+no material user data was removed. Local bounded commit is pending.
+
+This qualifies the four internal Storage/Domain reader operations only.
+Runtime current target authorization and public resolution, DTO/composer
+integration, permanent grants and whole Task 4 remain incomplete. E2E NOT RUN.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%'"
+```
+
+### Task 4 DTO/composer and route preparation
+
+Initial DTO/composer implementation is limited to the two owner-free reference
+DTOs, shared validation, required Note/version arrays and the metadata-only
+composer. `37590` passed production compile, but its combined 56 Runtime cases
+had 35 failures: two positive NoteVersion fixtures had a noninitial revision
+without its required parent; the other 33 were missing route composition plus
+route fake inventory/warnings. This is FAIL, not a passing implementation gate.
+The parent's DTO fixture repair changes only the positive parent identity to
+the existing valid contract. Fresh `85568` ran **15 DTO/composer cases, zero
+failures**, 0.7 seconds, plus the five port cases, with warnings-as-errors and
+zero xref cycles. All malformed, private, duplicate, improper and oversized
+collection assertions remain intact. DTO/composer integration and independent
+review are not yet accepted.
+
+The new route suite contains 41 unit cases for current/exact Get, both conflict
+branches, create/save/merge/restore hydration, stale receipt versus latest-head
+replay, Export-before-audit and pre-primary-authorization denial. It uses real
+Domain command dispatch with explicitly labeled unit-only adapters, not SQL or
+custody proof. Its initial fake omitted the required forbidden tombstone
+callback, used noninitial versions without parents, and generated literal
+comparison warnings. Sol route harness repair 1 corrects only these fixture
+problems, preserving all 41 cases and assertions. Fresh `83288` passed
+formatting/production compile with no warnings and ran **41 cases, 32 expected
+missing-composition failures**, nine controls PASS, 1.5 seconds, seed `215378`,
+exit 2. Consumer production was still unchanged during this clean RED.
+
+The parent now composes the complete arrays inside the existing authorized
+scoped Get/Mutation/Export callbacks and extends strict internal-to-DTO shapes.
+Fresh `99779` passed exact formatting, warnings-as-errors production compile,
+all **56 new Runtime DTO/composer/route cases, zero failures**, 1.3 seconds,
+the five port cases and zero xref cycles; seed `215378`, exit 0. This is the
+initial consumer implementation's focused GREEN, not owning-suite or real
+integration acceptance. No production repair round or Astra attempt was needed.
+All changes remain frozen for broader parent validation. Necessary existing fake readers
+and explicit constructor-array fixtures are being drafted separately; real
+source integration keeps its actual Storage reader. No browser behavior,
+authorization/custody/Command/HMAC semantics or released migration is changed.
+
 ## Preserved boundaries and baseline inventory
 
 No production activation, data/backfill, merge, push, version bump, tag,

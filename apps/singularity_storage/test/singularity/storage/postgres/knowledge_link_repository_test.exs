@@ -1,7 +1,16 @@
 defmodule Singularity.Storage.Postgres.KnowledgeLinkRepositoryTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
-  alias Singularity.Core.{Error, NoteAttachment, NoteCitation, NoteSourceSet}
+  alias Singularity.Core.{
+    DocumentFragment,
+    Error,
+    NoteAttachment,
+    NoteAttachmentReference,
+    NoteCitation,
+    NoteCitationReference,
+    NoteSourceSet,
+    SourceLocator
+  }
 
   alias Singularity.Storage.{
     Fixtures,
@@ -557,6 +566,927 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepositoryTest do
       assert owner in [nil, ""]
       assert_empty(c)
     end)
+  end
+
+  test "selected references are exact owner-free members and lock the live containing Note", c do
+    grants(fn ->
+      publish_selected_set(c)
+      attachment = selected_reference(c, :attachment)
+      citation = selected_reference(c, :citation)
+
+      assert {:ok, {^attachment, ^citation}} =
+               transact(c, fn ->
+                 assert {:ok, ^attachment} =
+                          select_member(c, :attachment, attachment.attachment_id)
+
+                 assert {:ok, ^citation} = select_member(c, :citation, citation.citation_id)
+
+                 assert %{rows: [[true]]} =
+                          query!(
+                            RequestRepo,
+                            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() AND locktype='relation' AND relation='content.resources'::regclass AND mode='RowShareLock' AND granted)"
+                          )
+
+                 {:ok, {attachment, citation}}
+               end)
+    end)
+  end
+
+  test "selection needs no target metadata, document state or fragment text SELECT", c do
+    grants(fn ->
+      publish_selected_set(c)
+      attachment = selected_reference(c, :attachment)
+      citation = selected_reference(c, :citation)
+
+      without_target_hydration_select(fn ->
+        assert {:ok, ^attachment} =
+                 transact(c, fn ->
+                   select_member(c, :attachment, attachment.attachment_id)
+                 end)
+
+        assert {:ok, ^citation} =
+                 transact(c, fn ->
+                   select_member(c, :citation, citation.citation_id)
+                 end)
+      end)
+    end)
+  end
+
+  test "selection returns only the requested member from a sealed multi-member version", c do
+    grants(fn ->
+      [attachment] = c.set.attachments
+      [citation] = c.set.citations
+
+      second_attachment = %{
+        attachment
+        | attachment_id: Ecto.UUID.generate(),
+          target_resource_id: text(c.document.resource_id),
+          target_resource_version_id: text(c.document.resource_version_id),
+          target_kind: :document,
+          ordinal: 1,
+          label: "Second"
+      }
+
+      second_citation = %{citation | citation_id: Ecto.UUID.generate(), ordinal: 1}
+
+      c = %{
+        c
+        | set: %{
+            c.set
+            | attachments: [attachment, second_attachment],
+              citations: [citation, second_citation]
+          }
+      }
+
+      publish_selected_set(c)
+      expected_attachment = attachment_reference(second_attachment)
+      expected_citation = citation_reference(second_citation)
+
+      without_target_hydration_select(fn ->
+        assert {:ok, ^expected_attachment} =
+                 transact(c, fn ->
+                   select_member(c, :attachment, second_attachment.attachment_id)
+                 end)
+
+        assert {:ok, ^expected_citation} =
+                 transact(c, fn ->
+                   select_member(c, :citation, second_citation.citation_id)
+                 end)
+      end)
+    end)
+  end
+
+  test "all selected readers reject calls outside an existing authenticated scoped transaction",
+       c do
+    grants(fn ->
+      publish_selected_set(c)
+
+      for {function, arguments} <- selected_reader_calls(c) do
+        assert {:error, %Error{code: :invalid}} =
+                 apply(KnowledgeLinkRepository, function, [c.context | arguments])
+
+        assert {:ok, {:error, %Error{code: :invalid}}} =
+                 RequestRepo.transaction(fn ->
+                   apply(KnowledgeLinkRepository, function, [c.context | arguments])
+                 end)
+      end
+    end)
+  end
+
+  for mismatch <- [:principal_id, :owner_scope_id] do
+    @selected_scope_mismatch mismatch
+    test "all selected readers reject #{@selected_scope_mismatch} GUC/context mismatch", c do
+      grants(fn ->
+        publish_selected_set(c)
+        context = Map.put(c.context, @selected_scope_mismatch, Ecto.UUID.generate())
+
+        for {function, arguments} <- selected_reader_calls(c) do
+          assert {:error, %Error{code: :invalid}} =
+                   transact(c, fn ->
+                     apply(KnowledgeLinkRepository, function, [context | arguments])
+                   end)
+        end
+      end)
+    end
+  end
+
+  test "all selected readers reject malformed canonical IDs and reference structs", c do
+    grants(fn ->
+      publish_selected_set(c)
+      attachment = selected_reference(c, :attachment)
+      citation = selected_reference(c, :citation)
+
+      for kind <- [:attachment, :citation],
+          field <- [:note_id, :version_id, :member_id],
+          invalid <- [nil, "bad", "00000000-0000-4000-8000-00000000000A"] do
+        member_id =
+          if kind == :attachment, do: attachment.attachment_id, else: citation.citation_id
+
+        identifiers =
+          Map.put(
+            %{
+              note_id: c.set.note_resource_id,
+              version_id: c.set.note_resource_version_id,
+              member_id: member_id
+            },
+            field,
+            invalid
+          )
+
+        assert {:error, %Error{code: :invalid}} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, select_function(kind), [
+                     c.context,
+                     identifiers.note_id,
+                     identifiers.version_id,
+                     identifiers.member_id
+                   ])
+                 end)
+      end
+
+      for field <- [:principal_id, :owner_scope_id],
+          {function, arguments} <- selected_reader_calls(c) do
+        context = Map.put(c.context, field, "00000000-0000-4000-8000-00000000000A")
+
+        assert {:error, %Error{code: :invalid}} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, function, [context | arguments])
+                 end)
+      end
+
+      for {function, reference} <- [
+            {:resolve_attachment_in_scope, %{attachment | target_resource_version_id: "bad"}},
+            {:resolve_attachment_in_scope,
+             Map.put(attachment, :owner_scope_id, c.context.owner_scope_id)},
+            {:resolve_citation_in_scope, %{citation | source_resource_id: "bad"}},
+            {:resolve_citation_in_scope, Map.put(citation, :retained?, true)}
+          ] do
+        assert {:error, %Error{code: :invalid}} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, function, [c.context, reference])
+                 end)
+      end
+    end)
+  end
+
+  test "missing and mismatched containing Note/version/member tuples are nondisclosing", c do
+    grants(fn ->
+      publish_selected_set(c)
+      other = KnowledgeFixtures.note!(c.source)
+
+      for kind <- [:attachment, :citation] do
+        member_id =
+          case kind do
+            :attachment -> selected_reference(c, kind).attachment_id
+            :citation -> selected_reference(c, kind).citation_id
+          end
+
+        for {note_id, version_id, id} <- [
+              {Ecto.UUID.generate(), c.set.note_resource_version_id, member_id},
+              {c.set.note_resource_id, Ecto.UUID.generate(), member_id},
+              {c.set.note_resource_id, c.set.note_resource_version_id, Ecto.UUID.generate()},
+              {text(other.resource_id), c.set.note_resource_version_id, member_id},
+              {c.set.note_resource_id, text(other.resource_version_id), member_id}
+            ] do
+          assert {:error, %Error{code: :not_found, message: nil, details: %{}, retryable?: false}} =
+                   transact(c, fn ->
+                     apply(KnowledgeLinkRepository, select_function(kind), [
+                       c.context,
+                       note_id,
+                       version_id,
+                       id
+                     ])
+                   end)
+        end
+      end
+    end)
+  end
+
+  test "foreign containing membership and historical target readers are nondisclosing", c do
+    grants(fn ->
+      publish_selected_set(c)
+      foreign_source = KnowledgeFixtures.source!()
+      {foreign_document, foreign_fragment} = KnowledgeFixtures.ready_document!(foreign_source)
+      foreign_member_id = KnowledgeFixtures.uuid()
+
+      foreign_note =
+        KnowledgeFixtures.note!(foreign_source, fn note ->
+          query!(
+            MigrationRepo,
+            "INSERT INTO content.note_attachments(note_resource_version_id,id,note_resource_id,vault_id,classification,target_resource_id,target_resource_version_id,target_kind,ordinal,role,inserted_at) VALUES($1,$2,$3,$4,'private',$5,$6,'asset',0,'source',CURRENT_TIMESTAMP)",
+            [
+              note.resource_version_id,
+              foreign_member_id,
+              note.resource_id,
+              foreign_source.vault_id,
+              foreign_source.resource_id,
+              foreign_source.resource_version_id
+            ]
+          )
+        end)
+
+      assert {:error, %Error{code: :not_found}} =
+               transact(c, fn ->
+                 apply(KnowledgeLinkRepository, :select_attachment_in_scope, [
+                   c.context,
+                   text(foreign_note.resource_id),
+                   text(foreign_note.resource_version_id),
+                   text(foreign_member_id)
+                 ])
+               end)
+
+      attachment = %{
+        selected_reference(c, :attachment)
+        | target_resource_id: text(foreign_source.resource_id),
+          target_resource_version_id: text(foreign_source.resource_version_id)
+      }
+
+      citation = %{
+        selected_reference(c, :citation)
+        | source_resource_id: text(foreign_document.resource_id),
+          source_resource_version_id: text(foreign_document.resource_version_id),
+          fragment_id: foreign_fragment.fragment_id,
+          locator: foreign_fragment.locator
+      }
+
+      for {function, reference} <- [
+            {:resolve_attachment_in_scope, attachment},
+            {:resolve_citation_in_scope, citation}
+          ] do
+        assert {:error, %Error{code: :not_found, message: nil, details: %{}, retryable?: false}} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, function, [c.context, reference])
+                 end)
+      end
+    end)
+  end
+
+  test "selectors preserve historical containing versions and reject a tombstoned containing Note",
+       c do
+    grants(fn ->
+      publish_selected_set(c)
+      advance_selected_note(c, c.note)
+
+      for kind <- [:attachment, :citation] do
+        reference = selected_reference(c, kind)
+        id = if kind == :attachment, do: reference.attachment_id, else: reference.citation_id
+        assert {:ok, ^reference} = transact(c, fn -> select_member(c, kind, id) end)
+      end
+
+      set_selected_deleted(c.note.resource_id, true)
+
+      for kind <- [:attachment, :citation] do
+        reference = selected_reference(c, kind)
+        id = if kind == :attachment, do: reference.attachment_id, else: reference.citation_id
+
+        assert {:error, %Error{code: :not_found}} =
+                 transact(c, fn -> select_member(c, kind, id) end)
+      end
+
+      set_selected_deleted(c.note.resource_id, false)
+      attachment = selected_reference(c, :attachment)
+
+      assert {:ok, ^attachment} =
+               transact(c, fn -> select_member(c, :attachment, attachment.attachment_id) end)
+    end)
+  end
+
+  test "a legal unsealed containing version is rejected before its publication boundary", c do
+    grants(fn ->
+      [attachment] = c.set.attachments
+
+      assert {:error, :unsealed_selection_checked} =
+               create_note_and_transact(c, fn ->
+                 query!(
+                   RequestRepo,
+                   "INSERT INTO content.note_attachments(note_resource_version_id,id,note_resource_id,vault_id,classification,target_resource_id,target_resource_version_id,target_kind,ordinal,role,label,inserted_at) VALUES($1,$2,$3,$4,'private',$5,$6,'asset',0,'source',$7,CURRENT_TIMESTAMP)",
+                   [
+                     c.note.resource_version_id,
+                     Ecto.UUID.dump!(attachment.attachment_id),
+                     c.note.resource_id,
+                     c.source.vault_id,
+                     c.source.resource_id,
+                     c.source.resource_version_id,
+                     attachment.label
+                   ]
+                 )
+
+                 assert %{rows: [[0]]} =
+                          query!(
+                            RequestRepo,
+                            "SELECT count(*) FROM content.note_source_set_seals WHERE note_resource_version_id=$1",
+                            [c.note.resource_version_id]
+                          )
+
+                 assert {:error, %Error{code: :not_found}} =
+                          select_member(c, :attachment, attachment.attachment_id)
+
+                 RequestRepo.rollback(:unsealed_selection_checked)
+               end)
+
+      assert_empty(c)
+    end)
+  end
+
+  test "Asset resolution takes only the pinned metadata filename and never mutable resource title",
+       c do
+    grants(fn ->
+      publish_selected_set(c)
+      seed_selected_asset_metadata(c, "original-evidence.txt")
+
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE content.resources SET title='Mutable latest head title' WHERE id=$1",
+          [c.source.resource_id]
+        )
+      end)
+
+      reference = selected_reference(c, :attachment)
+
+      expected = %{
+        reference: reference,
+        source: source_metadata(reference, :asset, "original-evidence.txt", false)
+      }
+
+      assert {:ok, ^expected} =
+               transact(c, fn ->
+                 apply(KnowledgeLinkRepository, :resolve_attachment_in_scope, [
+                   c.context,
+                   reference
+                 ])
+               end)
+    end)
+  end
+
+  for metadata <- [:missing, :wrong_version] do
+    @selected_metadata metadata
+    test "#{@selected_metadata} AssetMetadata binding fails closed without a resource-title fallback",
+         c do
+      grants(fn ->
+        publish_selected_set(c)
+
+        if @selected_metadata == :wrong_version do
+          seed_selected_asset_metadata(c, "wrong-binding.txt")
+
+          Fixtures.with_owner(fn ->
+            query!(
+              MigrationRepo,
+              "UPDATE content.asset_metadata SET resource_version_id=$1 WHERE asset_id=$2",
+              [c.document.resource_version_id, c.source.asset_id]
+            )
+          end)
+        end
+
+        reference = selected_reference(c, :attachment)
+
+        assert {:error, %Error{code: :not_found, message: nil, details: %{}, retryable?: false}} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, :resolve_attachment_in_scope, [
+                     c.context,
+                     reference
+                   ])
+                 end)
+      end)
+    end
+  end
+
+  for kind <- [:note, :document] do
+    @selected_kind kind
+    test "#{@selected_kind} attachment resolves its exact historical typed version, not current head",
+         c do
+      grants(fn ->
+        target_row =
+          if @selected_kind == :note, do: KnowledgeFixtures.note!(c.source), else: c.document
+
+        c = selected_attachment_set(c, target_row, @selected_kind)
+        publish_selected_set(c)
+
+        if @selected_kind == :note,
+          do: advance_selected_note(c, target_row),
+          else: advance_selected_document(c, target_row)
+
+        reference = selected_reference(c, :attachment)
+        title = if @selected_kind == :note, do: "Note", else: "Document"
+
+        expected = %{
+          reference: reference,
+          source: source_metadata(reference, @selected_kind, title, false)
+        }
+
+        assert {:ok, ^expected} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, :resolve_attachment_in_scope, [
+                     c.context,
+                     reference
+                   ])
+                 end)
+      end)
+    end
+  end
+
+  for kind <- [:asset, :note, :document] do
+    @deleted_selected_kind kind
+    test "#{@deleted_selected_kind} attachment keeps its pin across source tombstone and restore",
+         c do
+      grants(fn ->
+        target_row =
+          case @deleted_selected_kind do
+            :asset -> c.source
+            :note -> KnowledgeFixtures.note!(c.source)
+            :document -> c.document
+          end
+
+        c = selected_attachment_set(c, target_row, @deleted_selected_kind)
+        if @deleted_selected_kind == :asset, do: seed_selected_asset_metadata(c, "original.txt")
+        publish_selected_set(c)
+        reference = selected_reference(c, :attachment)
+
+        title =
+          case @deleted_selected_kind do
+            :asset -> "original.txt"
+            :note -> "Note"
+            :document -> "Document"
+          end
+
+        for deleted? <- [true, false] do
+          set_selected_deleted(target_row.resource_id, deleted?)
+          # Stage 1 selects retained membership without looking at target liveness.
+          assert {:ok, ^reference} =
+                   transact(c, fn -> select_member(c, :attachment, reference.attachment_id) end)
+
+          expected = %{
+            reference: reference,
+            source: source_metadata(reference, @deleted_selected_kind, title, deleted?)
+          }
+
+          assert {:ok, ^expected} =
+                   transact(c, fn ->
+                     apply(KnowledgeLinkRepository, :resolve_attachment_in_scope, [
+                       c.context,
+                       reference
+                     ])
+                   end)
+        end
+      end)
+    end
+  end
+
+  test "citation resolution returns only its selected canonical fragment and exact locator", c do
+    grants(fn ->
+      {document, fragments} = selected_two_fragment_document(c.source)
+      [first, selected] = fragments
+      [citation] = c.set.citations
+
+      citation = %{
+        citation
+        | source_resource_id: text(document.resource_id),
+          source_resource_version_id: text(document.resource_version_id),
+          fragment_id: selected.fragment_id,
+          locator: selected.locator
+      }
+
+      c = %{
+        c
+        | set: %{
+            c.set
+            | citations: [citation],
+              targets:
+                [target(c.source, :asset), target(document, :document)]
+                |> Enum.sort_by(&{&1.resource_id, &1.resource_version_id}),
+              fragments: [selected]
+          }
+      }
+
+      publish_selected_set(c)
+      advance_selected_document(c, document)
+      reference = citation_reference(citation)
+
+      expected = %{
+        reference: reference,
+        source: citation_source_metadata(reference, "Document", false),
+        fragment: %{
+          fragment_id: selected.fragment_id,
+          ordinal: selected.ordinal,
+          text: selected.text,
+          locator: selected.locator
+        }
+      }
+
+      assert {:ok, ^expected} =
+               transact(c, fn ->
+                 apply(KnowledgeLinkRepository, :resolve_citation_in_scope, [c.context, reference])
+               end)
+
+      refute first.text == selected.text
+      refute first.fragment_id == selected.fragment_id
+    end)
+  end
+
+  test "citation resolution preserves its historical fragment through source tombstone and restore",
+       c do
+    grants(fn ->
+      publish_selected_set(c)
+      reference = selected_reference(c, :citation)
+      [fragment] = c.set.fragments
+
+      for deleted? <- [true, false] do
+        set_selected_deleted(c.document.resource_id, deleted?)
+
+        assert {:ok, ^reference} =
+                 transact(c, fn -> select_member(c, :citation, reference.citation_id) end)
+
+        expected = %{
+          reference: reference,
+          source: citation_source_metadata(reference, "Document", deleted?),
+          fragment: %{
+            fragment_id: fragment.fragment_id,
+            ordinal: fragment.ordinal,
+            text: fragment.text,
+            locator: fragment.locator
+          }
+        }
+
+        assert {:ok, ^expected} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, :resolve_citation_in_scope, [
+                     c.context,
+                     reference
+                   ])
+                 end)
+      end
+    end)
+  end
+
+  test "historical readers reject wrong typed pins and nonmatching citation fragment witnesses",
+       c do
+    grants(fn ->
+      publish_selected_set(c)
+      seed_selected_asset_metadata(c, "original.txt")
+      attachment = selected_reference(c, :attachment)
+      citation = selected_reference(c, :citation)
+
+      {:ok, other_locator} =
+        SourceLocator.new(%{version: 1, kind: "text", start_line: 2, end_line: 2})
+
+      for {function, reference} <- [
+            {:resolve_attachment_in_scope, %{attachment | target_kind: :note}},
+            {:resolve_attachment_in_scope,
+             %{attachment | target_resource_version_id: text(c.document.resource_version_id)}},
+            {:resolve_citation_in_scope, %{citation | fragment_id: String.duplicate("a", 64)}},
+            {:resolve_citation_in_scope, %{citation | locator: other_locator}}
+          ] do
+        assert {:error, %Error{} = error} =
+                 transact(c, fn ->
+                   apply(KnowledgeLinkRepository, function, [c.context, reference])
+                 end)
+
+        assert error.message == nil
+        assert error.details == %{}
+        refute error.retryable?
+      end
+    end)
+  end
+
+  defp publish_selected_set(c) do
+    assert {:ok, set} =
+             create_note_and_transact(c, fn ->
+               KnowledgeLinkRepository.insert_set(c.context, c.set)
+             end)
+
+    assert set == c.set
+  end
+
+  defp selected_reference(c, :attachment) do
+    [reference] = c.set.attachments
+    attachment_reference(reference)
+  end
+
+  defp selected_reference(c, :citation) do
+    [reference] = c.set.citations
+    citation_reference(reference)
+  end
+
+  defp attachment_reference(reference) do
+    {:ok, value} =
+      NoteAttachmentReference.new(
+        Map.take(
+          reference,
+          [
+            :attachment_id,
+            :target_resource_id,
+            :target_resource_version_id,
+            :target_kind,
+            :role,
+            :label
+          ]
+        )
+      )
+
+    value
+  end
+
+  defp citation_reference(reference) do
+    {:ok, value} =
+      NoteCitationReference.new(
+        Map.take(
+          reference,
+          [:citation_id, :source_resource_id, :source_resource_version_id, :fragment_id, :locator]
+        )
+      )
+
+    value
+  end
+
+  defp select_member(c, kind, id),
+    do:
+      apply(KnowledgeLinkRepository, select_function(kind), [
+        c.context,
+        c.set.note_resource_id,
+        c.set.note_resource_version_id,
+        id
+      ])
+
+  defp select_function(:attachment), do: :select_attachment_in_scope
+  defp select_function(:citation), do: :select_citation_in_scope
+
+  defp selected_reader_calls(c) do
+    attachment = selected_reference(c, :attachment)
+    citation = selected_reference(c, :citation)
+
+    [
+      {:select_attachment_in_scope,
+       [c.set.note_resource_id, c.set.note_resource_version_id, attachment.attachment_id]},
+      {:select_citation_in_scope,
+       [c.set.note_resource_id, c.set.note_resource_version_id, citation.citation_id]},
+      {:resolve_attachment_in_scope, [attachment]},
+      {:resolve_citation_in_scope, [citation]}
+    ]
+  end
+
+  defp source_metadata(reference, kind, title, deleted?),
+    do: %{
+      kind: kind,
+      resource_id: reference.target_resource_id,
+      resource_version_id: reference.target_resource_version_id,
+      title: title,
+      deleted?: deleted?
+    }
+
+  defp citation_source_metadata(reference, title, deleted?),
+    do: %{
+      kind: :document,
+      resource_id: reference.source_resource_id,
+      resource_version_id: reference.source_resource_version_id,
+      title: title,
+      deleted?: deleted?
+    }
+
+  defp selected_attachment_set(c, target_row, kind) do
+    [attachment] = c.set.attachments
+
+    reference = %{
+      attachment
+      | target_resource_id: text(target_row.resource_id),
+        target_resource_version_id: text(target_row.resource_version_id),
+        target_kind: kind
+    }
+
+    %{
+      c
+      | set: %{
+          c.set
+          | attachments: [reference],
+            citations: [],
+            fragments: [],
+            targets: [target(target_row, kind)]
+        }
+    }
+  end
+
+  defp seed_selected_asset_metadata(c, filename) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.asset_metadata(id,asset_id,resource_version_id,vault_id,classification,projection_version,original_filename,declared_media_type,detected_media_type,plaintext_byte_size,extraction_state,completed_at) VALUES($1,$2,$3,$4,'private',1,$5,'text/plain','text/plain',12,'completed',CURRENT_TIMESTAMP)",
+        [
+          KnowledgeFixtures.uuid(),
+          c.source.asset_id,
+          c.source.resource_version_id,
+          c.source.vault_id,
+          filename
+        ]
+      )
+    end)
+  end
+
+  defp set_selected_deleted(resource, true),
+    do:
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1",
+          [resource]
+        )
+      end)
+
+  defp set_selected_deleted(resource, false),
+    do:
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "UPDATE content.resources SET deleted_at=NULL WHERE id=$1", [
+          resource
+        ])
+      end)
+
+  defp advance_selected_note(c, note) do
+    version = KnowledgeFixtures.uuid()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',1)",
+        [version, note.resource_id, c.source.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.note_versions(resource_version_id,resource_id,vault_id,classification,title,markdown,created_by_principal_id,parent_version_id,inserted_at) VALUES($1,$2,$3,'private','Later Note','Later body',$4,$5,CURRENT_TIMESTAMP)",
+        [
+          version,
+          note.resource_id,
+          c.source.vault_id,
+          c.source.principal_id,
+          note.resource_version_id
+        ]
+      )
+
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET current_version_id=$1,title='Later Note' WHERE id=$2",
+        [version, note.resource_id]
+      )
+    end)
+  end
+
+  defp advance_selected_document(c, document) do
+    version = KnowledgeFixtures.uuid()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision) VALUES($1,$2,$3,'private',1)",
+        [version, document.resource_id, c.source.vault_id]
+      )
+
+      KnowledgeFixtures.insert_typed!(%{
+        document
+        | resource_version_id: version,
+          title: "Later Document"
+      })
+
+      query!(
+        MigrationRepo,
+        "UPDATE content.resources SET current_version_id=$1,title='Later Document' WHERE id=$2",
+        [version, document.resource_id]
+      )
+    end)
+  end
+
+  defp selected_two_fragment_document(source) do
+    document = KnowledgeFixtures.document!(source)
+
+    fragments =
+      for {fragment_text, ordinal} <- [{"First unrelated fragment", 0}, {"Selected evidence", 1}] do
+        {:ok, fragment} =
+          DocumentFragment.new(%{
+            resource_id: text(document.resource_id),
+            resource_version_id: text(document.resource_version_id),
+            owner_scope_id: text(source.vault_id),
+            classification: :private,
+            ordinal: ordinal,
+            text: fragment_text,
+            locator: %{version: 1, kind: "text", start_line: ordinal + 1, end_line: ordinal + 1}
+          })
+
+        fragment
+      end
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+        [text(source.principal_id), text(source.vault_id)]
+      )
+
+      query!(MigrationRepo, "SELECT content.claim_document_extraction($1,0,$1,'plain',1)", [
+        document.resource_version_id
+      ])
+
+      query!(MigrationRepo, "SELECT content.complete_document_extraction($1,$1,1,$2,$3,'en')", [
+        document.resource_version_id,
+        Enum.map(fragments, fn fragment ->
+          %{
+            "id" => fragment.fragment_id,
+            "ordinal" => fragment.ordinal,
+            "text" => fragment.text,
+            "digest" => Base.encode16(fragment.digest, case: :lower),
+            "locator" => SourceLocator.to_map(fragment.locator)
+          }
+        end),
+        :crypto.hash(:sha256, Enum.map_join(fragments, "", & &1.text))
+      ])
+    end)
+
+    {document, fragments}
+  end
+
+  defp without_target_hydration_select(fun) do
+    tables = ~w(asset_metadata document_versions document_fragments)
+
+    previous =
+      Fixtures.with_owner(fn ->
+        %{rows: [[database]]} = query!(MigrationRepo, "SELECT current_database()")
+        assert String.starts_with?(database, "singularity_test_")
+
+        for table <- tables do
+          %{rows: rows} =
+            query!(
+              MigrationRepo,
+              "SELECT a.grantor::regrole::text,a.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(c.relacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='content' AND c.relname=$1 AND r.rolname='singularity_web' AND a.privilege_type='SELECT'",
+              [table]
+            )
+
+          assert rows in [
+                   [],
+                   [["singularity_table_owner", true]],
+                   [["singularity_table_owner", false]]
+                 ]
+
+          {table, rows}
+        end
+      end)
+
+    try do
+      Fixtures.with_owner(fn ->
+        for table <- tables do
+          query!(MigrationRepo, "REVOKE SELECT ON content.#{table} FROM singularity_web")
+
+          assert %{rows: [[false]]} =
+                   query!(
+                     MigrationRepo,
+                     "SELECT has_table_privilege('singularity_web',$1,'SELECT')",
+                     ["content.#{table}"]
+                   )
+        end
+      end)
+
+      fun.()
+    after
+      Fixtures.with_owner(fn ->
+        for {table, rows} <- previous do
+          case rows do
+            [["singularity_table_owner", true]] ->
+              query!(
+                MigrationRepo,
+                "GRANT SELECT ON content.#{table} TO singularity_web WITH GRANT OPTION"
+              )
+
+            [["singularity_table_owner", false]] ->
+              query!(MigrationRepo, "GRANT SELECT ON content.#{table} TO singularity_web")
+
+            [] ->
+              :ok
+          end
+
+          assert %{rows: ^rows} =
+                   query!(
+                     MigrationRepo,
+                     "SELECT a.grantor::regrole::text,a.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(c.relacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE n.nspname='content' AND c.relname=$1 AND r.rolname='singularity_web' AND a.privilege_type='SELECT'",
+                     [table]
+                   )
+        end
+      end)
+    end
   end
 
   defp target(row, kind) do

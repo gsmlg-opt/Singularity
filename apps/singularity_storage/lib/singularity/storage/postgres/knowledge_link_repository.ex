@@ -97,6 +97,225 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
     exception -> {:error, KnowledgeError.from(exception)}
   end
 
+  @impl true
+  def select_attachment_in_scope(context, resource, version, member) do
+    select_reference(context, resource, version, member, :attachments)
+  end
+
+  @impl true
+  def select_citation_in_scope(context, resource, version, member) do
+    select_reference(context, resource, version, member, :citations)
+  end
+
+  defp select_reference(context, resource, version, member_id, kind) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         :ok <- canonical_ids([resource, version, member_id]),
+         :ok <- selected_note_exists(repo, context, resource, version) do
+      {schema, constructor, reference_module} =
+        case kind do
+          :attachments -> {StoredAttachment, &attachment_value/1, NoteAttachmentReference}
+          :citations -> {StoredCitation, &citation_value/1, NoteCitationReference}
+        end
+
+      row =
+        repo.one(
+          from(member in schema,
+            where:
+              member.id == ^member_id and member.note_resource_id == ^resource and
+                member.note_resource_version_id == ^version and
+                member.vault_id == ^context.owner_scope_id and member.classification == :private
+          ),
+          log: false,
+          telemetry_event: nil
+        )
+
+      if is_nil(row) do
+        error(:not_found)
+      else
+        with {:ok, member} <- constructor.(row),
+             true <- kind != :attachments or member.label == row.label,
+             attrs = member |> Map.from_struct() |> Map.take(reference_keys(kind)),
+             {:ok, reference} <- reference_module.new(attrs),
+             true <- Map.from_struct(reference) == attrs do
+          {:ok, reference}
+        else
+          false -> error(:invalid)
+          {:error, _} = failure -> failure
+        end
+      end
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  @impl true
+  def resolve_attachment_in_scope(context, %NoteAttachmentReference{} = reference) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         {:ok, ^reference} <- NoteAttachmentReference.new(reference),
+         {:ok, source} <-
+           source_metadata(
+             repo,
+             context.owner_scope_id,
+             reference.target_resource_id,
+             reference.target_resource_version_id,
+             reference.target_kind
+           ) do
+      {:ok, %{reference: reference, source: source}}
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def resolve_attachment_in_scope(_, _), do: error(:invalid)
+
+  @impl true
+  def resolve_citation_in_scope(context, %NoteCitationReference{} = reference) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         {:ok, ^reference} <- NoteCitationReference.new(reference),
+         {:ok, source} <-
+           source_metadata(
+             repo,
+             context.owner_scope_id,
+             reference.source_resource_id,
+             reference.source_resource_version_id,
+             :document
+           ),
+         {:ok, fragment} <- selected_fragment(repo, context, reference) do
+      {:ok, %{reference: reference, source: source, fragment: fragment}}
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  def resolve_citation_in_scope(_, _), do: error(:invalid)
+
+  defp selected_note_exists(repo, context, resource, version) do
+    %{rows: rows} =
+      SafeSQL.query!(
+        repo,
+        """
+        SELECT n.resource_version_id
+        FROM content.note_versions n
+        JOIN content.resources r ON (r.id,r.vault_id,r.classification)=(n.resource_id,n.vault_id,n.classification)
+        JOIN content.resource_versions v ON (v.id,v.resource_id,v.vault_id,v.classification)=(n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+        JOIN content.note_source_set_seals s ON (s.note_resource_version_id,s.note_resource_id,s.vault_id,s.classification)=(n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+        WHERE (n.resource_id,n.resource_version_id,n.vault_id,n.classification)=($1,$2,$3,'private')
+          AND r.kind='note' AND r.deleted_at IS NULL
+        FOR SHARE OF r
+        """,
+        [
+          Ecto.UUID.dump!(resource),
+          Ecto.UUID.dump!(version),
+          Ecto.UUID.dump!(context.owner_scope_id)
+        ]
+      )
+
+    case rows do
+      [[_version]] -> :ok
+      [] -> error(:not_found)
+      _ -> error(:invalid)
+    end
+  end
+
+  defp source_metadata(repo, owner, resource, version, kind) do
+    {title, typed_join} =
+      case kind do
+        :asset ->
+          {"m.original_filename",
+           """
+           JOIN content.assets a ON (a.resource_version_id,a.vault_id,a.classification)=(v.id,r.vault_id,r.classification)
+           JOIN content.asset_metadata m ON (m.asset_id,m.resource_version_id,m.vault_id,m.classification)=(a.id,v.id,r.vault_id,r.classification)
+           """}
+
+        :note ->
+          {"n.title",
+           "JOIN content.note_versions n ON (n.resource_version_id,n.resource_id,n.vault_id,n.classification)=(v.id,r.id,r.vault_id,r.classification)"}
+
+        :document ->
+          {"d.title",
+           "JOIN content.document_versions d ON (d.resource_version_id,d.resource_id,d.vault_id,d.classification)=(v.id,r.id,r.vault_id,r.classification) AND d.state='ready'"}
+      end
+
+    %{rows: rows} =
+      SafeSQL.query!(
+        repo,
+        """
+        SELECT #{title},r.deleted_at IS NOT NULL
+        FROM content.resources r
+        JOIN content.resource_versions v ON (v.resource_id,v.vault_id,v.classification)=(r.id,r.vault_id,r.classification)
+        #{typed_join}
+        WHERE (r.id,v.id,r.vault_id,r.classification)=($1,$2,$3,'private') AND r.kind=$4
+        """,
+        [
+          Ecto.UUID.dump!(resource),
+          Ecto.UUID.dump!(version),
+          Ecto.UUID.dump!(owner),
+          Atom.to_string(kind)
+        ]
+      )
+
+    case rows do
+      [[title, deleted?]] when is_boolean(deleted?) ->
+        if is_binary(title) and String.valid?(title) and String.trim(title) != "" and
+             not String.contains?(title, <<0>>) do
+          {:ok,
+           %{
+             kind: kind,
+             resource_id: resource,
+             resource_version_id: version,
+             title: title,
+             deleted?: deleted?
+           }}
+        else
+          error(:invalid)
+        end
+
+      [] ->
+        error(:not_found)
+
+      _ ->
+        error(:invalid)
+    end
+  end
+
+  defp selected_fragment(repo, context, reference) do
+    row =
+      repo.one(
+        from(fragment in StoredFragment,
+          where:
+            fragment.id == ^reference.fragment_id and
+              fragment.resource_id == ^reference.source_resource_id and
+              fragment.resource_version_id == ^reference.source_resource_version_id and
+              fragment.vault_id == ^context.owner_scope_id and fragment.classification == :private
+        ),
+        log: false,
+        telemetry_event: nil
+      )
+
+    if is_nil(row) do
+      error(:not_found)
+    else
+      with {:ok, fragment} <- fragment_value(row),
+           true <- fragment.locator == reference.locator do
+        {:ok, Map.take(fragment, [:fragment_id, :ordinal, :text, :locator])}
+      else
+        false -> error(:invalid)
+        {:error, _} = failure -> failure
+      end
+    end
+  end
+
+  defp canonical_ids(ids) do
+    if Enum.all?(ids, fn id ->
+         match?({:ok, ^id}, Singularity.Core.Types.canonical_uuid(%{id: id}, :id))
+       end),
+       do: :ok,
+       else: error(:invalid)
+  end
+
   @doc false
   def read_membership(context, resource_id, version_id) do
     with {:ok, repo} <- context_repo(context),
