@@ -816,6 +816,304 @@ Phase 2 worktrees, their untracked plan digest, runtime privacy test, and legacy
 Note concurrency test remain unchanged. No production/Vault change was part of
 this fixture repair. Concurrency and actual nested index qualification are next.
 
+The Task 3 qualification and its independently reviewed contract correction
+were committed locally as `8c94c0e23475601fd665077e5c57d33670f31c11`
+(`test(storage): qualify search candidate authority boundaries`). A local-link
+check subsequently resolved all 14 referenced local targets without a missing
+file. Tasks 5 and 6 proceed on disjoint candidate/observer files; parent-only
+execution remains serialized.
+
+## Guarded candidate Tasks 5–6: concurrency and actual-call evidence
+
+Task 5's first increment preserves the 27 qualified cases and adds three exact
+authorization-lock revocation barriers plus one wrong-key control. Parent
+formatting `91497` exited 0; frozen candidate-test hash:
+`e3966a20e7e5062105a7795da46e9301ac2b8498b7f6845c50b33e4934a4a8ee`.
+The separate Task 6 worker is writing missing-export RED contracts only; the
+observer helper remains `87213eef...` and the original plan fixture remains
+`bc063726...` until parent execution. No nested-plan success is claimed yet.
+
+Parent candidate increment `48442`, exit 0, seed `215378`, passed **31 tests
+in 35.1 seconds** with the same owning candidate command. All three exact-key
+readers were observed waiting before acquiring any content relation read lock;
+after the writer committed capability/membership/principal revocation, each
+returned the fixed forbidden error. The wrong-key reader completed successfully
+while its unrelated holder remained alive. Allocation
+`singularity_test_2009b98d975d981b26c56567` was disposed and the owned PostgreSQL
+stopped. No production repair or failed repair round was needed. Controlled
+canonical races, uncapped/dedup/stale-derived controls, and independent complete
+Task 5 reviews still remain; this subset is not full Task 5 acceptance.
+
+Task 6 missing-export RED `36640`, exit 2, seed `215378`, completed in 2.2
+seconds: **11 total tests, one pure test excluded, five expected failures**;
+all five existing integration controls passed. Each new contract stopped at
+the absent `search_summary/3` export, including the actual empty-query control.
+No expected-error branch could mask that absence. Parent formatting `68383`
+passed; owning-test hash:
+`cc1b231b5c6342d58e153cf29473bdfb7fc208fa6f405f3901de8dd1e7a5351f`.
+Independent SPEC and separate QUALITY reviews by the nonauthor
+`phase3_task9_rebuild` Sol passed before formatting. This expected RED is not a
+failed repair round. Allocation `singularity_test_a44d9b9a1427246a5400a1e4` was
+disposed and the owned PostgreSQL stopped.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378
+```
+
+Task 7 uses the new independent `search_candidate_migration_test.exs` module,
+with unchanged proof obligations, to avoid concurrent edits to Task 5's owning
+file. Parent pure run `15511`, exit 0, passed the fixed forward-only contract
+(three total tests, two integration cases excluded) in 0.5 seconds; formatting
+`1589` and `21085` passed. Source review strengthened same-database physical
+relation/index identity before historical upgrade, avoiding a claim that equal
+logical definitions alone prove no index rewrite. Final historical qualification
+and its independent review remain outstanding.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs, test apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs --seed 215378
+```
+
+Task 7 first integration `99538`, exit 2, seed `215378`, executed two tests
+(three total, one pure test excluded): **one failure**, 14.8 seconds. Fresh
+catalog validation passed, but the populated historical upgrade failed with
+`42501` when CREATE FUNCTION validated `pg_trgm.similarity_threshold` on its
+new migration connection. This is a migration compatibility defect, not a
+waived test or authorization request. Allocation
+`singularity_test_92578871d655a231b5e8d5fb` was disposed and PostgreSQL stopped.
+
+Sol confirmed the PostgreSQL 17 initialization/GUC-validation mechanism cited
+in the amended design. Calling the already-granted pure
+`search_extensions.similarity('','')` before CREATE registers its USERSET GUC.
+The four-line new-migration addition retained all prior function/body/ACL
+bytes; hash `a949fc59102a4ab939a878a51fe5c378ce37833954fa8ff7405e0066ed8c2715`.
+No role grant, preload/default, released migration, or Store change was made.
+In particular, the existing Store's fixed-settings function was not changed;
+an earlier parent hypothesis that it already calls similarity was incorrect
+(only the existing timeout fixture explicitly primes it).
+
+Independent Task 7 review found and closed two coverage gaps before the rerun:
+inventory every non-system privileged function rather than only three schemas,
+and execute real web/worker/dispatcher/preauth INSERT/UPDATE/DELETE denials
+at fresh/pre/post-upgrade checkpoints instead of relying only on catalog
+privilege predicates. Every unexpected write outcome also rolls back.
+Both amended SPEC and separate QUALITY reviews passed at owning-test hash
+`2ecfdf2dd5727503ce06af469bb144e809a3f61491163eb733c5992654fd15bf`.
+
+Parent repair-1 command `95652`, exit 0, passed changed-file formatting and
+**both migration integration tests** in 16.3 seconds (three total, one pure
+excluded), seed `215378`. Allocation
+`singularity_test_c0a57ebb6a37b9f53db8cc92` was disposed and PostgreSQL stopped.
+This is one successful Sol production-migration repair, zero failed Sol repair
+rounds and zero Astra rounds in this batch; the earlier successful fixture
+repair and historical observer counters remain distinct.
+
+PostgreSQL grammar source review also found that a comment before the first
+SQL token would not survive into nested Query Text. The same single static
+marker was moved after WITH, with no guard/predicate/ACL/settings change;
+new migration hash `5254c58509393090dfdf67e9e3e1570c7eea8ba72fad0b4c63c70b60f615de26`.
+This is a nonsemantic observation preflight correction, not actual NOTICE
+qualification. The parent is rerunning the Task 7 oracle on these final bytes
+alongside the Task 5 second increment (37 candidate tests); formatting `56738`
+passed, candidate-test hash
+`9f4d850d8485292fb84b244f65a4989d92d528825ecd6838664383db50d13f88`.
+
+Parent combined rerun `13321`, exit 0, seed `215378`, passed **39 integration
+tests in 45.9 seconds** (40 total, one pure excluded): all 37 Task 5 candidate
+contracts and both Task 7 migration contracts. Allocation
+`singularity_test_fd52bde51c45f9e1ec1f4576` was disposed and PostgreSQL stopped.
+The five canonical races and full 66-row, two-page candidate set passed.
+Generated constant-atom membership checks in the new race tests emitted
+compiler warnings; this is not a warning-free gate. Their surgical correction
+and remaining representable/stale source controls are in progress.
+The final migration bytes `5254c585...` passed independent SPEC and separate
+QUALITY source review by the nonauthor `phase3_task9_rebuild` Sol. Task 7's
+existing migration/role/schema regression gate still remains.
+
+Task 6 helper formatting `60800` passed at hash
+`1a78dad15bd0e5b933d502bd197c52713e3dec3078c691bf347d0732ae437c41`;
+the owning test remains `cc1b231b...`. Independent SPEC and separate QUALITY
+source reviews by the nonauthor `search_observer_actual_review` Sol passed.
+Removing only the added search-observation block reproduces the previously
+qualified helper hash `87213eef...`, preserving the original lifecycle and
+authorization implementation byte-for-byte.
+
+Actual owning execution `85135`, exit 2, seed `215378`, then produced **three
+failures in 4.2 seconds** (11 total, one pure excluded). The positive Store
+and empty-query callbacks returned the sanitized callback-failed outcome;
+the explicit post-capture callback-fault control did not reach its proof
+signal. The five old integration cases and no-read/conflicting-pattern
+controls passed. Source-review PASS does not override these failures.
+Sol diagnosis is in progress with all assertions and original lifecycle
+unchanged; no completed failed repair round is recorded yet. Allocation
+`singularity_test_949a636bf3de3a8df4ad0e47` was disposed and PostgreSQL stopped.
+
+Final-byte Task 7 pure rerun `43640`, exit 0, seed `215378`, passed **one
+forward-only test in 0.7 seconds** (three total, two integration excluded),
+together with changed migration/test formatting checks. The parent has started
+the complete prescribed existing migration/role/schema/RLS batch on the same
+migration bytes; its outcome will be recorded separately rather than inferred
+from the new owning tests.
+
+That complete prescribed migration/role/schema/RLS batch `84484`, exit 0,
+seed `215378`, passed **109 integration tests in 434.5 seconds** (117 total,
+eight excluded). Allocation `singularity_test_b9e9ad8b29c7ab87bd5c5ed3` was
+disposed and PostgreSQL stopped. It covers all nine files in Task 8's second
+integration command, including the new migration module; no assertion or
+required case was removed. Final migration/test digests remain `5254c585...`
+and `2ecfdf2d...`. The migration repair was committed locally as
+`2acbfa07055c59e95882730f7d0be97aedd1b32b`; its separate owning qualification
+was committed as `193f1c38579944278b60cb7c9bf26e549ce9b220`.
+
+Task 5's final additions passed independent SPEC and separate QUALITY source
+reviews by the nonauthor `search_observer_actual_review` Sol before execution.
+Parent formatting `13312` exited 0; formatted owning-test digest is
+`225beea1a7b19226e065cb6e029364e93f9648c3738e7a09ebf208ab80e42b99`.
+All 45 candidate contracts, including the eight new stale/schema cases and
+warning corrections, still require the parent runtime gate.
+
+Task 6 privacy-safe diagnostic `1701`, exit 2, repeated the same three
+failures (11 total, one pure excluded) in 8.7 seconds. Temporary helper
+instrumentation used only fixed stage/error-class atoms and no captured
+values, SQL, parameters, source, notices, or exception text. All three
+positive/empty failures reached `original_plans` then a guard failure; source,
+trace pairing, backend identity, and 13-parameter checks had completed.
+The other two emitted failures belong to their expected conflicting-trace
+and no-read negative controls. This localizes diagnosis but is not a fix or
+a completed repair round. Temporary formatted helper hash was
+`ae653f96b928bb848ce3a09f8d28659a938a3799000e67eb9b7b8b96718c6a6a`;
+all instrumentation must be removed before qualification/commit. Allocation
+`singularity_test_7a1efdd0c9a1c1fc08f6c02b` was disposed and PostgreSQL stopped.
+
+Task 5 final runtime gate `27406`, exit 0, seed `215378`, passed **71
+integration tests in 178.4 seconds**: all 45 candidate contracts and all 26
+Store/pagination contracts. No compiler warnings occurred. The eight new
+stale/schema boundary cases passed without changing production or disabling
+constraints. Independent SPEC and separate QUALITY reviews were reaffirmed
+for the exact formatted test hash `225beea1...`. Allocation
+`singularity_test_cd04ceb3507c4e014ac4d934` was disposed and PostgreSQL stopped.
+The sole candidate-test file was committed locally as
+`e85b3035826ed00226d182b0141f37b3f39aed77`
+(`test(storage): cover search candidate revocation and source races`).
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs --seed 215378
+```
+
+Task 6's second temporary diagnostic narrows only the original-plan parsing
+boundary using fixed numeric counters and private equality checks. The strict
+parser and all owning assertions remain unchanged. No repair or performance
+success is claimed from diagnostic instrumentation.
+
+Second bounded diagnostic `88899`, exit 2, seed `215378`, repeated **three
+failures in 9.1 seconds** (11 total, one pure excluded); temporary formatted
+helper hash `5a67bd1215b0035b5046153d767cc667ab68de91e1634e37621e4f64e0277ccc`.
+Both nonempty positive attempts had nine duration notices, four candidate
+signature contexts, zero exact full-context matches, one exact candidate SQL
+match, and zero outer query anchors. The empty query had six duration notices
+and no candidate/outer matches. Captured row counts had the expected numeric
+type. No captured values were emitted. Allocation
+`singularity_test_521146149fb5726b9514af64` was disposed and PostgreSQL stopped.
+
+Primary PostgreSQL 17 source inspection establishes that `auto_explain` emits
+at ExecutorEnd, whereas completed extended-protocol SELECT portals remain
+PORTAL_READY until later cleanup. The original Store return therefore need
+not contain its outer plan; replacing it with replay proof is prohibited.
+The driver lifecycle and bounded original-notice collection design are being
+diagnosed before any repair. These two diagnostic runs are not failed repair
+attempts; no actual repair has yet been validated.
+
+Sources: [auto_explain ExecutorEnd](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/contrib/auto_explain/auto_explain.c),
+[SELECT portal lifecycle](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/tcop/pquery.c),
+[portal cleanup](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/commands/portalcmds.c),
+and [extended Execute completion](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/tcop/postgres.c).
+
+Sol verified the complementary checked-out Postgrex `0.22.4` behavior in
+`deps/postgrex/lib/postgrex/protocol.ex`: `done/5` snapshots and clears the
+connection's messages when CommandComplete arrives; later close/ready notices
+update connection state rather than the already-created result. The bound
+execute/close path closes the statement, not the SELECT portal. This is an
+evidenced observation-channel design mismatch, not a production search defect
+or an internal dependency workaround. A bounded Astra architecture consultation
+(`search_notice_lifecycle_architecture`, `PROJECT_ARCHITECTURE`) is correcting
+the evidence collection model; it is not counted as a failed repair attempt.
+No replay may be substituted for original-call evidence.
+
+An early independent production-only SPEC review by the nonauthor
+`search_observer_actual_review` Sol found no concrete defects against accepted
+Phase 2 source `c34935a...` through production `193f1c3...` (unchanged through
+`e85b303...`). It covered provenance, authorization, workers, rebuild, restore,
+bootstrap/ACLs, layering, and Vault freeze. This is explicitly not final
+complete-candidate review or acceptance of the failing Task 6 helper.
+
+The uninstrumented runtime/projection/privacy batch `92723`, exit 2,
+seed `215378`, passed **38 storage integration tests in 42.3 seconds**, then
+executed **28 runtime integration tests with one failure in 147.9 seconds**
+(58 runtime total, 30 pure excluded). The failure was the cross-page rebuild
+revocation contract at `search_rebuild_test.exs:521`: it did not receive the
+between-pages signal within 5,000 ms while 82 callback/resource progress
+messages were already present. This is a new failed checkpoint, distinct from
+the preserved historical Note concurrency timeout; no cause or fix is claimed.
+Sol diagnosis is in progress without reducing the 100-row page boundary,
+weakening revocation assertions, or blindly increasing the timeout.
+
+The frozen runtime privacy and legacy Note concurrency hashes remain
+`17e6eeeb...` and `d49e2288...`; their cases passed in this batch. Allocation
+`singularity_test_eca7c6e8442e202e1d94c8ba` was disposed and PostgreSQL stopped.
+This partial pass is not a green combined runtime gate or Task 8 acceptance.
+
+Read-only Sol diagnosis traced the rebuild hook to the return of the hundredth
+serial resource scope. The existing per-resource markers are emitted after
+actual authorization and transaction acquisition but before reconciliation;
+the next marker proves the preceding scope completed. The failing receive
+therefore budgets five seconds for enumeration plus all 100 real scopes, not
+one barrier transition. No production defect was established.
+
+The first test-only repair adds ten lines to consume those 100 markers in
+exact canonical order, each with the existing five-second bounded progress
+wait, and assert positive, distinct transaction IDs and no extra resource
+marker. It leaves all original 101 post-revocation content-callback checks,
+barrier, next-page denial, projection/canonical equality, fixture size, test
+deadline, and cleanup unchanged. Pre-repair test hash is `f9210602...`;
+formatted repair hash is
+`06c9a98ea72cc72cc36579e71ce29d865de25c2ed126b6dc4af999eebe35c740`.
+Parent owning rerun `74705` and independent nonauthor review are in progress;
+no repair success is claimed before their results.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs --seed 215378
+```
+
+Owning repair rerun `74705`, exit 0, seed `215378`, passed **13 integration
+tests in 36.0 seconds** (17 total, four pure excluded). Independent SPEC and
+separate QUALITY review by the nonauthor `search_fixture_authority_review` Sol
+passed on exact formatted hash `06c9a98e...`; the diff adds only ten lines.
+Allocation `singularity_test_75c3176e53476e6c0fe5db67` was disposed and
+PostgreSQL stopped.
+
+The complete previously failing seven-file batch rerun `51110`, exit 0,
+seed `215378`, passed **38 storage integration tests in 13.5 seconds** and
+**28 runtime integration tests in 64.1 seconds** (58 runtime total, 30 pure
+excluded). Allocation `singularity_test_cbe10225ab46d25ac4ebfb8b` was disposed
+and PostgreSQL stopped. This is one successful Sol test-contract repair,
+zero failed repair rounds for this rebuild issue, with no production change.
+The original `92723` failure remains recorded, as does the unrelated historical
+Note timeout. Full Task 8 and Phase 3 acceptance remain incomplete.
+
+The independently reviewed, owning- and combined-green ten-line runtime test
+repair was committed locally as `67775356a4c10cb6fca499a0aaa284dd15069e6d`
+(`test(runtime): await exact rebuild progress before revocation`). No
+production files or other tests were included in that commit.
+
+The Astra observation architecture recommendation was written into the design
+and Task 6. Independent doc-only SPEC and separate QUALITY review by
+`search_observer_actual_review` passed. Its one minor audit finding was fixed:
+the initial design digest is explicitly historical, distinguished from amended
+reviewed design `4d32dd0f...`. No runtime proof is inferred from that review;
+the temporary helper remains unqualified until the new RED/GREEN and actual
+cold/warm gates execute.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with

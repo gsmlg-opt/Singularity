@@ -80,6 +80,16 @@ extension, administrative repository, or runtime administrator credential is
 introduced. Explicit schema qualification and trusted-path ordering must make
 temporary or caller-path object shadowing ineffective.
 
+The new migration must also work on a cold historical-upgrade connection.
+After selecting the established table-owner role, call the already-granted
+`search_extensions.similarity('','')` once before CREATE FUNCTION. This loads
+the existing extension and registers its USERSET threshold; it adds no grant,
+preload/default, role, or runtime change. Historical run `99538` exposed the
+otherwise-unregistered custom setting's rejection during function creation.
+PostgreSQL's [pg_trgm initialization](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/contrib/pg_trgm/trgm_op.c)
+and [GUC option validation](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/utils/misc/guc.c)
+explain why fresh index creation can hide this cold-connection defect.
+
 The function accepts no owner, principal, session, classification, connection,
 role, limit, cursor, ranking option, pattern, SQL, or diagnostic selector.
 
@@ -336,13 +346,95 @@ tie them to that actual outer call/connection. Validate the deployed function
 identity/definition against the tested migration. Other nested authorization
 queries and catalog/fixture/setup plans are not candidate evidence.
 
+The 2026-10-10 actual-call diagnostic disproved the initial single-result
+observation assumption. PostgreSQL's extended-protocol SELECT portal remains
+ready after returning its rows; its outer auto_explain NOTICE is emitted at
+later ExecutorEnd. Postgrex 0.22.4 has already snapshotted and cleared the
+messages used to construct the original result at CommandComplete. The original
+result contains nested candidate evidence, but need not contain the outer plan.
+Waiting longer or repeating the Erlang trace-delivery barrier cannot change
+that returned result. This is an observation design repair, not a production
+search or dependency change.
+
+Use this bounded, private two-result envelope instead:
+
+1. Inside the existing scoped transaction and dedicated real-web backend,
+   capture the unchanged Store search's actual call/return and 13 bindings.
+2. Immediately after Store success, before any other SQL or leaving the scoped
+   transaction, execute exactly one fixed binary SafeSQL query:
+   `SELECT pg_catalog.pg_backend_pid()` with zero parameters and unnamed
+   execution. Its Bind replaces the previous unnamed portal and triggers
+   cleanup, delivering the original outer NOTICE before the drain completes.
+   This source-supported prediction still requires real runtime qualification.
+3. Capture the drain call/return too, then use the existing delivery barrier.
+   Require exactly one adjacent search/drain pair, no intervening SQL,
+   identical Repo identity, complete call/return stacks, and agreement between
+   the verified backend, both result connection IDs, and drain's returned PID.
+4. Candidate evidence belongs exclusively to the original search result.
+   The original outer plan belongs exclusively to the immediate drain result
+   and must match the exact captured search SQL using edge trimming only.
+   Reject missing, duplicated, wrong-channel, or wrong-backend evidence.
+   Unrelated setup/authorization notices cannot satisfy either proof.
+5. Require original outer rows to equal the original result's row count,
+   positive analyzed loops and buffers, and one executed candidate Function
+   Scan with exactly one loop for nonempty positive controls. Empty q requires
+   both the candidate plan and candidate Function Scan absent.
+6. Remove EXPLAIN replay entirely. Derive named indexes from executed original
+   candidate nodes, and scan work from original candidate plus original outer
+   search_entries access nodes. Seven same-backend calls mean seven actual
+   searches, each with its own scoped transaction and fixed drain; no extra
+   search/EXPLAIN execution may contaminate the cold/warm sequence.
+
+Parse candidate context as exact ordered frames, not a whole-string
+single-function regex. Require the literal `SQL statement "` prefix followed by
+the exact selected Query Text bytes, whose edge-trimmed value matches the
+validated migration SQL, then the closing quote and frame separator. Consume
+one complete PL/pgSQL frame naming only optional `content.` qualification plus
+`search_candidate_ids(text,text,uuid[])`, a bounded positive line number, and
+`at RETURN QUERY`. Accept end-of-context or the exact trailing prefix
+`unnamed portal with parameters: `; treat its suffix as opaque private data and
+never search it for proof. Reject malformed/misordered frames or fake function
+frames confined to parameter context. Do not invent SQL/JSON escaping or
+normalize interior SQL whitespace. Characterize and document any different
+legitimate structure before extending this parser.
+
+Limit selected candidate/outer records before JSON parsing to 1 MiB each, and
+plan traversal to 4,096 nodes and depth 64. Exceeding any ceiling fails closed;
+never truncate evidence. Keep the existing numeric bounds, node/index
+allowlists, closed summary/error, private data confinement, trace ownership,
+collector termination, and cleanup checks. Synthetic negative envelopes may
+exercise a bounded test-support-only validator returning closed metadata or
+the fixed error; they cannot replace real Store-call proof. Remove all
+temporary diagnostic probes and preserve the previously qualified observer
+lifecycle/default implementation byte-for-byte. No production callback,
+driver change, new credential, or role/default lifecycle change is authorized.
+
+This amendment follows the bounded Astra `PROJECT_ARCHITECTURE` consultation,
+not a completed repair attempt. Primary evidence:
+[SELECT portal lifecycle](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/tcop/pquery.c),
+[portal cleanup](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/commands/portalcmds.c),
+[unnamed portal replacement](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/utils/mmgr/portalmem.c),
+[auto_explain ExecutorEnd](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/contrib/auto_explain/auto_explain.c),
+[SPI context](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/executor/spi.c),
+[PL/pgSQL context](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/pl/plpgsql/src/pl_exec.c),
+and [parameter context](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/nodes/params.c).
+The locked driver's `protocol.ex` bind/execute/close, result-construction, and
+NOTICE-accumulation paths independently confirm the message ownership boundary.
+
+Place the one static marker inside the SQL after `WITH`, not before its first
+token. PostgreSQL's [PL/pgSQL SQL reader](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/pl/plpgsql/src/pl_gram.y)
+discards leading comments when storing a nested statement. This nonsemantic
+source-placement correction preserves the exact-marker obligation; source
+analysis alone does not prove actual NOTICE delivery, which still requires
+the owning executed-call tests.
+
 Require the named content index in an executed candidate plan node with
 `Actual Loops > 0`, plus the original positive result identity, rank, and row
 count checks. The FTS fixture requires `search_entries_fts`; the typo fixture
 requires `search_entries_title_trigram`. Neither a Function Scan, an unused
 index node, aggregate index counters, owner-only diagnostic query, nor EXPLAIN
-of copied function SQL satisfies this requirement. The existing outer analyzed
-plan remains useful for final row count and whole-query shape, not inner proof.
+of copied function SQL satisfies this requirement. The drained original outer
+plan supplies final row count and whole-query shape, not inner-index proof.
 
 The instrumentation must first be proven on an existing read-only definer
 (`core.live_principal_authorization()`) through the real scoped observer
@@ -420,6 +512,13 @@ plan must enumerate the exact affected fixture files before edits.
    Verify identity deduplication and no candidate cutoff. Controlled head/tag
    changes must never yield incoherent or unauthorized content; unchanged data
    must exactly match the original ordered result/rank/cursor contracts.
+   Construct only admissible stale rows. Composite source foreign keys,
+   deterministic fragment identity, immutable-fragment rules, and Document
+   lifecycle checks already prohibit some malformed tuples. For those states,
+   prove exact existing constraint/SQLSTATE rejection and unchanged canonical
+   and projection snapshots; never disable a constraint or claim the candidate
+   function was exercised with an unrepresentable state. Valid foreign-owner
+   fixtures and Note/Document kind filters still require real exclusion checks.
 7. Pass both selective actual-call nested index contracts, honest short-literal
    evidence, and the unchanged observed five-second timeout/clean retry. For
    short literals, account for scan work inside candidate execution as well as
