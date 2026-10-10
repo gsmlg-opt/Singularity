@@ -11,8 +11,12 @@ source DTOs/resolution and narrow permanent grants are locally qualified after
 their owning gates and independent SPEC then QUALITY. Source resolution was
 committed locally at `969554c7659316b36ae7ec147545d5a0ac6bccb6` (exact 14 files),
 without Task 6 drafts. Task 6 authenticated organization facades are now locally
-qualified after owning tests and independent SPEC then QUALITY. Markdown
-rendering, remaining Phase 4 deliverables and whole-phase acceptance are pending.
+qualified after owning tests and independent SPEC then QUALITY. Task 7 Markdown
+rendering is locally qualified and committed at
+`ebb45781e837bc2a4bb84ec54c3aa1cf5358f1bc` (exact ten files). Task 9's first
+whole-candidate attempt failed; the necessary port-test contract repair has
+passed focused checks and independent SPEC then separate QUALITY. A clean
+complete rerun and final whole-phase acceptance remain pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -1704,8 +1708,9 @@ stopped only the owned private server. Both exact roots above and
 each exit 0. Only generated test data were cleaned by the test lifecycle; no
 material user data were removed. The ignored private cluster and parser/
 review diagnostic artifacts are retained. Task 7 source is locally qualified
-and ready for its exact scoped local commit; Task 9 and whole-phase acceptance
-remain pending. E2E remains NOT RUN. No Vault file, source-custody primitive,
+and was committed locally at `ebb45781e837bc2a4bb84ec54c3aa1cf5358f1bc`, with
+exact ten-file staging, whitespace checks and clean postcommit status. Task 9
+and whole-phase acceptance remain pending. E2E remains NOT RUN. No Vault file, source-custody primitive,
 capability, grant, migration, Api signature, browser assertion or workflow was
 changed.
 
@@ -1719,6 +1724,83 @@ devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tu
 
 
 
+
+## Task 9 first whole-candidate attempt and necessary contract repair
+
+Clean tested source was `ebb45781e837bc2a4bb84ec54c3aa1cf5358f1bc`.
+Parent-owned process `71560` ran the ignored diagnostic qualification script
+against the existing isolated, no-TCP PostgreSQL cluster. Role bootstrap,
+dependency resolution, unused-dependency checks, complete formatting and
+`mix compile --warnings-as-errors` passed. Dependencies stayed unchanged.
+The runner then executed `mix test --warnings-as-errors --seed 215378`.
+This initial attempt is **FAIL**, exit 2, not phase acceptance:
+
+- Core: 10 properties / 201 tests / zero failures, 15.6 seconds.
+- Domains: 56 tests / one failure, 5.3 seconds.
+- Storage: 1,315 tests / zero failures / 1,017 excluded, 35.0 seconds.
+- Retrieval: 52 tests / zero failures, 0.9 seconds.
+- Ingest: 62 tests / zero failures, 27.5 seconds.
+- Runtime: 1,204 tests / zero failures / 288 excluded, 63.0 seconds;
+  then aborted under the extra test warning-as-error flag.
+- Web unit, integration, restore, frontend and subsequent static/workflow
+  commands were NOT RUN in this attempt. E2E was not invoked.
+
+The Domains failure was the established exact callback-list test, which
+expected eight Relationships repository callbacks instead of nine. The missing
+`unrelate_selected_in_scope/2` was already introduced and reviewed in Task6 for
+authenticated deletion of the exact selected metadata tuple. The repair adds
+that one inventory entry and a strict single-specification equality assertion
+for its `context()`, `Organization.Repository.relationship_metadata()` and
+`:ok | {:error, Singularity.Core.Error.t()}` declaration. Every prior assertion
+remains. This changes only the test contract, not production behavior.
+
+Runtime's warnings are existing duplicate definitions of `Fake.Authorization`,
+`Fake.Clock` and `Fake.KeyReader` loaded by the frozen `key_lease_test.exs`
+substrate. Comparing that file, `test/support/fake` and Runtime's `mix.exs`
+against accepted Phase3 handoff `617f0b986a3ecffba14c952988e39e3afe022cea`
+showed no changes. The accepted Phase3 report also records existing
+test-module redefinition warnings. No Vault file or warning suppression was
+changed. The failed runner's extra global test `--warnings-as-errors` was not
+part of the authoritative README gate; the rerun uses README's unmodified
+test/integration commands plus seed `215378`. Required warnings-as-errors
+compilation and all tests/assertions remain enabled. This does not declare
+the failed stricter attempt passing or warning-free.
+
+Focused repair process `9844` exited 0: **Domains 16 / Runtime 42**, zero
+failures, seed `215378`, 0.4 / 1.9 seconds; formatting, warnings-as-errors
+compilation and xref with zero cycles passed. Sol test-harness repair round 1
+passed; failed repair rounds 0, production repair rounds 0, Astra recovery
+rounds 0. This is focused evidence only. The initial full-gate private server
+was stopped by its EXIT trap; integration allocation had not yet run.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-full-gate.sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
+git diff --name-only 617f0b986a3ecffba14c952988e39e3afe022cea HEAD -- apps/singularity_runtime/test/singularity/runtime/key_lease_test.exs apps/singularity_runtime/test/support/fake apps/singularity_runtime/mix.exs
+```
+
+Whole-candidate SPEC review before this repair passed on the frozen 102-file
+manifest at `ebb45781e837bc2a4bb84ec54c3aa1cf5358f1bc`, with zero actionable
+P0–P2 findings. That verdict does not cover the uncommitted repair, the pending
+separate whole-candidate QUALITY review or the failed complete gate.
+
+Independent nonauthor `phase4_organization_spec_review` reviewed the frozen
+three-file repair: **SPEC PASS**, zero actionable P0–P2 findings. Subsequent
+fresh read-only Sol/high QUALITY thread
+`01a127db-b7ba-7c93-97f4-8031d952d9d1`, process `92716`, exited 0 with
+**QUALITY PASS**, zero actionable P0–P2 findings. Both independently confirmed
+the exact single-typespec assertion, preservation of every prior assertion,
+README command alignment without warning suppression, and honest FAIL/PASS/
+pending statuses. All three hashes matched before/after; HEAD stayed `ebb4578`.
+The frozen test SHA-256 was
+`7bb041d6ad5794e61bd0d0e3013091d31e275fcf4a1be5e6b255874e11635011`;
+plan `125034f9d3b3d5b497d80e382713762c0b910f353ed2775a5da31538272059a6`;
+report `e5aef92c8417954737ea0b15bfb40021270b3a737861a2d6238c1d9e95d5bdb8`.
+This paragraph and current-status synchronization are evidence-only additions
+after review. Neither reviewer edited files or ran tests/services; all their
+read-only commands completed. The existing ignored user-configuration warning
+was not altered. Whole-candidate requalification on the resulting clean commit
+remains required; this repair review is not phase acceptance.
 
 ## Preserved boundaries and baseline inventory
 

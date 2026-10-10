@@ -467,7 +467,7 @@ No public Api signature, persistence port, grant or migration change is planned.
 - [x] Compose after existing `note.export` plus `note.read` and every required
   current source read. Deleted exact sources stay readable as historical
   metadata; unauthorized content is not hydrated or silently exported.
-- [ ] Test escaping/scheme rejection, stable deterministic output, pinned old
+- [x] Test escaping/scheme rejection, stable deterministic output, pinned old
   source despite new head, deletion, invalid nested descriptors and privacy.
   Run existing text export/Runtime suites; SPEC then QUALITY review; commit
   `feat(notes): render portable markdown citations`.
@@ -541,6 +541,25 @@ restore contracts immediately when Task2/Task3 can affect them.
 ## Task 9: Whole-candidate qualification and automatic handoff
 
 **Files:** Phase4 report, design/plan, master Phase4 checklist and active guidance.
+
+Necessary qualification repair, 2026-10-11: the first complete unit attempt
+exposed the old `knowledge_ports_test.exs` callback inventory missing the Task6
+`unrelate_selected_in_scope/2` contract. Synchronize that exact inventory and
+assert its selected `Organization.Repository.relationship_metadata()` argument
+and complete return type; preserve every prior assertion. No production port,
+grant, schema, released migration or Vault change is needed. Run the owning
+port/organization suites and independent SPEC then separate QUALITY review
+before a narrow local repair commit, then rerun the entire permitted README
+gate on the resulting clean source.
+
+The initial qualification runner added `--warnings-as-errors` to the global
+unit/integration test commands, beyond README's required commands. Record
+that attempt as FAIL. The required rerun uses README's `mix test` and
+`mix singularity.test.integration` with the recorded deterministic seed,
+retains `mix compile --warnings-as-errors`, and executes every required test
+and assertion. Existing frozen Vault test-module redefinition warnings remain
+visible and unmodified; no warning suppression or compiler-option change is
+authorized. Focused suites keep their already-qualified stricter test flag.
 
 - [ ] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and

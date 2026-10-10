@@ -44,6 +44,7 @@ defmodule Singularity.Domains.KnowledgePortsTest do
            incoming: 2,
            relate_in_scope: 2,
            unrelate_in_scope: 2,
+           unrelate_selected_in_scope: 2,
            outgoing_page_in_scope: 4,
            incoming_page_in_scope: 4
          ]}
@@ -185,6 +186,16 @@ defmodule Singularity.Domains.KnowledgePortsTest do
         {Singularity.Domains.Tags.Repository, operation}
         when operation in [:resolve, :resolve_in_scope, :list] ->
           assert rendered =~ "Singularity.Core.Tag.t()"
+
+        {Singularity.Domains.Relationships.Repository, :unrelate_selected_in_scope} ->
+          expected_declaration =
+            Code.string_to_quoted!(
+              "unrelate_selected_in_scope(context(), Singularity.Domains.Organization.Repository.relationship_metadata()) :: :ok | {:error, Singularity.Core.Error.t()}"
+            )
+            |> Macro.to_string()
+
+          assert length(specifications) == 1
+          assert rendered == expected_declaration
 
         {Singularity.Domains.Relationships.Repository, operation}
         when operation not in [:unrelate, :unrelate_in_scope] ->
