@@ -389,6 +389,19 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
     end
 
     Fixtures.with_owner(fn ->
+      # Finish normal post-load maintenance uniformly before measuring plans.
+      for index <- @content_indexes do
+        assert %{rows: [[pages]]} =
+                 SafeSQL.query!(
+                   MigrationRepo,
+                   "SELECT pg_catalog.gin_clean_pending_list($1::text::regclass)",
+                   ["content." <> index]
+                 )
+
+        assert is_integer(pages) and pages >= 0 and pages <= 1_000_000_000
+        IO.puts("knowledge_search_plan index=#{index} pending_pages_cleaned=#{pages}")
+      end
+
       for table <- ["resources", "resource_versions", "note_versions", "search_entries"] do
         SafeSQL.query!(MigrationRepo, "ANALYZE content." <> table)
       end
