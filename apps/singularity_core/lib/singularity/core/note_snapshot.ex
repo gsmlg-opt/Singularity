@@ -3,20 +3,30 @@ defmodule Singularity.Core.NoteSnapshot do
 
   alias Singularity.Core.Classification
   alias Singularity.Core.Error
+  alias Singularity.Core.NoteAttachmentReference
+  alias Singularity.Core.NoteCitationReference
   alias Singularity.Core.Types
 
   @max_title_bytes 255
   @max_markdown_bytes 1_048_576
 
   @enforce_keys [:classification, :title, :markdown]
-  defstruct @enforce_keys ++ [:parent_version_id, :merge_parent_version_id]
+  defstruct @enforce_keys ++
+              [
+                :parent_version_id,
+                :merge_parent_version_id,
+                attachments: :inherit,
+                citations: :inherit
+              ]
 
   @type t :: %__MODULE__{
           classification: :private,
           title: String.t(),
           markdown: String.t(),
           parent_version_id: Types.id() | nil,
-          merge_parent_version_id: Types.id() | nil
+          merge_parent_version_id: Types.id() | nil,
+          attachments: [NoteAttachmentReference.t()] | :inherit,
+          citations: [NoteCitationReference.t()] | :inherit
         }
 
   @spec initial(map() | keyword()) :: {:ok, t()} | {:error, Error.t()}
@@ -34,16 +44,65 @@ defmodule Singularity.Core.NoteSnapshot do
          :ok <- require_private(classification),
          {:ok, title} <- title(attrs),
          {:ok, markdown} <- markdown(attrs),
-         {:ok, parent_version_id, merge_parent_version_id} <- parents(attrs, shape) do
+         {:ok, parent_version_id, merge_parent_version_id} <- parents(attrs, shape),
+         {:ok, attachments} <- source_set(attrs, :attachments, shape, NoteAttachmentReference),
+         {:ok, citations} <- source_set(attrs, :citations, shape, NoteCitationReference),
+         :ok <- source_bounds(attachments, citations) do
       {:ok,
        %__MODULE__{
          classification: classification,
          title: title,
          markdown: markdown,
          parent_version_id: parent_version_id,
-         merge_parent_version_id: merge_parent_version_id
+         merge_parent_version_id: merge_parent_version_id,
+         attachments: attachments,
+         citations: citations
        }}
     end
+  end
+
+  defp source_set(attrs, field, shape, module) do
+    case Map.fetch(attrs, field) do
+      :error -> {:ok, if(shape == :initial, do: [], else: :inherit)}
+      {:ok, values} when is_list(values) and length(values) <= 100 -> references(values, module)
+      _invalid -> invalid()
+    end
+  end
+
+  defp references(values, module) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
+      case module.new(value) do
+        {:ok, reference} -> {:cont, {:ok, [reference | acc]}}
+        _invalid -> {:halt, invalid()}
+      end
+    end)
+    |> case do
+      {:ok, references} -> {:ok, Enum.reverse(references)}
+      error -> error
+    end
+  end
+
+  defp source_bounds(attachments, citations) do
+    attachments = if attachments == :inherit, do: [], else: attachments
+    citations = if citations == :inherit, do: [], else: citations
+
+    attachment_targets =
+      Enum.map(attachments, &{&1.target_resource_id, &1.target_resource_version_id})
+
+    citation_targets =
+      Enum.map(citations, &{&1.source_resource_id, &1.source_resource_version_id})
+
+    if unique?(attachments, & &1.attachment_id) and
+         unique?(attachments, &{&1.target_resource_id, &1.target_resource_version_id, &1.role}) and
+         unique?(citations, & &1.citation_id) and
+         MapSet.size(MapSet.new(attachment_targets ++ citation_targets)) <= 100 and
+         MapSet.size(MapSet.new(Enum.map(citations, & &1.fragment_id))) <= 100,
+       do: :ok,
+       else: invalid()
+  end
+
+  defp unique?(references, key) do
+    MapSet.size(MapSet.new(Enum.map(references, key))) == length(references)
   end
 
   defp title(attrs) do

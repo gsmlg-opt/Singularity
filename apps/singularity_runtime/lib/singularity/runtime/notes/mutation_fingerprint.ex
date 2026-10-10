@@ -2,6 +2,7 @@ defmodule Singularity.Runtime.Notes.MutationFingerprint do
   @moduledoc false
 
   alias Singularity.Core.Error
+  alias Singularity.Core.NoteSnapshot
   alias Singularity.Domains.Notes.Command
 
   @spec compute(binary(), Command.t()) :: {:ok, binary()} | {:error, Error.t()}
@@ -96,11 +97,23 @@ defmodule Singularity.Runtime.Notes.MutationFingerprint do
     end
   end
 
-  defp snapshot_fields(common, %{title: title, markdown: markdown}) do
-    {:ok, Map.merge(common, %{title: title, markdown: markdown})}
+  defp snapshot_fields(common, %NoteSnapshot{
+         title: title,
+         markdown: markdown,
+         attachments: attachments,
+         citations: citations
+       }) do
+    {:ok,
+     common
+     |> Map.merge(%{title: title, markdown: markdown})
+     |> source_attrs(:attachments, attachments)
+     |> source_attrs(:citations, citations)}
   end
 
   defp snapshot_fields(_common, _snapshot), do: invalid()
+
+  defp source_attrs(attrs, _field, :inherit), do: attrs
+  defp source_attrs(attrs, field, references), do: Map.put(attrs, field, references)
 
   defp invalid, do: {:error, Error.new(:invalid)}
 end

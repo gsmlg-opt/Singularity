@@ -77,7 +77,7 @@ and `docs/verification/2026-10-11-phase-4-acceptance.md`.
   exact tested Phase 3 source and handoff, resolving all local Markdown links.
   Preserve activation prerequisites, frozen runtime byte hashes and negative
   governance assertions.
-- [ ] Run the two full existing governance suites, format/compile/xref and diff
+- [x] Run the two full existing governance suites, format/compile/xref and diff
   checks. Create the Phase 4 report with explicit incomplete status; commit
   `docs: start phase four under deferred e2e acceptance` after review.
 
@@ -94,24 +94,24 @@ Domains `notes/command.ex`, `notes.ex`, `notes_test.exs`; Runtime
 `notes/mutation_fingerprint.ex`, `note_mutation_fingerprint_test.exs`.
 
 - [x] Characterize the four existing owning files with the baseline command.
-- [ ] Write new tests before production changes. Require real constructors,
+- [x] Write new tests before production changes. Require real constructors,
   ordered typed fields, omitted initial empty/normal inherited/merge inherited
   modes, independent explicit clear, canonical Unicode/string alias behavior,
   invalid fields/UUIDs/kinds/roles/locators/forged structs/duplicates/bounds.
   No caller scope, containing Note/version or ordinal fields are accepted.
-- [ ] Parent executes the tests and records expected missing-module/default
+- [x] Parent executes the tests and records expected missing-module/default
   RED. Then implement the two strict owner-free reference values, using fixed
   kind/role clauses and existing validators/SourceLocator; no new dependency.
-- [ ] Extend snapshots with at most 100 references per collection, unique member
+- [x] Extend snapshots with at most 100 references per collection, unique member
   IDs and attachment target/version/role tuples, at most 100 union targets and
   fragments. Preserve list order. Create omission is `[]`; normal/merge omission
   is internal `:inherit`; explicit sentinel input is invalid.
-- [ ] Add optional source fields only to create/save/merge Command keys;
+- [x] Add optional source fields only to create/save/merge Command keys;
   keep all existing required keys/strict aliases and lifecycle shapes. When
   rebuilding a command, omit internal `:inherit` fields to preserve omission
   rather than accepting explicit client sentinels. Domains and Runtime HMAC
   reconstruction must propagate lists and preserve canonical equality.
-- [ ] Preserve exact v1 literal tuples for default modes and explicit empty
+- [x] Preserve exact v1 literal tuples for default modes and explicit empty
   Create; keep lifecycle tuples unchanged. Use `:note_mutation_v2` for other
   cases, extending the corresponding legacy operation fields with canonical
   attachments/citations mode terms. Each reference term covers every semantic
@@ -123,12 +123,12 @@ Domains `notes/command.ex`, `notes.ex`, `notes_test.exs`; Runtime
   `{attachment_id, target_resource_id, target_resource_version_id, target_kind,
   role, label}`; citation members are `{citation_id, source_resource_id,
   source_resource_version_id, fragment_id, encoded_locator}`.
-- [ ] Add Domains fake-port intent assertions using its existing fake, not a
+- [x] Add Domains fake-port intent assertions using its existing fake, not a
   database simulation; prove forged snapshot/command still fails before port.
   Add Runtime HMAC tests with a literal independently constructed v1 oracle,
   every-field/order/mode v2 perturbations, normalization equivalence, malformed
   nested structs and sanitized errors. Do not change Runtime input/grants yet.
-- [ ] Run new and all four existing owning files, format/compile/xref, inspect
+- [x] Run new and all four existing owning files, format/compile/xref, inspect
   diff, SPEC then QUALITY review. Commit `feat(notes): model versioned source intent`.
 
 ## Task 2: SQL source-set sealing and historical retention guards

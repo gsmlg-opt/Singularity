@@ -482,6 +482,157 @@ defmodule Singularity.Domains.NotesTest do
            end)
   end
 
+  test "source modes reach the real intent unchanged after canonical reconstruction", %{
+    adapters: adapters
+  } do
+    for operation <- [:create, :save, :merge] do
+      default = if operation == :create, do: [], else: :inherit
+
+      for fields <- [
+            %{},
+            %{attachments: []},
+            %{citations: []},
+            %{attachments: [source_attachment()]},
+            %{citations: [source_citation()]},
+            %{attachments: [], citations: [source_citation()]},
+            %{attachments: [source_attachment()], citations: []}
+          ] do
+        assert {:ok, prepared} = Command.new(operation, Map.merge(command(operation), fields))
+
+        for field <- [:attachments, :citations] do
+          expected = Map.get(fields, field, default)
+          actual = Map.fetch!(prepared.snapshot, field)
+
+          if is_list(expected) do
+            assert Enum.map(actual, &Map.from_struct/1) == canonical_source_maps(field, expected)
+          else
+            assert actual == expected
+          end
+        end
+
+        assert {:ok, _result} = Notes.execute(adapters, prepared, @fingerprint)
+        assert_receive {^operation, %{snapshot: snapshot, request_fingerprint: @fingerprint}}
+        assert snapshot == prepared.snapshot
+      end
+    end
+  end
+
+  test "new optional source keys preserve required keys and strict raw aliases" do
+    for operation <- [:create, :save, :merge] do
+      raw =
+        Map.merge(command(operation), %{
+          attachments: [source_attachment()],
+          citations: [source_citation()]
+        })
+
+      assert {:ok, expected} = Command.new(operation, raw)
+      assert {:ok, ^expected} = Command.new(operation, string_keys(raw))
+      assert {:ok, ^expected} = Command.new(operation, duplicate_keys(raw))
+
+      for field <- [:attachments, :citations] do
+        assert {:error, %Error{code: :invalid}} =
+                 Command.new(operation, Map.put(raw, Atom.to_string(field), []))
+
+        for value <- [:inherit, "inherit", nil, %{}] do
+          assert {:error, %Error{code: :invalid}} =
+                   Command.new(operation, Map.put(raw, field, value))
+        end
+      end
+
+      for key <- Map.keys(command(operation)) do
+        assert {:error, %Error{code: :invalid}} = Command.new(operation, Map.delete(raw, key))
+      end
+
+      assert {:error, %Error{code: :invalid}} =
+               Command.new(operation, Map.put(raw, :source_mode, :inherit))
+    end
+
+    for operation <- [:tombstone, :restore], field <- [:attachments, :citations] do
+      assert {:error, %Error{code: :invalid}} =
+               Command.new(operation, Map.put(command(operation), field, []))
+
+      assert {:error, %Error{code: :invalid}} =
+               Command.new(operation, Map.put(command(operation), Atom.to_string(field), []))
+    end
+  end
+
+  test "execute rejects forged source commands and nested structures before the repository port",
+       %{adapters: adapters} do
+    for operation <- [:create, :save, :merge] do
+      assert {:ok, prepared} =
+               Command.new(
+                 operation,
+                 Map.merge(command(operation), %{
+                   attachments: [source_attachment()],
+                   citations: [source_citation()]
+                 })
+               )
+
+      [attachment] = Map.fetch!(prepared.snapshot, :attachments)
+      [citation] = Map.fetch!(prepared.snapshot, :citations)
+
+      bad_snapshots = [
+        Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :target_kind, "asset")]),
+        Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :label, "e\u0301")]),
+        Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :retained, true)]),
+        Map.put(prepared.snapshot, :attachments, [Map.from_struct(attachment)]),
+        Map.put(prepared.snapshot, :attachments, [attachment, attachment]),
+        Map.put(prepared.snapshot, :citations, [Map.put(citation, :fragment_id, "BAD")]),
+        Map.put(prepared.snapshot, :citations, [
+          Map.put(citation, :locator, Map.put(citation.locator, :text, "private-canary"))
+        ]),
+        Map.put(prepared.snapshot, :citations, [Map.from_struct(citation)]),
+        Map.put(prepared.snapshot, :citations, [attachment]),
+        Map.put(prepared.snapshot, :witness, "private-canary"),
+        Map.from_struct(prepared.snapshot),
+        Map.delete(prepared.snapshot, :citations)
+      ]
+
+      for forged <- [
+            Map.put(prepared, :witness, "private-canary")
+            | Enum.map(bad_snapshots, &Map.put(prepared, :snapshot, &1))
+          ] do
+        assert Notes.execute(adapters, forged, @fingerprint) == {:error, Error.new(:invalid)}
+        refute_receive {^operation, _intent}
+      end
+
+      if operation == :create do
+        forged = %{prepared | snapshot: Map.put(prepared.snapshot, :attachments, :inherit)}
+        assert Notes.execute(adapters, forged, @fingerprint) == {:error, Error.new(:invalid)}
+        refute_receive {^operation, _intent}
+      end
+    end
+  end
+
+  defp canonical_source_maps(:attachments, references),
+    do: Enum.map(references, &Map.merge(&1, %{role: :source, label: nil}))
+
+  defp canonical_source_maps(:citations, references) do
+    Enum.map(references, fn reference ->
+      assert {:ok, locator} = Singularity.Core.SourceLocator.new(reference.locator)
+      Map.put(reference, :locator, locator)
+    end)
+  end
+
+  defp source_attachment do
+    %{
+      attachment_id: @mutation_id,
+      target_resource_id: @resource_id,
+      target_resource_version_id: @base_version_id,
+      target_kind: :asset
+    }
+  end
+
+  defp source_citation do
+    %{
+      citation_id: @conflict_id,
+      source_resource_id: @resource_id,
+      source_resource_version_id: @base_version_id,
+      fragment_id: String.duplicate("a", 64),
+      locator: %{version: 1, kind: "fragment", ordinal: 0}
+    }
+  end
+
   defp create_command(overrides \\ []) do
     command(:create)
     |> Map.merge(Map.new(overrides))

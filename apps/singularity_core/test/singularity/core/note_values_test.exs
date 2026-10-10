@@ -300,6 +300,224 @@ defmodule Singularity.Core.NoteValuesTest do
              )
   end
 
+  test "source sets default independently to empty on create and inherit on normal and merge" do
+    for {constructor, attrs, default} <- source_snapshot_shapes() do
+      assert {:ok, snapshot} = apply(NoteSnapshot, constructor, [attrs])
+      assert Map.fetch!(snapshot, :attachments) == default
+      assert Map.fetch!(snapshot, :citations) == default
+
+      assert {:ok, cleared} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, %{attachments: [], citations: []})
+               ])
+
+      assert Map.fetch!(cleared, :attachments) == []
+      assert Map.fetch!(cleared, :citations) == []
+
+      for field <- [:attachments, :citations] do
+        assert {:ok, cleared} = apply(NoteSnapshot, constructor, [Map.put(attrs, field, [])])
+        assert Map.fetch!(cleared, field) == []
+        other = if field == :attachments, do: :citations, else: :attachments
+        assert Map.fetch!(cleared, other) == default
+
+        for invalid <- [:inherit, "inherit", nil, %{}, :replace, [nil]] do
+          assert {:error, %{code: :invalid}} =
+                   apply(NoteSnapshot, constructor, [Map.put(attrs, field, invalid)])
+        end
+      end
+    end
+  end
+
+  test "source set lists validate references and preserve their explicit order" do
+    attachments = [source_attachment(2), source_attachment(1)]
+    citations = [source_citation(2), source_citation(1)]
+
+    for {constructor, attrs, _default} <- source_snapshot_shapes() do
+      assert {:ok, snapshot} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, %{attachments: attachments, citations: citations})
+               ])
+
+      assert [%{attachment_id: first}, %{attachment_id: second}] =
+               Map.fetch!(snapshot, :attachments)
+
+      assert {first, second} == {source_uuid(2), source_uuid(1)}
+      assert [%{citation_id: ^first}, %{citation_id: ^second}] = Map.fetch!(snapshot, :citations)
+
+      assert {:ok, ^snapshot} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, Map.take(snapshot, [:attachments, :citations]))
+               ])
+
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.put(attrs, :attachments, [
+                   Map.put(source_attachment(1), :owner_id, @vault_id)
+                 ])
+               ])
+
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.put(attrs, :citations, [Map.put(source_citation(1), :text, "private-canary")])
+               ])
+    end
+  end
+
+  test "source sets reject duplicate stable IDs and attachment target-version-role triples" do
+    attachment = source_attachment(1)
+    citation = source_citation(1)
+
+    invalid_sets = [
+      %{
+        attachments: [
+          attachment,
+          Map.put(source_attachment(2), :attachment_id, attachment.attachment_id)
+        ]
+      },
+      %{
+        attachments: [
+          attachment,
+          %{attachment | attachment_id: source_uuid(2), target_kind: :document}
+        ]
+      },
+      %{citations: [citation, Map.put(source_citation(2), :citation_id, citation.citation_id)]}
+    ]
+
+    for {constructor, attrs, _default} <- source_snapshot_shapes(), sets <- invalid_sets do
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [Map.merge(attrs, sets)])
+    end
+
+    # Separate citations may identify the same immutable fragment under different stable IDs.
+    assert {:ok, snapshot} =
+             NoteSnapshot.initial(
+               note_attrs(citations: [citation, %{citation | citation_id: source_uuid(2)}])
+             )
+
+    assert [%{citation_id: first}, %{citation_id: second}] = Map.fetch!(snapshot, :citations)
+    assert {first, second} == {source_uuid(1), source_uuid(2)}
+
+    # Distinct versions of the same resource remain distinct attachment references.
+    assert {:ok, _snapshot} =
+             NoteSnapshot.initial(
+               note_attrs(
+                 attachments: [
+                   attachment,
+                   %{
+                     attachment
+                     | attachment_id: source_uuid(2),
+                       target_resource_version_id: source_uuid(900)
+                   }
+                 ]
+               )
+             )
+  end
+
+  test "source sets enforce list and union-target bounds at 100 without counting duplicates twice" do
+    attachments = Enum.map(1..100, &source_attachment/1)
+    citations = Enum.map(1..100, &source_citation/1)
+
+    for {constructor, attrs, _default} <- source_snapshot_shapes() do
+      assert {:ok, _snapshot} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, %{attachments: attachments, citations: citations})
+               ])
+
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.put(attrs, :attachments, attachments ++ [source_attachment(101)])
+               ])
+
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.put(attrs, :citations, citations ++ [source_citation(101)])
+               ])
+
+      # Each list is below its bound, but these targets have a union of 101.
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, %{attachments: attachments, citations: [source_citation(101)]})
+               ])
+
+      shared_resource_versions =
+        Enum.map(1..100, fn i ->
+          %{source_attachment(i) | target_resource_id: source_uuid(501)}
+        end)
+
+      # The union key includes the immutable version, not just the resource UUID.
+      assert {:error, %{code: :invalid}} =
+               apply(NoteSnapshot, constructor, [
+                 Map.merge(attrs, %{
+                   attachments: shared_resource_versions,
+                   citations: [%{source_citation(101) | source_resource_id: source_uuid(501)}]
+                 })
+               ])
+
+      same_fragment = Enum.map(citations, &Map.put(&1, :fragment_id, String.duplicate("a", 64)))
+
+      assert {:ok, _snapshot} =
+               apply(NoteSnapshot, constructor, [Map.put(attrs, :citations, same_fragment)])
+    end
+  end
+
+  test "source lists reject noncanonical nested structs rather than silently repairing them" do
+    assert {:ok, snapshot} =
+             NoteSnapshot.initial(
+               note_attrs(attachments: [source_attachment(1)], citations: [source_citation(1)])
+             )
+
+    [attachment] = Map.fetch!(snapshot, :attachments)
+    [citation] = Map.fetch!(snapshot, :citations)
+
+    for {field, reference} <- [
+          {:attachments, Map.put(attachment, :label, "e\u0301")},
+          {:attachments, Map.put(attachment, :ordinal, 0)},
+          {:attachments, citation},
+          {:citations, Map.put(citation, :fragment_id, "BAD")},
+          {:citations, Map.put(citation, :witness, "private-canary")},
+          {:citations, attachment}
+        ] do
+      assert {:error, %{code: :invalid}} =
+               NoteSnapshot.initial(note_attrs([{field, [reference]}]))
+    end
+  end
+
+  defp source_snapshot_shapes do
+    [
+      {:initial, note_attrs(), []},
+      {:normal, note_attrs(parent_version_id: @base_version_id), :inherit},
+      {:merge,
+       note_attrs(
+         parent_version_id: @canonical_version_id,
+         merge_parent_version_id: @competing_version_id
+       ), :inherit}
+    ]
+  end
+
+  defp source_attachment(i) do
+    %{
+      attachment_id: source_uuid(i),
+      target_resource_id: source_uuid(500 + i),
+      target_resource_version_id: source_uuid(1_000 + i),
+      target_kind: :asset
+    }
+  end
+
+  defp source_citation(i) do
+    %{
+      citation_id: source_uuid(i),
+      source_resource_id: source_uuid(500 + i),
+      source_resource_version_id: source_uuid(1_000 + i),
+      fragment_id: Integer.to_string(i, 16) |> String.downcase() |> String.pad_leading(64, "0"),
+      locator: %{version: 1, kind: "fragment", ordinal: 0}
+    }
+  end
+
+  defp source_uuid(i),
+    do:
+      "00000000-0000-4000-8000-" <>
+        String.pad_leading(String.downcase(Integer.to_string(i, 16)), 12, "0")
+
   defp note_attrs(overrides \\ []) do
     Map.merge(
       %{classification: :private, title: "Title", markdown: "Markdown"},

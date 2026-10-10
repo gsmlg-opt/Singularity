@@ -114,6 +114,286 @@ defmodule Singularity.Runtime.NoteMutationFingerprintTest do
     end
   end
 
+  test "explicit empty create source sets retain the exact v1 receipt" do
+    expected =
+      expected_hmac(@secret, {:note_mutation_v1, :create, @mutation_id, "Title", "Markdown"})
+
+    for fields <- [%{}, %{attachments: []}, %{citations: []}, %{attachments: [], citations: []}] do
+      assert {:ok, prepared} = Command.new(:create, Map.merge(raw_command(:create), fields))
+      assert {:ok, ^expected} = MutationFingerprint.compute(@secret, prepared)
+    end
+  end
+
+  test "v2 receipts use independently literal ordered reference tuples for every source mode" do
+    attachment = source_attachment(label: "e\u0301")
+    citation = source_citation()
+    attachment_term = {@other_id, @resource_id, @base_version_id, :asset, :source, "é"}
+
+    citation_term =
+      {@conflict_id, @resource_id, @base_version_id, String.duplicate("a", 64),
+       fragment_locator_bytes(0)}
+
+    for operation <- [:create, :save, :merge] do
+      default = if operation == :create, do: {:replace, []}, else: :inherit
+
+      cases = [
+        {%{attachments: [attachment]}, {:replace, [attachment_term]}, default},
+        {%{citations: [citation]}, default, {:replace, [citation_term]}},
+        {%{attachments: [attachment], citations: [citation]}, {:replace, [attachment_term]},
+         {:replace, [citation_term]}},
+        {%{attachments: [], citations: [citation]}, {:replace, []}, {:replace, [citation_term]}},
+        {%{attachments: [attachment], citations: []}, {:replace, [attachment_term]},
+         {:replace, []}}
+      ]
+
+      cases =
+        if operation == :create,
+          do: cases,
+          else:
+            cases ++
+              [
+                {%{attachments: []}, {:replace, []}, :inherit},
+                {%{citations: []}, :inherit, {:replace, []}},
+                {%{attachments: [], citations: []}, {:replace, []}, {:replace, []}}
+              ]
+
+      for {fields, attachments_mode, citations_mode} <- cases do
+        assert {:ok, prepared} = Command.new(operation, Map.merge(raw_command(operation), fields))
+        expected_term = literal_v2_term(operation, attachments_mode, citations_mode)
+        assert Command.fingerprint_term(prepared) == expected_term
+        expected = expected_hmac(@secret, expected_term)
+        assert {:ok, ^expected} = MutationFingerprint.compute(@secret, prepared)
+      end
+    end
+  end
+
+  test "each variable attachment and citation semantic field changes the receipt" do
+    attachment_changes = [
+      attachment_id: @mutation_id,
+      target_resource_id: @other_id,
+      target_resource_version_id: @other_id,
+      target_kind: :note,
+      label: "Changed",
+      label: "",
+      label: nil
+    ]
+
+    citation_changes = [
+      citation_id: @mutation_id,
+      source_resource_id: @other_id,
+      source_resource_version_id: @other_id,
+      fragment_id: String.duplicate("b", 64),
+      locator: %{version: 1, kind: "fragment", ordinal: 1},
+      locator: %{version: 1, kind: "text", start_line: 1, end_line: 1}
+    ]
+
+    for operation <- [:create, :save, :merge] do
+      fields = %{
+        attachments: [source_attachment(label: "Original")],
+        citations: [source_citation()]
+      }
+
+      assert {:ok, original} = Command.new(operation, Map.merge(raw_command(operation), fields))
+      assert {:ok, digest} = MutationFingerprint.compute(@secret, original)
+
+      for {field, changes} <- [attachments: attachment_changes, citations: citation_changes],
+          {key, value} <- changes do
+        [reference] = Map.fetch!(fields, field)
+        changed_fields = Map.put(fields, field, [Map.put(reference, key, value)])
+
+        assert {:ok, changed} =
+                 Command.new(operation, Map.merge(raw_command(operation), changed_fields))
+
+        assert {:ok, changed_digest} = MutationFingerprint.compute(@secret, changed)
+        refute changed_digest == digest, "#{operation}.#{field}.#{key} did not affect the receipt"
+      end
+
+      # The source role is fixed: the literal oracle includes it, and alternative values are invalid.
+      assert Command.new(
+               operation,
+               Map.merge(raw_command(operation), %{
+                 attachments: [source_attachment(role: :citation)]
+               })
+             ) == {:error, Error.new(:invalid)}
+    end
+  end
+
+  test "ordered source lists and independent inherit-clear modes have distinct receipts" do
+    attachment1 = source_attachment()
+    attachment2 = source_attachment(attachment_id: @mutation_id, target_resource_id: @other_id)
+    citation1 = source_citation()
+    citation2 = source_citation(citation_id: @mutation_id, fragment_id: String.duplicate("b", 64))
+
+    for operation <- [:create, :save, :merge] do
+      cases = [
+        %{attachments: [attachment1, attachment2], citations: [citation1, citation2]},
+        %{attachments: [attachment2, attachment1], citations: [citation1, citation2]},
+        %{attachments: [attachment1, attachment2], citations: [citation2, citation1]},
+        %{attachments: [attachment1], citations: []},
+        %{attachments: [], citations: [citation1]}
+      ]
+
+      cases =
+        if operation == :create,
+          do: cases,
+          else:
+            cases ++
+              [
+                %{},
+                %{attachments: []},
+                %{citations: []},
+                %{attachments: [], citations: []},
+                %{attachments: [attachment1]},
+                %{citations: [citation1]}
+              ]
+
+      digests =
+        for fields <- cases do
+          assert {:ok, prepared} =
+                   Command.new(operation, Map.merge(raw_command(operation), fields))
+
+          assert {:ok, digest} = MutationFingerprint.compute(@secret, prepared)
+          digest
+        end
+
+      assert Enum.uniq(digests) == digests
+    end
+  end
+
+  test "v2 normalization is equivalent and excludes composed context just like v1" do
+    raw =
+      Map.merge(raw_command(:save), %{
+        attachments: [source_attachment(label: "é")],
+        citations: [
+          source_citation(locator: %{version: 1, kind: "markdown", heading_path: ["é"]})
+        ]
+      })
+
+    normalized_input =
+      Map.merge(raw_command(:save), %{
+        attachments: [source_attachment(target_kind: "asset", role: "source", label: "e\u0301")],
+        citations: [
+          source_citation(locator: %{version: 1, kind: "markdown", heading_path: ["e\u0301"]})
+        ]
+      })
+
+    assert {:ok, prepared} = Command.new(:save, raw)
+    assert {:ok, ^prepared} = Command.new(:save, normalized_input)
+    assert {:ok, digest} = MutationFingerprint.compute(@secret, prepared)
+
+    for field <- [:principal_id, :vault_id, :correlation_id] do
+      assert {:ok, changed} = Command.new(:save, Map.put(raw, field, @other_id))
+      assert {:ok, ^digest} = MutationFingerprint.compute(@secret, changed)
+    end
+
+    for field <- [:version_id, :created_at, :current_head, :source_proof, :witness] do
+      assert Command.new(:save, Map.put(raw, field, "private-canary")) ==
+               {:error, Error.new(:invalid)}
+    end
+  end
+
+  test "fingerprinting rejects forged modes and noncanonical nested references with sanitized errors" do
+    assert {:ok, prepared} =
+             Command.new(
+               :save,
+               Map.merge(raw_command(:save), %{
+                 attachments: [source_attachment()],
+                 citations: [source_citation()]
+               })
+             )
+
+    [attachment] = Map.fetch!(prepared.snapshot, :attachments)
+    [citation] = Map.fetch!(prepared.snapshot, :citations)
+
+    assert {:ok, heading_locator} =
+             Singularity.Core.SourceLocator.new(%{
+               version: 1,
+               kind: "markdown",
+               heading_path: ["é"]
+             })
+
+    snapshots = [
+      Map.put(prepared.snapshot, :attachments, "inherit"),
+      Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :target_kind, "asset")]),
+      Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :role, "source")]),
+      Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :label, "e\u0301")]),
+      Map.put(prepared.snapshot, :attachments, [Map.put(attachment, :ordinal, 0)]),
+      Map.put(prepared.snapshot, :attachments, [Map.from_struct(attachment)]),
+      Map.put(prepared.snapshot, :citations, [Map.put(citation, :fragment_id, "private-canary")]),
+      Map.put(prepared.snapshot, :citations, [
+        Map.put(citation, :locator, %{heading_locator | fields: %{heading_path: ["e\u0301"]}})
+      ]),
+      Map.put(prepared.snapshot, :citations, [
+        Map.put(citation, :locator, Map.put(citation.locator, :text, "private-canary"))
+      ]),
+      Map.put(prepared.snapshot, :citations, [Map.from_struct(citation)]),
+      Map.put(prepared.snapshot, :citations, [attachment]),
+      Map.delete(prepared.snapshot, :citations),
+      Map.put(prepared.snapshot, :witness, "private-canary"),
+      Map.from_struct(prepared.snapshot)
+    ]
+
+    for forged <- [
+          Map.put(prepared, :witness, "private-canary")
+          | Enum.map(snapshots, &Map.put(prepared, :snapshot, &1))
+        ] do
+      assert MutationFingerprint.compute(@secret, forged) == {:error, Error.new(:invalid)}
+    end
+
+    create = command!(:create)
+
+    assert MutationFingerprint.compute(@secret, %{
+             create
+             | snapshot: Map.put(create.snapshot, :attachments, :inherit)
+           }) == {:error, Error.new(:invalid)}
+  end
+
+  defp literal_v2_term(:create, attachments, citations),
+    do: {:note_mutation_v2, :create, @mutation_id, "Title", "Markdown", attachments, citations}
+
+  defp literal_v2_term(:save, attachments, citations),
+    do:
+      {:note_mutation_v2, :save, @mutation_id, @resource_id, @base_version_id, "Title",
+       "Markdown", attachments, citations}
+
+  defp literal_v2_term(:merge, attachments, citations),
+    do:
+      {:note_mutation_v2, :merge, @mutation_id, @resource_id, @conflict_id,
+       @expected_current_version_id, @competing_version_id, "Title", "Markdown", attachments,
+       citations}
+
+  defp source_attachment(overrides \\ []),
+    do:
+      Map.merge(
+        %{
+          attachment_id: @other_id,
+          target_resource_id: @resource_id,
+          target_resource_version_id: @base_version_id,
+          target_kind: :asset
+        },
+        Map.new(overrides)
+      )
+
+  defp source_citation(overrides \\ []),
+    do:
+      Map.merge(
+        %{
+          citation_id: @conflict_id,
+          source_resource_id: @resource_id,
+          source_resource_version_id: @base_version_id,
+          fragment_id: String.duplicate("a", 64),
+          locator: %{version: 1, kind: "fragment", ordinal: 0}
+        },
+        Map.new(overrides)
+      )
+
+  defp fragment_locator_bytes(ordinal) do
+    decimal = Integer.to_string(ordinal)
+
+    <<1::unsigned-big-64, "1", 8::unsigned-big-64, "fragment",
+      byte_size(decimal)::unsigned-big-64, decimal::binary>>
+  end
+
   defp operations, do: [:create, :save, :merge, :tombstone, :restore]
 
   defp expected_terms do

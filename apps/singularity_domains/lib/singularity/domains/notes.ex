@@ -49,14 +49,19 @@ defmodule Singularity.Domains.Notes do
   end
 
   defp command_attrs(
-         %Command{operation: operation, snapshot: %NoteSnapshot{} = snapshot} = command
+         %Command{
+           operation: operation,
+           snapshot: %NoteSnapshot{attachments: attachments, citations: citations} = snapshot
+         } = command
        )
        when operation in [:create, :save, :merge] do
     {:ok,
      command
      |> common_attrs()
      |> Map.merge(Map.take(command, operation_fields(operation)))
-     |> Map.merge(%{title: snapshot.title, markdown: snapshot.markdown})}
+     |> Map.merge(%{title: snapshot.title, markdown: snapshot.markdown})
+     |> source_attrs(:attachments, attachments)
+     |> source_attrs(:citations, citations)}
   end
 
   defp command_attrs(%Command{operation: operation} = command)
@@ -68,6 +73,9 @@ defmodule Singularity.Domains.Notes do
   end
 
   defp command_attrs(_command), do: invalid()
+
+  defp source_attrs(attrs, _field, :inherit), do: attrs
+  defp source_attrs(attrs, field, references), do: Map.put(attrs, field, references)
 
   defp common_attrs(command) do
     Map.take(command, [:mutation_id, :principal_id, :vault_id, :classification, :correlation_id])

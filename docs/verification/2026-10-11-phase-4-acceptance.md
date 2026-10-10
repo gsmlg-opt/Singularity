@@ -76,6 +76,7 @@ git diff --check
 
 No production source or migration is part of this Task 0 handoff. Task 1's
 separately owned test-only RED work is not included in the handoff commit.
+The local Task 0 handoff is `5e05d57e83ecb48a3ab72649bf9491f4bf91373f`.
 
 ## Task 1 baseline
 
@@ -87,6 +88,77 @@ by the established default and is not counted as executed. Exact command:
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/notes_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutation_fingerprint_test.exs --seed 215378
 ```
+
+## Task 1 source-intent RED and implementation validation
+
+The worker wrote tests before production, using real constructors and the
+existing Domains fake only to observe intent/absence of dispatch. Parent
+`40081` exited 2, seed `215378`: Core **44 tests plus 2 properties, 14
+failures**; Domains **17 tests, 3 failures**; Runtime **11 tests, 6 failures**.
+All **23 new failures** were the intended missing source constructors/fields,
+ignored source validation, or source-command rejection. The original 51
+baseline cases continued passing. No compilation/fixture error masked that RED.
+
+The first implementation validation (`7883`, exit 2, same seed) passed all
+17 Domains and 11 Runtime cases, including independent literal v1/v2 HMAC
+oracles, and all nine strict reference-constructor contracts. Core retained
+four failures in positive snapshot-source cases (44 tests plus 2 properties).
+Compilation also reported deprecated `Tuple.append/2` in the new v2 builder.
+This is **FAIL**, not acceptance; bounded Sol repair 1 entered root-cause
+diagnosis with unchanged tests and no timeout/assertion waiver.
+
+Sol repair 1 traced those four positive fixtures to generated uppercase
+hexadecimal UUID suffixes and fragments. The real strict constructors correctly
+rejected them. Parent probe `794286`, exit 0, confirmed `Integer.to_string`
+base-16 outputs `"1F5"`, `"3E9"`, and `"A"` for 501, 1001, and 10:
+
+```sh
+devenv shell -- elixir -e 'IO.inspect({Integer.to_string(501, 16), Integer.to_string(1001, 16), Integer.to_string(10, 16)}, label: "source fixture hex probe")'
+```
+
+The authorized fixture repair lowercases exactly the two generated hex helpers
+before padding; every assertion and source bound stays unchanged. The v2 builder
+uses nondeprecated `:erlang.append_element/2` instead of `Tuple.append/2`,
+preserving the literal encoded term. No validator was relaxed.
+
+Exact parent RED command:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_core/test/singularity/core/note_source_references_test.exs apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_domains/test/singularity/domains/notes_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutation_fingerprint_test.exs, test apps/singularity_core/test/singularity/core/note_source_references_test.exs apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/notes_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutation_fingerprint_test.exs --seed 215378
+```
+
+The first implementation command uses the same five owning files and seed,
+with the six new/changed production files also passed to `mix format`.
+No storage SQL, runtime client whitelist/grant, schema, Vault, E2E,
+publication or production-data behavior changed in this pure-intent slice.
+
+## Task 1 qualified slice
+
+Parent GREEN `9493` exited 0, seed `215378`: Core **44 tests plus 2
+properties**, Domains **17 tests**, Runtime **11 tests** — all **74 cases
+passed** (1.1/5.1/0.5 seconds), without the deprecated tuple warning.
+Cumulative Task 1 repair counters: **Sol 1 PASS / Astra 0**. Exact command:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_domains/lib/singularity/domains/notes/command.ex apps/singularity_core/test/singularity/core/note_values_test.exs, test apps/singularity_core/test/singularity/core/note_source_references_test.exs apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/notes_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutation_fingerprint_test.exs --seed 215378
+```
+
+Static `99196` exited 0: full formatter check, compilation with warnings as
+errors, and xref **zero cycles**. Additional existing Runtime/architecture
+regressions `60758` exited 0: **27 Runtime + 32 Web tests**, zero failures,
+same seed (0.9/2.1 seconds). Integration remained excluded, not executed.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs --seed 215378
+```
+
+Independent `phase4_design_plan_spec` SPEC review passed, followed by separate
+`phase4_e2e_policy_quality` QUALITY review: no required or Critical/Important/
+Minor findings. Both read the actual six production/four test files; neither
+mutated the checkout or claimed test-double behavior as live SQL proof.
+Task 1 implements only canonical references, snapshot intent and fingerprints.
+SQL sealing, authenticated composition and whole-phase acceptance remain pending.
 
 ## Preserved boundaries and baseline inventory
 

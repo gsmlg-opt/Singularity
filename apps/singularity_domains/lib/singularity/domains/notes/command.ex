@@ -2,7 +2,9 @@ defmodule Singularity.Domains.Notes.Command do
   @moduledoc "Canonical preparation for private note mutation commands."
 
   alias Singularity.Core.Error
+  alias Singularity.Core.KnowledgeValidation
   alias Singularity.Core.NoteSnapshot
+  alias Singularity.Core.SourceLocator
   alias Singularity.Core.Types
 
   @operations [:create, :save, :merge, :tombstone, :restore]
@@ -71,7 +73,10 @@ defmodule Singularity.Domains.Notes.Command do
         mutation_id: mutation_id,
         snapshot: snapshot
       }) do
-    {:note_mutation_v1, :create, mutation_id, snapshot.title, snapshot.markdown}
+    source_term(
+      {:note_mutation_v1, :create, mutation_id, snapshot.title, snapshot.markdown},
+      snapshot
+    )
   end
 
   def fingerprint_term(%__MODULE__{
@@ -81,8 +86,11 @@ defmodule Singularity.Domains.Notes.Command do
         base_version_id: base_version_id,
         snapshot: snapshot
       }) do
-    {:note_mutation_v1, :save, mutation_id, resource_id, base_version_id, snapshot.title,
-     snapshot.markdown}
+    source_term(
+      {:note_mutation_v1, :save, mutation_id, resource_id, base_version_id, snapshot.title,
+       snapshot.markdown},
+      snapshot
+    )
   end
 
   def fingerprint_term(%__MODULE__{
@@ -94,8 +102,11 @@ defmodule Singularity.Domains.Notes.Command do
         competing_version_id: competing_version_id,
         snapshot: snapshot
       }) do
-    {:note_mutation_v1, :merge, mutation_id, resource_id, conflict_id,
-     expected_current_version_id, competing_version_id, snapshot.title, snapshot.markdown}
+    source_term(
+      {:note_mutation_v1, :merge, mutation_id, resource_id, conflict_id,
+       expected_current_version_id, competing_version_id, snapshot.title, snapshot.markdown},
+      snapshot
+    )
   end
 
   def fingerprint_term(%__MODULE__{
@@ -117,11 +128,15 @@ defmodule Singularity.Domains.Notes.Command do
 
   defp canonical_attrs(operation, raw_map) do
     keys = @common_keys ++ Map.fetch!(@operation_keys, operation)
+    optional = if operation in [:create, :save, :merge], do: [:attachments, :citations], else: []
+    optional_aliases = optional ++ Enum.map(optional, &Atom.to_string/1)
 
-    with true <- Enum.all?(Map.keys(raw_map), &known_key?(&1, keys)),
+    with true <- Enum.all?(Map.keys(raw_map), &known_key?(&1, keys ++ optional)),
          {:ok, attrs} <- canonical_values(raw_map, keys),
+         {:ok, sources} <-
+           KnowledgeValidation.attrs(Map.take(raw_map, optional_aliases), optional),
          :ok <- require_private(attrs.classification) do
-      {:ok, attrs}
+      {:ok, Map.merge(attrs, sources)}
     else
       _invalid -> invalid()
     end
@@ -239,7 +254,40 @@ defmodule Singularity.Domains.Notes.Command do
   end
 
   defp note_attrs(attrs) do
-    Map.take(attrs, [:classification, :title, :markdown])
+    Map.take(attrs, [:classification, :title, :markdown, :attachments, :citations])
+  end
+
+  defp source_term(term, %{attachments: [], citations: []}) when elem(term, 1) == :create,
+    do: term
+
+  defp source_term(term, %{attachments: :inherit, citations: :inherit})
+       when elem(term, 1) in [:save, :merge],
+       do: term
+
+  defp source_term(term, snapshot) do
+    term
+    |> put_elem(0, :note_mutation_v2)
+    |> :erlang.append_element(source_mode(snapshot.attachments, :attachments))
+    |> :erlang.append_element(source_mode(snapshot.citations, :citations))
+  end
+
+  defp source_mode(:inherit, _field), do: :inherit
+
+  defp source_mode(references, :attachments) do
+    {:replace,
+     Enum.map(references, fn reference ->
+       {reference.attachment_id, reference.target_resource_id,
+        reference.target_resource_version_id, reference.target_kind, reference.role,
+        reference.label}
+     end)}
+  end
+
+  defp source_mode(references, :citations) do
+    {:replace,
+     Enum.map(references, fn reference ->
+       {reference.citation_id, reference.source_resource_id, reference.source_resource_version_id,
+        reference.fragment_id, SourceLocator.encode(reference.locator)}
+     end)}
   end
 
   defp require_private(:private), do: :ok
