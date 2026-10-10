@@ -18,9 +18,11 @@ The Elixir umbrella is split into seven applications with a fixed dependency gra
 
 Phase 2 has [qualified local acceptance](docs/verification/2026-10-09-phase-2-acceptance.md)
 on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`.
-The active implementation slice is Phase 3 under the
-[approved unified-search design](docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
-and [detailed implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
+Phase 3 has [qualified local acceptance](docs/verification/2026-10-09-phase-3-acceptance.md)
+on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`.
+The active implementation slice is Phase 4 under the
+[versioned-source design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)
+and [detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md).
 Under the [continuous development authorization](AGENTS.md#continuous-development-authorization--2026-10-10):
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.

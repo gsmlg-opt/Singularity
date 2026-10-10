@@ -4,6 +4,10 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   @repo_root Path.expand("../../../../..", __DIR__)
   @design "2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md"
   @plan "2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md"
+  @phase4_design "2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md"
+  @phase4_plan "2026-10-11-singularity-v0.2-phase-4-knowledge-links.md"
+  @phase3 "35c1f8360dd22b129832a1618b3723032a1983bd"
+  @phase3_handoff "617f0b986a3ecffba14c952988e39e3afe022cea"
   @phase2 "c34935a112a2b4b807ed741e8e67e44d4e63eafe"
   @handoff "ff703bd710074738b0391bb2f29d585dc6166d5c"
   @baseline "6c3e8d5afb2cc9dbf264d276796070e16aa49e55"
@@ -58,7 +62,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     "config/config.exs" => [:document_projection]
   }
 
-  test "active guidance retains Phase 3 sequencing under continuous development authority" do
+  test "active guidance retains Phase 4 sequencing under continuous development authority" do
     for {path, start, finish} <- [
           {"AGENTS.md", "## Active release", "## Vault freeze"},
           {"README.md", "## Active `0.2.0` scope", "## Development"},
@@ -67,24 +71,58 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
         ] do
       section = active_section!(path, start, finish)
 
-      assert section =~ ~r/active implementation slice is (?:the separately approved )?Phase 3/,
-             "#{path} does not identify the approved Phase 3 as the active slice"
+      assert section =~ ~r/active implementation slice is Phase 4/,
+             "#{path} does not identify Phase 4 as the active slice"
 
       for marker <- [
             "qualified local acceptance",
-            @phase2,
-            "superpowers/specs/#{@design}",
-            "superpowers/plans/#{@plan}",
+            @phase3,
+            "superpowers/specs/#{@phase4_design}",
+            "superpowers/plans/#{@phase4_plan}",
             "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval.",
             "Advance automatically only after the preceding phase's required gates pass.",
             "New canonical writes remain unavailable to production runtime roles.",
             "Public import, extraction workers, search, Note Save integration, backup V3, and browser behavior remain in their designated later phases.",
             "Version bumps, tags, releases, pushes, and deployments remain separately gated."
           ] do
-        assert section =~ marker, "#{path} is missing active Phase 3 governance: #{marker}"
+        assert section =~ marker, "#{path} is missing active Phase 4 governance: #{marker}"
       end
 
-      if path == "AGENTS.md", do: assert(section =~ @handoff)
+      if path == "AGENTS.md", do: assert(section =~ @phase3_handoff)
+    end
+  end
+
+  test "Phase 4 retains its qualified Phase 3 base and explicit activation exclusions" do
+    for {path, start, finish} <- [
+          {"docs/superpowers/specs/#{@phase4_design}", "## Status and authority",
+           "## Goal and boundaries"},
+          {"docs/superpowers/plans/#{@phase4_plan}",
+           "## Authority, base and execution discipline",
+           "Run commands from this worktree with its own `_build`; reuse only locked"}
+        ] do
+      section = active_section!(path, start, finish)
+      assert section =~ @phase3
+      assert section =~ @phase3_handoff
+      assert section =~ "E2E"
+      assert section =~ "NOT RUN"
+      assert section =~ "final browser/release acceptance"
+    end
+
+    boundaries =
+      active_section!(
+        "docs/superpowers/specs/#{@phase4_design}",
+        "## Goal and boundaries",
+        "## Architecture choice and inspected constraints"
+      )
+
+    for marker <- [
+          "Production canonical writes remain disabled",
+          "V1/V2 fail-closed unsupported-canonical-data guard",
+          "The derived source seal alone does not make",
+          "Web calls only `Singularity.Runtime.Api`; Phase 4 adds no browser workspace.",
+          "Domain code stays free of Ecto, filesystem, Phoenix and React."
+        ] do
+      assert boundaries =~ marker
     end
   end
 
@@ -123,14 +161,16 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     [header, _] = String.split(guide, "\n---\n", parts: 2)
     assert header =~ "[approved Phase 3 design](superpowers/specs/#{@design})"
     assert header =~ "[Phase 3 implementation plan](superpowers/plans/#{@plan})"
+    assert header =~ "[Phase 4 design](superpowers/specs/#{@phase4_design})"
+    assert header =~ "[Phase 4 implementation plan](superpowers/plans/#{@phase4_plan})"
 
     [_, gate] = String.split(guide, "# 24. Current implementation gate\n", parts: 2)
     gate = String.replace(gate, ~r/\s+/, " ")
 
     for marker <- [
-          "Phase 3 is the current target.",
-          "approved unified-search design and detailed implementation plan",
-          "Phase 3 must finish with recorded scoped evidence, a clean worktree, the complete supported verification gate passing, and independent review.",
+          "Phase 4 is the current target.",
+          "versioned-source design and detailed implementation plan",
+          "Phase 4 must finish with recorded scoped evidence, a clean worktree, the complete permitted verification gate passing, and independent review.",
           "Production canonical writes remain disabled.",
           "After the required gate and independent review pass, automatically prepare the next phase's design and plan under the continuous authorization.",
           "Vault changes, merge, version bumps, tags, publication, pushes, deployment, and production activation remain outside that authority.",

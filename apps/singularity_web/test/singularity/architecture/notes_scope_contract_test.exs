@@ -402,13 +402,16 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert normalize_markdown(readme_scope) =~
              "Phase 2 has [qualified local acceptance](docs/verification/2026-10-09-phase-2-acceptance.md) on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`."
 
-    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 3"
+    assert normalize_markdown(readme_scope) =~
+             "Phase 3 has [qualified local acceptance](docs/verification/2026-10-09-phase-3-acceptance.md) on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`."
+
+    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 4"
 
     assert readme_scope =~
-             "[approved unified-search design](docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)"
+             "[versioned-source design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)"
 
     assert readme_scope =~
-             "[detailed implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md)"
+             "[detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md)"
 
     assert normalize_markdown(readme_scope) =~
              "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval."
@@ -429,7 +432,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
 
     assert normalize_markdown(roadmap) =~ @scope_lock
     assert roadmap =~ "Conflicting roadmap guidance is superseded by ADR 0003."
-    assert normalize_markdown(roadmap) =~ "The active implementation slice is Phase 3"
+    assert normalize_markdown(roadmap) =~ "The active implementation slice is Phase 4"
 
     assert normalize_markdown(invariants) =~ @owner_scope_invariant
     refute invariants =~ "Every user-owned object belongs to a vault."

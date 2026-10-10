@@ -12,23 +12,23 @@ single-user personal knowledge base. Its governing documents are:
 - `docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md`
 
 Work proceeds one accepted phase at a time in a separate project-local
-worktree and branch. Phase 2 has qualified local acceptance on tested source
-`c34935a112a2b4b807ed741e8e67e44d4e63eafe`, recorded by documentation handoff
-`ff703bd710074738b0391bb2f29d585dc6166d5c`. The active implementation
-slice is the separately approved Phase 3 under
-`docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md`
+worktree and branch. Phase 3 has qualified local acceptance on tested source
+`35c1f8360dd22b129832a1618b3723032a1983bd`, recorded by documentation handoff
+`617f0b986a3ecffba14c952988e39e3afe022cea`. The active implementation slice is Phase 4 under
+`docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md`
 and
-`docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md`.
+`docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md`.
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.
 Advance automatically only after the preceding phase's required gates pass.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
 
-Phase 3 covers unified lexical projection, exact-source reads, canonical
-rebuilds, narrowly authorized jobs/read grants, and necessary derived-projection
-V1/V2 restore compatibility. Necessary repairs follow the continuous development
-authorization below rather than an obsolete per-file permission list. It does not enable
-Phase 4 writes, V3 backup, new browser features, or production activation.
+Phase 4 covers sealed Note-version attachment/citation sets, atomic Note Save
+and conflict/merge source semantics, authenticated tags/relationships/backlinks,
+ordinary Markdown citation rendering, narrow runtime grants, and necessary
+derived-seal V1/V2 restore compatibility. Necessary repairs follow the continuous
+development authorization below rather than an obsolete per-file permission
+list. It does not enable V3 backup, new browser features or production activation.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
 database `pg_trgm` provisioning/hardening through the existing external

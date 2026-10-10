@@ -4,7 +4,7 @@
 **Product type:** Personal Data and Knowledge Operating System<br>
 **Initial deployment:** Single owner, multiple devices, local-first<br>
 **Active release:** `0.2.0`, the first complete single-user personal knowledge base<br>
-**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), [approved Phase 1 design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md), [Phase 1 implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md), [approved Phase 2 design](superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md), [Phase 2 implementation plan](superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md), [approved Phase 3 design](superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md), [Phase 3 implementation plan](superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
+**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), [approved Phase 1 design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md), [Phase 1 implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md), [approved Phase 2 design](superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md), [Phase 2 implementation plan](superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md), [approved Phase 3 design](superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md), [Phase 3 implementation plan](superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md), [Phase 4 design](superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md), [Phase 4 implementation plan](superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
 
 > **Active `0.2.0` scope**
 >
@@ -2034,9 +2034,12 @@ Phase 1 is accepted locally at `a80957da41582de40bdf586a0cba1e14644acf0a`.
 Phase 2 has [qualified local acceptance](verification/2026-10-09-phase-2-acceptance.md)
 on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`, recorded by documentation
 handoff `ff703bd710074738b0391bb2f29d585dc6166d5c`.
-The active implementation slice is Phase 3 under the
-[approved unified-search design](superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
-and [detailed implementation plan](superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
+Phase 3 has [qualified local acceptance](verification/2026-10-09-phase-3-acceptance.md)
+on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`, recorded by documentation
+handoff `617f0b986a3ecffba14c952988e39e3afe022cea`.
+The active implementation slice is Phase 4 under the
+[versioned-source design](superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)
+and [detailed implementation plan](superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md).
 Under the [continuous development authorization](../AGENTS.md#continuous-development-authorization--2026-10-10):
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.
@@ -2113,12 +2116,12 @@ decision and obtain independent review without a routine approval wait.
 
 # 24. Current implementation gate
 
-Phase 3 is the current target. Follow its approved unified-search design and
+Phase 4 is the current target. Follow its versioned-source design and
 detailed implementation plan above; do not infer product implementation authority from the
 historical architecture material in this guide.
 
-Phase 3 must finish with recorded scoped evidence, a clean worktree, the complete
-supported verification gate passing, and independent review. Production canonical
+Phase 4 must finish with recorded scoped evidence, a clean worktree, the complete
+permitted verification gate passing, and independent review. Production canonical
 writes remain disabled. After the required gate and independent review pass,
 automatically prepare the next phase's design and plan under the continuous
 authorization. Vault changes, merge, version bumps, tags, publication, pushes,
