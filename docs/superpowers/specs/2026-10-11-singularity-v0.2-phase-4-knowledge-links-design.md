@@ -258,6 +258,24 @@ Every source resolution, title or excerpt hydration requires current source
 read authority. Authorization and persistence share the OperationScope boundary;
 no one-time preflight replaces revocation checks.
 
+Runtime passes the existing opaque repository context as a server-only map
+containing the scoped `repo` and an `authorize_new_sources` callback. Domains
+forwards it unchanged; the callback is never a client field, Note intent,
+Command or receipt/HMAC input. NoteRepository preserves raw-repo internal
+callers, but a mapped context must contain a valid callback or fail closed.
+Thread that callback separately into the winning mutation callback. After
+metadata-only source preparation determines exact new members, and before
+ordered locks/revalidation/insertion, authorize only those new references on
+the same scoped repo. Retained-only mutations and receipt replay must not call
+it. Runtime derives sorted unique existing read capabilities from validated
+new target kinds and uses the existing authorizer, explicitly binding both
+session authorization epochs because this direct check bypasses OperationScope's
+initial requirement binding. Preserve the authorization lock and transaction;
+no nested scope, new capability, custody or Vault change. A source denial returns
+the ordinary sanitized Error and rolls back canonical/receipt/effect writes;
+do not manufacture OperationScope's private initial-denial marker or mislabel a
+source-read denial as the outer Note-write denial audit.
+
 Exact Note-version DTOs include ordered owner-free source references; conflicts
 include the competing version's sources. Add exact selectors
 `resolve_note_attachment(session, note_id, version_id, attachment_id)` and
@@ -306,6 +324,23 @@ optional bounded cursor (at most 2048 bytes). Use owner/selector/direction-bound
 domain-separated authenticated keyset tokens, existing runtime secret, and
 UUID order (tag UUID for resource tags, resource UUID for tag browse,
 relationship UUID for edges).
+The internal cursor binding is exactly `owner_scope_id`, `selector_id`,
+`operation` (one of the four fixed server operations) and integer
+`ordering_version: 1`; it is not a client DTO. Encode the last returned
+canonical UUID with `OrganizationCursor.encode(last_uuid, binding, secret)`;
+`decode(token_or_nil, binding, secret)` returns that UUID or nil. Following
+the existing search cursor framing, the binding MAC uses
+`knowledge-organization-binding:v1` plus NUL and 64-bit big-endian byte-length
+frames for owner, selector, operation string and `"1"`. The cursor MAC uses
+`knowledge-organization-cursor:v1` plus NUL and frames for `"1"`, binding MAC
+and last UUID. Both use HMAC-SHA256 and unpadded base64url. The canonical JSON
+envelope has exactly `v`, `f`, `i`, `h` (integer 1, binding MAC, last UUID,
+cursor MAC), wrapped in unpadded base64url. Reject noncanonical/duplicate-key
+JSON, malformed or extra fields, invalid IDs/version and MAC/context mismatch
+with sanitized errors and constant-time MAC comparison. The binary secret
+has the existing cursor's minimum 32-byte bound; no new secret or key lifecycle.
+Query limit is deliberately independent; current trusted allowed kinds and
+authority are reapplied on each page and never taken from the token.
 Fetch `limit + 1`; return owner-free `items` and `next_cursor`, not a silently
 truncated list. These are live pages, not a snapshot guarantee across mutations.
 Retain the existing internal tag-list signature but do not reuse its `LIMIT 100`

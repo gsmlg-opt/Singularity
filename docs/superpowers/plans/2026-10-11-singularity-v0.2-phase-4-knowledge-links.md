@@ -246,8 +246,9 @@ and strengthen combined-mismatch precedence/unchanged-row/effect assertions.
 `dto/note.ex`, `dto/note_version.ex`, `api.ex`, existing Notes owning tests
 (`note_mutations_test.exs`, `note_reads_test.exs`, `note_api_test.exs`,
 `note_authorization_integration_test.exs`, `note_observability_test.exs`);
-Storage `postgres/knowledge_link_repository.ex` and its full owning suite for
-narrow selected-reference/historical metadata readers, plus
+Storage `postgres/note_repository.ex` and `postgres/note_sources_test.exs` for
+the server-only winning authorization context; `postgres/knowledge_link_repository.ex`
+and its full owning suite for narrow selected-reference/historical metadata readers, plus
 `test/support/knowledge_test_grants.ex` to preserve permanent organization
 DELETE privileges in temporary test grants; Web
 `architecture/knowledge_phase1_contract_test.exs` for exact approved API additions;
@@ -263,6 +264,15 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   `note.read`; Asset/Document sources require existing `asset.read`. Copying
   retained exact references must not fetch private source content. Compose
   required existing capabilities inside OperationScope; no Vault change.
+- [ ] Pass only a server-created scoped-repo/authorization-callback context
+  through the existing opaque repository port. Preserve raw internal callers;
+  mapped contexts without a valid callback fail closed. Invoke after new-member
+  preparation only inside the winning receipt callback, before ordered locks
+  and insertion. Bind both current session epochs in the existing authorizer;
+  empty/new-member-free and replay paths bypass it. Keep intents/Command/HMAC
+  unchanged. Prove same-repo ordering, denial rollback, retained-only and replay
+  bypass with real storage tests; preserve ordinary sanitized source denial
+  rather than forging the initial OperationScope denial/audit marker.
 - [ ] Include exact ordered owner-free references in version/conflict DTOs;
   normalize/revalidate all nested shapes. Add `resolve_note_attachment` and
   `resolve_note_citation` with containing Note read and current target read.
@@ -310,7 +320,13 @@ owning pure/adapter tests.
   completely traversable without an unbounded query or silent truncation.
 - [ ] Domain-separated authenticated cursor binds owner, selector, direction
   and ordering version using existing secret; tampering/wrong context fails
-  sanitized. Pages are live, not stable snapshots across mutations.
+  sanitized. Add an independent literal Perl/OpenSSL framing/HMAC oracle for
+  the design's exact v1 `v/f/i/h` canonical JSON envelope and distinct binding/
+  cursor domains. Cursor helpers take canonical last UUID, exact server binding
+  and existing secret; decode nil only after validating binding/secret. Reject
+  signed malformed/noncanonical/duplicate-key envelopes as well as bad MACs.
+  Limit stays independent; reapply current allowed kinds each SQL page.
+  Pages are live, not stable snapshots across mutations.
 - [ ] Add internal in-scope resolve/attach/detach/relate/unrelate/query paths
   usable inside Runtime OperationScope without nested transactions; retain
   existing standalone adapter behaviors. No Save/organization atomic coupling.

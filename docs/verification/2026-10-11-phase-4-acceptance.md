@@ -752,6 +752,10 @@ on the exact owned isolated cluster and stopped that server. All five latest
 integration/sealing/restore roots were verified absent; the ignored private
 cluster/harness is retained for subsequent authorized local tasks, not deployed.
 No other server or user data was stopped, changed or removed.
+The six actual Task 3 source/test files plus reviewed design/plan/acceptance
+records were committed locally as
+`6108673035427b9656fd432e7c834ef5b182f59e`. Separate Task 5 cursor/adapter
+test drafts remained unstaged and were not included.
 
 ## Task 5 pure contract preparation
 
@@ -823,6 +827,45 @@ Task 5 SQL/test drafts unstaged.
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_domains/lib/singularity/domains/organization.ex apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs, compile --warnings-as-errors, test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs --seed 215378
 ```
+
+### Task 5 real storage preparation
+
+Read-only mapping confirmed explicit scoped methods can preserve all legacy
+standalone transaction/ownerful/max100 behavior while adding UUID-keyset pages.
+The unchanged Tag eight / Relationship ten / RLS two cases all passed in the
+actual `80035` baseline. Test-only drafting now owns the two adapter suites
+plus a new cursor test, preserving all existing cases. The design records the
+minimal framed HMAC v1 envelope before production implementation; the worker's
+literal oracle is independently computed with Perl/OpenSSL, not the decoder
+under test. Independent detail review is still pending. This work does not
+create a new secret, modify grants or authorize client capability input.
+
+Parent unit attempt `88934` first formatted the four draft tests and passed
+production `compile --warnings-as-errors`. The Domains callback contract ran
+one case with an expected missing-Tag-callback failure, but the new cursor suite
+failed compilation because private `binding/0` conflicts with Kernel's import.
+Zero cursor cases ran: this is a test-harness failure, not semantic cursor RED.
+The test-only Sol helper rename is repair attempt 1; production remains unchanged.
+
+Fresh actual PostgreSQL RED `68368`, seed `215378`, ran all 39 Tag/Relationship
+cases in 29.3 seconds: 21 expected UndefinedFunctionError failures for the new
+scoped interfaces, all 18 unchanged legacy cases PASS, no fixture failures.
+The owned isolated server stopped on exit (2). This qualifies the adapter
+semantic RED only, not cursor behavior or final Storage acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs --seed 215378
+```
+
+### Task 4 winning-source authorization detail preparation
+
+Read-only mapping confirms the existing opaque repository context can carry
+the server-owned scoped-repo callback without changing Domains intents, Command,
+HMAC, OperationScope or Vault. The design and plan now specify exact winning-only
+new-member placement, same-connection current authorization with both epochs,
+retained/replay bypass and ordinary sanitized denial rollback. This bounded
+detail requires independent review before implementation; no Runtime or Storage
+production change has been made for Task 4.
 
 ## Preserved boundaries and baseline inventory
 
