@@ -2090,7 +2090,7 @@ Update Phase 3 checklist/evidence and active-phase documentation on acceptance.
 Necessary repairs follow the continuous authorization and a synchronized
 design/plan; this file list is not an approval boundary.
 
-- [x] Add deterministic synthetic, analyzed query-plan fixtures. Verify
+- [ ] Add deterministic synthetic, analyzed query-plan fixtures. Verify
   selective FTS/trigram queries have viable indexed plans without forcing the
   planner. Record the intentional nonselectivity of short literal queries;
   verify the fixed timeout fails with a sanitized error, not an empty success.
@@ -2116,7 +2116,7 @@ git diff --check
 
   These static checks supplement, not replace, the complete README sequence.
   No green subset is phase or release acceptance.
-- [x] Obtain independent spec and quality review of the complete candidate.
+- [ ] Obtain independent spec and quality review of the complete candidate.
   Resolve findings within approved scope; route internal-organization dependency
   defects upstream under AGENTS.md. Preserve any failed gate's evidence rather
   than relabeling it passing after a narrower rerun.
@@ -2128,7 +2128,18 @@ git diff --check
 
 ### Task 11 qualification in progress, 2026-10-10
 
-Guarded-index repair owning qualification is now green on local test commit
+The subsequent clean-source README attempt at `999b2fc7ce5308156203944eb0f474a5cdb2a44f`
+passed all 1,382 unit/property cases, then failed 26 of 1,107 full integration
+cases (`37888`, integration seed `918339`). Both selective-plan cases failed
+again, so performance qualification is reopened. Legacy test contracts,
+test-owned Document fixture lifetimes, and Runtime event expectations also
+require repair. The earlier source review remains historical evidence;
+the repaired complete candidate will require independent review again.
+The [bounded legacy Storage repair](2026-10-10-singularity-v0.2-phase-3-full-gate-contract-repair.md)
+starts with a 59-test pre-edit batch reproducing 14 failures (`98049`). Other
+failure groups remain separate. No gate is waived and no Phase 4 begins.
+
+Earlier scoped checkpoint: guarded-index repair owning qualification passed on local test commit
 `becc2eff733254dc1c8c13f6ca7db3ac8484753f`: all four original 8,192-row
 query-plan contracts passed (`54358`), including seven same-backend cold/warm
 searches for both required indexes, honest short scans, and the original
@@ -2145,8 +2156,10 @@ See the [guarded repair plan](2026-10-10-singularity-v0.2-phase-3-search-index-r
 and [verification record](../../verification/2026-10-09-phase-3-acceptance.md)
 for exact hashes, gate counts, historical failures, two failed Sol repair
 rounds and successful Astra recovery, migration/restore evidence, and cleanup.
-This closes query-plan qualification and source review only. Remaining broader
-Phase 3/ordered clean-SHA README verification is still required. E2E remains
+That checkpoint established scoped query-plan and source-review evidence only;
+the later full-gate failure `37888` supersedes its qualification status.
+Repaired-candidate review and broader Phase 3/ordered clean-SHA README
+verification are still required. E2E remains
 **NOT RUN** under the user restriction, so Phase 3 is not accepted and Phase 4
 does not begin. Historical checkpoints below are retained, not recast as green.
 

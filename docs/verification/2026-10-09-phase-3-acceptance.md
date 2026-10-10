@@ -4,14 +4,16 @@
 
 **IN PROGRESS — Phase 3 is not accepted.**
 
-Current source: `996fdbea5284fdbd6cd12c7fd3df9ba60d861596` on
+Latest clean gate source: `999b2fc7ce5308156203944eb0f474a5cdb2a44f` on
 `codex/v0.2-phase-3-search-design`, in the project-local Phase 3 worktree.
 The approved implementation is locally complete through Task 10. Task 11's
-privacy and actual-call cold/warm selective query-plan contracts pass locally.
-The guarded-index repair's scoped gates and independent complete-candidate
-SPEC and separate QUALITY source reviews pass. Complete affected-suite checks
-and exact-clean-SHA README acceptance remain outstanding; these scoped results
-do not accept Phase 3.
+privacy and actual-call cold/warm selective query-plan contracts passed scoped
+qualification. The subsequent complete integration run failed **26 of 1,107
+executed cases**, including both selective plan tests; scoped passes do not
+override that failure. Full-gate compatibility, fixture-lifetime, event-contract,
+and selective-plan diagnosis/repair are in progress. Earlier complete-candidate
+SPEC and separate QUALITY source reviews passed; upcoming repairs require
+their own review. The remaining ordered README checks are not complete.
 
 The bounded Astra diagnosis is complete. The user's 2026-10-10
 [continuous development authorization](../../AGENTS.md#continuous-development-authorization--2026-10-10)
@@ -1416,6 +1418,103 @@ and the explicitly prohibited E2E gate remain outstanding.
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0, test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs --seed 215378
 ```
 
+## Clean-candidate README attempt and full-suite failures, 2026-10-10
+
+Independent exact-document SPEC and separate QUALITY closure passed after
+correcting the report's stale current-status summary. The explicit four-file
+documentation commit is `999b2fc7ce5308156203944eb0f474a5cdb2a44f`
+(`docs: record guarded search index qualification`). The worktree was clean
+before parent session `37888` began; it remained clean after the failed run.
+
+The parent used `.devenv/phase3-readme-non-e2e.sh`, independently safety-reviewed
+by `phase3_clean_gate_prerequisites`. It substitutes the already-owned private
+PostgreSQL 17 instance for shared `devenv up` services, verifies its exact
+data directory and empty network listener, bootstraps roles only there, and
+stops it before ordinary unit checks. Integration and restore use the existing
+serial owned wrappers. It unsets inherited runtime database URLs, `MIX_ENV`,
+`SINGULARITY_TEST_RUN_ID`, and optional restore capture, and uses the owned
+temporary directory `.devenv/phase3-gate-tmp.ODgqeT`. E2E is explicitly absent.
+The planned frontend build uses path-only `--resolve-dir` arguments for the
+existing shared dependency directory, not altered build semantics.
+
+```sh
+devenv shell -- bash .devenv/phase3-readme-non-e2e.sh
+```
+
+Private role bootstrap, `mix deps.get`, `mix deps.unlock --check-unused`,
+`mix format --check-formatted`, and default-development-environment
+`mix compile --warnings-as-errors` all passed. Dependency versions were
+unchanged. Full `mix test`, seed `799232`, passed **1,382 executed unit/property
+cases**, with integration exclusions not counted as executed:
+
+| Application | Executed | Excluded | Seconds |
+| --- | ---: | ---: | ---: |
+| Core | 125 tests + 10 properties | 0 | 6.7 |
+| Domains | 38 | 0 | 1.0 |
+| Storage | 288 | 871 | 35.6 |
+| Retrieval | 52 | 0 | 0.7 |
+| Ingest | 62 | 0 | 26.1 |
+| Runtime | 620 | 236 | 53.4 |
+| Web | 187 | 0 | 16.0 |
+
+The next no-argument `mix singularity.test.integration`, through the private
+wrapper, used seed `918339` and allocation
+`singularity_test_ca34476f2bea3cb264e58bf8`. It ran **1,107 integration cases**:
+Storage 871 executed, **16 failed**, 288 excluded, 979.9 seconds; Runtime 236
+executed, **10 failed**, 620 excluded, 908.6 seconds. All other applications'
+cases were excluded by the existing integration selection. Exit **2** stopped
+the ordered script; restore, npm/frontend, final xref/actionlint, and end-of-gate
+checks did **not** execute in this attempt. Expected negative-path database
+errors, historical migration warnings, and test-module redefinition warnings
+were present; this is not a warning-free run.
+
+The observed failure inventory is:
+
+- Note mutation rollback (3), mutation concurrency (7), and Note-specific
+  restore reconciliation (2): generated fixtures lack the existing
+  `note.write` capability required by the Phase 3 live projection check.
+- Knowledge grants (1): the old matrix omits approved web-only tag reads.
+- Document lifecycle (1): lexical comparison of an offset timestamp and UTC
+  string rejects an actually expired deadline.
+- Selective FTS/trigram plans (2): the observer callback returns its fixed
+  failure after cleanup checks; no selective sample line was emitted. This
+  does not establish leakage or an index-cost cause. Short scans passed with
+  40,960 / 40,958 row visits. Isolated prior green cannot close these failures.
+- Runtime restart (1) and extraction reconciliation (7): source diagnosis
+  identifies committed, test-owned staged-fragment/abandoned attempts that
+  outlive their tests and enter the global recovery scan after their real
+  deadlines. Pending-with-fragments violates the completion guard, mapping to
+  `:invalid`; the full run also observed 16 expired identities where one was
+  expected. Live identities were not independently matched to creators.
+- Outbox extraction generations (1): source exposes a receive-order assumption
+  absent from the claim query's contract. The failure showed generation 2
+  before expected 1; exact event identity was not printed, so foreign-event
+  interference is not yet excluded by that failure alone.
+- Ready Document restoration (1): the old no-event count conflicts with the
+  approved Phase 3 `document.restored` projection event. The observed count
+  changed from two to three; exact delta identity still needs an assertion.
+
+No implementation changed during this clean-source run. Main and the protected
+Phase 2 worktrees remain outside its scope. Lock hashes remain `86d603cb...`
+(`mix.lock`), `187f4c2a...` (`package-lock.json`), and `88b871d5...`
+(`devenv.lock`); observer and original plan hashes remain `780dede4...` and
+`298d78db...`. Read-only cleanup `27646`, exit 0, confirmed zero generated
+test databases, absent previously recorded storage roots, and stopped owned
+PostgreSQL. Direct checks also confirmed absence of this run's main root and
+the observed historical-test root `35e789944112fe0333294a58` beneath its owned
+temporary directory. Ignored temporary/build artifacts are retained locally.
+
+The [legacy Storage repair design](../superpowers/specs/2026-10-10-singularity-v0.2-phase-3-full-gate-contract-repair-design.md)
+and [plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-full-gate-contract-repair.md)
+cover the first 14 failures without changing production behavior. Pre-edit
+owning characterization `98049`, exit 2, seed `918339`, reproduced all **14
+failures among 59 executed tests** in 16.1 seconds. Its allocation was
+`singularity_test_6410f6657ce52aa22bd3f579`; the task disposed it and stopped
+PostgreSQL. No repair attempt or success is claimed yet. Other failure groups
+remain separate diagnosis/repair workstreams. Observer counters remain two
+failed Sol repair rounds and one successful Astra recovery; this newly observed
+full-suite failure does not erase that history or count as a repair attempt.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with
@@ -1441,12 +1540,12 @@ the subsequent governance changes are recorded separately above.
 
 | Gate | Status |
 | --- | --- |
-| Selective real-role FTS/trigram query plans on analyzed fixtures | PASS: cold/warm actual-call owning gate `54358`; historical failure `69774` retained |
+| Selective real-role FTS/trigram query plans on analyzed fixtures | Scoped PASS `54358`/`14560`; full-suite FAIL: both selective cases in `37888`, diagnosis open |
 | Honest short-query limitation and fixed-timeout error | PASS: owning gate `54358`; earlier `69774` retained |
 | Runtime content-canary/privacy/cancellation/retry contracts | PASS: fresh eight-contract owning run `19825` and combined `51110`; prior failures retained above |
-| All new and directly affected PostgreSQL suites | NOT RUN for final candidate |
+| All new and directly affected PostgreSQL suites | FAIL: full integration `37888`, 26 failures among 1,107 executed cases |
 | Complete V1/V2 restore | PASS: `90085` on guarded-function production source; exact clean-SHA ordered gate remains NOT RUN |
-| Exact clean-SHA ordered README gate | NOT RUN |
+| Exact clean-SHA ordered README gate | FAIL at full integration on `999b2fc...`; later steps NOT RUN in that attempt |
 | Manual E2E | NOT RUN under user restriction |
 | Final independent complete-candidate specification/quality source review | PASS: `search_observer_actual_review`, all tracked Phase 3 changes plus the exact privacy test now committed at `996fdbea...`; phase acceptance remains separate |
 
