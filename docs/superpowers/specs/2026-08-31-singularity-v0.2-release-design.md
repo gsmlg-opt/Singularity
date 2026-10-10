@@ -7,6 +7,15 @@
 **Authoritative release directive:**
 `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md`
 
+**Current execution authority, 2026-10-10:** The user's
+[continuous development authorization](../../../AGENTS.md#continuous-development-authorization--2026-10-10)
+supersedes this document's historical routine approval and per-file repair
+restrictions. Designs, plans, necessary in-scope repairs, tests, independent
+review, local commits, and progression after required phase gates are authorized
+without renewed human approval. The Phase 0 history below remains unchanged
+evidence, not an active prohibition on later development. Vault freeze, product
+scope, E2E, publication/deployment, and production-data restrictions remain.
+
 ## 1. Purpose
 
 Singularity `0.2.0` is the first complete personal knowledge-base release.
@@ -136,7 +145,11 @@ extraction smoke tests, tags, and publication remain Phase 7 deliverables.
 Focused checks may support diagnosis but never replace the complete Phase 0
 gate.
 
-## 7. Failure and escalation policy
+## 7. Historical Phase 0 failure and escalation policy
+
+For current work, use the continuous authorization above and the current
+`AGENTS.md` diagnosis/repair policy; ordinary failures no longer require a new
+user approval. The following records the original Phase 0 boundary only.
 
 Baseline failures are characterized and reported before any repair. This
 approved Phase 0 design permits documentation, test-contract, and workflow-

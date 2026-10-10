@@ -32,6 +32,27 @@ The current `0.1.0` release is the foundation/bootstrap release. The next releas
 
 Do not start semantic retrieval, Qdrant indexing, RAG, Agent tools, photo management, media management, finance, health, email, contacts, calendars, or external connectors.
 
+### Continuing execution authority, 2026-10-10
+
+The user's [continuous development authorization](../../../AGENTS.md#continuous-development-authorization--2026-10-10)
+supersedes older routine per-step, per-file, and per-phase approval waits.
+Automatically choose recommended in-scope options; produce designs and detailed
+plans, implement necessary compatibility and test-contract repairs, synchronize
+documentation, verify, independently review, and make local commits. Advance to
+the next phase only after the preceding phase's required checks and independent
+review pass. A failing test starts diagnosis/repair and the established Astra
+escalation process, not a request for routine approval. Necessary additive
+forward migrations require documented design, tests, and review, not a new
+human approval solely because an old file list omitted them.
+
+Product exclusions, Vault freeze, immutable provenance, backup compatibility,
+E2E restrictions, publication/deployment gates, and production-data protections
+remain unchanged. E2E is NOT RUN under the current restriction; no incomplete
+gate can be reported as full acceptance. This authority does not authorize
+merge, push, version bump, tag, release, deployment, or production activation.
+Historical phase approvals and constraints below describe their original
+acceptance boundaries, not renewed routine approval requirements.
+
 ---
 
 ## 2. Non-negotiable product correction: Vault is frozen
@@ -732,7 +753,7 @@ Do not implement the entire release in one branch. Complete, review, and verify 
 - [ ] Do not rewrite historical specifications.
 - [ ] Run the complete repository verification sequence.
 - [ ] Characterize and report baseline failures that block knowledge-base development.
-- [ ] Phase 0 may correct only documentation, test-contract, and workflow-contract failures. Any production-code or production-behavior repair requires an approved design amendment and explicit user approval.
+- [ ] Record the historical Phase 0 repair boundary: documentation, test-contract, and workflow-contract corrections only, with explicit approval then required for production repairs. Current necessary in-scope repairs follow the continuing execution authority above, with design amendments and independent review.
 - [ ] Add or update workflow contract tests if the documented verification sequence differs from CI.
 
 ### Acceptance
@@ -1144,7 +1165,10 @@ Add focused test commands during each phase, but never substitute them for the f
 1. Read this plan, root `AGENTS.md`, ADR 0003, `README.md`, `docs/guide.md`, the existing Milestone 2 Notes specification, current Notes/Assets contexts, current Runtime API, storage migrations, search adapters, and test workflows.
 2. Do not begin by reviewing Vault files.
 3. Verify the actual starting SHA. If `main` moved, inspect the delta and update the plan's baseline note without weakening scope.
-4. Create an isolated worktree and branch for each phase.
+4. Create an isolated worktree and branch for each phase. Produce its design and
+   detailed plan under the continuing authorization; after the preceding phase
+   passes required verification and independent review, proceed without a new
+   routine approval request.
 5. Add characterization tests before changing established Notes, Assets, backup, or release behavior.
 6. For each behavior:
    - write the focused failing test;
@@ -1177,17 +1201,20 @@ Add focused test commands during each phase, but never substitute them for the f
 
 ## 16. Stop conditions
 
-Stop the affected phase and report evidence when:
+Failed or unrun required checks block phase acceptance and advancement, not
+authorized diagnosis and repair. Amend the design/plan and independently review
+necessary in-scope compatibility changes and forward migrations. Never change
+released migrations, weaken assertions, or substitute a narrow rerun for the
+complete required gate.
 
-- the required behavior would require changing Vault semantics;
-- an existing schema constraint makes an additive implementation impossible without a separately approved migration;
-- source data cannot be linked to an immutable version;
-- an extractor cannot be bounded or sandboxed sufficiently;
-- a proposed search path cannot preserve exact source provenance;
-- backup compatibility would be broken;
-- a release workflow cannot prove the exact source SHA passed all tests.
+Stop and report only when further progress requires new external permission,
+a product decision only the user can make, or an external blocker that cannot
+be resolved within the authorization. Do not cross Vault freeze, product scope,
+immutable provenance, extractor safety, backup compatibility, E2E, or
+production-data boundaries. Route blocking internal-organization dependency
+defects upstream. Missing exact-tested-source proof prevents publication.
 
-Continue any independent phase work that remains valid. Do not turn a blocker into an unapproved architectural rewrite.
+Continue independent valid work that does not evade the failed gate or blocker.
 
 ---
 

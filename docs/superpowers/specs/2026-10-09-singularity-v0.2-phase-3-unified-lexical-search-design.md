@@ -5,8 +5,12 @@
 Approved by the user on 2026-10-09 after review of proposal commit
 `7a9a32a0607b80c11c4aea0a156169325d543b94`. Approval authorizes this bounded
 Phase 3 design and its [detailed implementation plan](../plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
-It is not implementation acceptance or production activation. Later phases
-and publication retain their separate approval gates.
+It is not implementation acceptance or production activation. The user's
+2026-10-10 [continuous development authorization](../../../AGENTS.md#continuous-development-authorization--2026-10-10)
+now permits necessary in-scope design amendments, plans, repairs, verification,
+independent review, local commits, and later phase development without routine
+approval waits. Phase dependencies and required acceptance gates remain;
+publication, deployment, E2E, production data, and Vault restrictions are unchanged.
 
 The governing scope is [Phase 3 of the release plan](../plans/2026-08-31-singularity-v0.2-release.md#phase-3--unified-lexical-retrieval-and-source-provenance).
 The base is the [qualified Phase 2 acceptance](../../verification/2026-10-09-phase-2-acceptance.md):
@@ -589,9 +593,13 @@ Finally run the complete ordered README verification gate from the exact
 committed candidate, with owned service identity and cleanup evidence. Browser
 acceptance remains a manual run; this phase does not broaden workflow triggers
 or silently run E2E during focused development. Preserve and report unrelated
-baseline failures according to repository stop conditions.
+baseline failures according to the repository diagnosis/repair policy. The
+current prohibition on running E2E remains in force; record NOT RUN without
+claiming a complete gate or accepting the phase.
 
 Record exact source SHA, changed files, forward migrations and grants, all
 commands/results, review findings, residual risks, and explicit confirmation
 that no Vault feature work occurred. A green scoped suite alone is not Phase 3
-or whole-release acceptance. Phases 4–7 retain their separate design gates.
+or whole-release acceptance. Phases 4–7 retain their separate designs and plans;
+after required acceptance and independent review, advance automatically under
+the continuous authorization rather than requesting routine approval.

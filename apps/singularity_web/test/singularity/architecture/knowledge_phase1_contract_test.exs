@@ -58,7 +58,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     "config/config.exs" => [:document_projection]
   }
 
-  test "active guidance authorizes only the approved Phase 3 slice" do
+  test "active guidance retains Phase 3 sequencing under continuous development authority" do
     for {path, start, finish} <- [
           {"AGENTS.md", "## Active release", "## Vault freeze"},
           {"README.md", "## Active `0.2.0` scope", "## Development"},
@@ -75,7 +75,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             @phase2,
             "superpowers/specs/#{@design}",
             "superpowers/plans/#{@plan}",
-            "Later phases still require separate approved designs and detailed plans.",
+            "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval.",
+            "Advance automatically only after the preceding phase's required gates pass.",
             "New canonical writes remain unavailable to production runtime roles.",
             "Public import, extraction workers, search, Note Save integration, backup V3, and browser behavior remain in their designated later phases.",
             "Version bumps, tags, releases, pushes, and deployments remain separately gated."
@@ -131,7 +132,9 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           "approved unified-search design and detailed implementation plan",
           "Phase 3 must finish with recorded scoped evidence, a clean worktree, the complete supported verification gate passing, and independent review.",
           "Production canonical writes remain disabled.",
-          "It must not begin later phases, modify Vault functionality, bump versions, tag, publish, push, or deploy without separate authorization."
+          "After the required gate and independent review pass, automatically prepare the next phase's design and plan under the continuous authorization.",
+          "Vault changes, merge, version bumps, tags, publication, pushes, deployment, and production activation remain outside that authority.",
+          "E2E stays NOT RUN under the current restriction, so a partial gate is not full acceptance."
         ] do
       assert gate =~ marker
     end

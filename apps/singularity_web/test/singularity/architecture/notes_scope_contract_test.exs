@@ -15,7 +15,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   @scope_lock "Vault is frozen compatibility substrate for `0.2.0`, not an active product module or release deliverable."
   @qdrant_lock "Qdrant is out of scope for `0.2.0`."
   @owner_scope_invariant "Every user-owned object belongs to an authenticated owner scope, and every projection points to an immutable source version."
-  @production_repair_gate "Any production-code or production-behavior repair requires an approved design amendment and explicit user approval."
+  @historical_production_repair_gate "Record the historical Phase 0 repair boundary: documentation, test-contract, and workflow-contract corrections only, with explicit approval then required for production repairs. Current necessary in-scope repairs follow the continuing execution authority above, with design amendments and independent review."
   @release_design_path "docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md"
   @blocker_repair_design_path "docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md"
   @release_plan_path "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
@@ -23,11 +23,49 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   @phase1_plan_path "docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md"
   @classification_repair_scope "The only classification repair makes `resource_versions_resource_classification_fkey` deferrable and initially deferred through a new forward migration."
   @wake_repair_scope "The only wake repair moves application-owned wake generation counters from Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to 2.24."
-  @no_other_repair_scope "No other Phase 0 production-code, production-behavior, or schema change is authorized."
-  @release_prohibition_scope "Version bumps, tags, releases, pushes, deployments, and Phase 1 work remain prohibited."
+  @historical_repair_scope "At that historical boundary, no other Phase 0 production-code, production-behavior, or schema change was authorized, and Phase 1 had not yet been authorized. Current local development follows the authorization above; publication and deployment restrictions remain in force."
   @blocker_repair_design_heading "# Singularity v0.2.0 Phase 0 Blocker Repair Design"
   @blocker_repair_heading "### Historical Phase 0 blocker repairs"
-  @historical_repair_notice "The following approved repair scope records the accepted Phase 0 boundary; its Phase 1 prohibition is historical and does not override the active release scope."
+  @historical_repair_notice "The following approved repair scope records the accepted Phase 0 boundary; its Phase 1 prohibition and routine approval gates are historical and do not override the active release scope or continuous development authorization."
+  @continuous_authorization_heading "## Continuous development authorization — 2026-10-10"
+  @continuous_authorization """
+  The user grants continuing authorization for the existing Singularity `0.2.0`
+  product goal. This supersedes older routine per-step, per-file, and per-phase
+  human approval requirements in repository instructions, designs, and plans,
+  including the older global PRD rules that stopped at a file-scope boundary or
+  an out-of-scope test failure. Necessary goal-serving repairs are authorized;
+  unrelated feature work and cleanup are not.
+  Historical approvals and verification results remain historical evidence.
+
+  - Automatically choose the recommended in-scope approach and complete design,
+    detailed planning, implementation, necessary repairs, documentation, tests,
+    independent review, and small local commits without asking for `approve`.
+  - After a phase passes its required verification and independent review,
+    automatically prepare the next phase's design and plan and execute it in a
+    separate project-local worktree and branch. Do not bypass phase dependencies.
+  - Necessary compatibility fixes, test-contract updates, documentation
+    synchronization, and additive forward migrations are authorized within the
+    product goal. Amend the design and plan, record the reason and evidence, and
+    obtain independent review; an old file allowlist is not a reason to stop.
+  - Characterize test failures and enter diagnosis and repair. Use Sol by default;
+    escalate to Astra after two failed Sol repair rounds or an evidenced technical
+    impasse. Astra may also handle architecture design. Allow at least three
+    bounded, evidence-driven Astra repair attempts if needed, unless the issue is
+    resolved or a genuine external blocker or preserved restriction prevents
+    further work. Keep cumulative repair counts distinct from advisory/design
+    attempts. Never weaken assertions, skip a
+    required check, or declare a failed or unrun gate successful.
+  - This authority does not expand product scope or relax Vault freeze,
+    immutable provenance, backup compatibility, or production-data protections.
+    It does not authorize merge, push, version bump, tag, release, deployment,
+    production activation, or production backfill.
+  - E2E remains manual-only and must not be run under the current user restriction.
+    Record it as NOT RUN; do not present a partial gate as full phase/release
+    acceptance or advance past an unmet required acceptance gate.
+  - Stop and request direction only for genuinely new external permission, a
+    product decision only the user can make, or an external blocker that cannot
+    be resolved within this authority. Continue independent valid work when safe.
+  """
   @stop_conditions_heading "## Stop conditions"
   @governing_document_bullets [
     "- `#{@release_design_path}`",
@@ -42,8 +80,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
                                      "- `#{@blocker_repair_design_path}`",
                                      @classification_repair_scope,
                                      @wake_repair_scope,
-                                     @no_other_repair_scope,
-                                     @release_prohibition_scope
+                                     @historical_repair_scope
                                    ],
                                    " "
                                  )
@@ -53,7 +90,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
                                      "- Add a failing focused contract before changing enforced behavior.",
                                      "- Never edit a released migration.",
                                      "- Never weaken, skip, delete, or reclassify a required assertion.",
-                                     "- Run focused checks during a phase and the complete README verification gate before accepting the phase.",
+                                     "- Run focused checks during a phase and the complete README verification gate before accepting the phase. A failed gate blocks acceptance and advancement, not authorized diagnosis and repair. A prohibited E2E run stays NOT RUN and cannot be silently removed from the acceptance requirements.",
                                      "- Preserve the seven-application dependency graph and require zero xref cycles.",
                                      "- Record commits, changed files, migrations, tests, exact commands and results, remaining risks, and confirmation that no Vault feature work occurred.",
                                      @blocker_repair_heading,
@@ -130,8 +167,51 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert normalize_markdown(agents) =~ @qdrant_lock
     assert vault_adr_source =~ "Status: Accepted"
 
-    assert normalize_markdown(phase0_deliverables) =~ @production_repair_gate,
-           "canonical release plan does not reserve production repairs for explicit approval"
+    assert normalize_markdown(phase0_deliverables) =~ @historical_production_repair_gate,
+           "canonical release plan must distinguish historical approval from continuing authority"
+  end
+
+  test "continuous development authority preserves every granted action and retained restriction" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    assert_continuous_authorization!(agents)
+  end
+
+  test "continuous development authority rejects removal, mutation and extra authorization" do
+    agents = @repo_root |> Path.join("AGENTS.md") |> read_required!()
+    assert_continuous_authorization!(agents)
+
+    for required <- [
+          "without asking for `approve`",
+          "required verification and independent review",
+          "an old file allowlist is not a reason to stop",
+          "two failed Sol repair rounds",
+          "at least three",
+          "Never weaken assertions",
+          "does not expand product scope or relax Vault freeze",
+          "production-data protections",
+          "does not authorize merge, push, version bump, tag, release, deployment",
+          "must not be run under the current user restriction",
+          "or advance past an unmet required acceptance gate",
+          "only for genuinely new external permission"
+        ] do
+      assert agents =~ required
+
+      assert_raise ExUnit.AssertionError, fn ->
+        agents
+        |> String.replace(required, "", global: false)
+        |> assert_continuous_authorization!()
+      end
+    end
+
+    broadened =
+      String.replace(
+        agents,
+        "\n## Vault freeze",
+        "\n- Production deployment is automatically authorized.\n\n## Vault freeze",
+        global: false
+      )
+
+    assert_raise ExUnit.AssertionError, fn -> assert_continuous_authorization!(broadened) end
   end
 
   test "historical Phase 0 governance names only the approved blocker repair exceptions" do
@@ -328,7 +408,13 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
              "[detailed implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md)"
 
     assert normalize_markdown(readme_scope) =~
-             "Later phases still require separate approved designs and detailed plans."
+             "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval."
+
+    assert normalize_markdown(readme_scope) =~
+             "Advance automatically only after the preceding phase's required gates pass."
+
+    assert normalize_markdown(readme_scope) =~
+             "E2E remains manual-only and NOT RUN under the current user restriction; this is not a waiver of the complete phase/release acceptance gate."
 
     assert normalize_markdown(readme_scope) =~
              "Version bumps, tags, releases, pushes, and deployments remain separately gated."
@@ -418,10 +504,20 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert_approved_design_status!(design)
   end
 
+  defp assert_continuous_authorization!(agents) do
+    actual =
+      agents
+      |> active_section!(@continuous_authorization_heading, "## Vault freeze")
+      |> normalize_markdown()
+
+    assert actual == normalize_markdown(@continuous_authorization),
+           "continuous authorization must preserve the complete granted scope and restrictions"
+  end
+
   defp assert_governing_documents!(agents) do
     governing_document_bullets =
       agents
-      |> active_section!("## Active release", "## Vault freeze")
+      |> active_section!("## Active release", @continuous_authorization_heading)
       |> String.split(~r/\r?\n/)
       |> Enum.filter(&markdown_bullet_line?/1)
       |> Enum.map(&String.trim_trailing/1)

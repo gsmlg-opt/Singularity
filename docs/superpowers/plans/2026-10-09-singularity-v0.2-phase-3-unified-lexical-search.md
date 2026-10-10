@@ -26,6 +26,14 @@ plus documentation handoff `ff703bd710074738b0391bb2f29d585dc6166d5c`.
 The existing isolated worktree is `.trees/v0.2-phase-3-search-design`, branch
 `codex/v0.2-phase-3-search-design`; keep using it rather than nesting worktrees.
 
+The user's 2026-10-10 [continuous development authorization](../../../AGENTS.md#continuous-development-authorization--2026-10-10)
+supersedes routine approval waits and old per-file repair limits. Necessary
+in-scope compatibility, test-contract, documentation, and additive migration
+repairs require synchronized designs/plans, verification, and independent review,
+not another `approve`. Ordinary test failures enter diagnosis and repair.
+Advance to Phase 4's own design/plan automatically only after Phase 3's required
+gates and independent review pass; this plan does not pull Phase 4 work forward.
+
 No merge, push, release, deployment, version bump, Phase 4 write, V3 payload,
 browser feature, or Vault feature is authorized here. E2E remains manual; do
 not run it as part of focused development. Preserve all earlier worktrees and
@@ -2078,13 +2086,15 @@ git diff --check
 `apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs`,
 `apps/singularity_runtime/test/singularity/runtime/knowledge_search_privacy_test.exs`,
 and `docs/verification/2026-10-09-phase-3-acceptance.md`.
-Update only Phase 3 checklist/evidence and active-phase documentation on acceptance.
+Update Phase 3 checklist/evidence and active-phase documentation on acceptance.
+Necessary repairs follow the continuous authorization and a synchronized
+design/plan; this file list is not an approval boundary.
 
 - [ ] Add deterministic synthetic, analyzed query-plan fixtures. Verify
   selective FTS/trigram queries have viable indexed plans without forcing the
   planner. Record the intentional nonselectivity of short literal queries;
   verify the fixed timeout fails with a sanitized error, not an empty success.
-- [ ] Add diagnostic canaries for q/title/body/snippet/locator headings/tag labels
+- [x] Add diagnostic canaries for q/title/body/snippet/locator headings/tag labels
   across success, malformed input, adapter failure, SQL cancellation, retries,
   exact-source denial, and rebuild failure. Assert no raw content in logs,
   supported telemetry, job/outbox/audit metadata, or exception messages.
@@ -2093,9 +2103,11 @@ Update only Phase 3 checklist/evidence and active-phase documentation on accepta
   exact commands, seeds, counts, forward migrations/grants, and reviews.
 - [ ] After scoped gates pass, commit the candidate and run the entire ordered
   README gate from that exact clean SHA with owned process identity and cleanup.
-  This includes the explicitly manual acceptance run, not an automatic workflow
-  trigger. Retain the Phase 2 residual login race and Poppler qualification until
-  separately evidenced; do not repair unrelated failures under this plan.
+  The complete gate includes explicitly manual E2E, which remains NOT RUN under
+  the current user restriction, not an automatic workflow trigger or a waiver.
+  Retain the Phase 2 residual login race and Poppler qualification until
+  separately evidenced. Diagnose failures and repair those necessary for this
+  product goal under the continuous authorization; do not perform unrelated work.
 
 ```sh
 devenv shell -- mix xref graph --format cycles --fail-above 0
@@ -2110,8 +2122,47 @@ git diff --check
   than relabeling it passing after a narrower rerun.
 - [ ] Verify every Phase 3 deliverable against runtime/source evidence, record
   remaining risks and no Vault feature work, and commit the local acceptance
-  report. Stop at the next separate Phase 4 design gate; do not mark the full
-  release goal complete or publish anything merely because Phase 3 passes.
+  report. Once all required gates and independent review pass, automatically
+  prepare Phase 4's separate design and plan. Do not mark the full release goal
+  complete or publish anything merely because Phase 3 passes.
+
+### Task 11 qualification in progress, 2026-10-10
+
+Baseline `191e58691eac2413fec3b0b302397775fe527aff`: 337 executed affected
+unit/property cases passed (session `92363`, seed `215378`). This does not
+include the new Task 11 integration contracts or establish phase acceptance.
+
+The four query-plan contracts reached actual production-role EXPLAIN after
+two test-fixture repairs. Session `69774` exited 2: both selective content-index
+assertions failed; short-query nonselectivity and the observed five-second
+timeout/clean retry passed. Preserve these assertions; at the time of this
+diagnosis production changes awaited a separately approved repair design.
+The 2026-10-10 continuous authorization now permits that bounded design and
+repair without another approval wait. The first requested
+Astra spawn was rejected by the session's agent-thread limit. A dispatch retry after both Sol
+workers finished succeeded. Astra's completed read-only diagnosis and parent
+causal probes (`93912`, `11736`) identify the RLS/non-leakproof index-condition
+boundary: the same isolated predicates use FTS/trigram indexes as existing
+table owner but scan all 8,192 entries as web role. No RLS/planner flag or grant
+was changed. Temporary instrumentation was removed, restoring the exact frozen
+plan-test hash. The proposed candidate-identity-only read definer requires a
+documented and independently reviewed architecture amendment, forward migration,
+and authoritative inner-plan proof; it was not implemented in that diagnosis.
+Astra production repair attempts at diagnosis completion: zero.
+Initial privacy validation (`74303`) ran eight contracts with three failures.
+Two bounded test-only repair rounds resolved fixture/contract mismatches and
+closed an independent review's consumed-event coverage finding. Final owning
+privacy validation (`75124`, seed `215378`, 14.2 seconds) passed all eight
+integration contracts; independent specification and quality closure reviews
+passed on exact file SHA-256
+`17e6eeebdef3314b328b600e02110c840a64ebffc3727162e928dcd957d01056`.
+No production privacy fix or assertion waiver is claimed. The index-plan gate
+remains failed, and no full-candidate acceptance is implied.
+
+The [provisional qualification record](../../verification/2026-10-09-phase-3-acceptance.md)
+contains exact commands, failed attempts, review findings, and cleanup evidence.
+Task 11 remains incomplete. The user's E2E prohibition remains effective; no
+complete README gate, Phase 3 acceptance, Phase 4 work, or publication is implied.
 
 ## Coverage and execution record
 

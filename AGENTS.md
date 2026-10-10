@@ -19,12 +19,15 @@ slice is the separately approved Phase 3 under
 `docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md`
 and
 `docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md`.
-Later phases still require separate approved designs and detailed plans.
+Later phases require designs, detailed plans, required verification, and
+independent review, without renewed routine human approval.
+Advance automatically only after the preceding phase's required gates pass.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
 
-Phase 3 may add only the approved unified lexical projection, exact-source
-reads, canonical rebuilds, narrowly authorized jobs/read grants, and explicitly
-listed derived-projection V1/V2 restore compatibility hooks. It does not enable
+Phase 3 covers unified lexical projection, exact-source reads, canonical
+rebuilds, narrowly authorized jobs/read grants, and necessary derived-projection
+V1/V2 restore compatibility. Necessary repairs follow the continuous development
+authorization below rather than an obsolete per-file permission list. It does not enable
 Phase 4 writes, V3 backup, new browser features, or production activation.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
@@ -49,6 +52,45 @@ primitive, source-proof contract, source revalidation, and isolated contract tes
 Live runtime custody composition requires a separately approved Phase 2 design.
 No custody, key, capability, or Vault change is authorized.
 Test doubles do not prove live source verification.
+
+## Continuous development authorization — 2026-10-10
+
+The user grants continuing authorization for the existing Singularity `0.2.0`
+product goal. This supersedes older routine per-step, per-file, and per-phase
+human approval requirements in repository instructions, designs, and plans,
+including the older global PRD rules that stopped at a file-scope boundary or
+an out-of-scope test failure. Necessary goal-serving repairs are authorized;
+unrelated feature work and cleanup are not.
+Historical approvals and verification results remain historical evidence.
+
+- Automatically choose the recommended in-scope approach and complete design,
+  detailed planning, implementation, necessary repairs, documentation, tests,
+  independent review, and small local commits without asking for `approve`.
+- After a phase passes its required verification and independent review,
+  automatically prepare the next phase's design and plan and execute it in a
+  separate project-local worktree and branch. Do not bypass phase dependencies.
+- Necessary compatibility fixes, test-contract updates, documentation
+  synchronization, and additive forward migrations are authorized within the
+  product goal. Amend the design and plan, record the reason and evidence, and
+  obtain independent review; an old file allowlist is not a reason to stop.
+- Characterize test failures and enter diagnosis and repair. Use Sol by default;
+  escalate to Astra after two failed Sol repair rounds or an evidenced technical
+  impasse. Astra may also handle architecture design. Allow at least three
+  bounded, evidence-driven Astra repair attempts if needed, unless the issue is
+  resolved or a genuine external blocker or preserved restriction prevents
+  further work. Keep cumulative repair counts distinct from advisory/design
+  attempts. Never weaken assertions, skip a
+  required check, or declare a failed or unrun gate successful.
+- This authority does not expand product scope or relax Vault freeze,
+  immutable provenance, backup compatibility, or production-data protections.
+  It does not authorize merge, push, version bump, tag, release, deployment,
+  production activation, or production backfill.
+- E2E remains manual-only and must not be run under the current user restriction.
+  Record it as NOT RUN; do not present a partial gate as full phase/release
+  acceptance or advance past an unmet required acceptance gate.
+- Stop and request direction only for genuinely new external permission, a
+  product decision only the user can make, or an external blocker that cannot
+  be resolved within this authority. Continue independent valid work when safe.
 
 ## Vault freeze
 
@@ -105,7 +147,9 @@ expansion are also out of scope.
 - Never edit a released migration.
 - Never weaken, skip, delete, or reclassify a required assertion.
 - Run focused checks during a phase and the complete README verification gate
-  before accepting the phase.
+  before accepting the phase. A failed gate blocks acceptance and advancement,
+  not authorized diagnosis and repair. A prohibited E2E run stays NOT RUN and
+  cannot be silently removed from the acceptance requirements.
 - Preserve the seven-application dependency graph and require zero xref
   cycles.
 - Record commits, changed files, migrations, tests, exact commands and
@@ -115,7 +159,8 @@ expansion are also out of scope.
 ### Historical Phase 0 blocker repairs
 
 The following approved repair scope records the accepted Phase 0 boundary;
-its Phase 1 prohibition is historical and does not override the active release scope.
+its Phase 1 prohibition and routine approval gates are historical and do not
+override the active release scope or continuous development authorization.
 
 - `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
 
@@ -127,21 +172,25 @@ The only wake repair moves application-owned wake generation counters from
 Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to
 2.24.
 
-No other Phase 0 production-code, production-behavior, or schema change is
-authorized. Version bumps, tags, releases, pushes, deployments, and Phase 1
-work remain prohibited.
+At that historical boundary, no other Phase 0 production-code,
+production-behavior, or schema change was authorized, and Phase 1 had not yet
+been authorized. Current local development follows the authorization above;
+publication and deployment restrictions remain in force.
 
 ## Stop conditions
 
-Stop the affected work and report evidence when:
+Do not accept or advance a failing or incompletely verified phase. Diagnose and
+repair ordinary failures within the continuous authorization; design and review
+necessary forward migrations instead of waiting for routine approval.
 
-- live remote identity or required workflow state cannot be verified;
-- a complete required gate fails;
-- work would change Vault semantics or require an unapproved migration;
-- an additive implementation cannot preserve immutable source provenance;
-- backup compatibility would break;
-- release automation cannot prove the exact tested source; or
-- a dependency issue in a configured internal organization blocks the task.
+Stop the affected work and report evidence only when proceeding requires new
+external permission, a user-only product decision, or an irreducible external
+blocker. This includes required remote/workflow state that remains unverifiable,
+a blocking dependency defect in a configured internal organization, or an
+outcome that cannot be achieved without changing the frozen Vault/product scope
+or violating immutable provenance, backup compatibility, or production-data
+protections. Unverified release-source identity blocks publication, not unrelated
+local work. Do not cross those boundaries to make a gate green.
 
 Follow the repository upstream-issue routing policy. Do not hide a dependency
 defect behind an unapproved local workaround. Independent work may continue

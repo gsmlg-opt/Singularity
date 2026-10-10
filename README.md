@@ -21,8 +21,14 @@ on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`.
 The active implementation slice is Phase 3 under the
 [approved unified-search design](docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
 and [detailed implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
-Later phases still require separate approved designs and detailed plans.
+Under the [continuous development authorization](AGENTS.md#continuous-development-authorization--2026-10-10):
+Later phases require designs, detailed plans, required verification, and
+independent review, without renewed routine human approval.
+Advance automatically only after the preceding phase's required gates pass.
+Necessary in-scope repairs are not limited by old file lists.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
+E2E remains manual-only and NOT RUN under the current user restriction; this is
+not a waiver of the complete phase/release acceptance gate.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
