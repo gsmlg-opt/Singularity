@@ -62,6 +62,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Notes.Merge, as: NoteMerge
   alias Singularity.Runtime.Notes.MutationFingerprint
   alias Singularity.Runtime.Notes.Restore, as: NoteRestore
+  alias Singularity.Runtime.Notes.ResolveSource, as: NoteSourceResolver
   alias Singularity.Runtime.Notes.Save, as: NoteSave
   alias Singularity.Runtime.Notes.Search, as: NoteSearch
   alias Singularity.Runtime.Notes.Trash, as: NoteTrash
@@ -90,6 +91,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Postgres.BackupRepository
   alias Singularity.Storage.Postgres.BackupStatusStore
   alias Singularity.Storage.Postgres.IdentityRepository
+  alias Singularity.Storage.Postgres.KnowledgeLinkRepository
   alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.Postgres.NoteSearchStore
   alias Singularity.Storage.Postgres.PreAuth
@@ -403,6 +405,74 @@ defmodule Singularity.Runtime.Api do
 
   def get_note_version(_config, _session, _resource_id, _version_id),
     do: {:error, :invalid}
+
+  @spec resolve_note_attachment(Session.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, atom()}
+  def resolve_note_attachment(session, note_id, version_id, attachment_id) do
+    if Enum.all?([note_id, version_id, attachment_id], &canonical_note_source_uuid?/1) do
+      with_production(&resolve_note_attachment(&1, session, note_id, version_id, attachment_id))
+    else
+      {:error, :invalid}
+    end
+  end
+
+  @doc false
+  def resolve_note_attachment(config, %Session{} = session, note_id, version_id, attachment_id)
+      when is_map(config),
+      do: resolve_note_source(config, session, note_id, version_id, attachment_id, :attachment)
+
+  def resolve_note_attachment(_config, _session, _note_id, _version_id, _attachment_id),
+    do: {:error, :invalid}
+
+  @spec resolve_note_citation(Session.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, atom()}
+  def resolve_note_citation(session, note_id, version_id, citation_id) do
+    if Enum.all?([note_id, version_id, citation_id], &canonical_note_source_uuid?/1) do
+      with_production(&resolve_note_citation(&1, session, note_id, version_id, citation_id))
+    else
+      {:error, :invalid}
+    end
+  end
+
+  @doc false
+  def resolve_note_citation(config, %Session{} = session, note_id, version_id, citation_id)
+      when is_map(config),
+      do: resolve_note_source(config, session, note_id, version_id, citation_id, :citation)
+
+  def resolve_note_citation(_config, _session, _note_id, _version_id, _citation_id),
+    do: {:error, :invalid}
+
+  defp resolve_note_source(config, session, note_id, version_id, member_id, operation) do
+    callback =
+      case operation do
+        :attachment -> :resolve_note_attachment
+        :citation -> :resolve_note_citation
+      end
+
+    with true <- Enum.all?([note_id, version_id, member_id], &canonical_note_source_uuid?/1),
+         {:ok, context} <- note_source_session(session),
+         {:ok, resolved} <- invoke(config, callback, [context, note_id, version_id, member_id]),
+         {:ok, dto} <-
+           NotesDTO.source_resolution(operation, resolved, member_id, context.vault_id) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_note_error(result)
+    end
+  end
+
+  defp note_source_session(session) do
+    with true <- Enum.sort(Map.keys(session)) == Enum.sort(Map.keys(Session.__struct__())),
+         ids = [session.session_id, session.principal_id, session.vault_id],
+         ids = if(is_nil(session.account_id), do: ids, else: [session.account_id | ids]),
+         true <- Enum.all?(ids, &canonical_note_source_uuid?/1) do
+      session_context(session)
+    else
+      _invalid -> {:error, :integrity_failure}
+    end
+  end
+
+  defp canonical_note_source_uuid?(value), do: Ecto.UUID.cast(value) == {:ok, value}
 
   @spec get_note_conflict(Session.t(), String.t(), String.t()) ::
           {:ok, Singularity.Runtime.DTO.NoteConflictDetail.t()} | {:error, atom()}
@@ -1066,6 +1136,12 @@ defmodule Singularity.Runtime.Api do
       get_note_version: fn session, resource_id, version_id ->
         NoteGet.version(runtime, session, resource_id, version_id)
       end,
+      resolve_note_attachment: fn session, note_id, version_id, attachment_id ->
+        NoteSourceResolver.attachment(runtime, session, note_id, version_id, attachment_id)
+      end,
+      resolve_note_citation: fn session, note_id, version_id, citation_id ->
+        NoteSourceResolver.citation(runtime, session, note_id, version_id, citation_id)
+      end,
       import_document: fn session, attrs ->
         DocumentImport.run(runtime, session, attrs)
       end,
@@ -1238,6 +1314,7 @@ defmodule Singularity.Runtime.Api do
       key_deriver: Argon2KeyDeriver,
       key_wrapper: KeyWrapper,
       note_repository: NoteRepository,
+      knowledge_link_repository: KnowledgeLinkRepository,
       note_search: NoteLexicalSearch,
       note_search_store: NoteSearchStore,
       notes: Notes,

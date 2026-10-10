@@ -30,6 +30,11 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
         statement = "SELECT vault_id FROM content.#{table} WHERE vault_id = $1"
         assert %{rows: []} = query!(repo, statement, [source.vault_id])
 
+        missing_scope_error =
+          assert_raise Postgrex.Error, fn -> insert!(repo, table, attrs) end
+
+        assert missing_scope_error.postgres.code == :insufficient_privilege
+
         assert %{rows: [[owner_id]]} =
                  ScopedRepo.transact(repo, source, fn scoped ->
                    query!(scoped, statement, [source.vault_id])
@@ -75,8 +80,8 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
     source = KnowledgeFixtures.source!()
 
     assert_permissions = fn ->
-      for {repo, select?} <- [{RequestRepo, true}, {WorkerRepo, false}] do
-        assert %{rows: [[^select?, false, false, false, false]]} =
+      for {repo, allowed?} <- [{RequestRepo, true}, {WorkerRepo, false}] do
+        assert %{rows: [[^allowed?, ^allowed?, false, false, false]]} =
                  query!(
                    repo,
                    """

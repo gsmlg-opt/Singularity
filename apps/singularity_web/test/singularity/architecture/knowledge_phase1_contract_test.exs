@@ -251,7 +251,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     })
   end
 
-  test "approved Phase 2 and Phase 3 additions preserve every original legacy composition byte" do
+  test "approved Phase 2 Phase 3 and Phase 4 additions preserve every original legacy composition byte" do
     for {path, expected} <- @runtime_baselines do
       assert_runtime_baseline!(path, read_source(path), expected)
     end
@@ -347,7 +347,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- worker_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
-      source = strip_phase3_additions!(path, source)
+      source = strip_phase3_additions!(path, strip_phase4_additions!(source, path))
       assert [before, rest] = String.split(source, addition)
 
       for replacement <- ["", addition <> addition, addition <> "  # unapproved worker change\n"] do
@@ -407,6 +407,46 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end
   end
 
+  test "exact Note source resolution public and leading-config registration is closed" do
+    expected =
+      for operation <- [:resolve_note_attachment, :resolve_note_citation],
+          arity <- [4, 5],
+          do: {operation, arity}
+
+    actual =
+      Singularity.Runtime.Api.__info__(:functions)
+      |> Enum.filter(fn {name, _arity} ->
+        String.starts_with?(to_string(name), "resolve_note_")
+      end)
+
+    assert Enum.sort(actual) == Enum.sort(expected)
+  end
+
+  test "every approved Phase 4 block rejects mutation removal duplication and relocation" do
+    for {path, preceding, addition, following, destination} <- phase4_additions() do
+      source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      assert [before, rest] = String.split(source, addition)
+      assert [_, _] = String.split(source, preceding <> addition <> following)
+
+      relocated =
+        String.replace(before <> rest, destination, destination <> addition, global: false)
+
+      refute relocated == source
+
+      for changed <- [
+            before <> rest,
+            before <> addition <> addition <> rest,
+            before <> addition <> "  # unauthorized Phase 4 change\n" <> rest,
+            relocated
+          ] do
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+        end
+      end
+    end
+  end
+
   test "documentation attributes remain outside the registration scan" do
     assert {:ok, ast} =
              Code.string_to_quoted("""
@@ -446,6 +486,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp assert_runtime_baseline!(path, source, expected) do
+    source = strip_phase4_additions!(source, path)
     source = strip_phase3_additions!(path, source)
     assert_phase2_runtime_baseline!(path, source, expected)
   end
@@ -507,6 +548,16 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end)
   end
 
+  defp strip_phase4_additions!(source, path) do
+    Enum.reduce(phase4_additions(), source, fn
+      {^path, preceding, addition, following, _destination}, remaining ->
+        strip_in_context!(remaining, preceding, addition, following)
+
+      _other, remaining ->
+        remaining
+    end)
+  end
+
   defp strip_unique!(source, addition) do
     assert [before, rest] = String.split(source, addition)
     before <> rest
@@ -531,6 +582,105 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp read_source(path), do: @repo_root |> Path.join(path) |> File.read!()
+
+  # Each Phase 4 insertion is frozen in its original context before removing
+  # it from the unchanged Phase 3, Phase 2 and legacy byte contracts.
+  defp phase4_additions do
+    [
+      {@api, "  alias Singularity.Runtime.Notes.Restore, as: NoteRestore\n",
+       "  alias Singularity.Runtime.Notes.ResolveSource, as: NoteSourceResolver\n",
+       "  alias Singularity.Runtime.Notes.Save, as: NoteSave\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  alias Singularity.Storage.Postgres.IdentityRepository\n",
+       "  alias Singularity.Storage.Postgres.KnowledgeLinkRepository\n",
+       "  alias Singularity.Storage.Postgres.NoteRepository\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api,
+       "  def get_note_version(_config, _session, _resource_id, _version_id),\n    do: {:error, :invalid}\n\n",
+       ~S"""
+         @spec resolve_note_attachment(Session.t(), String.t(), String.t(), String.t()) ::
+                 {:ok, map()} | {:error, atom()}
+         def resolve_note_attachment(session, note_id, version_id, attachment_id) do
+           if Enum.all?([note_id, version_id, attachment_id], &canonical_note_source_uuid?/1) do
+             with_production(&resolve_note_attachment(&1, session, note_id, version_id, attachment_id))
+           else
+             {:error, :invalid}
+           end
+         end
+
+         @doc false
+         def resolve_note_attachment(config, %Session{} = session, note_id, version_id, attachment_id)
+             when is_map(config),
+             do: resolve_note_source(config, session, note_id, version_id, attachment_id, :attachment)
+
+         def resolve_note_attachment(_config, _session, _note_id, _version_id, _attachment_id),
+           do: {:error, :invalid}
+
+         @spec resolve_note_citation(Session.t(), String.t(), String.t(), String.t()) ::
+                 {:ok, map()} | {:error, atom()}
+         def resolve_note_citation(session, note_id, version_id, citation_id) do
+           if Enum.all?([note_id, version_id, citation_id], &canonical_note_source_uuid?/1) do
+             with_production(&resolve_note_citation(&1, session, note_id, version_id, citation_id))
+           else
+             {:error, :invalid}
+           end
+         end
+
+         @doc false
+         def resolve_note_citation(config, %Session{} = session, note_id, version_id, citation_id)
+             when is_map(config),
+             do: resolve_note_source(config, session, note_id, version_id, citation_id, :citation)
+
+         def resolve_note_citation(_config, _session, _note_id, _version_id, _citation_id),
+           do: {:error, :invalid}
+
+         defp resolve_note_source(config, session, note_id, version_id, member_id, operation) do
+           callback =
+             case operation do
+               :attachment -> :resolve_note_attachment
+               :citation -> :resolve_note_citation
+             end
+
+           with true <- Enum.all?([note_id, version_id, member_id], &canonical_note_source_uuid?/1),
+                {:ok, context} <- note_source_session(session),
+                {:ok, resolved} <- invoke(config, callback, [context, note_id, version_id, member_id]),
+                {:ok, dto} <-
+                  NotesDTO.source_resolution(operation, resolved, member_id, context.vault_id) do
+             {:ok, dto}
+           else
+             false -> {:error, :invalid}
+             result -> normalize_note_error(result)
+           end
+         end
+
+         defp note_source_session(session) do
+           with true <- Enum.sort(Map.keys(session)) == Enum.sort(Map.keys(Session.__struct__())),
+                ids = [session.session_id, session.principal_id, session.vault_id],
+                ids = if(is_nil(session.account_id), do: ids, else: [session.account_id | ids]),
+                true <- Enum.all?(ids, &canonical_note_source_uuid?/1) do
+             session_context(session)
+           else
+             _invalid -> {:error, :integrity_failure}
+           end
+         end
+
+         defp canonical_note_source_uuid?(value), do: Ecto.UUID.cast(value) == {:ok, value}
+
+       """, "  @spec get_note_conflict(Session.t(), String.t(), String.t()) ::\n",
+       "  def get_note_conflict(_config, _session, _resource_id, _conflict_id),\n    do: {:error, :invalid}\n\n"},
+      {@api,
+       "      get_note_version: fn session, resource_id, version_id ->\n        NoteGet.version(runtime, session, resource_id, version_id)\n      end,\n",
+       "      resolve_note_attachment: fn session, note_id, version_id, attachment_id ->\n" <>
+         "        NoteSourceResolver.attachment(runtime, session, note_id, version_id, attachment_id)\n      end,\n" <>
+         "      resolve_note_citation: fn session, note_id, version_id, citation_id ->\n" <>
+         "        NoteSourceResolver.citation(runtime, session, note_id, version_id, citation_id)\n      end,\n",
+       "      import_document: fn session, attrs ->\n",
+       "      list_assets: fn session, params ->\n"},
+      {@api, "      note_repository: NoteRepository,\n",
+       "      knowledge_link_repository: KnowledgeLinkRepository,\n",
+       "      note_search: NoteLexicalSearch,\n", "      assets: AssetRepository,\n"}
+    ]
+  end
 
   # Remove only the exact approved Phase 3 bytes in their original context,
   # then prove every Phase 2 addition and the unchanged legacy digests below.

@@ -1278,6 +1278,137 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 ```
 
 
+### Task 4 public source resolution and actual authorization
+
+The selected resolver now checks containing Note authority, selects exactly one
+stored member, checks its current kind-specific target authority, and only then
+hydrates its immutable typed version/fragment on that same scoped connection.
+Shared strict conversion reconstructs exact owner-free references, source
+metadata and selected fragments without private fields or rewritten values.
+The two public/configured Api facades reject noncanonical selectors and malformed
+Session structs before dispatch; existing generic Session/Vault behavior is
+unchanged. Web registration preserves the original archived byte hashes and
+accepts only five exact contextual Phase 4 additions, with mutation/removal/
+duplication/relocation negatives rather than a broad baseline reset.
+
+Fresh `79267` passed compilation: **37 resolver cases PASS** and **28 expected
+missing-Api failures**, plus the original 18 architecture cases PASS. Initial
+Api `23914` had **65 cases, four failures**, exposing the generic UUID validator's
+uppercase/16-byte acceptance. Narrow seam-only validation repair passed all 65
+in `45863`. Two added forged-Session regressions reproduced KeyError in `67973`
+(28 cases, two failures); exact-key validation before field access then passed
+all 65 in `51187`. Fresh owning `53604` passed **184 Runtime and 25 Web cases**,
+warnings-as-errors compilation and **zero xref cycles**, seed `215378`, exit 0.
+
+Actual new SQL tests initially had test-harness failures, not feature proof:
+`3571` failed test compilation on a non-invoked function variable; harness repair
+1 preserved all 11 cases but `87662` still had **24 tests, 11 setup failures**
+because Create returns a Note directly and Save returns `.canonical`. Harness
+repair 2 corrected exactly six selectors without changing assertions. Fresh
+`92889` passed **24 Runtime integration tests, zero failures**, 23.2 seconds,
+plus **13 Storage grant tests, zero failures**, 3.7 seconds, same seed, exit 0.
+These use actual OperationScope, Authorize and PostgreSQL readers. Existing
+integration-only custody/audit doubles remain explicitly not live custody proof.
+
+### Task 4 narrow permanent grants and cleanup regression
+
+Before adding permanent grants, three focused ACL-preservation regressions in
+`11997` produced **13 tests, three expected failures**: temporary organization
+DELETE cleanup revoked already-existing permissions after success, raise and
+throw. The smallest helper change reuses its existing permission-preserving
+cleanup. `92889` passed all 13, including exact full-ACL restoration and mixed
+durable/temporary permissions. No production role or authorization policy was
+changed by this test-helper repair.
+
+The exact permanent matrix adds only web SELECT/INSERT for attachment/citation
+children and tags, and SELECT/INSERT/DELETE for resource tags/relationships.
+Existing Document and seal SELECT remain unchanged; seal writes, receipts,
+worker/dispatcher/pre-auth grants, grant options and PUBLIC remain excluded.
+There is no separately managed PostgreSQL download role; no download path or
+role is added or changed. Existing RLS rollback/cleanup assertions now require
+the new durable tag INSERT rather than silently reverting it.
+
+Fresh `17081` ran **15 tests, two expected missing-permanent-grant failures**,
+5.7 seconds, seed `215378`, exit 2, before the new forward-only
+`20261011000100_knowledge_runtime_grants.exs`. Released migrations remain
+untouched. The new Runtime source integration's temporary source/Document grant
+wrapper is removed for qualification under the actual permanent web grants.
+Owning integration and independent review are still pending; Task 4 and Phase 4
+are not yet accepted. E2E **NOT RUN**, explicitly deferred.
+
+Exact helper RED/GREEN and permanent-matrix RED commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs --warnings-as-errors --seed 215378
+```
+
+### Task 4 final owning qualification and independent review
+
+`26372` was FAIL: **149 Storage tests, one failure**, 94.2 seconds; its
+**24 Runtime tests passed**, 21.5 seconds, under permanent grants without the
+temporary source wrapper. The failure was a contract mismatch: invalid default
+organization rows reach the existing BEFORE INSERT provenance guard before
+native RLS. Repair 1 requires exact `23514` plus the named resource constraint,
+and adds valid-row missing-GUC INSERT `42501` negatives for all five source/
+organization tables. No assertion was removed, bypassed or relaxed.
+
+Focused `97622` passed **15 grant/RLS cases**, 3.7 seconds. Fresh whole owning
+`86382` passed **149 Storage and 24 Runtime integration cases**, 97.2 and 21.0
+seconds, seed `215378`, exit 0. Fresh `82329` checked formatting of all 11
+candidate files, compiled without warnings, passed **184 Runtime and 25 Web
+cases**, 4.1 and 2.3 seconds, and reported **No cycles found**, same seed, exit 0.
+
+Actual independent 11-file SPEC passed with zero actionable findings, followed
+by separate actual QUALITY with zero findings. Both reviewers checked unchanged
+source/test SHA-256 manifests; neither relied on a docs-only review. The public
+resolution/grants slice and all Task 4 checks are now locally qualified, but
+Phase 4 acceptance, Task 6/7 and whole-phase gates remain incomplete.
+
+Cleanup `23855` confirmed **zero generated test databases** and stopped only
+the owned private server. Each of the eight allocated roots
+`602147418251fbcf1bd35f59`, `dc5d768d61be82854faf4e14`,
+`7d9a5bd98b489d6c2452ede5`, `cf1ab2a258a8f8f8c59e6041`,
+`e400e2c5f96dcf57f99d466c`, `072bda61afda255a4f79194a`,
+`ea2054a3d8c86a75a093c416`, `a54973c7825bc4953a71db6b`, and the
+private cluster `postmaster.pid`, was individually verified absent, each exit 0.
+The ignored private cluster remains; no material user data was removed.
+
+Exact final qualification and cleanup commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_runtime/lib/singularity/runtime/api.ex apps/singularity_runtime/lib/singularity/runtime/notes/dto.ex apps/singularity_runtime/lib/singularity/runtime/notes/resolve_source.ex apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs apps/singularity_storage/priv/repo/migrations/20261011000100_knowledge_runtime_grants.exs apps/singularity_storage/test/support/knowledge_test_grants.ex apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs, compile --warnings-as-errors, test apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs --warnings-as-errors --seed 215378, xref graph --format cycles --fail-above 0
+devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%'"
+```
+
+### Task 6 result detail preparation
+
+The fixed owner-free Tag/Resource/Relationship/Page DTO contracts and natural-key
+replay identity detail passed bounded independent DESIGN SPEC, then separate
+DESIGN QUALITY, zero actionable findings and unchanged two-document hashes.
+This is not implementation acceptance. Astra architecture-only assistance under
+`astra_gate=PROJECT_ARCHITECTURE` supplied the minimal invocation-local entry
+wrapper and bounded selector/conditional-delete detail. DESIGN SPEC found one
+P2 overclaim about failures already hidden as forbidden by existing Authorize;
+repair explicitly describes that returned-result opacity and current exact-kind
+checks. Fresh SPEC then separate QUALITY passed, zero remaining findings.
+The typed-Page clarification separately passed SPEC then QUALITY: raw Core page
+maps keep `:done`; only typed public Page DTOs accept nil terminals. No general
+authorization, custody or capability change is planned.
+
+Api now has 47 draft cases (four added typed Page roundtrips, every original
+negative retained); Operations has 41 and the entry Authorizer 18. `8585` was
+test compilation FAIL because UUID `@tag` collided with ExUnit's reserved
+attribute, not feature RED. Parent's first harness repair mechanically renamed
+it in the two affected unit files. Fresh `75646` passed test formatting and
+production warnings-as-errors compilation, then ran **106 cases, 106 failures**,
+1.5 seconds, seed `215378`, exit 2; missing new facade/Operations/Authorizer
+functions are reproduced before any Task 6 production implementation. This is
+RED, not implementation or phase acceptance. No production repair failure or
+Astra repair round is claimed; architecture assistance is distinct. E2E NOT RUN.
+
 ## Preserved boundaries and baseline inventory
 
 No production activation, data/backfill, merge, push, version bump, tag,

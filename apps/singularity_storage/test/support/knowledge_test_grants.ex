@@ -65,11 +65,11 @@ defmodule Singularity.Storage.KnowledgeTestGrants do
   end
 
   def with_organization_delete_grants(fun) when is_function(fun, 0) do
-    with_permissions(
+    with_preserved_permissions(
       for(
         table <- ~w(resource_tags relationships),
         role <- @roles,
-        do: {"DELETE ON content.#{table}", role}
+        do: {"TABLE content.#{table}", role, "DELETE"}
       ),
       fun
     )

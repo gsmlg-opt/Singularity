@@ -246,8 +246,9 @@ actual port/owning SQL suites, static gates and separate SPEC then QUALITY.
 Runtime DTO/composer and all current/exact/conflict/mutation/Export collection
 routes have passed their owning units, real authorization suites, static gates
 and separate SPEC then QUALITY after a reproduced canonical-output repair.
-Public exact resolution, permanent grants and remaining Task 4 acceptance
-checks are still pending; this is not whole-task or phase acceptance.
+Public exact resolution and permanent grants have now passed their focused RED,
+full owning Runtime/Storage/Web suites, static gates and actual independent
+SPEC then QUALITY. Task 4 is locally qualified; this is not Phase 4 acceptance.
 
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
 `dto/note_citation.ex`, `notes/source_collections.ex`, and the source owning tests.
@@ -270,9 +271,10 @@ DELETE privileges in temporary test grants; Web
 Web `notes_live_test.exs` constructor fixtures for explicit empty reference arrays,
 without changing browser behavior;
 Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
-`knowledge_grants_test.exs` exact ACL expectations.
+`knowledge_grants_test.exs` exact ACL expectations and
+`knowledge_rls_test.exs` durable-grant/missing-scope contracts.
 
-- [ ] Add Runtime RED for optional reference client fields, absent/clear/mixed
+- [x] Add Runtime RED for optional reference client fields, absent/clear/mixed
   modes, conflict/source response shape and exact resolution selectors.
 - [x] Extend fixed client whitelist only for the two collections; reject owner,
   Vault, sentinel, evidence/retention and containing-version injection. Continue
@@ -290,7 +292,7 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   unchanged. Prove same-repo ordering, denial rollback, retained-only and replay
   bypass with real storage tests; preserve ordinary sanitized source denial
   rather than forging the initial OperationScope denial/audit marker.
-- [ ] Include exact ordered owner-free references in version/conflict DTOs;
+- [x] Include exact ordered owner-free references in version/conflict DTOs;
   normalize/revalidate all nested shapes. Add `resolve_note_attachment` and
   `resolve_note_citation` with containing Note read and current target read.
   Preserve pins, expose deleted status/historical evidence, and don't return
@@ -305,7 +307,7 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   noncanonical data, duplicates and oversized sets. Do not replace an absent or
   failed real membership read with empty arrays. Unit fakes must inject their
   own explicit reader; actual source integration must retain the real one.
-- [ ] Select only the requested stored canonical member on the authenticated
+- [x] Select only the requested stored canonical member on the authenticated
   scoped connection before determining its target read capability. After that
   current check, hydrate exact historical Asset/Note/Document typed metadata
   and the selected citation fragment/locator on the same authorization boundary.
@@ -325,12 +327,12 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   and qualify the full owning suites plus requested-member isolation and strict
   owner-free outputs. Temporary SELECT revocation must restore the original ACL;
   no trigger, policy or seal assertion may be bypassed to construct a fixture.
-- [ ] Apply explicit narrow web source/organization grants under forced RLS;
+- [x] Apply explicit narrow web source/organization grants under forced RLS;
   worker/download remain excluded; seal write privileges remain absent.
-- [ ] Test real canonical mutation composition, capability denial/revocation,
+- [x] Test real canonical mutation composition, capability denial/revocation,
   owner isolation, deleted/restored exact sources, replay/latest-head hydration,
   and strict API registration. Keep logging/audit/job/event payloads content-free.
-- [ ] Run full changed Runtime/Storage grant/RLS suites, SPEC then QUALITY;
+- [x] Run full changed Runtime/Storage grant/RLS suites, SPEC then QUALITY;
   commit `feat(runtime): expose version pinned note sources`.
 
 ## Task 5: Bounded organization values, ports and queries
@@ -382,15 +384,46 @@ owning pure/adapter tests.
 
 ## Task 6: Authenticated tag, relationship and backlink operations
 
-**Create:** Runtime `organization/operations.ex`, DTO organization page/items,
-`test/singularity/runtime/organization_api_test.exs`.
-**Modify:** Runtime `api.ex`, registration contracts and necessary adapter config.
+**Create:** Runtime `organization/operations.ex`, `organization/dto.ex`,
+`organization/authorizer.ex`,
+`dto/organization_tag.ex`, `dto/organization_resource.ex`,
+`dto/organization_relationship.ex`, `dto/organization_page.ex`,
+`test/singularity/runtime/organization_api_test.exs`,
+`organization_authorizer_test.exs`, `organization_operations_test.exs` and
+real-authorization owning contracts; Domains `organization/repository.ex`;
+Storage `postgres/organization_repository.ex` and its owning test.
+**Modify:** Runtime `api.ex`, registration contracts and necessary adapter config;
+Domains `relationships/repository.ex`, Storage
+`postgres/relationship_repository.ex` and its full owning test for additive
+selected conditional deletion, retaining established callers.
 
 - [ ] Add failing APIs for design's attach/detach/list/browse tags and
   relate/unrelate/outgoing/backlinks signatures and strict owner-free fields.
+  Use the design's fixed OrganizationTag/Resource/Relationship item DTOs and
+  OrganizationPage; attach/relate return their item, detach/unrelate `:ok`.
+  Preserve ownerful Core port contracts; strictly revalidate and bind before
+  conversion. Core page validation remains unchanged; convert only its
+  established terminal to public nil and never normalize server item values.
+  Prove typed Page DTO roundtrips; raw page maps still require the Core terminal,
+  not an untyped public nil sentinel.
 - [ ] Derive owner from Runtime context; require existing `note.read/write` or
   `asset.read/write` by actual resource kind. Relation creation checks both
   visible endpoints and source write authority; no new capabilities.
+- [ ] Compose the fixed read/write entry OR through an invocation-local injected
+  authorizer, delegating existing single capabilities and both epochs on the
+  existing locked/scoped connection; no general auth/Vault change. Preserve
+  Note unlock and established Asset/Document metadata behavior. Exact kind
+  checks precede labels/mutations; only canonical nonretryable returned forbidden
+  or Note-lock denials permit alternatives. Exposed faults terminate; inherited
+  Authorize forbidden opacity is explicit and never grants the denied kind.
+  Add contracts for opaque denial plus independently complete fallback, direct
+  throw/raise/exit, retryable and malformed replies, and denied-kind exclusion.
+- [ ] Add bounded complete resource ID/kind and selected edge metadata callbacks
+  under matching scoped GUCs, with ordered Resource locks and no hydration.
+  Bind exact keys/values/selectors, omit no requested member, and make missing/
+  foreign selectors nondisclosing. Selected unrelate checks the live source's
+  write then uses owner/all-field conditional DELETE without relationship UPDATE
+  grants; absent/foreign stays no-op and tombstoned source is not-found.
 - [ ] Filter appropriate read capabilities before page admission, with bounded
   queries and no unfiltered count/existence leak; pagination must not silently
   truncate permitted results. Unknown/cross-owner selectors are nondisclosing.

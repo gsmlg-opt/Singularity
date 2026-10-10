@@ -428,6 +428,111 @@ literal query-port operations; trusted allowed kinds are a separate internal
 argument, never a client query field or a replacement for current Runtime
 authorization. SQL filters both edge endpoint kinds before paging.
 
+### Task 6 facade result detail
+
+Use four small owner-free Runtime DTOs with the existing Core page field names:
+`OrganizationTag` has exactly `tag_id` and `display_value`;
+`OrganizationResource` has exactly `resource_id` and `kind`;
+`OrganizationRelationship` has exactly `relationship_id`, `source_resource_id`,
+`target_resource_id`, explicit nullable `target_resource_version_id` and `type`;
+`OrganizationPage` has exactly `items` and `next_cursor`. Resource-tag pages
+contain Tag DTOs, tag-browse pages Resource DTOs, and outgoing/backlink pages
+Relationship DTOs. Operations remain server-selected, not an extra page field.
+Convert the established Core `:done` terminal to public nil. Every continuation
+still requires a full nonempty page under the exact validated query.
+
+`attach_tag` returns one OrganizationTag; `relate_resource` returns one
+OrganizationRelationship. `detach_tag` and `unrelate_resource` return `:ok`.
+Keep the existing ownerful Core Tag/Relationship port results unchanged.
+Runtime converts them only after exact constructor revalidation and binding to
+the authenticated owner/private context; forged values, private extras,
+rewriting/default filling or mismatched result identities fail closed. Public
+Api revalidates canonical owner-free item DTOs/maps and typed Page DTOs, and may
+convert exact authenticated Core results through its deterministic configured
+test seam. Raw page maps follow the unchanged Core contract, including `:done`;
+public nil terminals are accepted only through the typed Page DTO boundary.
+It never strips unvalidated fields or accepts caller-provided owner scope.
+
+Shared pure conversion lives in `Runtime.Organization.DTO`; operations compose
+the existing scoped ports and current authorization in
+`Runtime.Organization.Operations`. Core page validation remains the authority
+for exact item shapes, order, uniqueness, limits and continuation. This detail
+fixes the previously unspecified mutation-result DTO identity; it adds no
+capability, organization feature, browser behavior or canonical record.
+
+### Task 6 per-kind scope entry and selector metadata
+
+An organization-only `Runtime.Organization.Authorizer` composes existing
+authorization rather than changing `Authorize`, `OperationScope` or their
+dependencies. For each invocation, Operations makes a local runtime copy with
+the wrapper as its injected authorizer, preserving the original authorizer in
+a trusted adapter context. Never mutate global configuration or recurse through
+the wrapper. Mutations use existing `with_shared_request`; pages use existing
+`with_read_request`. Both establish the ordinary authorization lock and scoped
+transaction before the entry check.
+
+The fixed server entry mode is read or write. It delegates nonempty single
+capability alternatives: `note.read` or `asset.read` for pages, `note.write` or
+`asset.write` for mutations. This is OR composition, never a new capability,
+empty requirement or demand for both kinds. Every delegated requirement has
+private classification, authenticated owner and both current session epochs.
+Note requirements retain unlock; Asset/Document metadata requirements retain
+the established non-unlock behavior. At the returned-result boundary, only a
+canonical nonretryable forbidden or Note-lock error permits the alternative;
+exposed unauthenticated, retryable, other error and malformed replies terminate.
+An exception/throw/exit escaping the delegate becomes sanitized unavailable,
+not fallback. Existing Authorize internally converts some malformed store
+replies and rescued exceptions to forbidden; the wrapper cannot distinguish
+those from capability denial and must not claim it can. Such an opaque denial
+may permit an independently successful alternative, which must perform the
+complete existing live-authority check. Successful entry permits bounded
+selector metadata only, never authority on the denied kind. Exact kind checks
+still precede labels/mutation and page admission excludes every denied kind.
+
+Inside that same callback and repo, perform the exact actual-kind check before
+labels, pages or mutation. Attach/detach require the resource's write; resource
+tag/outgoing/backlink pages require the selector's read; relate requires source
+write plus both visible endpoints' read. Tag browse has no resource kind and
+requires at least one read authority, then the existing owner-scoped tag
+selector. Derive allowed page kinds through fresh checks on the same repo:
+Note read contributes Note, Asset read contributes Asset and Document. Fixed
+observable nonretryable denials omit that kind; exposed operational/
+unauthenticated failures abort, with the same inherited forbidden opacity.
+Apply these trusted kinds before SQL page admission on every continuation,
+never from a session snapshot, client or cursor. Inner direct denials remain
+ordinary errors; do not claim the outer scope's denial-audit marker.
+
+Add only `Domains.Organization.Repository` and its Storage implementation for
+two existing-scope, metadata-only callbacks. `resources_in_scope(context, ids)`
+accepts one or two canonical sorted unique UUIDs and returns the complete exact
+requested set, sorted by UUID, as closed `resource_id`/`kind` maps. It filters
+live supported kinds, private classification and authenticated owner, locking
+Resources in UUID order. Missing or foreign membership returns the same
+not-found result. `relationship_in_scope(context, id)` returns nil for absent
+or foreign, or one closed five-field relationship map matching the requested
+UUID, with exact endpoints, type and explicit nullable pin. Neither callback
+returns title, tag label, body, bytes, timestamps or creator. Both require an
+already-open transaction and matching principal/owner GUCs. Runtime strictly
+revalidates keys, values, selector identity and complete membership. No new
+pre-authority tag-label callback is needed.
+
+Unrelate of an absent/foreign edge is the same idempotent `:ok` after write
+entry, without mutation/audit. For a selected edge, read its live source
+metadata and require that actual kind's write. A tombstoned source remains
+nondisclosing not-found until restored. Add only
+`Relationships.Repository.unrelate_selected_in_scope(context, selected)` to
+delete with authenticated owner and every selected identity field, including
+null-safe target-pin equality. A vanished or replaced edge produces no
+deletion/audit. Preserve existing `unrelate_in_scope/2` callers. Do not row-lock
+the relationship: its approved SELECT/INSERT/DELETE grants intentionally lack
+UPDATE. Resource locks keep the authorized source kind stable; the conditional
+DELETE binds the write to the selected edge without broader grants.
+
+No metadata preflight outside the scoped lock, mutable checked-state side
+channel, duplicated live-authority policy or change to custody/capabilities,
+role attributes/membership, general policies, Core/page contracts or migrations
+is introduced by this composition.
+
 Storage's existing tag/relationship transactions cannot be nested inside
 OperationScope. Add narrowly scoped internal methods while retaining existing
 standalone adapter calls; don't compose organization writes into Note Save.

@@ -2,8 +2,13 @@ defmodule Singularity.Runtime.Notes.DTO do
   @moduledoc "Strict conversion from authorized internal note values to runtime DTOs."
 
   alias Singularity.Core.Error
+  alias Singularity.Core.DocumentFragment
+  alias Singularity.Core.NoteAttachmentReference
+  alias Singularity.Core.NoteCitationReference
   alias Singularity.Core.Types
   alias Singularity.Runtime.DTO.Note
+  alias Singularity.Runtime.DTO.NoteAttachment
+  alias Singularity.Runtime.DTO.NoteCitation
   alias Singularity.Runtime.DTO.NoteConflict
   alias Singularity.Runtime.DTO.NoteConflictDetail
   alias Singularity.Runtime.DTO.NoteExport
@@ -116,6 +121,111 @@ defmodule Singularity.Runtime.Notes.DTO do
   end
 
   def version(_value), do: integrity_failure()
+
+  @doc false
+  def source_resolution(:attachment, value, member_id, _owner_id) do
+    with {:ok, attrs} <- plain_exact_attrs(value, [:reference, :source]),
+         {:ok, reference} <- resolution_reference(:attachment, attrs.reference, member_id),
+         {:ok, source} <-
+           source_metadata(
+             attrs.source,
+             reference.target_kind,
+             reference.target_resource_id,
+             reference.target_resource_version_id
+           ) do
+      {:ok, %{reference: reference, source: source}}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  def source_resolution(:citation, value, member_id, owner_id) do
+    with {:ok, attrs} <- plain_exact_attrs(value, [:reference, :source, :fragment]),
+         {:ok, reference} <- resolution_reference(:citation, attrs.reference, member_id),
+         {:ok, source} <-
+           source_metadata(
+             attrs.source,
+             :document,
+             reference.source_resource_id,
+             reference.source_resource_version_id
+           ),
+         {:ok, fragment} <- selected_fragment(attrs.fragment, reference, owner_id) do
+      {:ok, %{reference: reference, source: source, fragment: fragment}}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  def source_resolution(_operation, _value, _member_id, _owner_id), do: integrity_failure()
+
+  defp resolution_reference(:attachment, input, member_id) do
+    with true <-
+           is_struct(input, NoteAttachmentReference) or is_struct(input, NoteAttachment) or
+             (is_map(input) and not is_struct(input)),
+         {:ok, reference} <- NoteAttachment.new(input),
+         true <- plain_map(input) === Map.from_struct(reference),
+         true <- reference.attachment_id === member_id do
+      {:ok, reference}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp resolution_reference(:citation, input, member_id) do
+    with true <-
+           is_struct(input, NoteCitationReference) or is_struct(input, NoteCitation) or
+             (is_map(input) and not is_struct(input)),
+         {:ok, reference} <- NoteCitation.new(input),
+         true <- plain_map(input) === Map.from_struct(reference),
+         true <- reference.citation_id === member_id do
+      {:ok, reference}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp source_metadata(value, kind, resource_id, version_id) do
+    with {:ok, source} <-
+           plain_exact_attrs(value, [:kind, :resource_id, :resource_version_id, :title, :deleted?]),
+         true <- source.kind === kind,
+         true <- source.resource_id === resource_id,
+         true <- source.resource_version_id === version_id,
+         true <- is_boolean(source.deleted?),
+         true <-
+           is_binary(source.title) and String.valid?(source.title) and
+             String.trim(source.title) != "" and :binary.match(source.title, <<0>>) == :nomatch do
+      {:ok, source}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp selected_fragment(value, reference, owner_id) do
+    fields = [:fragment_id, :ordinal, :text, :locator]
+
+    with {:ok, fragment} <- plain_exact_attrs(value, fields),
+         true <- fragment.fragment_id === reference.fragment_id,
+         true <- fragment.locator === reference.locator,
+         {:ok, canonical} <-
+           DocumentFragment.new(
+             Map.merge(fragment, %{
+               resource_id: reference.source_resource_id,
+               resource_version_id: reference.source_resource_version_id,
+               owner_scope_id: owner_id,
+               classification: :private
+             })
+           ),
+         true <- Map.take(canonical, fields) === fragment do
+      {:ok, fragment}
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp plain_exact_attrs(value, fields) when is_map(value) and not is_struct(value),
+    do: exact_attrs(value, fields)
+
+  defp plain_exact_attrs(_value, _fields), do: integrity_failure()
 
   def conflict(%NoteConflict{} = value), do: NoteConflict.new(Map.from_struct(value))
 
