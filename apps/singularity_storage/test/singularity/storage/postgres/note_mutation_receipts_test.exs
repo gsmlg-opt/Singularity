@@ -50,7 +50,39 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceiptsTest do
     end)
   end
 
-  test "an existing key rejects operation, caller resource, and fingerprint mismatches", %{
+  test "an existing key rejects structural mismatches as invalid and a changed fingerprint as conflict",
+       %{
+         note: note
+       } do
+    claim = claim(note)
+    result = saved(note)
+
+    assert {:ok, ^result} =
+             NoteFixtures.scoped(note, RequestRepo, fn repo ->
+               Receipts.with_claim(repo, claim, fn -> {:ok, result} end)
+             end)
+
+    before = mutation_state(note)
+    assert receipt_count(note, claim.mutation_id) == 1
+
+    mismatches = [
+      {Map.put(claim, :operation, :merge), :invalid},
+      {Map.put(claim, :resource_id, Ecto.UUID.generate()), :invalid},
+      {Map.put(claim, :request_fingerprint, :crypto.hash(:sha256, "different")), :conflict}
+    ]
+
+    for {mismatch, code} <- mismatches do
+      assert {:error, %Error{code: ^code, retryable?: false}} =
+               NoteFixtures.scoped(note, RequestRepo, fn repo ->
+                 Receipts.with_claim(repo, mismatch, fn -> flunk("mismatch ran callback") end)
+               end)
+
+      assert receipt_count(note, claim.mutation_id) == 1
+      assert mutation_state(note) == before
+    end
+  end
+
+  test "operation and caller resource mismatches stay invalid even with a changed fingerprint", %{
     note: note
   } do
     claim = claim(note)
@@ -61,17 +93,24 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceiptsTest do
                Receipts.with_claim(repo, claim, fn -> {:ok, result} end)
              end)
 
-    mismatches = [
-      Map.put(claim, :operation, :merge),
-      Map.put(claim, :resource_id, Ecto.UUID.generate()),
-      Map.put(claim, :request_fingerprint, :crypto.hash(:sha256, "different"))
-    ]
+    before = mutation_state(note)
+    assert receipt_count(note, claim.mutation_id) == 1
+    changed = Map.put(claim, :request_fingerprint, :crypto.hash(:sha256, "changed-and-invalid"))
 
-    for mismatch <- mismatches do
+    for mismatch <- [
+          Map.put(changed, :operation, :merge),
+          Map.put(changed, :resource_id, Ecto.UUID.generate()),
+          Map.merge(changed, %{operation: :merge, resource_id: Ecto.UUID.generate()})
+        ] do
       assert {:error, %Error{code: :invalid, retryable?: false}} =
                NoteFixtures.scoped(note, RequestRepo, fn repo ->
-                 Receipts.with_claim(repo, mismatch, fn -> flunk("mismatch ran callback") end)
+                 Receipts.with_claim(repo, mismatch, fn ->
+                   flunk("combined mismatch ran callback")
+                 end)
                end)
+
+      assert receipt_count(note, claim.mutation_id) == 1
+      assert mutation_state(note) == before
     end
   end
 
@@ -94,6 +133,70 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceiptsTest do
              end)
 
     assert receipt_count(note, claim.mutation_id) == 1
+  end
+
+  test "a malformed completed receipt stays invalid before fingerprint conflict classification",
+       %{
+         note: note
+       } do
+    claim = claim(note)
+
+    # PostgreSQL CHECK accepts SQL UNKNOWN for this NULL outcome. The real
+    # owner, Note, and immutable version satisfy all existing FK/trigger checks.
+    NoteFixtures.scoped(note, RequestRepo, fn repo ->
+      assert %{num_rows: 1} =
+               query!(
+                 repo,
+                 """
+                 INSERT INTO content.note_mutation_receipts (
+                   vault_id, principal_id, mutation_id, operation,
+                   request_fingerprint, state, outcome, resource_id, version_id, conflict_id
+                 ) VALUES ($1, $2, $3, 'save', $4, 'completed', NULL, $5, $6, NULL)
+                 """,
+                 [
+                   Ecto.UUID.dump!(note.vault_id),
+                   Ecto.UUID.dump!(note.principal_id),
+                   Ecto.UUID.dump!(claim.mutation_id),
+                   claim.request_fingerprint,
+                   Ecto.UUID.dump!(note.resource_id),
+                   Ecto.UUID.dump!(note.initial_version_id)
+                 ]
+               )
+
+      assert %{rows: [["completed", nil, version_id]]} =
+               query!(
+                 repo,
+                 "SELECT state,outcome,version_id FROM content.note_mutation_receipts WHERE mutation_id=$1",
+                 [Ecto.UUID.dump!(claim.mutation_id)]
+               )
+
+      assert Ecto.UUID.load!(version_id) == note.initial_version_id
+      :ok
+    end)
+
+    before = mutation_state(note)
+    assert receipt_count(note, claim.mutation_id) == 1
+    changed = Map.put(claim, :request_fingerprint, :crypto.hash(:sha256, "malformed-changed"))
+
+    for candidate <- [
+          claim,
+          Map.put(claim, :operation, :merge),
+          Map.put(claim, :resource_id, Ecto.UUID.generate()),
+          Map.put(changed, :operation, :merge),
+          Map.put(changed, :resource_id, Ecto.UUID.generate()),
+          Map.merge(changed, %{operation: :merge, resource_id: Ecto.UUID.generate()}),
+          changed
+        ] do
+      assert {:error, %Error{code: :invalid, retryable?: false}} =
+               NoteFixtures.scoped(note, RequestRepo, fn repo ->
+                 Receipts.with_claim(repo, candidate, fn ->
+                   flunk("malformed completed receipt ran callback")
+                 end)
+               end)
+
+      assert receipt_count(note, claim.mutation_id) == 1
+      assert mutation_state(note) == before
+    end
   end
 
   test "a malformed callback outcome cannot commit a pending receipt", %{note: note} do
@@ -244,6 +347,25 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceiptsTest do
         )
 
       count
+    end)
+  end
+
+  # Exact owner-scoped row JSON includes every timestamp and the original
+  # completed receipt; counts also make zero canonical/effect writes explicit.
+  defp mutation_state(note) do
+    Fixtures.with_owner(fn ->
+      for table <-
+            ~w(content.resources content.resource_versions content.note_versions content.note_attachments content.note_citations content.note_source_set_seals content.note_conflicts content.note_mutation_receipts content.note_search_documents content.search_entries audit.events core.outbox_events jobs.job_submissions),
+          into: %{} do
+        %{rows: [[count, rows]]} =
+          query!(
+            MigrationRepo,
+            "SELECT count(*),COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM #{table} t WHERE vault_id=$1",
+            [Ecto.UUID.dump!(note.vault_id)]
+          )
+
+        {table, %{count: count, rows: rows}}
+      end
     end)
   end
 

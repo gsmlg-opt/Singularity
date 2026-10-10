@@ -198,32 +198,41 @@ privacy, provenance, replay or unsupported-backup assertions.
 `test/singularity/storage/postgres/note_sources_test.exs` for the narrow
 prepare/lock/insert composition; no general graph/process abstraction.
 **Modify:** `postgres/note_repository.ex`, `knowledge_link_repository.ex`,
-and owning `note_repository_test.exs`/`knowledge_link_repository_test.exs`.
+`note_mutation_receipts.ex` for fingerprint-only conflict classification, and
+owning `note_repository_test.exs`/`knowledge_link_repository_test.exs` plus the
+complete `note_mutation_receipts_test.exs`. Preserve structural operation/resource
+mismatch invalid errors; explicitly update only the fingerprint mismatch contract
+and strengthen combined-mismatch precedence/unchanged-row/effect assertions.
 
 - [x] Add real integration RED for metadata-only new versions, normal/stale
   inheritance from exact base, independent clear/replace, and merge inheritance
   from expected current while explicit unchanged members may use either parent.
-- [ ] Prepare the full target set without row locks inside winning receipt
+- [x] Prepare the full target set without row locks inside winning receipt
   callback. Do not call the current locking `list_set` for early preparation.
   Expose a narrow immutable membership reader with canonical revalidation.
-- [ ] Lock sorted target Assets→objects→all resources including edited Note→
+- [x] Lock sorted target Assets→objects→all resources including edited Note→
   aggregate advisory locks→resource versions→Asset associations before CAS.
   No later target discovery or Asset locking; preserve existing shared-request,
   receipt, deadlines, head/conflict and projection semantics.
-- [ ] Resolve canonical witnesses per-member as historical retained or live new;
+- [x] Resolve canonical witnesses per-member as historical retained or live new;
   construct validated Core NoteAttachment/NoteCitation rows from strict resolved
   reference lists with derived owner/new Note/version/ordinals; check actual
   canonical typed/fragment/locator metadata without fetching retained content,
   preserving the full-text public NoteSourceSet constructor unchanged;
   insert both collections and force seal within shared `insert_note_version`.
-- [ ] Replay must bypass all preparation/live checks and leave zero new rows,
+- [x] Replay must bypass all preparation/live checks and leave zero new rows,
   audits, jobs or events after source deletion; same-ID changed request conflicts.
-- [ ] Prove old versions remain exact, stale conflict sets preserve submitted
+  Characterize the unchanged complete receipt suite, observe fingerprint-only
+  conflict RED, then repair without changing receipt keys/HMAC or weakening
+  owner/operation/resource/integrity guards. Preserve established same-owner
+  lineage error classification through nonlocking aggregate-input preflight,
+  followed by all original post-ordered-lock revalidation.
+- [x] Prove old versions remain exact, stale conflict sets preserve submitted
   metadata, merge parents/conflict resolution remain correct, changed/new dead
   references fail atomically, forged/self/cyclic/non-lower parent and
   owner/locator/pins fail in adapter
   and raw SQL, and bounds/rollback maintain prior row/effect counts.
-- [ ] Add barrier-controlled mutual Note attachments, Save versus Asset delete
+- [x] Add barrier-controlled mutual Note attachments, Save versus Asset delete
   and Document lifecycle operations, without sleeps/timeout increases. Run all
   changed Note/source owning integration suites and deadline regressions;
   SPEC then QUALITY review; commit `feat(storage): persist note sources atomically`.
@@ -284,6 +293,14 @@ owning pure/adapter tests.
 
 - [ ] Add failing fixed-key query/page contracts: limit1–50/default20, cursor
   optional/max2048, ordered unique owner-free outputs and exact cursor binding.
+  Query fields are only `limit`/`cursor`; `OrganizationPage.new(operation,
+  attrs, query)` receives the server operation separately and returns only
+  `items`/`next_cursor`, with internal `:done` terminal. Fixed items are
+  tag ID/display value, resource ID/kind, or edge ID/endpoints/nullable pin/type.
+  Reject injected owner/capability/content fields, malformed/forged structs,
+  duplicate/reversed UUID keys and non-full continuations. Domains' literal
+  query dispatch revalidates selector/query/page, with trusted allowed kinds
+  passed separately and SQL endpoint-kind filtering before `limit + 1`.
 - [ ] Add tag browse port and limit+1 UUID keyset browse; edge outgoing/incoming
   use relationship UUID keysets, selector visibility and live endpoints.
   Preserve legacy calls; avoid hidden max100 truncation on the public seam.

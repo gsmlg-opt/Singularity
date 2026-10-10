@@ -133,6 +133,14 @@ Source preparation, live checks and persistence occur inside the winning
 identities without creating a version or validating now-deleted sources.
 Runtime retains its current canonical-head response hydration semantics.
 The same mutation ID with changed source intent conflicts with the receipt.
+For the same authenticated receipt identity, operation and caller resource,
+a changed canonical request fingerprint returns a nonretryable conflict.
+Structural operation/resource mismatches remain invalid, even when the
+fingerprint also differs; malformed/pending stored receipts retain their
+existing integrity handling. Receipt keys, HMAC encoding and completed replay
+results do not change. Nonlocking aggregate-input preflight may preserve
+established lineage error classification inside the winning callback before
+source resolution; all existing post-ordered-lock checks remain required.
 
 ## Per-member historical retention
 
@@ -304,6 +312,23 @@ Retain the existing internal tag-list signature but do not reuse its `LIMIT 100`
 as a complete public list. Test a resource with more than 100 tags across pages.
 Filter source and target visibility/kind/read capability before admitting rows,
 not by disclosing an unfiltered count. No generic graph traversal is added.
+
+The pure `OrganizationPageQuery` contains only `limit` and `cursor`, with
+defaults 20 and nil. The server-side page constructor receives one of
+`resource_tags`, `tag_resources`, `outgoing` or `incoming` separately; the
+`OrganizationPage` itself contains only `items` and `next_cursor`. Preserve
+the established internal `:done` terminal, converted by the Runtime DTO if
+needed. Fixed owner-free items contain `tag_id`/`display_value` for resource
+tags, `resource_id`/`kind` for tag browse, and `relationship_id`,
+`source_resource_id`, `target_resource_id`, nullable
+`target_resource_version_id` and `type` for edges. Validate exact keys,
+canonical IDs/kinds/types, distinct edge endpoints, strictly ascending unique
+UUID keys and bounded proper lists. A continuation requires a full nonempty
+page. Preserve existing ownerful Core Tag/Relationship mutation values.
+Pure Domains dispatch revalidates selector, query and returned page through
+literal query-port operations; trusted allowed kinds are a separate internal
+argument, never a client query field or a replacement for current Runtime
+authorization. SQL filters both edge endpoint kinds before paging.
 
 Storage's existing tag/relationship transactions cannot be nested inside
 OperationScope. Add narrowly scoped internal methods while retaining existing

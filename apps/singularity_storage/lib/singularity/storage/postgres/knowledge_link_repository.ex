@@ -10,7 +10,9 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
     DocumentFragment,
     Error,
     NoteAttachment,
+    NoteAttachmentReference,
     NoteCitation,
+    NoteCitationReference,
     NoteSourceSet,
     SourceLocator
   }
@@ -95,6 +97,154 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
     exception -> {:error, KnowledgeError.from(exception)}
   end
 
+  @doc false
+  def read_membership(context, resource_id, version_id) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         :ok <- UUID.validate([resource_id, version_id]) do
+      %{rows: rows} =
+        SafeSQL.query!(
+          repo,
+          """
+          SELECT v.revision,s.attachment_count,s.citation_count
+          FROM content.note_versions n
+          JOIN content.resources r ON (r.id,r.vault_id,r.classification)=(n.resource_id,n.vault_id,n.classification) AND r.kind='note'
+          JOIN content.resource_versions v ON (v.id,v.resource_id,v.vault_id,v.classification)=(n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+          JOIN content.note_source_set_seals s ON (s.note_resource_version_id,s.note_resource_id,s.vault_id,s.classification)=(n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+          WHERE (n.resource_version_id,n.resource_id,n.vault_id,n.classification)=($1,$2,$3,'private')
+          """,
+          [
+            Ecto.UUID.dump!(version_id),
+            Ecto.UUID.dump!(resource_id),
+            Ecto.UUID.dump!(context.owner_scope_id)
+          ]
+        )
+
+      case rows do
+        [[revision, attachments, citations]] ->
+          with {:ok, attachments} <-
+                 membership_rows(
+                   repo,
+                   context,
+                   resource_id,
+                   version_id,
+                   :attachments,
+                   attachments
+                 ),
+               {:ok, citations} <-
+                 membership_rows(repo, context, resource_id, version_id, :citations, citations) do
+            {:ok, %{revision: revision, attachments: attachments, citations: citations}}
+          end
+
+        [] ->
+          error(:not_found)
+      end
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  # A sealed empty collection needs no child-table privilege. This preserves
+  # legacy empty Note mutations before Phase 4's explicit runtime grants.
+  defp membership_rows(_repo, _context, _resource, _version, _kind, 0), do: {:ok, []}
+
+  defp membership_rows(repo, context, resource, version, kind, count) when count in 1..100 do
+    {schema, constructor, reference_module} =
+      case kind do
+        :attachments -> {StoredAttachment, &attachment_value/1, NoteAttachmentReference}
+        :citations -> {StoredCitation, &citation_value/1, NoteCitationReference}
+      end
+
+    rows =
+      repo.all(
+        from(member in schema,
+          where:
+            member.note_resource_id == ^resource and member.note_resource_version_id == ^version and
+              member.vault_id == ^context.owner_scope_id,
+          order_by: [member.ordinal, member.id],
+          limit: 101
+        ),
+        log: false,
+        telemetry_event: nil
+      )
+
+    if length(rows) == count and
+         Enum.all?(Enum.with_index(rows), fn {row, ordinal} -> row.ordinal == ordinal end) do
+      collect(rows, fn row ->
+        with {:ok, member} <- constructor.(row),
+             true <- kind != :attachments or member.label == row.label,
+             attrs = member |> Map.from_struct() |> Map.take(reference_keys(kind)),
+             {:ok, reference} <- reference_module.new(attrs),
+             true <- Map.from_struct(reference) == attrs do
+          {:ok, reference}
+        else
+          false -> error(:invalid)
+          {:error, _} = failure -> failure
+        end
+      end)
+    else
+      error(:invalid)
+    end
+  end
+
+  defp membership_rows(_, _, _, _, _, _), do: error(:invalid)
+
+  defp reference_keys(:attachments), do: @attachment_semantics
+  defp reference_keys(:citations), do: @citation_semantics
+
+  @doc false
+  def revalidate_target(context, resource, version, live?) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         :ok <- UUID.validate([resource, version]),
+         true <- is_boolean(live?) do
+      target_value(repo, context.owner_scope_id, resource, version, live?)
+    else
+      false -> error(:invalid)
+      {:error, _} = failure -> failure
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  @doc false
+  def insert_composed_members(context, resource, version, attachments, citations) do
+    with {:ok, repo} <- context_repo(context),
+         :ok <- existing_scope(repo, context),
+         :ok <- UUID.validate([resource, version]),
+         :ok <- note_exists(repo, context, resource, version, true),
+         {:ok, attachments} <-
+           composed_members(attachments, NoteAttachment, context, resource, version),
+         {:ok, citations} <-
+           composed_members(citations, NoteCitation, context, resource, version),
+         :ok <-
+           bounded(%{attachments: attachments, citations: citations, targets: [], fragments: []}) do
+      insert_rows(repo, %{attachments: attachments, citations: citations})
+      SafeSQL.query!(repo, "SET CONSTRAINTS " <> @constraints <> " IMMEDIATE", [])
+      SafeSQL.query!(repo, "SET CONSTRAINTS " <> @constraints <> " DEFERRED", [])
+      :ok
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  defp composed_members(references, module, context, resource, version) do
+    references
+    |> Enum.with_index()
+    |> collect(fn {reference, ordinal} ->
+      reference
+      |> Map.from_struct()
+      |> Map.merge(%{
+        note_resource_id: resource,
+        note_resource_version_id: version,
+        owner_scope_id: context.owner_scope_id,
+        classification: :private,
+        ordinal: ordinal
+      })
+      |> module.new()
+    end)
+  end
+
   defp persist(repo, context, set, old) do
     with {:ok, sealed?} <- sealed?(repo, set, old) do
       if sealed? or old.attachments != [] or old.citations != [] do
@@ -131,6 +281,11 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
   end
 
   defp insert_members(repo, context, set) do
+    insert_rows(repo, set)
+    read_set(repo, context, set.note_resource_id, set.note_resource_version_id)
+  end
+
+  defp insert_rows(repo, set) do
     now = DateTime.utc_now(:microsecond)
 
     Enum.each(set.attachments, fn attachment ->
@@ -162,7 +317,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
       insert!(repo, StoredCitation.create_changeset(%StoredCitation{}, attrs))
     end)
 
-    read_set(repo, context, set.note_resource_id, set.note_resource_version_id)
+    :ok
   end
 
   defp insert!(repo, changeset) do

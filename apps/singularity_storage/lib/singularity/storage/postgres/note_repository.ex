@@ -11,6 +11,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   alias Singularity.Storage.Postgres.NoteMutationReceipts
   alias Singularity.Storage.Postgres.NoteProjectionReconciler
   alias Singularity.Storage.Postgres.NoteSearchStore
+  alias Singularity.Storage.Postgres.NoteSources
   alias Singularity.Storage.Postgres.UUID
   alias Singularity.Storage.SafeSQL
   alias Singularity.Storage.Schema.Audit.Event, as: AuditEvent
@@ -720,13 +721,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     with :ok <- validate_common(intent),
          %NoteSnapshot{} = snapshot <- Map.get(intent, :snapshot),
          {:ok, ^snapshot} <-
-           NoteSnapshot.initial(%{
-             classification: snapshot.classification,
-             title: snapshot.title,
-             markdown: snapshot.markdown,
-             parent_version_id: snapshot.parent_version_id,
-             merge_parent_version_id: snapshot.merge_parent_version_id
-           }) do
+           NoteSnapshot.initial(snapshot_attrs(snapshot)) do
       :ok
     else
       _invalid -> invalid()
@@ -739,13 +734,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
          %NoteSnapshot{} = snapshot <- Map.get(intent, :snapshot),
          true <- snapshot.parent_version_id == base_version_id,
          {:ok, ^snapshot} <-
-           NoteSnapshot.normal(%{
-             classification: snapshot.classification,
-             title: snapshot.title,
-             markdown: snapshot.markdown,
-             parent_version_id: snapshot.parent_version_id,
-             merge_parent_version_id: snapshot.merge_parent_version_id
-           }) do
+           NoteSnapshot.normal(snapshot_attrs(snapshot)) do
       :ok
     else
       _invalid -> invalid()
@@ -774,13 +763,7 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
          true <- snapshot.parent_version_id == expected_current_version_id,
          true <- snapshot.merge_parent_version_id == competing_version_id,
          {:ok, ^snapshot} <-
-           NoteSnapshot.merge(%{
-             classification: snapshot.classification,
-             title: snapshot.title,
-             markdown: snapshot.markdown,
-             parent_version_id: snapshot.parent_version_id,
-             merge_parent_version_id: snapshot.merge_parent_version_id
-           }) do
+           NoteSnapshot.merge(snapshot_attrs(snapshot)) do
       :ok
     else
       _invalid -> invalid()
@@ -788,6 +771,15 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   end
 
   defp validate_merge(_intent), do: invalid()
+
+  defp snapshot_attrs(snapshot) do
+    snapshot
+    |> Map.from_struct()
+    |> Enum.reject(fn {field, value} ->
+      field in [:attachments, :citations] and value == :inherit
+    end)
+    |> Map.new()
+  end
 
   defp validate_tombstone(
          %{
@@ -826,7 +818,10 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   defp validate_common(_intent), do: invalid()
 
   defp persist_create(repo, intent, resource_id, version_id) do
-    with {:ok, _resource} <- insert_resource(repo, intent, resource_id, version_id),
+    with {:ok, sources} <- prepare_sources(repo, intent, resource_id),
+         :ok <- NoteSources.revalidate(repo, intent, sources),
+         intent = Map.put(intent, :prepared_sources, sources),
+         {:ok, _resource} <- insert_resource(repo, intent, resource_id, version_id),
          {:ok, version} <- insert_resource_version(repo, intent, resource_id, version_id, 0),
          {:ok, _snapshot} <- insert_note_version(repo, intent, resource_id, version, nil),
          :ok <-
@@ -844,11 +839,18 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   end
 
   defp persist_save(repo, intent, version_id) do
-    with {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
+    with {:ok, preflight} <- lock_resource(repo, intent.vault_id, intent.resource_id, false),
+         :ok <- require_live(preflight),
+         :ok <- require_base(repo, intent),
+         {:ok, sources} <- prepare_sources(repo, intent, intent.resource_id),
+         {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
          :ok <- checkpoint(intent, :after_resource_lock),
          :ok <- require_live(resource),
          :ok <- require_base(repo, intent),
+         :ok <- NoteSources.revalidate(repo, intent, sources),
          {:ok, revision} <- next_revision(repo, intent.vault_id, intent.resource_id) do
+      intent = Map.put(intent, :prepared_sources, sources)
+
       if resource.current_version_id == intent.base_version_id do
         persist_canonical_save(repo, intent, version_id, revision)
       else
@@ -963,11 +965,18 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   end
 
   defp persist_merge(repo, intent, version_id) do
-    with {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
+    with {:ok, preflight} <- lock_resource(repo, intent.vault_id, intent.resource_id, false),
+         :ok <- require_live(preflight),
+         :ok <- require_expected_head(preflight, intent.expected_current_version_id),
+         {:ok, _preflight_conflict} <- lock_merge_conflict(repo, intent, false),
+         {:ok, sources} <- prepare_sources(repo, intent, intent.resource_id),
+         {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
          :ok <- checkpoint(intent, :after_resource_lock),
          :ok <- require_live(resource),
          :ok <- require_expected_head(resource, intent.expected_current_version_id),
          {:ok, conflict} <- lock_merge_conflict(repo, intent),
+         :ok <- NoteSources.revalidate(repo, intent, sources),
+         intent = Map.put(intent, :prepared_sources, sources),
          {:ok, revision} <- next_revision(repo, intent.vault_id, intent.resource_id),
          {:ok, version} <-
            insert_resource_version(repo, intent, intent.resource_id, version_id, revision),
@@ -1137,20 +1146,33 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
          parent_version_id,
          merge_parent_version_id \\ nil
        ) do
-    %NoteVersion{}
-    |> NoteVersion.create_changeset(%{
-      resource_version_id: version.id,
-      resource_id: resource_id,
-      vault_id: intent.vault_id,
-      classification: :private,
-      title: intent.snapshot.title,
-      markdown: intent.snapshot.markdown,
-      created_by_principal_id: intent.principal_id,
-      parent_version_id: parent_version_id,
-      merge_parent_version_id: merge_parent_version_id,
-      inserted_at: version.inserted_at
-    })
-    |> repo.insert()
+    changeset =
+      %NoteVersion{}
+      |> NoteVersion.create_changeset(%{
+        resource_version_id: version.id,
+        resource_id: resource_id,
+        vault_id: intent.vault_id,
+        classification: :private,
+        title: intent.snapshot.title,
+        markdown: intent.snapshot.markdown,
+        created_by_principal_id: intent.principal_id,
+        parent_version_id: parent_version_id,
+        merge_parent_version_id: merge_parent_version_id,
+        inserted_at: version.inserted_at
+      })
+
+    with {:ok, snapshot} <- repo.insert(changeset),
+         :ok <- NoteSources.insert(repo, intent, intent.prepared_sources, resource_id, version) do
+      {:ok, snapshot}
+    end
+  end
+
+  defp prepare_sources(repo, intent, resource_id) do
+    with {:ok, sources} <- NoteSources.prepare(repo, intent, resource_id),
+         :ok <- checkpoint(intent, :after_source_prepare),
+         :ok <- NoteSources.lock(repo, intent, sources) do
+      {:ok, sources}
+    end
   end
 
   defp insert_conflict(
@@ -1175,14 +1197,17 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     |> repo.insert()
   end
 
-  defp lock_resource(repo, vault_id, resource_id) do
+  # Preflight reads preserve established input-error precedence without taking
+  # a row lock before the complete source target set has been prepared.
+  defp lock_resource(repo, vault_id, resource_id, lock? \\ true) do
     query =
       from resource in Resource,
         where:
           resource.id == ^resource_id and
             resource.vault_id == ^vault_id and
-            resource.kind == :note,
-        lock: "FOR UPDATE"
+            resource.kind == :note
+
+    query = if lock?, do: lock(query, "FOR UPDATE"), else: query
 
     case repo.one(query) do
       nil -> {:error, Error.new(:not_found)}
@@ -1222,14 +1247,15 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     end
   end
 
-  defp lock_merge_conflict(repo, intent) do
+  defp lock_merge_conflict(repo, intent, lock? \\ true) do
     query =
       from conflict in NoteConflict,
         where:
           conflict.id == ^intent.conflict_id and
             conflict.vault_id == ^intent.vault_id and
-            conflict.classification == :private,
-        lock: "FOR UPDATE"
+            conflict.classification == :private
+
+    query = if lock?, do: lock(query, "FOR UPDATE"), else: query
 
     case repo.one(query) do
       nil ->

@@ -292,10 +292,10 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceipts do
              true <- Ecto.UUID.load!(principal_id) == claim.principal_id,
              true <- Ecto.UUID.load!(mutation_id) == claim.mutation_id,
              true <- operation == claim.operation,
-             true <- request_fingerprint == claim.request_fingerprint,
              true <- resource_matches?(operation, resource_id, claim.resource_id),
              result <- result_map(outcome, resource_id, version_id, conflict_id),
-             {:ok, ^result} <- validate_replayed_result(operation, result) do
+             {:ok, ^result} <- validate_replayed_result(operation, result),
+             :ok <- require_matching_fingerprint(request_fingerprint, claim.request_fingerprint) do
           {:ok, result}
         else
           false -> invalid()
@@ -320,6 +320,9 @@ defmodule Singularity.Storage.Postgres.NoteMutationReceipts do
 
   defp resource_matches?(_operation, stored_resource_id, candidate_resource_id),
     do: Ecto.UUID.load!(stored_resource_id) == candidate_resource_id
+
+  defp require_matching_fingerprint(fingerprint, fingerprint), do: :ok
+  defp require_matching_fingerprint(_stored, _candidate), do: {:error, Error.new(:conflict)}
 
   defp validate_replayed_result(operation, result) do
     with {:ok, outcome} <- result_outcome(result),

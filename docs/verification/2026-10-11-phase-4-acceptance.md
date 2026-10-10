@@ -3,10 +3,11 @@
 ## Current status
 
 **IN PROGRESS — NOT ACCEPTED.** E2E is deferred and NOT RUN, not a passing
-browser/release gate. Tasks 1, 2 and the early Task 8 restore compatibility
+browser/release gate. Tasks 1, 2, 3 and the early Task 8 restore compatibility
 slice are qualified locally after their owning checks and independent SPEC then
-QUALITY review. Atomic Note source composition and remaining Phase 4
-deliverables/whole-phase acceptance are pending.
+QUALITY review. Task 5's pure Query/Page/dispatch slice is qualified, but its
+real SQL/cursor work and the remaining Phase 4 deliverables/whole-phase
+acceptance are pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -563,6 +564,265 @@ review and returned PASS with no findings. Separate
 Critical, Important or Minor findings. These reviews cover documentation and
 feasibility only, excluding the worker's mutable production candidate; all
 implementation checks and reviews remain pending.
+
+## Task 3 first implementation and receipt diagnosis
+
+First implementation `69040` passed formatting/compilation but exited 2:
+**72 integration tests, four failures**, 36.7 seconds, seed `215378`.
+One new changed-source receipt case returned invalid rather than the design's
+conflict. Three original Note repository cases returned not-found rather than
+their established invalid lineage classification: a same-owner base from
+another Note, a mismatched competing version and a same-owner conflict from
+another Note. All failures remain FAIL; this is not accepted implementation.
+Database/root: `singularity_test_a7a93a55f036f959d9330ec2` and
+`/tmp/singularity/integration/a7a93a55f036f959d9330ec2`; the owned server stopped
+and root absence was verified. Exact command:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/lib/singularity/storage/postgres/note_sources.ex apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_concurrency_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs --seed 215378
+```
+
+Read-only Sol diagnosis found exact-parent source lookup preceding established
+aggregate lineage checks, masking their error classification. The recommended
+repair performs nonlocking aggregate-input preflight inside the winning receipt
+callback and retains all original post-ordered-lock checks. The unchanged
+`NoteMutationReceipts.replay/2` also intentionally classified fingerprint
+mismatch as invalid. A necessary explicit contract amendment now distinguishes
+same authenticated receipt/operation/resource fingerprint conflict from still-
+invalid structural operation/resource mismatches, retaining key/HMAC/result/
+integrity semantics and strengthening unchanged-row/effect/precedence tests.
+Complete unchanged receipt characterization, test RED and independent amendment
+review are required before this production repair; repair rounds remain zero
+at this diagnostic checkpoint.
+
+Command `70557` exited 0 but only actually ran Core **15 tests + two properties**
+and Domains **one test**, zero failures, seed `215378` (1.1/0.1 seconds).
+It incorrectly combined `mix do test ..., singularity.test.integration ...`
+in one VM: the already-run Mix test task produced no integration ExUnit output.
+The requested receipt suite is therefore **NOT RUN**, not a passing baseline,
+and is being rerun in a separate Mix invocation. It allocated database/root
+`singularity_test_023567877c60d15216a86783` /
+`/tmp/singularity/integration/023567877c60d15216a86783`; the owned server stopped.
+This was command composition error, not a receipt implementation result.
+Separate actual baseline `36949` exited 0: complete unchanged receipt suite
+**eight integration tests, zero failures**, 1.5 seconds, seed `215378`.
+Database/root: `singularity_test_d8a7d7b4967717bc3ecae121` and
+`/tmp/singularity/integration/d8a7d7b4967717bc3ecae121`; the owned server stopped.
+Both characterization roots above were confirmed absent. Exact command:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs --seed 215378
+```
+
+Test-only preparation retained all eight original receipt cases and added one
+combined-mismatch precedence case, explicitly distinguishing fingerprint-only
+conflict from structural invalid. Every rejected attempt now checks exact
+unchanged row JSON/timestamps across 13 canonical/source/seal/receipt/projection/
+audit/outbox/job tables and receipt count, retaining callback-bypass assertions.
+Actual RED `59698` exited 2: **nine tests, one expected fingerprint-only
+classification failure**, 2.0 seconds, seed `215378`; all structural and
+combined-mismatch controls passed. Database/root:
+`singularity_test_4923effc840bb7a4ea8d24c6` and
+`/tmp/singularity/integration/4923effc840bb7a4ea8d24c6`; the owned server stopped
+and root absence was verified. The command formats the amended receipt test
+then runs its complete integration suite in a fresh Mix invocation.
+Independent `phase4_runtime_source_plan_spec` SPEC review of the receipt/preflight
+and Task 5 pure-contract detail amendment passed, followed by separate
+`phase4_source_seal_quality` QUALITY PASS with no findings. These are plan
+reviews, not source acceptance. Task 3 production Sol repair round 1 is now
+in progress; failed production repair rounds 0 and Astra attempts 0 at this
+checkpoint. The initial failing implementation remains separately recorded.
+
+### Task 3 repaired integration GREEN
+
+Production Sol repair round 1 preserved every post-lock aggregate check and
+added only nonlocking input preflight inside the winning receipt callback.
+Receipt replay now classifies fingerprint-only mismatch as nonretryable
+conflict after operation/resource checks; combined mismatches remain invalid.
+Tests were unchanged after their qualified RED.
+
+Fresh parent `31344` exited 0: formatting and warnings-as-errors compilation
+passed, then **81 integration tests, zero failures**, 41.2 seconds, seed
+`215378`. This includes all 29 new source cases and the complete Note
+repository, concurrency, rollback, knowledge-link and nine-case receipt
+suites. Database/root: `singularity_test_5c24e980b52b7aedf5062c47` /
+`/tmp/singularity/integration/5c24e980b52b7aedf5062c47`; the owned server
+stopped and root absence was verified. Counters: production Sol repair
+round 1 PASS, zero failed production repair rounds, Astra attempts zero.
+Broader seal/RLS/privacy/deadline/restore checks and actual SPEC then QUALITY
+reviews remain pending; this is not complete Task 3 acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_core/lib/singularity/core/organization_page_query.ex apps/singularity_storage/lib/singularity/storage/postgres/note_sources.ex apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_concurrency_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs --seed 215378
+```
+
+Actual six-file `phase4_task3_actual_spec_review` returned SPEC FAIL with one
+P2 finding: replay compared fingerprints before validating its completed
+result. A real `state='completed', outcome=NULL` row is legally admitted by
+the released CHECK's SQL NULL semantics; exact replay returns invalid but
+changed fingerprint incorrectly masks that malformed result as conflict.
+No other actionable production defect was found. Ordered locks, immutable
+metadata composition and new real race Task cleanup were reviewed; this
+does not waive the receipt finding. Add a real SQL regression before moving
+the comparison after completed-result validation. Do not alter the released
+migration. The unchanged legacy receipt concurrent-claim test's absent
+explicit `after` cleanup is recorded as a pre-existing limitation, not a
+new source-race regression. Fresh SPEC and separate QUALITY remain required.
+
+The implementer added one real scoped SQL regression, retaining the previous
+nine receipt cases. Fresh `36414` exited 2: **ten tests, one expected
+malformed-completed fingerprint precedence failure**, 2.6 seconds, seed
+`215378`. Exact replay and every structural/combined mismatch control
+passed before the changed-fingerprint assertion. Every callback must remain
+bypassed; exact 13-table rows/timestamps/counts remain unchanged. Database/root:
+`singularity_test_edd469ef083db18ac0718e8b` /
+`/tmp/singularity/integration/edd469ef083db18ac0718e8b`; server stopped and
+root absence verified. This is qualified semantic RED, not a fixture failure.
+Parent then moved only fingerprint comparison after completed-result
+reconstruction/validation; no migration, schema, secret, key or claim change.
+Extended integration and fresh actual reviews remain pending.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs --seed 215378
+```
+
+### Task 3 qualified local source composition
+
+After the review-driven order fix, fresh `80035` exited 0 and passed
+formatting/warnings-as-errors compilation. Storage reported **151 tests,
+four excluded, zero failures** (147 actually executed), 75.1 seconds;
+Runtime's complete unchanged search privacy/fixed-deadline suite executed
+**eight tests, zero failures**, 10.4 seconds, seed `215378`.
+The 155 actual cases include all six source/Note/receipt owning suites
+(receipt now ten cases), schema/RLS/privacy/concurrency/projection checks,
+complete restore fixtures, and the unchanged Tag/Relationship/RLS baseline
+of 20 cases. Expected PostgreSQL constraint errors from negative assertions
+are not test failures.
+
+This command contained one mistyped sealing path under `postgres/`; warnings
+explicitly reported that path unmatched. That suite was **NOT RUN**, despite
+the command's exit 0; it is not included in the 155 executed cases or claimed
+passing from that invocation. The corrected standalone command `22780`
+then actually executed the full sealing suite: **23 tests, zero failures**,
+20.3 seconds, seed `215378`, exit 0. Thus all required scoped suites were
+eventually executed; no assertion or check was skipped.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_concurrency_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/knowledge_concurrency_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_privacy_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs --seed 215378
+```
+
+Fresh full `3091` ran `mix singularity.test.restore` with no scoped arguments,
+exit 0: complete original V1/V2 crypto/canonical/original-byte/search assertions
+and the committed exact nine-derived-seal assertions remained intact.
+Source / V2 / V1 databases respectively:
+`singularity_test_c27e46129d2a31e388809783`,
+`singularity_test_39ed568bd25a47d434bd4be9`,
+`singularity_test_ab76cc1c62bd2d2d09dbdee2`.
+The oracle's existing migration-module redefinition and expected Postgrex type
+reload messages are nonfailing runtime warnings, not a failed static compilation.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.restore
+```
+
+Static/unit `8289` exited 0: exact twelve frozen Task 3 and Task 5 pure files'
+format checks, warnings-as-errors compilation and **zero xref cycles** passed.
+Core 37 tests + two properties, Domains 12 tests, and four actual backup unit
+cases passed (Storage reported 15, eleven integration cases excluded): **55
+actually executed cases**, seed `215378`, 1.0/0.4/2.5 seconds. This is a
+scoped format check while unrelated Task 5 test drafts were in progress, not
+the later whole-phase README gate.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix do format --check-formatted apps/singularity_storage/lib/singularity/storage/postgres/note_sources.ex apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_core/lib/singularity/core/organization_page_query.ex apps/singularity_core/lib/singularity/core/organization_page.ex apps/singularity_domains/lib/singularity/domains/organization.ex apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs, compile --warnings-as-errors, test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs --seed 215378, xref graph --format cycles --fail-above 0
+```
+
+Fresh actual six-file SPEC follow-up `phase4_task3_actual_spec_review` passed
+with the receipt finding resolved. Separate `phase4_task3_actual_quality_review`
+then returned QUALITY PASS: zero Critical/Important/Minor findings. These are
+actual production/test reviews, not only design reviews. Counters: initial
+implementation failed as recorded above; production repair 1 PASS, narrow
+review-follow-up repair PASS, zero failed completed production repair rounds,
+Task 3 Astra attempts zero. No Vault feature change, new runtime grants,
+migration, production activation or publication occurred.
+
+Cleanup `da0bbd` confirmed **zero** generated `singularity_test_%` databases
+on the exact owned isolated cluster and stopped that server. All five latest
+integration/sealing/restore roots were verified absent; the ignored private
+cluster/harness is retained for subsequent authorized local tasks, not deployed.
+No other server or user data was stopped, changed or removed.
+
+## Task 5 pure contract preparation
+
+Read-only `phase4_organization_contract_mapping` confirmed legacy standalone
+adapter transactions and 100-row lists must remain unchanged. The design/plan
+now specify narrow strict Query/Page constructors with fixed owner-free tag,
+resource and edge items, UUID order and internal `:done`, plus literal Domains
+query dispatch and trusted allowed kinds outside client params. Runtime/SQL
+filtering precedes paging; no generic graph or Note Save coupling is introduced.
+The same Sol worker drafted only three new pure test files (22 Core + 11
+Domains cases). Production remains unchanged and RED has not yet executed.
+`70557` above supplies the existing Core knowledge-link values / Domains port
+baseline of 18 executed cases; it does not prove new pagination or real SQL.
+Pure `45361` passed test formatting and exited 2: **22 Core tests, 22 failures**
+and **11 Domains tests, 11 failures**, seed `215378`, 0.3/0.2 seconds.
+The root is missing `OrganizationPageQuery.new/1`, not a syntax/undefined-struct
+compile error. This establishes the eight query cases' focused RED; the 14
+page and 11 dispatch cases stop at that dependency and do not yet isolate
+their own missing interfaces. Implement only the query value first, then
+observe fresh Page/dispatch RED before their production changes. No test is
+skipped or claimed passing at this preparation checkpoint.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs, test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs --seed 215378
+```
+
+Query-only implementation was followed by fresh `23770`, exit 2: Core
+**37 tests + two properties, 14 expected failures**, 1.1 seconds; Domains
+**12 tests, 11 expected failures**, 0.3 seconds, seed `215378`.
+All eight new Query cases and all 18 existing cases passed. The 14 Page
+cases now independently fail at missing `OrganizationPage.new/3`.
+Ten Domains cases reach missing `Organization.page/5`; one still depends
+on Page construction. Implement only Page next, then obtain fresh independent
+Domains RED before its production change. The owned server stopped; this
+pure invocation allocated no integration database. No test was weakened.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs --seed 215378
+```
+
+Page-only implementation passed formatting/compilation in fresh `28501`.
+Core **37 tests + two properties, zero failures**, 1.0 seconds; Domains
+**12 tests, 11 expected failures**, 0.4 seconds, seed `215378`, exit 2.
+All eleven now independently reach missing `Organization.page/5`, including
+canonical Page result reconstruction. This qualifies Domains RED before its
+production implementation. No database/service was started for this invocation.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_core/lib/singularity/core/organization_page.ex, compile --warnings-as-errors, test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs --seed 215378
+```
+
+Domain-only implementation completed the genuine pure GREEN in fresh
+`75956`, exit 0: formatting/warnings-as-errors compilation PASS; Core
+**37 tests + two properties, zero failures**, 0.8 seconds; Domains
+**12 tests, zero failures**, 0.3 seconds, seed `215378` — 51 executed cases
+in total including all 18 original regression cases. Independent actual
+six-file `phase4_task3_actual_spec_review` PURE SPEC review passed with no
+actionable findings. Separate QUALITY and remaining real adapter/cursor/RLS
+checks are pending; this does not accept all of Task 5 or prove authorization.
+No database/service was started by this pure invocation. Separate actual
+six-file `phase4_task5_pure_quality_review` followed SPEC and returned QUALITY
+PASS with zero Critical/Important/Minor findings; six frozen file hashes
+matched before/after inspection. The pure slice is qualified locally, not the
+whole Task 5 storage/authentication deliverable. Sol repair rounds zero, Astra zero.
+The exact six-file pure slice was committed locally as
+`2490da6da7ec8a0ddff799e0df2b0cd4c73439d3`, preserving separate Task 3 and
+Task 5 SQL/test drafts unstaged.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_domains/lib/singularity/domains/organization.ex apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs, compile --warnings-as-errors, test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_core/test/singularity/core/knowledge_link_values_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs --seed 215378
+```
 
 ## Preserved boundaries and baseline inventory
 
