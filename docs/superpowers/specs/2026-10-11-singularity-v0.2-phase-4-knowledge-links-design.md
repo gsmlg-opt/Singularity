@@ -297,6 +297,69 @@ from pinned source metadata, not mutable resource-head titles. Missing or
 cross-owner members return nondisclosing not-found outcomes. Whole-set citation
 hydration is not a valid pre-authorization selector.
 
+The narrow adapter seam has four existing-scope operations, added to the
+KnowledgeLinks repository port without changing its legacy `insert_set` or
+`list_set` contracts:
+
+- `select_attachment_in_scope(context, note_id, version_id, attachment_id)`
+  returns the existing owner-free `Core.NoteAttachmentReference`.
+- `select_citation_in_scope(context, note_id, version_id, citation_id)` returns
+  the existing owner-free `Core.NoteCitationReference`.
+- `resolve_attachment_in_scope(context, selected_reference)` returns exactly
+  `%{reference: selected_reference, source: source_metadata}`.
+- `resolve_citation_in_scope(context, selected_reference)` returns exactly
+  `%{reference: selected_reference, source: source_metadata, fragment: selected_fragment}`.
+
+All four require the same already-open scoped transaction and both matching
+principal/owner GUCs. Selectors require a live private containing Note, the exact
+typed containing version and its seal, retaining the containing resource's share
+lock; a historical containing version need not be the current head. They select
+only the requested stored member and do not read target titles, Asset metadata,
+fragment text or another member's evidence. Missing, foreign and mismatched
+containing/member tuples return nondisclosing not-found. Runtime revalidates the
+selected reference and binds its member ID before determining target authority.
+
+`source_metadata` has exactly `kind`, `resource_id`, `resource_version_id`,
+`title` and `deleted?`; `kind` is one of the three supported kinds, identifiers
+are canonical exact pins, `deleted?` is boolean, and the title is nonblank valid
+UTF-8 without NUL, preserved rather than replaced by a resource-head title.
+For Asset the exact AssetMetadata asset/version/owner/private binding supplies
+the filename; missing or mismatched metadata returns nondisclosing not-found,
+not a head-title fallback. For Note/Document the pinned typed version supplies
+the title. Historical resolution permits deleted targets but enforces the exact
+resource/version/typed owner/private identity. A selected citation fragment has
+exactly `fragment_id`, `ordinal`, `text` and canonical `Core.SourceLocator`;
+validate its canonical fragment digest/identity and equality to the stored
+locator. No whole fragment set, Note body, original bytes or custody fields are
+added to attachment resolution. Domain port types explicitly describe these
+owner-free maps; Runtime reconstructs their nested values and rejects unknown
+or noncanonical output fields. These internal metadata operations are not new
+client-supplied selectors or an alternative to current target authorization.
+
+Compose complete ordered reference collections in Runtime, not by narrowing
+legacy raw `NoteRepository.get/get_version/get_conflict` contracts. A small
+shared `Notes.SourceCollections` helper calls the existing metadata-only
+`read_membership/3` using authenticated session principal/owner and the returned
+row's exact resource/version IDs on the same scoped repo. It binds the returned
+revision to that row and reconstructs both reference arrays; no source title or
+fragment text is loaded. Use it for current/exact Get, each conflict branch,
+mutation latest-head reload (including winning replay), and ordinary Export
+before strict Note conversion. An internal injectable `knowledge_link_repository`
+defaults to the real adapter; fake unit readers are explicit and do not prove
+canonical membership. Do not silently substitute empty arrays for an absent or
+failed production membership read.
+
+`DTO.Note` and `DTO.NoteVersion` require both arrays explicitly. Nested
+`DTO.NoteAttachment` and `DTO.NoteCitation` expose only their existing reference
+fields, without owner, containing version, evidence, ordinal or hydrated titles;
+revalidate exact keys, canonical values, per-collection bounds and uniqueness.
+Array order preserves the canonical ordinal order. Summary/history/search DTOs
+remain unchanged. Existing test DTO constructors gain explicit empty arrays
+where the fixture has no references. Export source-collection composition is a
+strict-DTO compatibility requirement, not early source rendering; the ordinary
+Markdown rendering work remains Task 7. No browser behavior or E2E is changed by
+these constructor-fixture updates.
+
 ## Independent tags, relationships and backlinks
 
 Expose resource-scoped Runtime APIs, using existing Note or Asset/Document

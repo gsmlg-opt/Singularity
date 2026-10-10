@@ -246,18 +246,22 @@ remaining Task 4 acceptance checks are still pending; this is not whole-task or
 phase acceptance.
 
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
-`dto/note_citation.ex`, and `test/singularity/runtime/note_sources_test.exs`.
+`dto/note_citation.ex`, `notes/source_collections.ex`, and the source owning tests.
 **Modify:** Runtime `notes/create.ex` (contains Mutation), `notes/dto.ex`,
-`notes/get.ex` as needed for ordered source collection composition,
+`notes/get.ex` and `notes/export.ex` for shared metadata-only source composition,
 `dto/note.ex`, `dto/note_version.ex`, `api.ex`, existing Notes owning tests
 (`note_mutations_test.exs`, `note_reads_test.exs`, `note_api_test.exs`,
 `note_authorization_integration_test.exs`, `note_observability_test.exs`);
 Storage `postgres/note_repository.ex` and `postgres/note_sources_test.exs` for
 the server-only winning authorization context; `postgres/knowledge_link_repository.ex`
 and its full owning suite for narrow selected-reference/historical metadata readers, plus
+Domains `knowledge_links/repository.ex` and `knowledge_ports_test.exs` for the four
+explicitly typed existing-scope selector/resolution callbacks;
 `test/support/knowledge_test_grants.ex` to preserve permanent organization
 DELETE privileges in temporary test grants; Web
 `architecture/knowledge_phase1_contract_test.exs` for exact approved API additions;
+Web `notes_live_test.exs` constructor fixtures for explicit empty reference arrays,
+without changing browser behavior;
 Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
 `knowledge_grants_test.exs` exact ACL expectations.
 
@@ -284,6 +288,16 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   `resolve_note_citation` with containing Note read and current target read.
   Preserve pins, expose deleted status/historical evidence, and don't return
   new original-byte payloads or follow current head.
+- [ ] Compose complete source arrays in Runtime through a shared helper and the
+  explicit internal `knowledge_link_repository`, using the existing scoped
+  metadata-only membership reader. Bind exact row IDs/revision/session scope;
+  compose both conflict branches separately and latest-head mutation replay.
+  Export must compose before strict DTO conversion even before Task 7 rendering.
+  Preserve raw Storage reader contracts and summary/history/search DTOs.
+  Constructors require explicit arrays; nested reference DTOs reject extra or
+  noncanonical data, duplicates and oversized sets. Do not replace an absent or
+  failed real membership read with empty arrays. Unit fakes must inject their
+  own explicit reader; actual source integration must retain the real one.
 - [ ] Select only the requested stored canonical member on the authenticated
   scoped connection before determining its target read capability. After that
   current check, hydrate exact historical Asset/Note/Document typed metadata
@@ -291,6 +305,19 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
   Do not reuse live-only search resolution or content-hydrating whole-set reads
   unchanged for pre-authorization selection. Keep ordinary live-only resource
   read behavior intact; missing/foreign members are nondisclosing.
+- [ ] Add the four `select_attachment_in_scope/4`, `select_citation_in_scope/4`,
+  `resolve_attachment_in_scope/2` and `resolve_citation_in_scope/2` operations
+  with named explicit owner-free metadata/fragment/resolution port types.
+  Selectors validate the live/private/sealed containing tuple and matching
+  scoped GUCs, select only the requested member and hold the containing share
+  lock. Resolution remains a separate post-target-authorization operation:
+  exact historical typed metadata and only the selected citation fragment,
+  preserving pins, locator/digest and tombstone/restore status. Missing or
+  mismatched AssetMetadata binding is not-found, never a mutable-head fallback.
+  Characterize unchanged adapter/port tests, add actual RED for these callbacks,
+  and qualify the full owning suites plus requested-member isolation and strict
+  owner-free outputs. Temporary SELECT revocation must restore the original ACL;
+  no trigger, policy or seal assertion may be bypassed to construct a fixture.
 - [ ] Apply explicit narrow web source/organization grants under forced RLS;
   worker/download remain excluded; seal write privileges remain absent.
 - [ ] Test real canonical mutation composition, capability denial/revocation,

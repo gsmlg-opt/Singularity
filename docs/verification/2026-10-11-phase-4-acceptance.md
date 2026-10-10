@@ -1026,6 +1026,67 @@ devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integrati
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_runtime/lib/singularity/runtime/notes/create.ex apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
 ```
 
+### Task 4 selected historical resolution detail preparation
+
+The qualified winning-source slice is recorded by local commit
+`a6376d6055df13a885d7427012018eab754c4778`; only its exact six source/test
+files and plan/report were staged. It does not accept all of Task 4 or Phase 4.
+Read-only mapping confirmed existing `list_set` hydrates every citation fragment
+and `read_membership` selects the whole metadata set; neither is the requested
+single-member pre-target-authorization selector. Ordinary Note, Document and
+Search readers remain live-only and cannot be reused unchanged for tombstones.
+
+The design and plan now specify four minimal existing-scope typed selector and
+historical-resolution callbacks, exact owner-free metadata/selected-fragment
+shapes, live/private/sealed containing identity, matching GUCs, separate current
+target authorization, immutable pins/deleted status, and exact AssetMetadata
+filename binding with nondisclosing not-found instead of a mutable-head fallback.
+Domain port/test synchronization is necessary bounded interface work, not a
+product expansion. Independent detail SPEC then QUALITY remain required before
+production implementation. Test-only drafting owns just the existing adapter
+and Domains port suites; all legacy assertions are preserved, no required seal,
+trigger or policy is disabled, and temporary isolated ACL probes restore their
+original state. No selected-reader production implementation or additional
+integration process has been started for this detail yet.
+
+Additional read-only mapping found raw NoteRepository reads have a broader
+contract than the scoped membership reader. Runtime will use one shared
+metadata-only composer inside the existing OperationScope callbacks, including
+ordinary Export's direct raw read, rather than silently imposing GUC/transaction
+requirements on legacy Storage readers. The design/plan now include the small
+helper, explicit internal adapter injection, exact row/revision/scope binding,
+strict required Note/NoteVersion arrays, and necessary Web constructor fixtures.
+These compatibility changes do not enable browser behavior or Task 7 rendering.
+All failed/missing real membership reads stay fail-closed; fake readers remain
+explicit and are not canonical-source evidence. This composition detail shares
+the pending independent SPEC then QUALITY review before production changes.
+
+Independent actual three-document `phase4_internal_detail_spec_review` SPEC
+passed with zero actionable findings; subsequent separate
+`phase4_internal_detail_quality_review` resolution-detail QUALITY passed with
+zero findings. Both captured unchanged design/plan/report hashes. This qualifies
+only the detail, not its unimplemented code or the whole task.
+
+Test-only drafting preserves all 15 legacy KnowledgeLink cases and adds 22,
+including scoped/GUC checks, requested-member isolation with target-hydration
+SELECT revoked and restored, exact historical/tombstone/restore pins, pinned
+Asset filename/no fallback, selected fragment/locator and nondisclosing errors.
+The Domains suite retains its four port cases, extends the exact KnowledgeLinks
+inventory and adds one explicit named-map-type case. Fresh `69014` passed
+formatting/warnings-as-errors compilation and ran **five units, two expected
+missing-callback/type failures**, 0.2 seconds, seed `215378`; the other three
+established port controls passed. Fresh isolated SQL `16379` ran **37 cases,
+22 missing-reader failures**, 14.0 seconds, same seed, exit 2. The unchanged 15
+legacy cases passed. No selected-reader production existed during this RED.
+The private server stopped, and generated database/root cleanup still must be
+confirmed before qualified acceptance. Sol harness/production repair rounds
+**0**, Astra attempts **0** for this selected-reader slice.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs, compile --warnings-as-errors, test apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs --warnings-as-errors --seed 215378
+```
+
 ## Preserved boundaries and baseline inventory
 
 No production activation, data/backfill, merge, push, version bump, tag,
