@@ -3,6 +3,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
   @moduletag :integration
   @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations tags resource_tags relationships)
   @web_read_tables ~w(document_versions document_fragments)
+  @canonical_web_read_tables ~w(document_versions document_fragments tags resource_tags)
   alias Singularity.Storage.{
     Fixtures,
     KnowledgeFixtures,
@@ -314,7 +315,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     end
   end
 
-  test "canonical tables enforce RLS and exactly the two web-only Document read grants" do
+  test "canonical tables enforce RLS and exactly the web-only Document and tag read grants" do
     for table <- @tables do
       assert %{rows: [[true, true]]} =
                query!(
@@ -327,7 +328,8 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
             ~w(singularity_web singularity_worker singularity_dispatcher singularity_pre_auth),
           privilege <- ~w(SELECT INSERT UPDATE DELETE TRUNCATE REFERENCES TRIGGER) do
         expected =
-          role == "singularity_web" and table in @web_read_tables and privilege == "SELECT"
+          role == "singularity_web" and table in @canonical_web_read_tables and
+            privilege == "SELECT"
 
         assert %{rows: [[^expected]]} =
                  query!(RequestRepo, "SELECT has_table_privilege($1, $2, $3)", [
@@ -338,7 +340,9 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
       end
 
       expected_acl =
-        if table in @web_read_tables, do: [["singularity_web", "SELECT", false]], else: []
+        if table in @canonical_web_read_tables,
+          do: [["singularity_web", "SELECT", false]],
+          else: []
 
       assert %{rows: ^expected_acl} =
                query!(
@@ -354,7 +358,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
                )
 
       for repo <- [RequestRepo, WorkerRepo, DispatcherRepo, PreAuthRepo] do
-        if repo == RequestRepo and table in @web_read_tables do
+        if repo == RequestRepo and table in @canonical_web_read_tables do
           assert %{rows: []} = query!(repo, "SELECT * FROM content.#{table}")
         else
           error =

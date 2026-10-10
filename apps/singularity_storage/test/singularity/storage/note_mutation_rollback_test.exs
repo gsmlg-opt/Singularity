@@ -7,11 +7,31 @@ defmodule Singularity.Storage.NoteMutationRollbackTest do
   alias Singularity.Core.NoteSnapshot
   alias Singularity.Storage.FailureInjector
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.ScopedRepo
 
   setup do
     %{one: fixture} = Fixtures.two_vaults!()
+
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id, name) VALUES($1, 'note.write') ON CONFLICT(name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 INSERT INTO core.principal_capabilities(principal_id, vault_id, capability_id)
+                 SELECT $1, $2, id FROM core.capabilities WHERE name = 'note.write'
+                 """,
+                 [fixture.principal_id, fixture.vault_id]
+               )
+    end)
+
     {:ok, fixture: load_ids(fixture)}
   end
 

@@ -343,7 +343,8 @@ defmodule Singularity.Storage.DocumentLifecycleTest do
       end)
 
       sealed = state(document)
-      assert sealed["attempt_deadline_at"] < DateTime.to_iso8601(DateTime.utc_now())
+      assert {:ok, deadline, _offset} = DateTime.from_iso8601(sealed["attempt_deadline_at"])
+      assert DateTime.compare(deadline, DateTime.utc_now()) == :lt
 
       assert sealed ==
                invoke(

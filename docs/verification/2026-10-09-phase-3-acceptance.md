@@ -1510,10 +1510,64 @@ cover the first 14 failures without changing production behavior. Pre-edit
 owning characterization `98049`, exit 2, seed `918339`, reproduced all **14
 failures among 59 executed tests** in 16.1 seconds. Its allocation was
 `singularity_test_6410f6657ce52aa22bd3f579`; the task disposed it and stopped
-PostgreSQL. No repair attempt or success is claimed yet. Other failure groups
+PostgreSQL. No repair attempt or success was claimed at that pre-edit checkpoint. Other failure groups
 remain separate diagnosis/repair workstreams. Observer counters remain two
 failed Sol repair rounds and one successful Astra recovery; this newly observed
 full-suite failure does not erase that history or count as a repair attempt.
+
+## Full-gate Storage compatibility repair, 2026-10-10
+
+The design/plan and full-run evidence were committed locally at
+`d30a808f55597b765a8be1afc05885b7990b58e8` after independent SPEC and separate
+QUALITY review. The five test-only changes add explicit selected-fixture
+`note.write`, prove no Note capability survives the original restore-helper
+deletion, retain the current exact four-table read matrix, and compare parsed
+deadline instants. No original concurrency barrier, timeout, rollback, receipt,
+fencing, RLS/ACL or mutation-denial assertion was removed. Existing password
+setup and all production/Vault behavior are unchanged.
+
+The first repair round passed **59 owning tests, zero failures** (`28694`,
+exit 0, seed `918339`, 20.6 seconds) and **43 existing authorization/Note/RLS
+regressions, zero failures** (`59417`, exit 0, same seed, 14.9 seconds).
+No exclusions occurred in either Storage batch. Exact commands are in the
+[repair plan](../superpowers/plans/2026-10-10-singularity-v0.2-phase-3-full-gate-contract-repair.md).
+The same `59417` command then passed full formatting, warnings-as-errors
+compilation and xref with zero cycles. Expected negative completion-constraint
+database errors occurred in the owning suite; they were not test failures.
+
+The nonauthor `search_observer_actual_review` independently passed implementation
+SPEC and separate QUALITY review on these exact SHA-256 hashes:
+
+| File under `apps/singularity_storage/test/singularity/storage/` | SHA-256 |
+| --- | --- |
+| `note_mutation_rollback_test.exs` | `9e9d2083a82be4d841426c118f2fd06e294907275701f775f83dfec9947d7ca5` |
+| `note_mutation_concurrency_test.exs` | `2f9e20d447c0429b2c75602e311e3447aa58fd9e964506ba72735415d9b34595` |
+| `restore_reconciliation_test.exs` | `50ed02ae6175f00630b904f3ff7c57702590cf2e4992df7905cc2271f1430164` |
+| `knowledge_grants_test.exs` | `5096f7daf2db59d7eb69c36f1616c0e416890c3b601a014a7ace37b6635b8a9c` |
+| `document_lifecycle_test.exs` | `7718347d7450dcbb6867b3a31e310f1e719ee78e3a22a5717b40d6978f504679` |
+
+Allocations `28938bda8dc349c7742fd340` and `31f2b28d69805d3e2a12d04b`
+were disposed. Read-only cleanup `84902` found zero generated databases and
+absent recorded roots; direct checks also confirmed every new full/RED/repair
+root absent and owned PostgreSQL stopped. Root/main and both protected Phase 2
+worktrees retain their earlier SHAs/status, including the untracked Phase 2
+plan hash `350a6557...`. Production/config/migrations, all three lockfiles,
+observer `780dede4...`, original plan test `298d78db...`, and protected Note
+projection concurrency test `d49e2288...` are unchanged. A mistaken read-only
+Phase 2 verification path check failed, then the exact path from `git worktree
+list` was checked successfully; it made no mutation.
+
+Separate unchanged plan-test characterization `38416`, exit 2, seed `918339`,
+ran **four tests with one failure** in 34.8 seconds. FTS passed all seven
+same-backend samples (`3306897`, 46 buffer nodes), short searches reported
+32,768 / 32,766 row visits, and the original timeout case passed. The title
+similarity test still failed with the fixed observer callback error before any
+sample line; this does not identify its cause. Allocation `87ac191d49f4cdb480f3c161`
+was disposed and PostgreSQL stopped. These diagnostics do not count as a repair
+round. The full integration `37888` FAIL is still open; fixture-lifetime, Runtime
+event contracts and selective-plan diagnosis remain independent workstreams.
+
+No E2E, Phase 4, merge, push, release, deployment or production mutation occurred.
 
 ## Earlier local hygiene for the failed-plan qualification slice
 

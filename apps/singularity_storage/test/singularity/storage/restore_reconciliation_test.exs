@@ -727,6 +727,24 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
     fixture = load_fixture_ids(raw_fixture)
     NoteFixtures.grant_password_change!(fixture)
 
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id, name) VALUES($1, 'note.write') ON CONFLICT(name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 INSERT INTO core.principal_capabilities(principal_id, vault_id, capability_id)
+                 SELECT $1, $2, id FROM core.capabilities WHERE name = 'note.write'
+                 """,
+                 [raw_fixture.principal_id, raw_fixture.vault_id]
+               )
+    end)
+
     {:ok, %NoteSaveResult{} = created} =
       scoped_note(fixture, &NoteRepository.create(&1, create_intent(fixture)))
 
@@ -789,6 +807,20 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
           """,
           [raw_fixture.principal_id, raw_fixture.vault_id]
         )
+
+        assert %{rows: []} =
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT capability.name
+                   FROM core.principal_capabilities AS assignment
+                   JOIN core.capabilities AS capability ON capability.id = assignment.capability_id
+                   WHERE assignment.principal_id = $1
+                     AND assignment.vault_id = $2
+                     AND capability.name LIKE 'note.%'
+                   """,
+                   [raw_fixture.principal_id, raw_fixture.vault_id]
+                 )
 
         Enum.each(events, fn event ->
           mark_restored_runner!(event.id)

@@ -43,14 +43,14 @@ the offset-sensitive deadline comparison. Allocation
 Parallel ownership is disjoint; workers are not alone and must preserve other
 edits. No worker executes tests or mutates services/Git.
 
-- [ ] Note-fixture implementer owns only
+- [x] Note-fixture implementer owns only
   `apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs`,
   `note_mutation_concurrency_test.exs`, and `restore_reconciliation_test.exs`
   in that same directory. Add the existing `note.write` catalog/assignment
   pattern for the exact generated principal/owner. Preserve every original
   assertion and test deadline. In the Note restore helper, additionally prove
   no Note capability remains after the original deletion, before recovery.
-- [ ] Parent owns only `knowledge_grants_test.exs` and
+- [x] Parent owns only `knowledge_grants_test.exs` and
   `document_lifecycle_test.exs` in the same directory. Add the distinct
   canonical-read allowlist and use it only for the final matrix's three
   branches; retain all denials and RLS/ACL checks. Parse the deadline before
@@ -62,9 +62,10 @@ and update the bounded design instead of guessing or broadening silently.
 
 ## Task 3: Verify the exact diff
 
-- [ ] Parent formats only the five owned files, then runs their complete batch
+- [x] Parent formats only the five owned files, then runs their complete batch
   above with seed `918339`. Keep explicit executed/excluded counts.
-- [ ] Parent runs existing authorization and Note compatibility regressions:
+  `28694`, exit 0: **59 tests, zero failures**, 20.6 seconds, no exclusions.
+- [x] Parent runs existing authorization and Note compatibility regressions:
 
 ```sh
 devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs --seed 918339
@@ -74,22 +75,31 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 git diff --check
 ```
 
-- [ ] Diagnose any remaining failures. Compatibility repair attempts start at
-  zero; keep these distinct from the earlier observer's two failed Sol rounds
+- [x] Diagnose any remaining failures. The first compatibility repair round
+  passed its owning and regression checks; no failed compatibility repair or
+  Astra attempt. Keep this distinct from the earlier observer's two failed Sol rounds
   and one successful Astra recovery. Escalation follows AGENTS.md; no timeout
   increase, skipped assertion, global data clearing, or misleading PASS is allowed.
 
 ## Task 4: Independent review and local handoff
 
-- [ ] Nonauthors review SPEC first, then QUALITY, against the complete bounded
+- [x] Nonauthors review SPEC first, then QUALITY, against the complete bounded
   diff and design. Resolve findings and repeat relevant parent checks.
-- [ ] Verify owned database/storage-root cleanup, stopped PostgreSQL, unchanged
+  `search_observer_actual_review` passed both reviews on the exact five files.
+- [x] Verify owned database/storage-root cleanup, stopped PostgreSQL, unchanged
   protected worktrees/lockfiles/production hashes, and valid local links.
-- [ ] Record exact commands/results/hashes/reviews and explicit zero Vault work
+- [x] Record exact commands/results/hashes/reviews and explicit zero Vault work
   in the Phase 3 qualification record; preserve all historical failures.
 - [ ] Explicitly stage only this reviewed slice and make a small local
   conventional commit. Return to the other full-gate failures and remaining
   README checks. A green compatibility subset is not Phase 3 acceptance.
+
+Regression/static command `59417` exited 0: **43 integration tests, zero
+failures**, 14.9 seconds, seed `918339`; formatting, warnings-as-errors compile
+and zero-cycle xref passed. Cleanup `84902` exited 0, with zero generated
+databases, all recorded/recent roots absent and owned PostgreSQL stopped.
+Root/main and both protected Phase 2 worktrees, the protected untracked plan,
+production/config/migrations and all three lockfiles remain unchanged.
 
 ## Self-review
 
