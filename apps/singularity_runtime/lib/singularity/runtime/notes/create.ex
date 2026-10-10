@@ -2,10 +2,13 @@ defmodule Singularity.Runtime.Notes.Mutation do
   @moduledoc false
 
   alias Singularity.Core.Error
+  alias Singularity.Core.NoteAttachmentReference
+  alias Singularity.Core.NoteCitationReference
   alias Singularity.Core.NoteSaveResult, as: ReferenceResult
   alias Singularity.Core.Types
   alias Singularity.Domains.Notes
   alias Singularity.Domains.Notes.Command
+  alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.Notes.DTO, as: NotesDTO
   alias Singularity.Runtime.Notes.MutationFingerprint
   alias Singularity.Runtime.OperationScope
@@ -13,8 +16,16 @@ defmodule Singularity.Runtime.Notes.Mutation do
   alias Singularity.Storage.Postgres.NoteRepository
 
   @client_fields %{
-    create: [:mutation_id, :title, :markdown],
-    save: [:mutation_id, :resource_id, :base_version_id, :title, :markdown],
+    create: [:mutation_id, :title, :markdown, :attachments, :citations],
+    save: [
+      :mutation_id,
+      :resource_id,
+      :base_version_id,
+      :title,
+      :markdown,
+      :attachments,
+      :citations
+    ],
     merge: [
       :mutation_id,
       :resource_id,
@@ -22,7 +33,9 @@ defmodule Singularity.Runtime.Notes.Mutation do
       :expected_current_version_id,
       :competing_version_id,
       :title,
-      :markdown
+      :markdown,
+      :attachments,
+      :citations
     ],
     tombstone: [:mutation_id, :resource_id, :expected_current_version_id],
     restore: [:mutation_id, :resource_id]
@@ -66,13 +79,91 @@ defmodule Singularity.Runtime.Notes.Mutation do
            ]),
          {:ok, references} <-
            call_adapter(adapters.notes, :execute, [
-             %{repository: adapters.note_repository, repository_context: repo},
+             %{
+               repository: adapters.note_repository,
+               repository_context: source_context(adapters, operation, repo, session)
+             },
              command,
              fingerprint
            ]) do
       hydrate(adapters, repo, session, command, references)
     end
   end
+
+  # Storage invokes this server-only callback only after preparing new members
+  # inside the winning receipt; neither the callback nor fetched evidence enters
+  # the immutable Command/intent/fingerprint. Hydration keeps the raw scoped repo.
+  defp source_context(adapters, operation, repo, session)
+       when operation in [:create, :save, :merge] do
+    %{
+      repo: repo,
+      authorize_new_sources: fn
+        ^repo, members -> authorize_new_sources(adapters, repo, session, members)
+        _other_repo, _members -> invalid()
+      end
+    }
+  end
+
+  defp source_context(_adapters, _operation, repo, _session), do: repo
+
+  defp authorize_new_sources(adapters, repo, session, members) do
+    with {:ok, capabilities} <- source_capabilities(members) do
+      if capabilities == [] do
+        :ok
+      else
+        call_adapter(adapters.authorizer, :check, [
+          adapters.authorization,
+          repo,
+          session,
+          %{
+            vault_id: session.vault_id,
+            principal_authorization_epoch:
+              session.principal_authorization_epoch || session.authorization_epoch,
+            vault_authorization_epoch: session.vault_authorization_epoch,
+            required_capabilities: capabilities,
+            classification: :private,
+            requires_unlocked?: true
+          }
+        ])
+        |> source_authorization_result()
+      end
+    end
+  end
+
+  defp source_capabilities(%{attachments: attachments, citations: citations} = members)
+       when map_size(members) == 2 and is_list(attachments) and is_list(citations) do
+    Enum.reduce_while(attachments ++ citations, {:ok, []}, fn
+      %NoteAttachmentReference{target_kind: :note}, {:ok, capabilities} ->
+        {:cont, {:ok, ["note.read" | capabilities]}}
+
+      %NoteAttachmentReference{target_kind: kind}, {:ok, capabilities}
+      when kind in [:asset, :document] ->
+        {:cont, {:ok, ["asset.read" | capabilities]}}
+
+      %NoteCitationReference{}, {:ok, capabilities} ->
+        {:cont, {:ok, ["asset.read" | capabilities]}}
+
+      _invalid, _accumulator ->
+        {:halt, invalid()}
+    end)
+    |> case do
+      {:ok, capabilities} -> {:ok, capabilities |> Enum.uniq() |> Enum.sort()}
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp source_capabilities(_members), do: invalid()
+
+  defp source_authorization_result(:ok), do: :ok
+
+  defp source_authorization_result({:error, %Error{code: code, retryable?: retryable?}})
+       when is_boolean(retryable?) do
+    if code in Error.codes(),
+      do: {:error, Error.new(code, retryable?: retryable?)},
+      else: invalid()
+  end
+
+  defp source_authorization_result(_result), do: invalid()
 
   defp hydrate(adapters, repo, session, %Command{operation: :create}, %ReferenceResult{
          outcome: :saved,
@@ -225,7 +316,9 @@ defmodule Singularity.Runtime.Notes.Mutation do
       mutation_fingerprint: Map.get(runtime, :mutation_fingerprint, MutationFingerprint),
       note_repository: Map.get(runtime, :note_repository, NoteRepository),
       notes: Map.get(runtime, :notes, Notes),
-      operation_scope: Map.get(runtime, :operation_scope, OperationScope)
+      operation_scope: Map.get(runtime, :operation_scope, OperationScope),
+      authorizer: Map.get(runtime, :authorizer, Authorize),
+      authorization: Map.get(runtime, :authorization)
     }
 
     if valid_adapters?(values), do: {:ok, values}, else: invalid()

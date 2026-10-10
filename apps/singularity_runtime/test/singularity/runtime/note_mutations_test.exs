@@ -49,10 +49,19 @@ defmodule Singularity.Runtime.NoteMutationsTest do
 
   defmodule Repository do
     @behaviour Singularity.Domains.Notes.Repository
+    import ExUnit.Assertions
 
     for operation <- [:create, :save, :merge, :tombstone, :restore] do
       @impl true
       def unquote(operation)(repo, intent) do
+        if unquote(operation) in [:create, :save, :merge] do
+          assert %{repo: :scoped_repo, authorize_new_sources: callback} = repo
+          assert is_function(callback, 2)
+          assert Enum.sort(Map.keys(repo)) == [:authorize_new_sources, :repo]
+        else
+          assert repo == :scoped_repo
+        end
+
         owner = Process.get(:note_mutation_owner)
         send(owner, {:repository, unquote(operation), repo, intent})
         Process.get({:note_mutation_repository_result, unquote(operation)})
@@ -128,8 +137,10 @@ defmodule Singularity.Runtime.NoteMutationsTest do
 
     assert {:ok, ^correlation_id} = Ecto.UUID.cast(correlation_id)
 
-    assert_receive {:repository, :create, :scoped_repo,
+    assert_receive {:repository, :create, %{repo: :scoped_repo, authorize_new_sources: callback},
                     %{request_fingerprint: @fingerprint, principal_id: @principal_id}}
+
+    assert is_function(callback, 2)
 
     assert_receive {:reload, :scoped_repo, @vault_id, @resource_id}
   end
@@ -143,8 +154,10 @@ defmodule Singularity.Runtime.NoteMutationsTest do
               conflict_id: nil
             }} = Save.run(runtime(), session(), @resource_id, save_attrs())
 
-    assert_receive {:repository, :save, :scoped_repo,
+    assert_receive {:repository, :save, %{repo: :scoped_repo, authorize_new_sources: callback},
                     %{resource_id: @resource_id, base_version_id: @base_id}}
+
+    assert is_function(callback, 2)
 
     assert {:ok, conflict} =
              ReferenceResult.conflict(%{

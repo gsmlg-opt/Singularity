@@ -8,6 +8,9 @@ slice are qualified locally after their owning checks and independent SPEC then
 QUALITY review. Task 5's pure Query/Page/dispatch and real Storage cursor/paging
 slices are qualified. Authenticated Runtime facades, permanent-grant cleanup,
 the remaining Phase 4 deliverables and whole-phase acceptance are pending.
+Task 4's bounded winning-source Runtime mutation slice is qualified after its
+owning gates and independent SPEC then QUALITY; source DTOs/resolution and
+permanent grants remain pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -921,6 +924,9 @@ Owned-cluster cleanup check `46669` confirmed **zero** generated
 `singularity_test_%` databases and stopped only that private server. All five
 latest generated integration roots were verified absent. The ignored private
 cluster/harness is retained for the remaining authorized local work.
+The exact nine source/test files plus the plan/report were committed locally as
+`9bf06e9434391d960662f55a0ed49f79067f63e4`; the independent Task 4 drafts
+remained unstaged.
 
 ### Task 4 winning-source authorization execution, still in progress
 
@@ -961,6 +967,64 @@ failures and six existing cases at the deliberately updated context contract;
 and independent literal HMAC terms prove composition contracts, not live source
 authorization. Actual Runtime/Storage integration, DTOs, resolution, grants and
 independent Task 4 reviews remain required.
+
+### Task 4 winning-source Runtime composition GREEN
+
+Runtime production implementation changes only `notes/create.ex`: the two
+collection client fields, the exact server-only context for create/save/merge,
+and the new-member callback using the existing authorizer/dependencies, the
+captured scoped repo, both session epochs and fixed sorted existing capabilities.
+Hydration/lifecycle contracts remain raw-repo; Command, HMAC, Domains,
+OperationScope, custody, Vault and capability definitions are unchanged.
+Fresh unit `31770` passed exact six-file formatting and warnings-as-errors
+compilation, then all **61 actual Runtime units, zero failures**, 3.5 seconds,
+seed `215378`, including every original mutation/read/API/observability assertion.
+
+The parent adds ten real Runtime/Domain/NoteRepository/OperationScope/live-identity
+authorization cases to the existing three. They cover create/save/merge denial
+and exact 13-table rollback, authorized ordered membership/seals/completed
+receipts, mixed-kind all-of checks, current revocation of new evidence versus
+retained/inherited copies, deleted-source winning replay with latest-head
+hydration, and nondisclosing foreign-owner rejection. Custody remains the
+established test adapter, not proof of production unlock or source-byte custody.
+These real cases were added after Runtime implementation; their first passing
+run is additional qualification, not a claimed prior semantic RED. The earlier
+38-failure Runtime RED and 19-failure Storage RED remain the TDD evidence.
+
+An initial parent invocation `30794` mistakenly used ordinary `mix test
+--include integration`, without the repository's isolated-database task. Seven
+setup cases failed against the deliberately unusable default `127.0.0.1:1`
+in 38.0 seconds. The exact owned BEAM was terminated, the private server stopped,
+and no test database/root had been allocated. This is **FAIL/ABORTED**, not a
+production failure or a completed 71-case gate; remaining cases were NOT RUN.
+No source/test assertion or database configuration was changed to accommodate it.
+The parent command correction reruns the complete requested suites through
+`mix singularity.test.integration` in a fresh VM and isolated database.
+
+Fresh actual `6370` passed Storage **58 cases, zero failures**, 39.8 seconds,
+and Runtime **13 cases, zero failures**, 12.7 seconds: **71 executed integration
+cases PASS**, seed `215378`, exit 0, owned server stopped. Fresh static `98123`
+passed exact six-file `format --check-formatted`, production
+`compile --warnings-as-errors`, and zero-cycle xref (**No cycles found**).
+Sol source-context harness repair 1 remains PASS; parent integration-command
+repair 1 PASS; production repair rounds **0**, Astra attempts **0** in this slice.
+Actual six-file independent `phase4_internal_detail_spec_review` SPEC passed
+with zero actionable findings. Subsequent separate
+`phase4_internal_detail_quality_review` actual mutation QUALITY passed with
+zero findings. All six before/after source/test hashes matched in both reviews,
+and scoped diff checks passed. Owned-cluster cleanup `5686` confirmed zero
+generated integration databases and stopped only that private server. The latest
+allocated storage root `e6db7aac98422c9634e96036` was verified absent. No material
+user data was removed; the ignored owned cluster remains for subsequent local
+checks. Local commit remains pending.
+DTOs, exact selected-source resolution, grants, organization
+Runtime facades, Markdown export and whole-phase acceptance remain incomplete.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/lib/singularity/runtime/notes/create.ex apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs, compile --warnings-as-errors, test apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_runtime/lib/singularity/runtime/notes/create.ex apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
 
 ## Preserved boundaries and baseline inventory
 

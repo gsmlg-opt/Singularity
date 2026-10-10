@@ -26,11 +26,12 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   @max_cursor_bytes 2_048
 
   @impl true
-  def create(repo, intent) when is_map(intent) do
+  def create(context, intent) when is_map(intent) do
     resource_id = Ecto.UUID.generate()
     version_id = Ecto.UUID.generate()
 
-    with :ok <- validate_create(intent),
+    with {:ok, repo, authorize_new_sources} <- source_context(context),
+         :ok <- validate_create(intent),
          {:ok, _stored} = result <-
            NoteMutationReceipts.with_claim(
              repo,
@@ -39,7 +40,9 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
                resource_id: resource_id,
                version_id: version_id
              }),
-             fn -> persist_create(repo, intent, resource_id, version_id) end
+             fn ->
+               persist_create(repo, intent, resource_id, version_id, authorize_new_sources)
+             end
            ),
          :ok <- checkpoint(intent, :after_receipt) do
       save_result(repo, :create, result)
@@ -60,15 +63,16 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   def create(_repo, _intent), do: invalid()
 
   @impl true
-  def save(repo, intent) when is_map(intent) do
+  def save(context, intent) when is_map(intent) do
     version_id = Ecto.UUID.generate()
 
-    with :ok <- validate_save(intent),
+    with {:ok, repo, authorize_new_sources} <- source_context(context),
+         :ok <- validate_save(intent),
          {:ok, _stored} = result <-
            NoteMutationReceipts.with_claim(
              repo,
              Map.merge(intent, %{operation: :save, version_id: version_id}),
-             fn -> persist_save(repo, intent, version_id) end
+             fn -> persist_save(repo, intent, version_id, authorize_new_sources) end
            ),
          :ok <- checkpoint(intent, :after_receipt) do
       save_result(repo, :save, result)
@@ -89,15 +93,16 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
   def save(_repo, _intent), do: invalid()
 
   @impl true
-  def merge(repo, intent) when is_map(intent) do
+  def merge(context, intent) when is_map(intent) do
     version_id = Ecto.UUID.generate()
 
-    with :ok <- validate_merge(intent),
+    with {:ok, repo, authorize_new_sources} <- source_context(context),
+         :ok <- validate_merge(intent),
          {:ok, _stored} = result <-
            NoteMutationReceipts.with_claim(
              repo,
              Map.merge(intent, %{operation: :merge, version_id: version_id}),
-             fn -> persist_merge(repo, intent, version_id) end
+             fn -> persist_merge(repo, intent, version_id, authorize_new_sources) end
            ),
          :ok <- checkpoint(intent, :after_receipt) do
       save_result(repo, :merge, result)
@@ -817,8 +822,8 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
 
   defp validate_common(_intent), do: invalid()
 
-  defp persist_create(repo, intent, resource_id, version_id) do
-    with {:ok, sources} <- prepare_sources(repo, intent, resource_id),
+  defp persist_create(repo, intent, resource_id, version_id, authorize_new_sources) do
+    with {:ok, sources} <- prepare_sources(repo, intent, resource_id, authorize_new_sources),
          :ok <- NoteSources.revalidate(repo, intent, sources),
          intent = Map.put(intent, :prepared_sources, sources),
          {:ok, _resource} <- insert_resource(repo, intent, resource_id, version_id),
@@ -838,11 +843,12 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     end
   end
 
-  defp persist_save(repo, intent, version_id) do
+  defp persist_save(repo, intent, version_id, authorize_new_sources) do
     with {:ok, preflight} <- lock_resource(repo, intent.vault_id, intent.resource_id, false),
          :ok <- require_live(preflight),
          :ok <- require_base(repo, intent),
-         {:ok, sources} <- prepare_sources(repo, intent, intent.resource_id),
+         {:ok, sources} <-
+           prepare_sources(repo, intent, intent.resource_id, authorize_new_sources),
          {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
          :ok <- checkpoint(intent, :after_resource_lock),
          :ok <- require_live(resource),
@@ -964,12 +970,13 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     end
   end
 
-  defp persist_merge(repo, intent, version_id) do
+  defp persist_merge(repo, intent, version_id, authorize_new_sources) do
     with {:ok, preflight} <- lock_resource(repo, intent.vault_id, intent.resource_id, false),
          :ok <- require_live(preflight),
          :ok <- require_expected_head(preflight, intent.expected_current_version_id),
          {:ok, _preflight_conflict} <- lock_merge_conflict(repo, intent, false),
-         {:ok, sources} <- prepare_sources(repo, intent, intent.resource_id),
+         {:ok, sources} <-
+           prepare_sources(repo, intent, intent.resource_id, authorize_new_sources),
          {:ok, resource} <- lock_resource(repo, intent.vault_id, intent.resource_id),
          :ok <- checkpoint(intent, :after_resource_lock),
          :ok <- require_live(resource),
@@ -1167,13 +1174,45 @@ defmodule Singularity.Storage.Postgres.NoteRepository do
     end
   end
 
-  defp prepare_sources(repo, intent, resource_id) do
+  defp prepare_sources(repo, intent, resource_id, authorize_new_sources) do
     with {:ok, sources} <- NoteSources.prepare(repo, intent, resource_id),
+         :ok <- authorize_sources(repo, sources, authorize_new_sources),
          :ok <- checkpoint(intent, :after_source_prepare),
          :ok <- NoteSources.lock(repo, intent, sources) do
       {:ok, sources}
     end
   end
+
+  defp source_context(repo) when is_atom(repo) and repo not in [nil, false], do: {:ok, repo, nil}
+
+  defp source_context(%{repo: repo, authorize_new_sources: callback} = context)
+       when map_size(context) == 2 and is_atom(repo) and repo not in [nil, false] and
+              is_function(callback, 2),
+       do: {:ok, repo, callback}
+
+  defp source_context(_context), do: invalid()
+
+  # Raw-repo calls are existing internal callers; authenticated Runtime always
+  # supplies its server-owned callback separately from the immutable intent.
+  defp authorize_sources(_repo, _sources, nil), do: :ok
+
+  defp authorize_sources(repo, sources, callback) do
+    case NoteSources.new_members(sources) do
+      %{attachments: [], citations: []} -> :ok
+      members -> source_authorization_result(callback.(repo, members))
+    end
+  end
+
+  defp source_authorization_result(:ok), do: :ok
+
+  defp source_authorization_result({:error, %Error{code: code, retryable?: retryable?}})
+       when is_boolean(retryable?) do
+    if code in Error.codes(),
+      do: {:error, Error.new(code, retryable?: retryable?)},
+      else: invalid()
+  end
+
+  defp source_authorization_result(_result), do: invalid()
 
   defp insert_conflict(
          repo,

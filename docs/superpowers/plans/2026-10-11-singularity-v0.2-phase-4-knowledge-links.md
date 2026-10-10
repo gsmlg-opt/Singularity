@@ -239,6 +239,12 @@ and strengthen combined-mismatch precedence/unchanged-row/effect assertions.
 
 ## Task 4: Authenticated source mutation, DTOs and exact resolution
 
+The bounded winning-source mutation slice has passed its actual Runtime units,
+real Storage/Runtime authorization suites, static gates and independent SPEC
+then QUALITY. DTOs, selected historical resolution, permanent grants and the
+remaining Task 4 acceptance checks are still pending; this is not whole-task or
+phase acceptance.
+
 **Create:** Runtime `notes/resolve_source.ex`, `dto/note_attachment.ex`,
 `dto/note_citation.ex`, and `test/singularity/runtime/note_sources_test.exs`.
 **Modify:** Runtime `notes/create.ex` (contains Mutation), `notes/dto.ex`,
@@ -257,14 +263,14 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
 
 - [ ] Add Runtime RED for optional reference client fields, absent/clear/mixed
   modes, conflict/source response shape and exact resolution selectors.
-- [ ] Extend fixed client whitelist only for the two collections; reject owner,
+- [x] Extend fixed client whitelist only for the two collections; reject owner,
   Vault, sentinel, evidence/retention and containing-version injection. Continue
   deriving scope from authenticated context.
-- [ ] Use current `note.write` plus unlock. New Note sources require existing
+- [x] Use current `note.write` plus unlock. New Note sources require existing
   `note.read`; Asset/Document sources require existing `asset.read`. Copying
   retained exact references must not fetch private source content. Compose
   required existing capabilities inside OperationScope; no Vault change.
-- [ ] Pass only a server-created scoped-repo/authorization-callback context
+- [x] Pass only a server-created scoped-repo/authorization-callback context
   through the existing opaque repository port. Preserve raw internal callers;
   mapped contexts without a valid callback fail closed. Invoke after new-member
   preparation only inside the winning receipt callback, before ordered locks

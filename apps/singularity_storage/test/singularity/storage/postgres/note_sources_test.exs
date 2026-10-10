@@ -707,6 +707,427 @@ defmodule Singularity.Storage.Postgres.NoteSourcesTest do
     end)
   end
 
+  test "server context authorizes exact owner-free new Create members before source locks", c do
+    grants(fn ->
+      target = seed_note(c, %{attachments: [], citations: []})
+      refs = references(c)
+      [asset_ref] = refs.attachments
+
+      refs = %{
+        refs
+        | attachments: [
+            attachment(target, :note, "note"),
+            asset_ref,
+            attachment(
+              %{resource_id: c.document.resource_id, version_id: c.document.resource_version_id},
+              :document,
+              "document"
+            )
+          ]
+      }
+
+      request = intent(c, :create, %{}, refs)
+      gate = make_ref()
+      request = authorization_checkpoint(request, gate)
+
+      assert {:ok, %NoteSaveResult{outcome: :saved} = saved} =
+               authorized_mutate(c, :create, request, fn _repo, members ->
+                 assert members == refs
+                 assert_reference_shapes(members)
+                 send(self(), {gate, :authorized})
+                 :ok
+               end)
+
+      assert_members(c, saved.submitted_version_id, refs)
+      assert_effects(c, request, saved, "saved", 1)
+      refute_received {^gate, :authorized}
+    end)
+  end
+
+  test "server context Save authorizes only new members even on a retained citation target", c do
+    grants(fn ->
+      retained = references(c)
+      base = seed_note(c, retained)
+      target = seed_note(c, %{attachments: [], citations: []})
+      note_ref = attachment(target, :note, "new note")
+
+      document_ref =
+        attachment(
+          %{resource_id: c.document.resource_id, version_id: c.document.resource_version_id},
+          :document,
+          "new document attachment"
+        )
+
+      new_citation = citation(c)
+
+      refs = %{
+        attachments: [note_ref] ++ retained.attachments ++ [document_ref],
+        citations: retained.citations ++ [new_citation]
+      }
+
+      expected_new = %{attachments: [note_ref, document_ref], citations: [new_citation]}
+      request = intent(c, :save, base, refs)
+      gate = make_ref()
+      request = authorization_checkpoint(request, gate)
+
+      assert {:ok, %NoteSaveResult{outcome: :saved} = saved} =
+               authorized_mutate(c, :save, request, fn _repo, members ->
+                 assert members == expected_new
+                 assert_reference_shapes(members)
+                 send(self(), {gate, :authorized})
+                 :ok
+               end)
+
+      assert_members(c, saved.submitted_version_id, refs)
+      assert_members(c, base.version_id, retained)
+      assert_effects(c, request, saved, "saved", 1)
+      refute_received {^gate, :authorized}
+    end)
+  end
+
+  test "server context stale Save authorizes new members before publishing its competing version",
+       c do
+    grants(fn ->
+      base = seed_note(c, %{attachments: [], citations: []})
+      current = seed_version(c, base, 1, %{attachments: [], citations: []})
+      refs = references(c)
+      request = intent(c, :save, base, refs)
+      gate = make_ref()
+      request = authorization_checkpoint(request, gate)
+
+      assert {:ok, %NoteSaveResult{outcome: :conflict} = saved} =
+               authorized_mutate(c, :save, request, fn _repo, members ->
+                 assert members == refs
+                 send(self(), {gate, :authorized})
+                 :ok
+               end)
+
+      assert saved.canonical_version_id == current.version_id
+      assert_members(c, saved.submitted_version_id, refs)
+      assert_members(c, current.version_id, %{attachments: [], citations: []})
+      assert_effects(c, request, saved, "conflict", 1)
+      refute_received {^gate, :authorized}
+    end)
+  end
+
+  test "server context Merge excludes retained members from both parents from authorization", c do
+    grants(fn ->
+      scenario = seed_conflict(c)
+      new_refs = references(c)
+
+      refs = %{
+        attachments:
+          scenario.competing_refs.attachments ++
+            new_refs.attachments ++ scenario.current_refs.attachments,
+        citations: new_refs.citations
+      }
+
+      request = intent(c, :merge, scenario, refs)
+      gate = make_ref()
+      request = authorization_checkpoint(request, gate)
+
+      assert {:ok, %NoteSaveResult{outcome: :saved} = merged} =
+               authorized_mutate(c, :merge, request, fn _repo, members ->
+                 assert members == new_refs
+                 assert_reference_shapes(members)
+                 send(self(), {gate, :authorized})
+                 :ok
+               end)
+
+      assert_members(c, merged.submitted_version_id, refs)
+      assert_merge(c, scenario, merged)
+      assert_effects(c, request, merged, "saved", 2)
+      refute_received {^gate, :authorized}
+    end)
+  end
+
+  for operation <- [:create, :save, :merge] do
+    @authorization_operation operation
+    test "server context #{@authorization_operation} source denial rolls back all canonical and effect rows",
+         c do
+      grants(fn ->
+        {request, refs} = authorization_request(c, @authorization_operation)
+        before = state(c)
+        gate = make_ref()
+        denial = Error.new(:forbidden)
+
+        request =
+          Map.put(request, :failure_injector, %{
+            after_source_prepare: fn ->
+              flunk("denial passed the source preparation checkpoint")
+            end,
+            after_resource_lock: fn -> flunk("denial acquired source resource locks") end
+          })
+
+        assert {:error, ^denial} =
+                 authorized_mutate(c, @authorization_operation, request, fn _repo, members ->
+                   assert members == refs
+                   send(self(), {gate, :denied})
+                   {:error, denial}
+                 end)
+
+        assert_received {^gate, :denied}
+        refute_received {^gate, :denied}
+        assert state(c) == before
+        assert_no_effects(c, request)
+      end)
+    end
+  end
+
+  for mode <- [:inherit, :explicit_retained, :clear, :merge_retained] do
+    @retained_mode mode
+    test "server context #{@retained_mode} skips new-source authorization after source deletion",
+         c do
+      grants(fn ->
+        {operation, request, expected_refs} =
+          if @retained_mode == :merge_retained do
+            scenario = seed_conflict(c)
+            tombstone(c, c.document.resource_id)
+            tombstone(c, scenario.note_target.resource_id)
+
+            refs = %{
+              attachments:
+                scenario.competing_refs.attachments ++ scenario.current_refs.attachments,
+              citations: []
+            }
+
+            {:merge, intent(c, :merge, scenario, refs), refs}
+          else
+            refs = references(c)
+            base = seed_note(c, refs)
+            tombstone(c, c.fixture.resource_id)
+            tombstone(c, c.document.resource_id)
+
+            replacement =
+              case @retained_mode do
+                :inherit -> %{}
+                :explicit_retained -> refs
+                :clear -> %{attachments: [], citations: []}
+              end
+
+            expected = if @retained_mode == :clear, do: replacement, else: refs
+            {:save, intent(c, :save, base, replacement), expected}
+          end
+
+        assert {:ok, %NoteSaveResult{outcome: :saved} = saved} =
+                 authorized_mutate(c, operation, request, fn _repo, _members ->
+                   flunk("retained/clear source set requested current source authority")
+                 end)
+
+        assert_members(c, saved.submitted_version_id, expected_refs)
+        assert_effects(c, request, saved, "saved", if(operation == :merge, do: 2, else: 1))
+      end)
+    end
+  end
+
+  for operation <- [:create, :save, :merge] do
+    @replay_operation operation
+    test "server context #{@replay_operation} replay skips deleted sources and a currently denying callback",
+         c do
+      grants(fn ->
+        {request, refs} = authorization_request(c, @replay_operation)
+        gate = make_ref()
+
+        assert {:ok, %NoteSaveResult{} = saved} =
+                 authorized_mutate(c, @replay_operation, request, fn _repo, members ->
+                   assert members == refs
+                   send(self(), {gate, :authorized})
+                   :ok
+                 end)
+
+        assert_received {^gate, :authorized}
+        refute_received {^gate, :authorized}
+        assert_members(c, saved.submitted_version_id, refs)
+        tombstone(c, c.fixture.resource_id)
+        tombstone(c, c.document.resource_id)
+
+        replay =
+          Map.put(request, :failure_injector, %{
+            after_source_prepare: fn -> flunk("replay prepared sources") end,
+            after_resource_lock: fn -> flunk("replay acquired source locks") end
+          })
+
+        before = state(c)
+
+        assert {:ok, ^saved} =
+                 authorized_mutate(c, @replay_operation, replay, fn _repo, _members ->
+                   flunk("replay requested currently revoked source read authority")
+                   {:error, Error.new(:forbidden)}
+                 end)
+
+        assert state(c) == before
+        assert_members(c, saved.submitted_version_id, refs)
+      end)
+    end
+  end
+
+  for operation <- [:create, :save, :merge] do
+    @invalid_context_operation operation
+    test "#{@invalid_context_operation} rejects mapped contexts without a valid two-arity callback",
+         c do
+      grants(fn ->
+        {request, _refs} = authorization_request(c, @invalid_context_operation)
+        invalid = Error.new(:invalid)
+
+        for callback <- [
+              :missing,
+              nil,
+              :not_a_function,
+              fn -> flunk("zero-arity authorization callback ran") end,
+              fn _ -> flunk("one-arity authorization callback ran") end,
+              fn _, _, _ -> flunk("three-arity authorization callback ran") end
+            ] do
+          before = state(c)
+
+          assert {:error, ^invalid} =
+                   scoped(c, fn repo ->
+                     context =
+                       if callback == :missing,
+                         do: %{repo: repo},
+                         else: %{repo: repo, authorize_new_sources: callback}
+
+                     apply(NoteRepository, @invalid_context_operation, [context, request])
+                   end)
+
+          assert state(c) == before
+          assert_no_effects(c, request)
+        end
+      end)
+    end
+  end
+
+  test "server context empty Create skips source authorization and still seals its version", c do
+    grants(fn ->
+      refs = %{attachments: [], citations: []}
+      request = intent(c, :create, %{}, refs)
+
+      assert {:ok, %NoteSaveResult{outcome: :saved} = saved} =
+               authorized_mutate(c, :create, request, fn _repo, _members ->
+                 flunk("empty Create requested source authority")
+               end)
+
+      assert_members(c, saved.submitted_version_id, refs)
+      assert_effects(c, request, saved, "saved", 1)
+    end)
+  end
+
+  test "server context invalid prepared member fails before invoking source authorization", c do
+    grants(fn ->
+      base = seed_note(c, %{attachments: [], citations: []})
+      refs = %{attachments: [attachment(base, :note, "self")], citations: []}
+      request = intent(c, :save, base, refs)
+      before = state(c)
+
+      assert {:error, %Error{code: :invalid}} =
+               authorized_mutate(c, :save, request, fn _repo, _members ->
+                 flunk("unvalidated self-reference reached source authorization")
+               end)
+
+      assert state(c) == before
+      assert_no_effects(c, request)
+    end)
+  end
+
+  defp authorization_request(c, :create) do
+    refs = references(c)
+    {intent(c, :create, %{}, refs), refs}
+  end
+
+  defp authorization_request(c, :save) do
+    base = seed_note(c, %{attachments: [], citations: []})
+    refs = references(c)
+    {intent(c, :save, base, refs), refs}
+  end
+
+  defp authorization_request(c, :merge) do
+    scenario = seed_conflict(c)
+    refs = references(c)
+    {intent(c, :merge, scenario, refs), refs}
+  end
+
+  defp authorization_checkpoint(request, gate) do
+    Map.put(request, :failure_injector, %{
+      after_source_prepare: fn ->
+        assert_received {^gate, :authorized}
+        refute_received {^gate, :authorized}
+        send(self(), {gate, :checkpoint})
+        :ok
+      end,
+      after_resource_lock: fn ->
+        assert_received {^gate, :checkpoint}
+        refute_received {^gate, :checkpoint}
+        :ok
+      end
+    })
+  end
+
+  defp authorized_mutate(c, operation, request, callback) do
+    scoped(c, fn repo ->
+      %{rows: [[backend, transaction]]} =
+        query!(repo, "SELECT pg_backend_pid(),txid_current()")
+
+      context = %{
+        repo: repo,
+        authorize_new_sources: fn actual_repo, members ->
+          assert actual_repo == repo
+          assert actual_repo.in_transaction?()
+
+          assert %{rows: [[^backend, ^transaction, principal, owner]]} =
+                   query!(
+                     actual_repo,
+                     "SELECT pg_backend_pid(),txid_current(),current_setting('singularity.principal_id'),current_setting('singularity.vault_id')"
+                   )
+
+          assert {principal, owner} == {c.fixture.principal_id, c.fixture.vault_id}
+
+          assert %{rows: [["pending"]]} =
+                   query!(
+                     actual_repo,
+                     "SELECT state FROM content.note_mutation_receipts WHERE mutation_id=$1",
+                     [uuid(request.mutation_id)]
+                   )
+
+          assert %{rows: [[0]]} =
+                   query!(
+                     actual_repo,
+                     "SELECT count(*) FROM pg_locks WHERE pid=pg_backend_pid() AND locktype='relation' AND mode='RowShareLock' AND relation IN ('content.assets'::regclass,'content.asset_objects'::regclass,'content.resources'::regclass,'content.resource_versions'::regclass,'content.resource_assets'::regclass)"
+                   )
+
+          callback.(actual_repo, members)
+        end
+      }
+
+      apply(NoteRepository, operation, [context, request])
+    end)
+  end
+
+  defp assert_reference_shapes(%{attachments: attachments, citations: citations} = members) do
+    assert Enum.sort(Map.keys(members)) == [:attachments, :citations]
+
+    for %NoteAttachmentReference{} = ref <- attachments do
+      assert Enum.sort(Map.keys(Map.from_struct(ref))) ==
+               [
+                 :attachment_id,
+                 :label,
+                 :role,
+                 :target_kind,
+                 :target_resource_id,
+                 :target_resource_version_id
+               ]
+    end
+
+    for %NoteCitationReference{} = ref <- citations do
+      assert Enum.sort(Map.keys(Map.from_struct(ref))) ==
+               [
+                 :citation_id,
+                 :fragment_id,
+                 :locator,
+                 :source_resource_id,
+                 :source_resource_version_id
+               ]
+    end
+  end
+
   defp grants(fun) do
     KnowledgeTestGrants.with_grants(
       ~w(note_attachments note_citations document_versions document_fragments),

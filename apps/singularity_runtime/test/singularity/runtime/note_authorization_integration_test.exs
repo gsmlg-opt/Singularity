@@ -5,6 +5,7 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
 
   alias Singularity.Core.Error
   alias Singularity.Core.NoteSaveResult
+  alias Singularity.Core.SourceLocator
   alias Singularity.Retrieval.NoteSearchPage
   alias Singularity.Runtime.AuthorizationDependencies
   alias Singularity.Runtime.Authorize
@@ -22,6 +23,8 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
   alias Singularity.Runtime.SessionContext
   alias Singularity.Storage.AuthorizationLock
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
+  alias Singularity.Storage.KnowledgeTestGrants
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.IdentityRepository
   alias Singularity.Storage.Postgres.NoteRepository
@@ -157,7 +160,7 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
     Fixtures.with_owner(fn ->
       query!(MigrationRepo, "UPDATE core.vaults SET locked = false WHERE id = $1", [raw.vault_id])
 
-      for capability <- ["note.export", "note.read", "note.write"] do
+      for capability <- ["asset.read", "note.export", "note.read", "note.write"] do
         query!(
           MigrationRepo,
           "INSERT INTO core.capabilities (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
@@ -346,6 +349,346 @@ defmodule Singularity.Runtime.NoteAuthorizationIntegrationTest do
 
     assert {:ok, true} = Delete.run(runtime, note_session, note.resource_id, attrs)
     assert mutation_surfaces(note, mutation_id) == after_first
+  end
+
+  # These contracts use the real Runtime/Domain mutation path, scoped SQL
+  # repository and live identity authorizer. Custody remains the established
+  # test adapter; they do not claim production unlock/source-byte acceptance.
+  for operation <- [:create, :save, :merge] do
+    @source_operation operation
+
+    test "real #{@source_operation} rejects new sources without current read authority and rolls back every mutation surface",
+         context do
+      with_source_grants(fn ->
+        source = source_authority(context)
+        request = source_mutation_request(source, @source_operation)
+        before = source_mutation_state(source.principal.vault_id)
+
+        assert {:error, %Error{} = error} =
+                 run_source_mutation(source, @source_operation, request, source.references)
+
+        assert error == Error.new(:forbidden)
+        assert source_mutation_state(source.principal.vault_id) == before
+      end)
+    end
+
+    test "real #{@source_operation} persists exact ordered sources with both current read capabilities",
+         context do
+      with_source_grants(fn ->
+        source = source_authority(context)
+        grant_capability!(source.principal, "asset.read")
+        grant_capability!(source.principal, "note.read")
+        request = source_mutation_request(source, @source_operation)
+
+        assert {:ok, result} =
+                 run_source_mutation(source, @source_operation, request, source.references)
+
+        canonical = if @source_operation == :create, do: result, else: result.canonical
+        assert_source_members!(canonical, source.references)
+
+        assert %{rows: [["completed", "saved", version]]} =
+                 Fixtures.with_owner(fn ->
+                   query!(
+                     MigrationRepo,
+                     "SELECT state,outcome,version_id::text FROM content.note_mutation_receipts WHERE vault_id=$1 AND mutation_id=$2",
+                     [dump!(source.principal.vault_id), dump!(request.mutation_id)]
+                   )
+                 end)
+
+        assert version == canonical.resource_version_id
+      end)
+    end
+  end
+
+  for granted_capability <- ["asset.read", "note.read"] do
+    @granted_capability granted_capability
+
+    test "mixed new sources require all capabilities even with #{@granted_capability}", context do
+      with_source_grants(fn ->
+        source = source_authority(context)
+        grant_capability!(source.principal, @granted_capability)
+        request = source_mutation_request(source, :create)
+        before = source_mutation_state(source.principal.vault_id)
+
+        assert {:error, %Error{code: :forbidden}} =
+                 run_source_mutation(source, :create, request, source.references)
+
+        assert source_mutation_state(source.principal.vault_id) == before
+      end)
+    end
+  end
+
+  test "revoked source authority denies new evidence but permits exact retained copies and winning replay",
+       context do
+    with_source_grants(fn ->
+      source = source_authority(context)
+      grant_capability!(source.principal, "asset.read")
+      grant_capability!(source.principal, "note.read")
+      create_request = source_mutation_request(source, :create)
+
+      assert {:ok, initial} =
+               run_source_mutation(source, :create, create_request, source.references)
+
+      revoke_capability!(source.principal, "asset.read")
+      revoke_capability!(source.principal, "note.read")
+
+      retained_request = %{
+        mutation_id: Ecto.UUID.generate(),
+        resource_id: initial.resource_id,
+        base_version_id: initial.resource_version_id,
+        title: "Retained source metadata",
+        markdown: "Retained body"
+      }
+
+      assert {:ok, retained} =
+               run_source_mutation(source, :save, retained_request, source.references)
+
+      assert_source_members!(retained.canonical, source.references)
+      assert_source_members!(initial, source.references)
+
+      [citation] = source.references.citations
+
+      new_evidence = %{
+        source.references
+        | citations: [%{citation | citation_id: Ecto.UUID.generate()}]
+      }
+
+      denied_request = %{
+        retained_request
+        | mutation_id: Ecto.UUID.generate(),
+          base_version_id: retained.canonical.resource_version_id
+      }
+
+      before_denial = source_mutation_state(source.principal.vault_id)
+
+      assert {:error, %Error{code: :forbidden}} =
+               run_source_mutation(source, :save, denied_request, new_evidence)
+
+      assert source_mutation_state(source.principal.vault_id) == before_denial
+
+      Fixtures.with_owner(fn ->
+        for reference <- source.references.attachments do
+          query!(
+            MigrationRepo,
+            "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1",
+            [dump!(reference.target_resource_id)]
+          )
+        end
+
+        query!(
+          MigrationRepo,
+          "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1",
+          [source.document.resource_id]
+        )
+      end)
+
+      before_replay = source_mutation_state(source.principal.vault_id)
+
+      assert {:ok, replay} =
+               run_source_mutation(source, :create, create_request, source.references)
+
+      assert replay.resource_id == initial.resource_id
+      assert replay.resource_version_id == retained.canonical.resource_version_id
+      assert_source_members!(replay, source.references)
+      assert source_mutation_state(source.principal.vault_id) == before_replay
+
+      inherited_request = %{
+        retained_request
+        | mutation_id: Ecto.UUID.generate(),
+          base_version_id: replay.resource_version_id
+      }
+
+      assert {:ok, inherited} = run_source_mutation(source, :save, inherited_request, %{})
+      assert_source_members!(inherited.canonical, source.references)
+    end)
+  end
+
+  test "real new-source mutation cannot disclose or persist a foreign owner's source", context do
+    with_source_grants(fn ->
+      source = source_authority(context)
+      foreign = KnowledgeFixtures.source!()
+      grant_capability!(source.principal, "asset.read")
+      request = source_mutation_request(source, :create)
+
+      references = %{
+        attachments: [source_attachment(foreign.resource_id, foreign.resource_version_id, :asset)],
+        citations: []
+      }
+
+      before_local = source_mutation_state(source.principal.vault_id)
+      foreign_owner = load_uuid(foreign.vault_id)
+      before_foreign = source_mutation_state(foreign_owner)
+
+      assert {:error, %Error{code: :not_found}} =
+               run_source_mutation(source, :create, request, references)
+
+      assert source_mutation_state(source.principal.vault_id) == before_local
+      assert source_mutation_state(foreign_owner) == before_foreign
+    end)
+  end
+
+  defp with_source_grants(fun) do
+    KnowledgeTestGrants.with_grants(
+      ~w(note_attachments note_citations document_versions document_fragments),
+      fun
+    )
+  end
+
+  defp source_authority(context) do
+    source = KnowledgeFixtures.source!()
+    {document, fragment} = KnowledgeFixtures.ready_document!(source)
+    target_note = KnowledgeFixtures.note!(source)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [source.vault_id])
+    end)
+
+    principal = create_principal!(source.vault_id, ["note.write"])
+
+    %{
+      principal: principal,
+      document: document,
+      runtime: %{context.runtime | note_repository: NoteRepository},
+      references: %{
+        attachments: [
+          source_attachment(source.resource_id, source.resource_version_id, :asset),
+          source_attachment(target_note.resource_id, target_note.resource_version_id, :note)
+        ],
+        citations: [
+          %{
+            citation_id: Ecto.UUID.generate(),
+            source_resource_id: load_uuid(document.resource_id),
+            source_resource_version_id: load_uuid(document.resource_version_id),
+            fragment_id: fragment.fragment_id,
+            locator: SourceLocator.to_map(fragment.locator)
+          }
+        ]
+      }
+    }
+  end
+
+  defp source_attachment(resource_id, version_id, kind) do
+    %{
+      attachment_id: Ecto.UUID.generate(),
+      target_resource_id: load_uuid(resource_id),
+      target_resource_version_id: load_uuid(version_id),
+      target_kind: kind,
+      role: :source,
+      label: "Pinned #{kind}"
+    }
+  end
+
+  defp source_mutation_request(_source, :create) do
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      title: "Source-enabled note",
+      markdown: "Source-enabled body"
+    }
+  end
+
+  defp source_mutation_request(source, :save) do
+    assert {:ok, note} =
+             Create.run(source.runtime, session(source.principal), %{
+               mutation_id: Ecto.UUID.generate(),
+               title: "Empty-source base",
+               markdown: "Empty-source body"
+             })
+
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: note.resource_id,
+      base_version_id: note.resource_version_id,
+      title: "Source-enabled save",
+      markdown: "Source-enabled body"
+    }
+  end
+
+  defp source_mutation_request(source, :merge) do
+    note = NoteFixtures.note_with_conflict_in_context!(source.principal)
+
+    %{
+      mutation_id: Ecto.UUID.generate(),
+      resource_id: note.resource_id,
+      conflict_id: note.conflict_id,
+      expected_current_version_id: note.canonical_version_id,
+      competing_version_id: note.competing_version_id,
+      title: "Source-enabled merge",
+      markdown: "Source-enabled body"
+    }
+  end
+
+  defp run_source_mutation(source, operation, request, references) do
+    attrs = Map.merge(request, references)
+    principal_session = session(source.principal)
+
+    case operation do
+      :create -> Create.run(source.runtime, principal_session, attrs)
+      :save -> Save.run(source.runtime, principal_session, request.resource_id, attrs)
+      :merge -> Merge.run(source.runtime, principal_session, request.resource_id, attrs)
+    end
+  end
+
+  defp assert_source_members!(note, references) do
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[2, 1]]} =
+               query!(
+                 MigrationRepo,
+                 "SELECT attachment_count,citation_count FROM content.note_source_set_seals WHERE note_resource_version_id=$1",
+                 [dump!(note.resource_version_id)]
+               )
+
+      attachments =
+        query!(
+          MigrationRepo,
+          "SELECT id::text,target_resource_id::text,target_resource_version_id::text,target_kind,ordinal,role,label FROM content.note_attachments WHERE note_resource_version_id=$1 ORDER BY ordinal",
+          [dump!(note.resource_version_id)]
+        ).rows
+
+      assert attachments ==
+               Enum.with_index(references.attachments, fn reference, ordinal ->
+                 [
+                   reference.attachment_id,
+                   reference.target_resource_id,
+                   reference.target_resource_version_id,
+                   Atom.to_string(reference.target_kind),
+                   ordinal,
+                   "source",
+                   reference.label
+                 ]
+               end)
+
+      citations =
+        query!(
+          MigrationRepo,
+          "SELECT id::text,source_resource_id::text,source_resource_version_id::text,fragment_id,locator,ordinal FROM content.note_citations WHERE note_resource_version_id=$1 ORDER BY ordinal",
+          [dump!(note.resource_version_id)]
+        ).rows
+
+      assert citations ==
+               Enum.with_index(references.citations, fn reference, ordinal ->
+                 [
+                   reference.citation_id,
+                   reference.source_resource_id,
+                   reference.source_resource_version_id,
+                   reference.fragment_id,
+                   reference.locator,
+                   ordinal
+                 ]
+               end)
+    end)
+  end
+
+  defp source_mutation_state(owner_id) do
+    Fixtures.with_owner(fn ->
+      for table <-
+            ~w(content.resources content.resource_versions content.note_versions content.note_attachments content.note_citations content.note_source_set_seals content.note_conflicts content.note_mutation_receipts content.note_search_documents content.search_entries audit.events core.outbox_events jobs.job_submissions) do
+        query!(
+          MigrationRepo,
+          "SELECT COALESCE(jsonb_agg(row ORDER BY row::text),'[]'::jsonb) FROM (SELECT to_jsonb(t) row FROM #{table} t WHERE vault_id=$1) s",
+          [dump!(owner_id)]
+        ).rows
+      end
+    end)
   end
 
   defp read_operations(runtime, principal_session, context) do
