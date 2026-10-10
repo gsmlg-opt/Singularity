@@ -14,7 +14,10 @@ restrictions. Designs, plans, necessary in-scope repairs, tests, independent
 review, local commits, and progression after required phase gates are authorized
 without renewed human approval. The Phase 0 history below remains unchanged
 evidence, not an active prohibition on later development. Vault freeze, product
-scope, E2E, publication/deployment, and production-data restrictions remain.
+scope, publication/deployment, and production-data restrictions remain. The
+user's later 2026-10-10 E2E deferral permits local phase advancement after all
+other required checks and independent review pass. E2E remains manual-only and
+NOT RUN; final browser/release acceptance remains required.
 
 ## 1. Purpose
 

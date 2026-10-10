@@ -32,7 +32,10 @@ in-scope compatibility, test-contract, documentation, and additive migration
 repairs require synchronized designs/plans, verification, and independent review,
 not another `approve`. Ordinary test failures enter diagnosis and repair.
 Advance to Phase 4's own design/plan automatically only after Phase 3's required
-gates and independent review pass; this plan does not pull Phase 4 work forward.
+gates and independent review pass. The user's later explicit 2026-10-10 E2E
+deferral permits local phase advancement after all other required checks and
+independent review pass; E2E stays NOT RUN and final browser/release acceptance
+remains required.
 
 No merge, push, release, deployment, version bump, Phase 4 write, V3 payload,
 browser feature, or Vault feature is authorized here. E2E remains manual; do
@@ -2101,10 +2104,10 @@ design/plan; this file list is not an approval boundary.
 - [x] Run all new owning suites plus the directly affected legacy Note,
   Document-worker, codec/outbox, and V1/V2 restore suites. Record source SHA,
   exact commands, seeds, counts, forward migrations/grants, and reviews.
-- [ ] After scoped gates pass, commit the candidate and run the entire ordered
-  README gate from that exact clean SHA with owned process identity and cleanup.
-  The complete gate includes explicitly manual E2E, which remains NOT RUN under
-  the current user restriction, not an automatic workflow trigger or a waiver.
+- [x] After scoped gates pass, commit the candidate and run the entire permitted
+  ordered non-E2E README gate from that exact clean SHA with owned process
+  identity and cleanup. Session `91785` passed on `35c1f83`; E2E is explicitly
+  deferred by the user's later instruction for local phase advancement.
   Retain the Phase 2 residual login race and Poppler qualification until
   separately evidenced. Diagnose failures and repair those necessary for this
   product goal under the continuous authorization; do not perform unrelated work.
@@ -2120,11 +2123,14 @@ git diff --check
   Resolve findings within approved scope; route internal-organization dependency
   defects upstream under AGENTS.md. Preserve any failed gate's evidence rather
   than relabeling it passing after a narrower rerun.
-- [ ] Verify every Phase 3 deliverable against runtime/source evidence, record
-  remaining risks and no Vault feature work, and commit the local acceptance
-  report. Once all required gates and independent review pass, automatically
-  prepare Phase 4's separate design and plan. Do not mark the full release goal
-  complete or publish anything merely because Phase 3 passes.
+- [x] Verify every Phase 3 deliverable against runtime/source evidence, record
+  remaining risks and no Vault feature work, and commit the qualified local
+  development acceptance report. All permitted gates and independent source
+  reviews passed; the user's later E2E deferral permits Phase 4's separate design
+  and plan. Do not mark the full release goal complete or publish anything merely
+  because Phase 3 is qualified locally.
+- [ ] Execute the deferred manual E2E gate for final browser/release acceptance
+  after separate execution authority; record its actual outcome.
 
 ### Task 11 qualification in progress, 2026-10-10
 
@@ -2246,9 +2252,11 @@ generated databases or recorded/new allocation roots and stopped PostgreSQL;
 protected worktrees and source/lockfile hashes remained unchanged.
 The [qualification record](../../verification/2026-10-09-phase-3-acceptance.md)
 contains exact seeds, per-application counts, commands, reviews and limitations.
-Task 11's complete README/phase-acceptance checkboxes remain unchecked because
-mandatory manual E2E is still NOT RUN under the preserved user restriction.
-No Phase 3 acceptance or Phase 4 advancement is inferred.
+At that checkpoint, Task 11's complete README/phase-acceptance checkboxes
+remained unchecked because manual E2E was NOT RUN. The user's later explicit
+E2E deferral now permits qualified local development acceptance and Phase 4
+advancement using that same tested/reviewed source. E2E remains NOT RUN and
+required for final browser/release acceptance; historical failures remain.
 
 ## Coverage and execution record
 

@@ -2044,8 +2044,9 @@ Advance automatically only after the preceding phase's required gates pass.
 Necessary in-scope repairs may extend old file lists after synchronizing the
 design, plan, and evidence.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
-E2E remains manual-only and NOT RUN under the current user restriction; do not
-mistake partial verification for complete phase or release acceptance.
+The user's 2026-10-10 E2E deferral permits local phase advancement after all other
+required checks and independent review pass. E2E remains manual-only and NOT RUN;
+final browser/release acceptance remains required.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,
@@ -2121,5 +2122,7 @@ supported verification gate passing, and independent review. Production canonica
 writes remain disabled. After the required gate and independent review pass,
 automatically prepare the next phase's design and plan under the continuous
 authorization. Vault changes, merge, version bumps, tags, publication, pushes,
-deployment, and production activation remain outside that authority. E2E stays
-NOT RUN under the current restriction, so a partial gate is not full acceptance.
+deployment, and production activation remain outside that authority. The user's
+2026-10-10 E2E deferral permits local phase advancement after all other required
+checks and independent review pass. E2E stays NOT RUN; final browser/release
+acceptance remains required.

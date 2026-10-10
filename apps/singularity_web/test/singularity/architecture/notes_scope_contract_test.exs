@@ -60,8 +60,9 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     It does not authorize merge, push, version bump, tag, release, deployment,
     production activation, or production backfill.
   - E2E remains manual-only and must not be run under the current user restriction.
-    Record it as NOT RUN; do not present a partial gate as full phase/release
-    acceptance or advance past an unmet required acceptance gate.
+    On 2026-10-10 the user explicitly deferred E2E for local development and phase
+    advancement. All other required checks and independent review must pass.
+    E2E stays NOT RUN and final browser/release acceptance remains required.
   - Stop and request direction only for genuinely new external permission, a
     product decision only the user can make, or an external blocker that cannot
     be resolved within this authority. Continue independent valid work when safe.
@@ -90,7 +91,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
                                      "- Add a failing focused contract before changing enforced behavior.",
                                      "- Never edit a released migration.",
                                      "- Never weaken, skip, delete, or reclassify a required assertion.",
-                                     "- Run focused checks during a phase and the complete README verification gate before accepting the phase. A failed gate blocks acceptance and advancement, not authorized diagnosis and repair. A prohibited E2E run stays NOT RUN and cannot be silently removed from the acceptance requirements.",
+                                     "- Run focused checks during a phase and the complete permitted README verification gate before local development acceptance. The user's explicit E2E deferral permits phase advancement after all other required checks and independent review pass. A failing executed gate still blocks acceptance and advancement; E2E stays NOT RUN and required for final browser/release acceptance.",
                                      "- Preserve the seven-application dependency graph and require zero xref cycles.",
                                      "- Record commits, changed files, migrations, tests, exact commands and results, remaining risks, and confirmation that no Vault feature work occurred.",
                                      @blocker_repair_heading,
@@ -191,7 +192,9 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
           "production-data protections",
           "does not authorize merge, push, version bump, tag, release, deployment",
           "must not be run under the current user restriction",
-          "or advance past an unmet required acceptance gate",
+          "explicitly deferred E2E for local development and phase",
+          "All other required checks and independent review must pass",
+          "final browser/release acceptance remains required",
           "only for genuinely new external permission"
         ] do
       assert agents =~ required
@@ -414,7 +417,10 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
              "Advance automatically only after the preceding phase's required gates pass."
 
     assert normalize_markdown(readme_scope) =~
-             "E2E remains manual-only and NOT RUN under the current user restriction; this is not a waiver of the complete phase/release acceptance gate."
+             "The user's 2026-10-10 E2E deferral permits local phase advancement after all other required checks and independent review pass."
+
+    assert normalize_markdown(readme_scope) =~
+             "E2E remains manual-only and NOT RUN; final browser/release acceptance remains required."
 
     assert normalize_markdown(readme_scope) =~
              "Version bumps, tags, releases, pushes, and deployments remain separately gated."

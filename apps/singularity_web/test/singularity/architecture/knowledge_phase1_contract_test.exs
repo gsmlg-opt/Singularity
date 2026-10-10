@@ -134,7 +134,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           "Production canonical writes remain disabled.",
           "After the required gate and independent review pass, automatically prepare the next phase's design and plan under the continuous authorization.",
           "Vault changes, merge, version bumps, tags, publication, pushes, deployment, and production activation remain outside that authority.",
-          "E2E stays NOT RUN under the current restriction, so a partial gate is not full acceptance."
+          "The user's 2026-10-10 E2E deferral permits local phase advancement after all other required checks and independent review pass.",
+          "E2E stays NOT RUN; final browser/release acceptance remains required."
         ] do
       assert gate =~ marker
     end

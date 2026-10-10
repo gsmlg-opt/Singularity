@@ -2,7 +2,7 @@
 
 ## Current status
 
-**IN PROGRESS — Phase 3 is not accepted.**
+**QUALIFIED LOCAL DEVELOPMENT ACCEPTANCE — E2E DEFERRED.**
 
 Latest clean gate source: `35c1f8360dd22b129832a1618b3723032a1983bd` on
 `codex/v0.2-phase-3-search-design`, in the project-local Phase 3 worktree.
@@ -25,14 +25,52 @@ verification, and independent review. Original failed index qualification
 and combined search regression `14560` subsequently passed without weakening
 the required assertions.
 
-The user restriction on E2E remains in force: browser tests are **NOT RUN** in
-this qualification. This cannot be represented as a complete README gate or
-full phase acceptance. No Phase 4, production activation, production backfill,
-merge, push, tag, release, or deployment is authorized by this report.
+The user's later 2026-10-10 instruction, “继续吧, 我们先忽略e2e”, explicitly
+defers E2E for local development and phase advancement. All other required
+checks and independent review passed, so Phase 3 is qualified locally and
+Phase 4's design/plan and implementation may proceed under the continuing
+authorization. Browser tests remain **NOT RUN**; complete browser/release
+acceptance remains unproven. Production activation, production backfill, merge,
+push, tag, release, and deployment remain separately gated.
 
 Governing [design](../superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
 and [execution plan](../superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md)
 retain the source-level RED/GREEN evidence, approvals, and scope boundaries.
+
+## Explicit E2E deferral and phase advancement, 2026-10-10
+
+The previous blocking status was based on the then-current restriction requiring
+E2E before any phase advancement. The user's later instruction explicitly
+changes that local-development gate. This report retains the exact clean
+tested source `35c1f8360dd22b129832a1618b3723032a1983bd`, documentation handoff
+`617f0b986a3ecffba14c952988e39e3afe022cea`, all original assertions and outcomes,
+the unchanged browser suite, and manual-only workflow trigger. No E2E pass or
+final release acceptance is inferred from the deferral.
+
+The new Phase 4 worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
+`codex/v0.2-phase-4-knowledge-links`, based on that handoff. Active guidance and
+the existing exact governance contracts are synchronized with the deferral;
+Vault, product, production-data and publication boundaries are preserved.
+Before editing, the two governance suites passed 31 cases (`1898`, seed
+`215378`, 1.8 seconds). Updating their expected E2E policy first reproduced
+three failures against the old instructions (`67299`, exit 2, same seed,
+1.8 seconds). These are policy-contract RED results, not production failures.
+The first synchronized rerun (`96052`, exit 2, same seed, 1.7 seconds) found
+two additional stale E2E expectations in the existing README/guide contracts;
+their replacement retains both the all-other-checks/review condition and final
+browser/release acceptance. Final GREEN (`74914`, exit 0, seed `215378`,
+1.9 seconds) passed all **31 tests with zero failures**. Formatting,
+warnings-as-errors compilation and zero-cycle xref passed (`75825`, exit 0);
+`git diff --check` also passed. Exact owning commands remain the two-suite and
+format/compile/xref commands recorded in the governance qualification below.
+
+Independent `phase4_e2e_policy_spec` SPEC and subsequent
+`phase4_e2e_policy_quality` QUALITY source reviews both passed, with no
+Critical, Important or Minor findings. They inspected the actual ten-file
+governance diff at the handoff base and made no edits or runtime/test claims.
+This slice changes no production source, migration, workflow, browser assertion
+or Vault behavior; E2E is still NOT RUN. The new Phase 4 design/plan remains a
+separate reviewed implementation step, not evidence of completed Phase 4.
 
 ## Continuous-authorization governance qualification, 2026-10-10
 
@@ -1814,7 +1852,7 @@ review by `search_observer_actual_review`, with no findings. All 31 relative
 Markdown targets resolved, `git diff --check` passed, and source/configuration,
 workflow and lockfile diffs against tested `35c1f83` were empty. This handoff
 changes documentation only; it does not replace the tested source SHA.
-**Manual E2E remains NOT RUN, the complete README
+At that earlier checkpoint, **Manual E2E remains NOT RUN, the complete README
 acceptance gate remains unmet, Phase 3 is not accepted, and Phase 4 does not
 begin.** No Vault feature work, production backfill, merge, push, version bump,
 tag, release or deployment occurred.
@@ -1850,7 +1888,8 @@ the subsequent governance changes are recorded separately above.
 | All new and directly affected PostgreSQL suites | PASS `91785`: full integration 1,109 executed, zero failures; historical `37888` FAIL retained |
 | Complete V1/V2 restore | PASS `91785` on exact clean source `35c1f83...` |
 | All permitted ordered non-E2E README checks | PASS `91785`, exit 0, exact clean source `35c1f83...` |
-| Complete README phase-acceptance gate | UNMET: mandatory manual E2E remains NOT RUN; no waiver |
+| Qualified local development acceptance | PASS: all permitted checks/reviews; user's explicit E2E deferral allows phase advancement |
+| Complete browser/release acceptance gate | UNMET: manual E2E remains NOT RUN |
 | Manual E2E | NOT RUN under user restriction |
 | Final independent complete-candidate specification/quality source review | SPEC PASS and separate QUALITY PASS on repaired complete candidate `35c1f83...` |
 
@@ -1868,4 +1907,5 @@ the subsequent governance changes are recorded separately above.
 - Root/main, other worktrees, and the protected untracked Phase 2 integration
   plan are outside this task and remain preserved.
 
-No green subset above is full Phase 3 or `0.2.0` release acceptance.
+Phase 3 has qualified local development acceptance under the user's explicit
+E2E deferral. Complete browser and `0.2.0` release acceptance remain unproven.

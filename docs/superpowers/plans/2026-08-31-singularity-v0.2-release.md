@@ -46,9 +46,11 @@ forward migrations require documented design, tests, and review, not a new
 human approval solely because an old file list omitted them.
 
 Product exclusions, Vault freeze, immutable provenance, backup compatibility,
-E2E restrictions, publication/deployment gates, and production-data protections
-remain unchanged. E2E is NOT RUN under the current restriction; no incomplete
-gate can be reported as full acceptance. This authority does not authorize
+publication/deployment gates, and production-data protections remain unchanged.
+The user's later 2026-10-10 instruction, “继续吧, 我们先忽略e2e”, defers E2E
+for local development and phase advancement after all other required checks and
+independent review pass. E2E remains manual-only and NOT RUN; final
+browser/release acceptance remains required. This authority does not authorize
 merge, push, version bump, tag, release, deployment, or production activation.
 Historical phase approvals and constraints below describe their original
 acceptance boundaries, not renewed routine approval requirements.

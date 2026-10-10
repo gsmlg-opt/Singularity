@@ -27,8 +27,9 @@ independent review, without renewed routine human approval.
 Advance automatically only after the preceding phase's required gates pass.
 Necessary in-scope repairs are not limited by old file lists.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
-E2E remains manual-only and NOT RUN under the current user restriction; this is
-not a waiver of the complete phase/release acceptance gate.
+The user's 2026-10-10 E2E deferral permits local phase advancement after all other
+required checks and independent review pass. E2E remains manual-only and NOT RUN;
+final browser/release acceptance remains required.
 
 New canonical writes remain unavailable to production runtime roles.
 Public import, extraction workers, search, Note Save integration, backup V3,

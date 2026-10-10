@@ -10,7 +10,10 @@ It is not implementation acceptance or production activation. The user's
 now permits necessary in-scope design amendments, plans, repairs, verification,
 independent review, local commits, and later phase development without routine
 approval waits. Phase dependencies and required acceptance gates remain;
-publication, deployment, E2E, production data, and Vault restrictions are unchanged.
+publication, deployment, production data, and Vault restrictions are unchanged.
+The user's later 2026-10-10 E2E deferral permits local phase advancement after
+all other required checks and independent review pass. E2E remains manual-only
+and NOT RUN; final browser/release acceptance remains required.
 
 The [2026-10-10 guarded search-index amendment](2026-10-10-singularity-v0.2-phase-3-search-index-repair-design.md)
 addresses the executed selective-index failures. Its candidate-ID authority and
@@ -599,8 +602,10 @@ committed candidate, with owned service identity and cleanup evidence. Browser
 acceptance remains a manual run; this phase does not broaden workflow triggers
 or silently run E2E during focused development. Preserve and report unrelated
 baseline failures according to the repository diagnosis/repair policy. The
-current prohibition on running E2E remains in force; record NOT RUN without
-claiming a complete gate or accepting the phase.
+current prohibition on running E2E remains in force; record NOT RUN. The user's
+later explicit deferral permits qualified local development acceptance after
+every other required check and independent review pass. Complete browser/release
+acceptance remains unproven until the deferred E2E gate is executed.
 
 Record exact source SHA, changed files, forward migrations and grants, all
 commands/results, review findings, residual risks, and explicit confirmation
