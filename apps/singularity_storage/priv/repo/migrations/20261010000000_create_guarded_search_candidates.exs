@@ -4,6 +4,10 @@ defmodule Singularity.Storage.Migrations.CreateGuardedSearchCandidates do
   def up do
     execute("SET LOCAL ROLE singularity_table_owner")
 
+    # Register pg_trgm's USERSET GUC on a cold historical-upgrade connection
+    # before PostgreSQL validates the function-local threshold setting.
+    execute("SELECT search_extensions.similarity('','')")
+
     execute("""
     CREATE FUNCTION content.search_candidate_ids(
       requested_q text, requested_kind text, requested_tag_ids uuid[]
@@ -57,8 +61,7 @@ defmodule Singularity.Storage.Migrations.CreateGuardedSearchCandidates do
         requested_q,pg_catalog.chr(92),pg_catalog.chr(92)||pg_catalog.chr(92)),
         '%',pg_catalog.chr(92)||'%'),'_',pg_catalog.chr(92)||'_') || '%';
       RETURN QUERY
-      /* singularity:search_candidate_ids:v1 */
-      WITH matched AS (
+      WITH /* singularity:search_candidate_ids:v1 */ matched AS (
         SELECT e.entry_id FROM content.search_entries AS e
         WHERE e.vault_id=owner AND e.classification='private'
           AND (requested_kind='all' OR e.kind=requested_kind)
