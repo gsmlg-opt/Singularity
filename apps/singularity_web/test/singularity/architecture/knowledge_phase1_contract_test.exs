@@ -427,7 +427,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
       assert [before, rest] = String.split(source, addition)
-      assert [_, _] = String.split(source, preceding <> addition <> following)
+      normalized = strip_phase4_organization_additions!(source, path)
+      assert [_, _] = String.split(normalized, preceding <> addition <> following)
 
       relocated =
         String.replace(before <> rest, destination, destination <> addition, global: false)
@@ -438,6 +439,58 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             before <> rest,
             before <> addition <> addition <> rest,
             before <> addition <> "  # unauthorized Phase 4 change\n" <> rest,
+            relocated
+          ] do
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+        end
+      end
+    end
+  end
+
+  test "Task 6 organization public registration is exact and closed" do
+    expected =
+      for {operation, arities} <- [
+            attach_tag: [3, 4],
+            detach_tag: [3, 4],
+            list_resource_tags: [2, 3, 4],
+            browse_resources_by_tag: [3, 4],
+            relate_resource: [3, 4],
+            unrelate_resource: [2, 3],
+            list_outgoing_relationships: [3, 4],
+            list_backlinks: [3, 4]
+          ],
+          arity <- arities,
+          do: {operation, arity}
+
+    actual =
+      Singularity.Runtime.Api.__info__(:functions)
+      |> Enum.filter(fn {name, _arity} ->
+        Regex.match?(
+          ~r/^(attach_tag|detach_tag|list_resource_tags|browse_resources_by_tag|relate_resource|unrelate_resource|list_outgoing_relationships|list_backlinks)/,
+          to_string(name)
+        )
+      end)
+
+    assert Enum.sort(actual) == Enum.sort(expected)
+  end
+
+  test "every Task 6 organization block rejects mutation removal duplication and relocation" do
+    for {path, preceding, addition, following, destination} <- phase4_organization_additions() do
+      source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      assert [before, rest] = String.split(source, addition)
+      assert [_, _] = String.split(source, preceding <> addition <> following)
+
+      relocated =
+        String.replace(before <> rest, destination, destination <> addition, global: false)
+
+      refute relocated == source
+
+      for changed <- [
+            before <> rest,
+            before <> addition <> addition <> rest,
+            before <> addition <> "  # unauthorized organization change\n" <> rest,
             relocated
           ] do
         assert_raise ExUnit.AssertionError, fn ->
@@ -549,6 +602,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp strip_phase4_additions!(source, path) do
+    source = strip_phase4_organization_additions!(source, path)
+
     Enum.reduce(phase4_additions(), source, fn
       {^path, preceding, addition, following, _destination}, remaining ->
         strip_in_context!(remaining, preceding, addition, following)
@@ -582,6 +637,157 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp read_source(path), do: @repo_root |> Path.join(path) |> File.read!()
+
+  # Task 6 additions are stripped before Task 4, preserving all earlier byte guards.
+  defp strip_phase4_organization_additions!(source, path) do
+    Enum.reduce(phase4_organization_additions(), source, fn
+      {^path, preceding, addition, following, _destination}, remaining ->
+        strip_in_context!(remaining, preceding, addition, following)
+
+      _other, remaining ->
+        remaining
+    end)
+  end
+
+  defp phase4_organization_additions do
+    [
+      {@api, "  alias Singularity.Runtime.Notes.Trash, as: NoteTrash\n",
+       "  alias Singularity.Runtime.Organization.DTO, as: OrganizationDTO\n" <>
+         "  alias Singularity.Runtime.Organization.Operations, as: OrganizationOperations\n",
+       "  alias Singularity.Runtime.OperationScope\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  alias Singularity.Storage.Postgres.NoteSearchStore\n",
+       "  alias Singularity.Storage.Postgres.OrganizationRepository\n" <>
+         "  alias Singularity.Storage.Postgres.RelationshipRepository\n" <>
+         "  alias Singularity.Storage.Postgres.TagRepository\n",
+       "  alias Singularity.Storage.Postgres.PreAuth\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api,
+       "  defp canonical_note_source_uuid?(value), do: Ecto.UUID.cast(value) == {:ok, value}\n\n",
+       ~S"""
+         @doc "Attaches a canonical private tag after current resource-kind authorization."
+         def attach_tag(session, resource_id, attrs),
+           do: organization_production(:attach_tag, session, resource_id, attrs)
+
+         @doc false
+         def attach_tag(config, session, resource_id, attrs),
+           do: organization_call(config, :attach_tag, session, resource_id, attrs)
+
+         def detach_tag(session, resource_id, tag_id),
+           do: organization_production(:detach_tag, session, resource_id, tag_id)
+
+         @doc false
+         def detach_tag(config, session, resource_id, tag_id),
+           do: organization_call(config, :detach_tag, session, resource_id, tag_id)
+
+         def list_resource_tags(session, resource_id),
+           do: list_resource_tags(session, resource_id, %{})
+
+         def list_resource_tags(%Session{} = session, resource_id, params),
+           do: organization_production(:list_resource_tags, session, resource_id, params)
+
+         def list_resource_tags(_session, _resource_id, _params), do: {:error, :invalid}
+
+         @doc false
+         def list_resource_tags(config, session, resource_id, params),
+           do: organization_call(config, :list_resource_tags, session, resource_id, params)
+
+         def browse_resources_by_tag(session, tag_id, params),
+           do: organization_production(:browse_resources_by_tag, session, tag_id, params)
+
+         @doc false
+         def browse_resources_by_tag(config, session, tag_id, params),
+           do: organization_call(config, :browse_resources_by_tag, session, tag_id, params)
+
+         def relate_resource(session, source_resource_id, attrs),
+           do: organization_production(:relate_resource, session, source_resource_id, attrs)
+
+         @doc false
+         def relate_resource(config, session, source_resource_id, attrs),
+           do: organization_call(config, :relate_resource, session, source_resource_id, attrs)
+
+         def unrelate_resource(session, relationship_id),
+           do: organization_production(:unrelate_resource, session, relationship_id, nil)
+
+         @doc false
+         def unrelate_resource(config, session, relationship_id),
+           do: organization_call(config, :unrelate_resource, session, relationship_id, nil)
+
+         def list_outgoing_relationships(session, resource_id, params),
+           do: organization_production(:list_outgoing_relationships, session, resource_id, params)
+
+         @doc false
+         def list_outgoing_relationships(config, session, resource_id, params),
+           do: organization_call(config, :list_outgoing_relationships, session, resource_id, params)
+
+         def list_backlinks(session, resource_id, params),
+           do: organization_production(:list_backlinks, session, resource_id, params)
+
+         @doc false
+         def list_backlinks(config, session, resource_id, params),
+           do: organization_call(config, :list_backlinks, session, resource_id, params)
+
+         defp organization_production(operation, session, selector, params) do
+           with {:ok, _validated} <- OrganizationOperations.validate(operation, selector, params) do
+             with_production(&organization_call(&1, operation, session, selector, params))
+           else
+             error -> normalize_error(error)
+           end
+         end
+
+         defp organization_call(config, operation, %Session{} = session, selector, params)
+              when is_map(config) and not is_struct(config) do
+           with {:ok, _validated} <- OrganizationOperations.validate(operation, selector, params),
+                {:ok, context} <- note_source_session(session) do
+             arguments =
+               if operation == :unrelate_resource,
+                 do: [context, selector],
+                 else: [context, selector, params]
+
+             case invoke(config, operation, arguments) do
+               {:error, _} = error ->
+                 normalize_error(error)
+
+               reply ->
+                 OrganizationDTO.convert(operation, reply, context.vault_id, selector, params)
+                 |> normalize_organization_result()
+             end
+           else
+             error -> normalize_error(error)
+           end
+         end
+
+         defp organization_call(_config, _operation, _session, _selector, _params),
+           do: {:error, :invalid}
+
+         defp normalize_organization_result(:ok), do: :ok
+         defp normalize_organization_result({:ok, _dto} = result), do: result
+         defp normalize_organization_result(error), do: normalize_error(error)
+
+       """, "  @spec get_note_conflict(Session.t(), String.t(), String.t()) ::\n",
+       "  def get_note_conflict(_config, _session, _resource_id, _conflict_id),\n    do: {:error, :invalid}\n\n"},
+      {@api,
+       "        NoteSourceResolver.citation(runtime, session, note_id, version_id, citation_id)\n      end,\n",
+       ~S"""
+             attach_tag: &OrganizationOperations.attach_tag(runtime, &1, &2, &3),
+             detach_tag: &OrganizationOperations.detach_tag(runtime, &1, &2, &3),
+             list_resource_tags: &OrganizationOperations.list_resource_tags(runtime, &1, &2, &3),
+             browse_resources_by_tag:
+               &OrganizationOperations.browse_resources_by_tag(runtime, &1, &2, &3),
+             relate_resource: &OrganizationOperations.relate_resource(runtime, &1, &2, &3),
+             unrelate_resource: &OrganizationOperations.unrelate_resource(runtime, &1, &2),
+             list_outgoing_relationships:
+               &OrganizationOperations.list_outgoing_relationships(runtime, &1, &2, &3),
+             list_backlinks: &OrganizationOperations.list_backlinks(runtime, &1, &2, &3),
+       """, "      import_document: fn session, attrs ->\n",
+       "      list_assets: fn session, params ->\n"},
+      {@api, "      note_search_store: NoteSearchStore,\n",
+       "      organization_repository: OrganizationRepository,\n" <>
+         "      tag_repository: TagRepository,\n" <>
+         "      relationship_repository: RelationshipRepository,\n", "      notes: Notes,\n",
+       "      assets: AssetRepository,\n"}
+    ]
+  end
 
   # Each Phase 4 insertion is frozen in its original context before removing
   # it from the unchanged Phase 3, Phase 2 and legacy byte contracts.

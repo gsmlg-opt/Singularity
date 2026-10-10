@@ -14,6 +14,10 @@ defmodule Singularity.Domains.Relationships.Repository do
   @callback relate_in_scope(context(), Relationship.t()) ::
               {:ok, Relationship.t()} | {:error, Error.t()}
   @callback unrelate_in_scope(context(), Types.id()) :: :ok | {:error, Error.t()}
+  @callback unrelate_selected_in_scope(
+              context(),
+              Singularity.Domains.Organization.Repository.relationship_metadata()
+            ) :: :ok | {:error, Error.t()}
   @callback outgoing_page_in_scope(
               context(),
               Types.id(),

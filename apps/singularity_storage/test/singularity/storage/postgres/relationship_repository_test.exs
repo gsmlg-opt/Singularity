@@ -706,6 +706,345 @@ defmodule Singularity.Storage.Postgres.RelationshipRepositoryTest do
     end)
   end
 
+  test "selected deletion uses permanent web grants and audits exact nullable pins once", data do
+    assert %{rows: [["singularity_web", true, true, true, false]]} =
+             query!(
+               RequestRepo,
+               "SELECT current_user,has_table_privilege(current_user,'content.relationships','SELECT'),has_table_privilege(current_user,'content.relationships','INSERT'),has_table_privilege(current_user,'content.relationships','DELETE'),has_table_privilege(current_user,'content.relationships','UPDATE')",
+               []
+             )
+
+    for pin <- [nil, id(data.second.resource_version_id)] do
+      candidate = %{edge(data) | target_resource_version_id: pin}
+      assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+      selected = organization_item(candidate)
+
+      assert :ok =
+               organization_scope(
+                 data,
+                 &organization_call(:unrelate_selected_in_scope, [&1, selected])
+               )
+
+      after_delete = selected_delete_state(data)
+
+      assert :ok =
+               organization_scope(
+                 data,
+                 &organization_call(:unrelate_selected_in_scope, [&1, selected])
+               )
+
+      assert selected_delete_state(data) == after_delete
+      assert selected_delete_rows(data) == []
+
+      event =
+        Fixtures.with_owner(fn ->
+          assert_persisted_audit!(
+            MigrationRepo,
+            "knowledge.unrelated",
+            [target_id: candidate.relationship_id],
+            target_type: "relationship",
+            result: "completed"
+          )
+        end)
+
+      assert event.vault_id == data.context.owner_scope_id
+      assert event.principal_id == data.context.principal_id
+
+      expected = %{
+        "source_resource_id" => candidate.source_resource_id,
+        "target_resource_id" => candidate.target_resource_id,
+        "type" => "references"
+      }
+
+      expected = if pin, do: Map.put(expected, "target_resource_version_id", pin), else: expected
+      assert event.metadata == expected
+    end
+
+    assert Enum.map(audits(data.context), &hd/1) ==
+             [
+               "knowledge.related",
+               "knowledge.unrelated",
+               "knowledge.related",
+               "knowledge.unrelated"
+             ]
+  end
+
+  test "every changed selected identity field is a no-op with unchanged canonical row and audits",
+       data do
+    candidate = edge(data)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+    third = KnowledgeFixtures.note!(data.source)
+    original = selected_delete_state(data)
+
+    for changed <- [
+          %{selected | relationship_id: Ecto.UUID.generate()},
+          %{selected | source_resource_id: id(third.resource_id)},
+          %{selected | target_resource_id: id(third.resource_id)},
+          %{selected | target_resource_version_id: id(data.second.resource_version_id)},
+          %{selected | type: :derived_from}
+        ] do
+      assert :ok =
+               organization_scope(
+                 data,
+                 &organization_call(:unrelate_selected_in_scope, [&1, changed])
+               )
+
+      assert selected_delete_state(data) == original
+    end
+
+    assert selected_delete_rows(data) == [selected]
+  end
+
+  test "same UUID replacement is not deleted or audited by an earlier selected identity", data do
+    candidate = edge(data)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+
+    replacement = %{
+      selected
+      | source_resource_id: candidate.target_resource_id,
+        target_resource_id: candidate.source_resource_id,
+        target_resource_version_id: id(data.first.resource_version_id),
+        type: :derived_from
+    }
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "DELETE FROM content.relationships WHERE id=$1", [
+        Ecto.UUID.dump!(candidate.relationship_id)
+      ])
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO content.relationships(id,vault_id,classification,source_resource_id,target_resource_id,target_resource_version_id,type,created_by_principal_id,inserted_at) VALUES($1,$2,'private',$3,$4,$5,'derived_from',$6,CURRENT_TIMESTAMP)",
+        [
+          Ecto.UUID.dump!(candidate.relationship_id),
+          data.source.vault_id,
+          data.second.resource_id,
+          data.first.resource_id,
+          data.first.resource_version_id,
+          data.source.principal_id
+        ]
+      )
+    end)
+
+    before_delete = selected_delete_state(data)
+
+    assert :ok =
+             organization_scope(
+               data,
+               &organization_call(:unrelate_selected_in_scope, [&1, selected])
+             )
+
+    assert selected_delete_state(data) == before_delete
+    assert selected_delete_rows(data) == [replacement]
+    assert ["knowledge.related"] == Enum.map(audits(data.context), &hd/1)
+  end
+
+  test "a vanished selected edge returns no-op without a deletion audit", data do
+    candidate = edge(data)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "DELETE FROM content.relationships WHERE id=$1", [
+        Ecto.UUID.dump!(candidate.relationship_id)
+      ])
+    end)
+
+    before_delete = selected_delete_state(data)
+
+    assert :ok =
+             organization_scope(
+               data,
+               &organization_call(:unrelate_selected_in_scope, [&1, selected])
+             )
+
+    assert selected_delete_state(data) == before_delete
+    assert selected_delete_rows(data) == []
+    assert ["knowledge.related"] == Enum.map(audits(data.context), &hd/1)
+  end
+
+  test "foreign selected edge is a no-op under native RLS with the exact row preserved", data do
+    foreign_source = KnowledgeFixtures.source!()
+    foreign_first = KnowledgeFixtures.note!(foreign_source)
+    foreign_second = KnowledgeFixtures.note!(foreign_source)
+
+    foreign_context = %{
+      data.context
+      | principal_id: id(foreign_source.principal_id),
+        owner_scope_id: id(foreign_source.vault_id),
+        correlation_id: Ecto.UUID.generate()
+    }
+
+    foreign = %{
+      data
+      | source: foreign_source,
+        first: foreign_first,
+        second: foreign_second,
+        context: foreign_context
+    }
+
+    candidate = edge(foreign)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(foreign_context, candidate)
+    selected = organization_item(candidate)
+    original = selected_delete_state(foreign)
+
+    assert :ok =
+             organization_scope(
+               data,
+               &organization_call(:unrelate_selected_in_scope, [&1, selected])
+             )
+
+    assert selected_delete_state(foreign) == original
+    assert selected_delete_rows(foreign) == [selected]
+    assert audits(data.context) == []
+  end
+
+  test "selected deletion requires an existing scope and both matching context GUCs", data do
+    candidate = edge(data)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+    original = selected_delete_state(data)
+
+    assert_organization_error(
+      organization_call(:unrelate_selected_in_scope, [data.context, selected]),
+      :invalid
+    )
+
+    assert {:ok, :ok} =
+             RequestRepo.transaction(fn ->
+               assert_organization_error(
+                 organization_call(:unrelate_selected_in_scope, [data.context, selected]),
+                 :invalid
+               )
+
+               :ok
+             end)
+
+    other = KnowledgeFixtures.source!()
+
+    for malformed <- [
+          %{data.context | principal_id: id(other.principal_id)},
+          %{data.context | owner_scope_id: id(other.vault_id)}
+        ] do
+      assert :ok =
+               organization_scope(data, fn _context ->
+                 assert_organization_error(
+                   organization_call(:unrelate_selected_in_scope, [malformed, selected]),
+                   :invalid
+                 )
+
+                 :ok
+               end)
+    end
+
+    assert selected_delete_state(data) == original
+  end
+
+  test "selected deletion rejects noncanonical incomplete ownerful or extra-field maps without effects",
+       data do
+    candidate = edge(data)
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+    original = selected_delete_state(data)
+
+    malformed = [
+      candidate,
+      nil,
+      %{},
+      Map.delete(selected, :target_resource_version_id),
+      Map.put(selected, :owner_scope_id, data.context.owner_scope_id),
+      Map.put(selected, :body, "CANARY_BODY"),
+      %{selected | relationship_id: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"},
+      %{selected | target_resource_version_id: "bad"},
+      %{selected | type: "references"},
+      %{selected | target_resource_id: selected.source_resource_id}
+    ]
+
+    for invalid <- malformed do
+      assert :ok =
+               organization_scope(data, fn context ->
+                 assert_organization_error(
+                   organization_call(:unrelate_selected_in_scope, [context, invalid]),
+                   :invalid
+                 )
+
+                 assert %{rows: [[1]]} = query!(RequestRepo, "SELECT 1", [])
+                 :ok
+               end)
+
+      assert selected_delete_state(data) == original
+    end
+  end
+
+  test "outer rollback restores the exact selected row and removes its deletion audit", data do
+    candidate = %{edge(data) | target_resource_version_id: id(data.second.resource_version_id)}
+    assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+    selected = organization_item(candidate)
+    original = selected_delete_state(data)
+
+    assert {:error, :selected_delete_rollback} =
+             organization_scope(data, fn context ->
+               assert :ok = organization_call(:unrelate_selected_in_scope, [context, selected])
+
+               assert %{rows: [[0]]} =
+                        query!(
+                          RequestRepo,
+                          "SELECT count(*) FROM content.relationships WHERE id=$1",
+                          [Ecto.UUID.dump!(candidate.relationship_id)]
+                        )
+
+               {:error, :selected_delete_rollback}
+             end)
+
+    assert selected_delete_state(data) == original
+    assert selected_delete_rows(data) == [selected]
+    assert ["knowledge.related"] == Enum.map(audits(data.context), &hd/1)
+  end
+
+  defp selected_delete_rows(data) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "SELECT id::text,source_resource_id::text,target_resource_id::text,target_resource_version_id::text,type FROM content.relationships WHERE vault_id=$1 ORDER BY id",
+        [data.source.vault_id]
+      ).rows
+      |> Enum.map(fn [relationship, source, target, pin, type] ->
+        %{
+          relationship_id: relationship,
+          source_resource_id: source,
+          target_resource_id: target,
+          target_resource_version_id: pin,
+          type: selected_delete_type(type)
+        }
+      end)
+    end)
+  end
+
+  defp selected_delete_state(data) do
+    Fixtures.with_owner(fn ->
+      %{
+        relationships:
+          query!(
+            MigrationRepo,
+            "SELECT * FROM content.relationships WHERE vault_id=$1 ORDER BY id",
+            [data.source.vault_id]
+          ).rows,
+        audits:
+          query!(
+            MigrationRepo,
+            "SELECT * FROM audit.events WHERE correlation_id=$1 ORDER BY occurred_at,id",
+            [Ecto.UUID.dump!(data.context.correlation_id)]
+          ).rows
+      }
+    end)
+  end
+
+  defp selected_delete_type("related_to"), do: :related_to
+  defp selected_delete_type("references"), do: :references
+  defp selected_delete_type("derived_from"), do: :derived_from
+
   defp organization_scope(data, fun) do
     ScopedRepo.transact(
       data.context.repo,

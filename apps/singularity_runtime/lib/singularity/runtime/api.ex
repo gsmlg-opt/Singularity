@@ -66,6 +66,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Notes.Save, as: NoteSave
   alias Singularity.Runtime.Notes.Search, as: NoteSearch
   alias Singularity.Runtime.Notes.Trash, as: NoteTrash
+  alias Singularity.Runtime.Organization.DTO, as: OrganizationDTO
+  alias Singularity.Runtime.Organization.Operations, as: OrganizationOperations
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.ResolveSession
   alias Singularity.Runtime.Search.Search, as: KnowledgeSearch
@@ -94,6 +96,9 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.Postgres.KnowledgeLinkRepository
   alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.Postgres.NoteSearchStore
+  alias Singularity.Storage.Postgres.OrganizationRepository
+  alias Singularity.Storage.Postgres.RelationshipRepository
+  alias Singularity.Storage.Postgres.TagRepository
   alias Singularity.Storage.Postgres.PreAuth
   alias Singularity.Storage.PreAuthRepo
   alias Singularity.Storage.RequestRepo
@@ -473,6 +478,105 @@ defmodule Singularity.Runtime.Api do
   end
 
   defp canonical_note_source_uuid?(value), do: Ecto.UUID.cast(value) == {:ok, value}
+
+  @doc "Attaches a canonical private tag after current resource-kind authorization."
+  def attach_tag(session, resource_id, attrs),
+    do: organization_production(:attach_tag, session, resource_id, attrs)
+
+  @doc false
+  def attach_tag(config, session, resource_id, attrs),
+    do: organization_call(config, :attach_tag, session, resource_id, attrs)
+
+  def detach_tag(session, resource_id, tag_id),
+    do: organization_production(:detach_tag, session, resource_id, tag_id)
+
+  @doc false
+  def detach_tag(config, session, resource_id, tag_id),
+    do: organization_call(config, :detach_tag, session, resource_id, tag_id)
+
+  def list_resource_tags(session, resource_id),
+    do: list_resource_tags(session, resource_id, %{})
+
+  def list_resource_tags(%Session{} = session, resource_id, params),
+    do: organization_production(:list_resource_tags, session, resource_id, params)
+
+  def list_resource_tags(_session, _resource_id, _params), do: {:error, :invalid}
+
+  @doc false
+  def list_resource_tags(config, session, resource_id, params),
+    do: organization_call(config, :list_resource_tags, session, resource_id, params)
+
+  def browse_resources_by_tag(session, tag_id, params),
+    do: organization_production(:browse_resources_by_tag, session, tag_id, params)
+
+  @doc false
+  def browse_resources_by_tag(config, session, tag_id, params),
+    do: organization_call(config, :browse_resources_by_tag, session, tag_id, params)
+
+  def relate_resource(session, source_resource_id, attrs),
+    do: organization_production(:relate_resource, session, source_resource_id, attrs)
+
+  @doc false
+  def relate_resource(config, session, source_resource_id, attrs),
+    do: organization_call(config, :relate_resource, session, source_resource_id, attrs)
+
+  def unrelate_resource(session, relationship_id),
+    do: organization_production(:unrelate_resource, session, relationship_id, nil)
+
+  @doc false
+  def unrelate_resource(config, session, relationship_id),
+    do: organization_call(config, :unrelate_resource, session, relationship_id, nil)
+
+  def list_outgoing_relationships(session, resource_id, params),
+    do: organization_production(:list_outgoing_relationships, session, resource_id, params)
+
+  @doc false
+  def list_outgoing_relationships(config, session, resource_id, params),
+    do: organization_call(config, :list_outgoing_relationships, session, resource_id, params)
+
+  def list_backlinks(session, resource_id, params),
+    do: organization_production(:list_backlinks, session, resource_id, params)
+
+  @doc false
+  def list_backlinks(config, session, resource_id, params),
+    do: organization_call(config, :list_backlinks, session, resource_id, params)
+
+  defp organization_production(operation, session, selector, params) do
+    with {:ok, _validated} <- OrganizationOperations.validate(operation, selector, params) do
+      with_production(&organization_call(&1, operation, session, selector, params))
+    else
+      error -> normalize_error(error)
+    end
+  end
+
+  defp organization_call(config, operation, %Session{} = session, selector, params)
+       when is_map(config) and not is_struct(config) do
+    with {:ok, _validated} <- OrganizationOperations.validate(operation, selector, params),
+         {:ok, context} <- note_source_session(session) do
+      arguments =
+        if operation == :unrelate_resource,
+          do: [context, selector],
+          else: [context, selector, params]
+
+      case invoke(config, operation, arguments) do
+        {:error, _} = error ->
+          normalize_error(error)
+
+        reply ->
+          OrganizationDTO.convert(operation, reply, context.vault_id, selector, params)
+          |> normalize_organization_result()
+      end
+    else
+      error -> normalize_error(error)
+    end
+  end
+
+  defp organization_call(_config, _operation, _session, _selector, _params),
+    do: {:error, :invalid}
+
+  defp normalize_organization_result(:ok), do: :ok
+  defp normalize_organization_result({:ok, _dto} = result), do: result
+  defp normalize_organization_result(error), do: normalize_error(error)
 
   @spec get_note_conflict(Session.t(), String.t(), String.t()) ::
           {:ok, Singularity.Runtime.DTO.NoteConflictDetail.t()} | {:error, atom()}
@@ -1142,6 +1246,16 @@ defmodule Singularity.Runtime.Api do
       resolve_note_citation: fn session, note_id, version_id, citation_id ->
         NoteSourceResolver.citation(runtime, session, note_id, version_id, citation_id)
       end,
+      attach_tag: &OrganizationOperations.attach_tag(runtime, &1, &2, &3),
+      detach_tag: &OrganizationOperations.detach_tag(runtime, &1, &2, &3),
+      list_resource_tags: &OrganizationOperations.list_resource_tags(runtime, &1, &2, &3),
+      browse_resources_by_tag:
+        &OrganizationOperations.browse_resources_by_tag(runtime, &1, &2, &3),
+      relate_resource: &OrganizationOperations.relate_resource(runtime, &1, &2, &3),
+      unrelate_resource: &OrganizationOperations.unrelate_resource(runtime, &1, &2),
+      list_outgoing_relationships:
+        &OrganizationOperations.list_outgoing_relationships(runtime, &1, &2, &3),
+      list_backlinks: &OrganizationOperations.list_backlinks(runtime, &1, &2, &3),
       import_document: fn session, attrs ->
         DocumentImport.run(runtime, session, attrs)
       end,
@@ -1317,6 +1431,9 @@ defmodule Singularity.Runtime.Api do
       knowledge_link_repository: KnowledgeLinkRepository,
       note_search: NoteLexicalSearch,
       note_search_store: NoteSearchStore,
+      organization_repository: OrganizationRepository,
+      tag_repository: TagRepository,
+      relationship_repository: RelationshipRepository,
       notes: Notes,
       mutation_fingerprint: MutationFingerprint,
       fingerprint_secret:

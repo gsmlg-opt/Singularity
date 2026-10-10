@@ -397,7 +397,7 @@ Domains `relationships/repository.ex`, Storage
 `postgres/relationship_repository.ex` and its full owning test for additive
 selected conditional deletion, retaining established callers.
 
-- [ ] Add failing APIs for design's attach/detach/list/browse tags and
+- [x] Add failing APIs for design's attach/detach/list/browse tags and
   relate/unrelate/outgoing/backlinks signatures and strict owner-free fields.
   Use the design's fixed OrganizationTag/Resource/Relationship item DTOs and
   OrganizationPage; attach/relate return their item, detach/unrelate `:ok`.
@@ -406,10 +406,10 @@ selected conditional deletion, retaining established callers.
   established terminal to public nil and never normalize server item values.
   Prove typed Page DTO roundtrips; raw page maps still require the Core terminal,
   not an untyped public nil sentinel.
-- [ ] Derive owner from Runtime context; require existing `note.read/write` or
+- [x] Derive owner from Runtime context; require existing `note.read/write` or
   `asset.read/write` by actual resource kind. Relation creation checks both
   visible endpoints and source write authority; no new capabilities.
-- [ ] Compose the fixed read/write entry OR through an invocation-local injected
+- [x] Compose the fixed read/write entry OR through an invocation-local injected
   authorizer, delegating existing single capabilities and both epochs on the
   existing locked/scoped connection; no general auth/Vault change. Preserve
   Note unlock and established Asset/Document metadata behavior. Exact kind
@@ -418,22 +418,31 @@ selected conditional deletion, retaining established callers.
   Authorize forbidden opacity is explicit and never grants the denied kind.
   Add contracts for opaque denial plus independently complete fallback, direct
   throw/raise/exit, retryable and malformed replies, and denied-kind exclusion.
-- [ ] Add bounded complete resource ID/kind and selected edge metadata callbacks
+- [x] Add bounded complete resource ID/kind and selected edge metadata callbacks
   under matching scoped GUCs, with ordered Resource locks and no hydration.
   Bind exact keys/values/selectors, omit no requested member, and make missing/
   foreign selectors nondisclosing. Selected unrelate checks the live source's
   write then uses owner/all-field conditional DELETE without relationship UPDATE
   grants; absent/foreign stays no-op and tombstoned source is not-found.
-- [ ] Filter appropriate read capabilities before page admission, with bounded
+- [x] Filter appropriate read capabilities before page admission, with bounded
   queries and no unfiltered count/existence leak; pagination must not silently
   truncate permitted results. Unknown/cross-owner selectors are nondisclosing.
-- [ ] Prove Unicode duplicate tags preserve canonical UUID/spelling, repeated
+- [x] Prove Unicode duplicate tags preserve canonical UUID/spelling, repeated
   attach/detach/relate/unrelate emit no extra mutation/audit, pin changes conflict,
   reversed direction remains distinct and self-edges fail. Prove deterministic
   pages/backlinks omit tombstoned endpoints and restore makes live rows visible.
-- [ ] Prove selector/cursor/capability denial and revocation paths, ID-only
+- [x] Prove selector/cursor/capability denial and revocation paths, ID-only
   audit/telemetry/privacy and Web-only-Runtime boundary. Run full owning suites;
   SPEC then QUALITY review; commit `feat(runtime): add knowledge organization APIs`.
+
+Task 6 is locally qualified after actual owning SQL **173 Storage / 42 Runtime**,
+owning units **22 Core / 11 Domains / 9 Storage / 291 Runtime / 41 Web**,
+exact 19-file format, warnings-as-errors compile and zero xref cycles. Independent
+actual SPEC then separate QUALITY found zero actionable P0–P2 issues on the
+unchanged 19-file manifest. Cleanup verified zero generated databases, all five
+allocated roots absent and the owned private PostgreSQL server stopped. This is
+not whole-Phase-4, live-custody, browser or release acceptance; E2E NOT RUN.
+See the [qualification report](../../verification/2026-10-11-phase-4-acceptance.md).
 
 ## Task 7: Ordinary Markdown source rendering
 

@@ -62,6 +62,59 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
   end
 
   @impl true
+  def unrelate_selected_in_scope(context, selected) do
+    with :ok <- validate_selected(selected),
+         {:ok, repo} <- in_scope_repo(context) do
+      query =
+        from r in StoredRelationship,
+          where:
+            r.vault_id == ^context.owner_scope_id and r.classification == :private and
+              r.id == ^selected.relationship_id and
+              r.source_resource_id == ^selected.source_resource_id and
+              r.target_resource_id == ^selected.target_resource_id and r.type == ^selected.type,
+          select: r
+
+      query =
+        if is_nil(selected.target_resource_version_id),
+          do: from(r in query, where: is_nil(r.target_resource_version_id)),
+          else:
+            from(r in query,
+              where: r.target_resource_version_id == ^selected.target_resource_version_id
+            )
+
+      case repo.delete_all(query, log: false) do
+        {0, _} -> :ok
+        {1, [row]} -> maybe_audit(repo, context, row, 1, "knowledge.unrelated")
+      end
+    end
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  end
+
+  defp validate_selected(
+         %{
+           relationship_id: id,
+           source_resource_id: source,
+           target_resource_id: target,
+           target_resource_version_id: pin,
+           type: type
+         } = selected
+       )
+       when map_size(selected) == 5 and type in [:related_to, :references, :derived_from] do
+    with {:ok, _} <- Types.canonical_uuid(%{id: id}, :id),
+         {:ok, _} <- Types.canonical_uuid(%{id: source}, :id),
+         {:ok, _} <- Types.canonical_uuid(%{id: target}, :id),
+         true <- source != target,
+         true <- is_nil(pin) or match?({:ok, _}, Types.canonical_uuid(%{id: pin}, :id)) do
+      :ok
+    else
+      _ -> error(:invalid)
+    end
+  end
+
+  defp validate_selected(_), do: error(:invalid)
+
+  @impl true
   def outgoing_page_in_scope(context, id, query, allowed_kinds),
     do: page(context, id, query, allowed_kinds, :source_resource_id, :outgoing)
 
