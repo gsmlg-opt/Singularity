@@ -138,7 +138,10 @@ Domains `notes/command.ex`, `notes.ex`, `notes_test.exs`; Runtime
 `test/singularity/storage/note_source_set_sealing_test.exs`.
 **Modify:** Storage `postgres/knowledge_link_repository.ex`, support
 `knowledge_fixtures.ex`, `knowledge_schema_test.exs`, `knowledge_rls_test.exs`,
-and owning `postgres/knowledge_link_repository_test.exs` as required.
+owning `postgres/knowledge_link_repository_test.exs`, `knowledge_privacy_test.exs`
+and `backup/logical_exporter_test.exs` as required. These established source-set
+fixtures must change together so the new seal does not mask their existing
+privacy, provenance, replay or unsupported-backup assertions.
 
 - [ ] Add integration RED proving a committed empty/nonempty version can still
   be appended; preserve every original FK/ordinal/locator/identity negative.
@@ -168,6 +171,20 @@ and owning `postgres/knowledge_link_repository_test.exs` as required.
 - [ ] Replace complete-set fixtures that append after Note commit with atomic
   same-transaction construction. The former positive second-transaction append
   assertion becomes a sealed negative, not deleted/skipped coverage.
+  Split fixture identity allocation from `insert_note!(repo, source, row)`;
+  keep `note!/1` for empty committed sets and use an optional same-transaction
+  owner callback for raw schema fixtures. Adapter fixtures must create the Note
+  and call the real `insert_set` inside one ScopedRepo/RequestRepo transaction,
+  never a MigrationRepo callback followed by a different connection. Keep
+  readiness/FK/locator failures on fresh unsealed Notes so an append guard cannot
+  mask the intended constraint. Replace the old committed-empty append race
+  with a fresh-version publication barrier while preserving reader atomicity.
+  The oversized-reader regression inserts 101 real citations on a fresh Note,
+  asserts the SQL count and unchanged real-reader rejection inside that same
+  scoped transaction, then deliberately rolls back before deferred finalization.
+  Separately prove actual oversized-set commit rejection; no disabled triggers,
+  faked SQL or weaker cardinality assertions. Unsupported-backup fixtures must
+  still contain real legal nonempty metadata, constructed atomically.
 - [ ] Prove reverse ordinal and parent/child construction, gap/101-member
   rejection, early-immediate sealing and irreversible re-deferral, rollback,
   append/update/delete/reseal rejection, cross-owner denial, and a barrier
@@ -315,7 +332,11 @@ owning pure/adapter tests.
 **Modify:** Storage `backup/restorer.ex` only for derived-seal destination
 locking/pre-emptiness inventory; add sealing restore contracts and full owning
 `restore_import_test.exs`, `restore_rewrap_test.exs`, `unified_search_restore_test.exs`
-coverage as needed. V1/V2 schema/export wire columns and crypto remain unchanged.
+coverage as needed, plus the existing Runtime `singularity.test.restore` oracle's
+destination inventory and exact restored-seal assertions. Update only relevant
+test destination/reset helpers for the new derived table; never classify
+legitimate restored seals as post-restore excluded data. V1/V2 schema/export
+wire columns, crypto and all original canonical assertions remain unchanged.
 
 - [ ] Add RED for derived destination seal inventory and restored empty seals.
 - [ ] Include seals in pre-restore lock/empty checks separately from the

@@ -159,6 +159,43 @@ Minor findings. Both read the actual six production/four test files; neither
 mutated the checkout or claimed test-double behavior as live SQL proof.
 Task 1 implements only canonical references, snapshot intent and fingerprints.
 SQL sealing, authenticated composition and whole-phase acceptance remain pending.
+The local Task 1 implementation commit is
+`48bd434` (`feat(notes): model versioned source intent`).
+
+## Task 2 fixture compatibility preparation
+
+Read-only `phase4_links_storage_investigation` mapped the released schema/link,
+privacy and unsupported-backup fixtures that append after committing a Note.
+The plan now requires same-connection atomic construction while preserving all
+existing constraint, replay, privacy and backup assertions. The oversized-reader
+case remains real SQL with 101 rows and an unchanged rejection assertion inside
+a deliberately rolled-back unsealed transaction; a separate contract checks
+oversized commit rejection. No constraint disabling or fake database is used.
+The necessary existing restore oracle inventory synchronization is recorded in
+Task 8, not a V1/V2 wire-format or cryptographic change.
+Independent `phase4_design_plan_spec` SPEC review of this bounded amendment
+passed, followed by separate `phase4_e2e_policy_quality` QUALITY PASS with no
+findings. These are plan reviews only; source-seal behavior is not yet proved.
+
+This phase's owned PostgreSQL cluster is
+`.devenv/phase4-pg.2P68Dm`, private socket
+`/tmp/singularity-phase4-socket.GufHo0`, port `5432`, with TCP listening disabled.
+Initialization `11965` and established test-only role bootstrap `26725` exited 0.
+The ignored command harness verifies the exact data directory/listen identity
+and stops only its own cluster in EXIT cleanup. It does not borrow another
+worktree's database or change production roles/data.
+
+Task 2 pre-change characterization `72408` exited 0, seed `215378`:
+**57 integration tests, zero failures**, 34.8 seconds, across the complete
+schema/link/RLS/privacy/exporter/migration owning suites. The generated database
+was `singularity_test_b437e6249632de03ea08d3b2`; its temporary root was
+`/tmp/singularity/integration/b437e6249632de03ea08d3b2`. The harness stopped its
+owned server at exit. Expected negative-constraint disconnect logs are not
+test failures. Exact command:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/knowledge_migration_test.exs --seed 215378
+```
 
 ## Preserved boundaries and baseline inventory
 
@@ -177,6 +214,7 @@ Worktree inventory `dbd154` and protected file digest `234599` confirmed:
 - Protected untracked Phase 2 runtime-outcomes integration plan SHA-256:
   `350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
 
-No PostgreSQL/service process or integration database has been started for
-Phase 4 at this checkpoint. Whole-phase gates, full legacy restore,
+Before Task 2, no PostgreSQL/service process or integration database had been
+started for Phase 4. Task 2's exact isolated cluster is recorded above.
+Whole-phase gates, full legacy restore,
 implementation reviews and cleanup evidence remain required before acceptance.
