@@ -1597,6 +1597,79 @@ whole remains pending; these are pure boundary contracts, not live acceptance.
 
 ## Task 9: Deterministic in-process maintenance
 
+Task 8 was committed locally at
+`c6bd440000916f444b1ae78ae1be621e0e0c5502`; the worktree was clean before
+Task 9's prerequisite baseline. No Task 9 test or production edit was made.
+
+**STOP — unchanged prerequisite concurrency contract, 2026-10-10.**
+The baseline command below exited 2, seed `215378`. Storage reported
+**32 tests, one failure**, 40.9 seconds; Runtime reported **30 tests, zero
+failures, 23 exclusions** (seven executed), 8.2 seconds. This is 39 executed
+integration tests, with one failure in the existing Note projection suite:
+
+- `note_projection_reconciler_test.exs:293`, "competing repairs lock Resource
+  FOR UPDATE before writing either projection", timed out at line 367 in
+  `Task.await(repair, 5_000)` after releasing the controlled resource blocker.
+
+The existing test, Note reconciler, and unified projection adapter were
+unchanged. This result does not identify the underlying cause and is not
+classified as flaky or waived. No wait was increased and no assertion was
+changed. Under the repository's outside-scope failure rule, the Task 9 worker
+was frozen immediately; it confirmed that only read-only inspection had
+occurred and every command had finished. Proposed new seams are not an
+implementation. No repair round or Astra escalation has occurred.
+
+The owning integration command reached terminal failure and the harness
+stopped its owned PostgreSQL instance. Task 9 remains unstarted pending
+authorization for bounded diagnosis/repair of the existing Note projection
+concurrency contract and its owning reconciler without weakening its lock
+assertions or changing authorization/Vault semantics. Earlier Task 8 scoped
+success is preserved; this additional failing prerequisite is not Phase 3
+or release acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_projection_reconciler_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_projection_reconciler_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
+```
+
+### Approved prerequisite diagnosis, 2026-10-10
+
+The user approved bounded diagnosis/repair of this existing concurrency failure
+and the independent restore-cleanup failure recorded under Task 10. The parent
+owns all Mix, database, formatter, service, and Git operations serially. A Sol
+worker inspected the Note concurrency path while the parent diagnosed cleanup;
+neither investigation authorized changing lock assertions, authorization, Vault
+semantics, released migrations, or unrelated failures.
+
+The exact three-file prerequisite command above, with `--seed 215378`, passed
+on unchanged implementation source in PTY session `59762`, exit `0`: Storage
+32 executed tests, zero failures, 8.7 seconds; Runtime 30 reported, 23 excluded,
+**7 executed**, zero failures, 6.5 seconds. A second run with temporary additive
+lock diagnostics also passed, session `96636`, exit `0`, same seed: Storage
+32 executed tests in 7.5 seconds and Runtime 7 executed in 6.2 seconds.
+
+The observed lock chain was blocker -> first repair -> second repair. After
+the blocker released, the first projector/scoped operation returned in
+10/11 ms and the second in 23/24 ms, including transaction completion and
+the existing fresh-checkout context cleanup assertion. This does not explain
+the original five-second timeout. No deadlock or cancellation was recorded
+in that failure window; the independent cleanup checkpoint delay is not
+evidence of the Note timeout's cause.
+
+Diagnosis status is **NONREPRODUCED**, not fixed, waived, or classified as
+flaky. No production repair is justified by these observations. All temporary
+diagnostics were removed; `note_projection_reconciler_test.exs` is byte-for-byte
+identical to HEAD (SHA-256
+`d49e2288b7af07131d6def16565f077b1ab643fdb88d1db1ceb319d1635c0aaa`). Its five-second
+wait and every existing assertion remain intact. The final uninstrumented
+prerequisite rerun after cleanup repair passed in session `21807`, exit `0`,
+seed `215378`: Storage **32 executed**, zero failures, 19.0 seconds; Runtime
+30 reported, 23 excluded, **7 executed**, zero failures, 18.7 seconds. The
+owned server stopped. Preserve the original failure as an unresolved
+qualification risk rather than counting successful reruns as proof of a repair.
+The approved Task 9 may proceed against this passing prerequisite, but full
+phase qualification remains required. Note repair rounds: zero; no Astra
+escalation.
+
 **Files:** Create Runtime `search/rebuild.ex` and
 `apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs`.
 Modify the new projection adapter and Runtime `api.ex`.
@@ -1642,6 +1715,159 @@ devenv shell -- mix singularity.test.integration apps/singularity_runtime/test/s
 - [ ] Review and commit `feat(runtime): rebuild unified search from canonical resources`.
 
 ## Task 10: Minimal legacy restore compatibility
+
+### Independent baseline attempt, 2026-10-10 — stopped before implementation
+
+Task 9's recorded online Note repair concurrency failure remains unresolved.
+A read-only independent trace established that this approved restore slice
+does not call the Task 9 API or the failing online `reconcile/2` wrapper:
+the existing authenticated restore binding reaches
+`IntegrityAudit.rebuild_locked/2` in its table-owner transaction, then the
+legacy-only `NoteProjectionReconciler.rebuild_vault/2`. The already-defined
+private canonical helper is available to that owner transaction without a
+live principal/session or `note.write` definer. The shared Resource row-lock
+primitive does not make the online concurrency test passing; restore import
+locks also must not be claimed to survive into the later audit transaction.
+
+The parent characterized Task 10 on unchanged implementation source
+`c6bd440000916f444b1ae78ae1be621e0e0c5502`, before any Task 10 source/test edits:
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/integrity_audit_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs
+devenv shell -- bash .devenv/phase3-restore.sh
+```
+
+- Owning integration baseline **PASS**, PTY session `15551`, exit `0`,
+  seed `679949`: 40 reported tests, 8 excluded, **32 executed**, zero failures,
+  47.2 seconds. Its allocated storage root was absent after cleanup and its
+  owned PostgreSQL server stopped.
+- Full `mix singularity.test.restore` baseline **FAIL**, PTY session `96022`,
+  exit `1`. The worktree-local ignored harness only supplies the same isolated
+  PostgreSQL and test environment as the integration harness, then invokes the
+  unmodified complete restore oracle; no assertions are filtered or changed.
+- The terminal exception was `DBConnection.ConnectionError` during
+  `TestEnvironment.drop!/1` cleanup: the connection exceeded 15000 ms,
+  `with_migration_repo/2` at line 284, `drop!/1` at line 108, and restore oracle
+  `cleanup!/5` at line 1511. PostgreSQL recorded cancellation of the allocated
+  V1 destination's `DROP DATABASE` during a checkpoint. This is failure
+  evidence, not an established root-cause diagnosis or a passing restore gate.
+- All three allocated storage roots were removed. An isolated read-only
+  database inventory found only the allocated V1 database
+  `singularity_test_fa0904c2cef48acc3e0b8545` remaining. The parent removed
+  exactly that disposable test database; a following inventory returned zero
+  remaining databases from this run. No user data was targeted.
+- The implementation worker stopped with **zero edits**, zero repair rounds,
+  and every command terminated. No Task 10 test or production change, grant,
+  migration, Vault feature work, E2E run, publication, or acceptance occurred.
+
+**STOP:** Task 10 also awaits a bounded diagnosis/repair decision for its
+required unchanged restore-oracle baseline. Do not increase timeouts, bypass
+cleanup, weaken assertions, or substitute the passing integration subset for
+this failed gate. Task 9 and full Phase 3 acceptance remain blocked separately.
+
+### Approved cleanup prerequisite repair, 2026-10-10
+
+The user's subsequent approval permits bounded diagnosis/repair of the failed
+restore cleanup and the separate Note prerequisite above. This exception is
+limited to `TestEnvironment` cleanup and its owning regression; it does not
+authorize weakening restore assertions, bypassing cleanup, changing backup or
+Vault behavior, or implementing Task 10 before its prerequisite passes.
+
+The original server log establishes a specific timeout-policy mismatch:
+`DROP DATABASE` began a forced checkpoint at 13:06:28 CST, its Ecto/DBConnection
+ordinary-query budget canceled the query after 15000 ms at 13:06:43, and the
+checkpoint completed after **16.703 seconds** at 13:06:44. The checked-out
+Ecto SQL adapter's default is 15000 ms. PostgreSQL 17.10's
+[database-drop implementation](https://raw.githubusercontent.com/postgres/postgres/REL_17_10/src/backend/commands/dbcommands.c)
+explicitly waits for that checkpoint. This is an evidenced local maintenance
+budget mismatch, not a demonstrated dependency defect.
+
+The regression uses a real PostgreSQL database-object lock held by a separate
+connection, observes the exact waiting DROP and blocker, then deliberately
+crosses a configured one-second ordinary-query budget before releasing the
+lock. It verifies successful deletion of only the allocated database/root,
+preservation of the outer database, and an unchanged ordinary Repo timeout.
+The new observer refreshes transaction-cached activity via
+`pg_stat_clear_snapshot()`; the test primes that cache deliberately, following
+the [PostgreSQL statistics snapshot contract](https://www.postgresql.org/docs/17/monitoring-stats.html).
+This is a controlled timeout regression, not an arbitrary sleep used to assume
+that concurrent work has reached a checkpoint.
+
+Executed red/green evidence so far, all in the existing isolated worktree:
+
+- Initial RED: session `96289`, exit `2`, seed `396762`, 13 reported,
+  11 excluded, **2 executed**, one failure in the new one-second-budget test.
+- Initial unit selection: session `27395`, exit `0`, seed `595021`,
+  13 reported, 2 excluded, **11 executed**, zero failures.
+- First green attempt: session `33124`, exit `2`, seed `332155`, 2 executed,
+  one failure in the new observer. Its transaction reused a cached activity
+  snapshot and missed the actual lock; the implementation was not accepted.
+  The observer was corrected, and the production patch was removed to rerun
+  RED. Review also aligned only the new test's completion/fallback bounds with
+  the bounded maintenance budget; no existing test timeout or assertion changed.
+- Corrected RED: session `68678`, exit `2`, seed `332155`, 2 executed,
+  two failures. The new test again exposed the one-second ordinary budget.
+  The unchanged force-drop test independently reproduced cancellation after
+  15000 ms while its checkpoint took **19.593 seconds** (13:44:33–13:44:52 CST).
+  Its subsequent existing cleanup encountered the invalid database left by
+  the canceled DROP. This corroborates the same defect in both final DROP paths.
+- The parent verified ownership and removed exactly that disposable invalid
+  database, `singularity_test_49255730c390e1b7ab4f98ab`, using the migration
+  role against the isolated cluster. Session `29945` exited `0`; inventory
+  returned zero for all three allocated databases and all three roots were
+  absent. No user data, borrowed cluster, or other worktree was targeted.
+- The final patch adds a shared **bounded 60-second budget only to the final
+  normal/FORCE DROP statements**. Ordinary queries, disconnection bounds,
+  session termination, grants, and invalid-database retry policy are unchanged.
+  It is not a blanket Repo timeout increase or an assertion waiver.
+- Final unit GREEN: session `78589`, exit `0`, seed `332155`, **11 executed**,
+  zero failures, 0.8 seconds. Final integration GREEN: session `84586`, exit `0`,
+  same seed, **2 executed**, zero failures, 20.0 seconds. The existing force-drop
+  contract and new controlled regression both pass; the owned server stopped.
+- Independent Sol read-only code review (`cleanup_repair_review`) passed after
+  inspecting both final DROP options and the corrected fixture. The reviewer
+  ran only scoped `git diff --check`; parent green/restore evidence is separate.
+
+Commands for the final owning checks:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/lib/singularity/storage/test_environment.ex apps/singularity_storage/test/singularity/storage/test_environment_test.exs + test apps/singularity_storage/test/singularity/storage/test_environment_test.exs --seed 332155
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/test_environment_test.exs --seed 332155
+devenv shell -- bash .devenv/phase3-restore.sh
+```
+
+The **complete unmodified restore oracle passed** in session `71626`, exit `0`.
+Both V2 and V1 restores completed, their maintenance/empty-destination checks
+passed, cleanup returned normally, and the owned PostgreSQL server stopped.
+No oracle assertion was edited or filtered. The final Note/search/API
+prerequisite also passed unchanged as recorded under Task 9. The earlier
+failed gates remain recorded; these results establish the bounded cleanup
+repair and passing current prerequisites, not a diagnosis of the historical
+Note timeout or phase acceptance.
+
+Final static verification passed in session `42016`, exit `0`: scoped
+`format --check-formatted`, `compile --warnings-as-errors`, and
+`xref graph --format cycles --fail-above 0` reported no cycles. The exact
+command was:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_storage/lib/singularity/storage/test_environment.ex apps/singularity_storage/test/singularity/storage/test_environment_test.exs + compile --warnings-as-errors + xref graph --format cycles --fail-above 0
+```
+
+The isolated read-only cleanup inventory (`phase3-cleanup-inventory.sh`,
+session `77420`) returned zero remaining recorded databases and absent storage
+roots for the final cleanup, restore, and prerequisite runs. Its owned server
+also stopped. `git diff --check` passed. Main remained clean at
+`e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`; the preserved Phase 2 worktree's
+untracked runtime-outcomes plan retained SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+The repair is limited to the two TestEnvironment files and this evidence log.
+One initial green attempt failed due to the new observer fixture, then was
+corrected and independently reviewed; no Astra escalation was needed. There
+was no dependency defect, migration, permission, Vault feature, E2E, merge,
+push, tag, release, or deployment change. Task 9/10 implementation may now
+resume; complete Phase 3 qualification and the historical Note risk remain.
 
 **Files:** Modify only the derived-projection integration in
 `apps/singularity_storage/lib/singularity/storage/backup/restorer.ex` and

@@ -9,6 +9,8 @@ defmodule Singularity.Storage.TestEnvironment do
   @database_disconnect_attempts 500
   @force_drop_disconnect_attempts 50
   @database_disconnect_interval_ms 10
+  # DROP DATABASE waits for a forced PostgreSQL checkpoint, beyond ordinary query work.
+  @database_drop_timeout_ms :timer.minutes(1)
   @terminate_role_sessions_sql """
   SELECT pg_catalog.pg_terminate_backend(pid)
   FROM pg_catalog.pg_stat_activity
@@ -158,7 +160,8 @@ defmodule Singularity.Storage.TestEnvironment do
         @migration_repo,
         "DROP DATABASE IF EXISTS #{quoted_identifier(database)}",
         [],
-        log: false
+        log: false,
+        timeout: @database_drop_timeout_ms
       )
     end)
   end
@@ -201,7 +204,8 @@ defmodule Singularity.Storage.TestEnvironment do
         @migration_repo,
         "DROP DATABASE IF EXISTS #{quoted_identifier(database)} WITH (FORCE)",
         [],
-        log: false
+        log: false,
+        timeout: @database_drop_timeout_ms
       )
     end)
   end

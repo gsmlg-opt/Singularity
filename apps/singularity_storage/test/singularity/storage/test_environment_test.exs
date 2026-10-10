@@ -323,6 +323,140 @@ defmodule Singularity.Storage.TestEnvironmentTest do
     refute File.exists?(names.storage_root)
   end
 
+  @tag :integration
+  @tag timeout: 75_000
+  test "database drop has a bounded maintenance budget independent of ordinary query timeouts" do
+    names = TestEnvironment.allocate!()
+    repo = Singularity.Storage.MigrationRepo
+    previous_config = Application.fetch_env!(:singularity_storage, repo)
+
+    outer_database =
+      Application.fetch_env!(:singularity_storage, Singularity.Storage.RequestRepo)
+      |> Keyword.fetch!(:database)
+
+    supervisor = start_supervised!(Task.Supervisor)
+    ordinary_timeout_ms = 1_000
+    assert :ok = Application.stop(:singularity_runtime)
+
+    try do
+      {:ok, connection} = Postgrex.start_link(postgrex_options("postgres"))
+      Process.unlink(connection)
+
+      try do
+        Postgrex.query!(connection, ~s(CREATE DATABASE "#{names.database}"), [])
+        File.mkdir_p!(names.storage_root)
+
+        try do
+          # The same database is renamed back before commit. Its object lock
+          # remains held, providing an observed, deterministic DROP barrier.
+          Postgrex.query!(connection, "BEGIN", [])
+
+          Postgrex.query!(
+            connection,
+            ~s(ALTER DATABASE "#{names.database}" RENAME TO "#{names.database}_barrier"),
+            []
+          )
+
+          Postgrex.query!(
+            connection,
+            ~s(ALTER DATABASE "#{names.database}_barrier" RENAME TO "#{names.database}"),
+            []
+          )
+
+          Application.put_env(
+            :singularity_storage,
+            repo,
+            Keyword.put(previous_config, :timeout, ordinary_timeout_ms)
+          )
+
+          # Prime the transaction's statistics snapshot before DROP starts so
+          # the observer must refresh it, regardless of task scheduling.
+          Postgrex.query!(connection, "SELECT count(*) FROM pg_stat_activity", [])
+
+          dropping =
+            Task.Supervisor.async_nolink(supervisor, fn ->
+              try do
+                TestEnvironment.drop!(names)
+              rescue
+                error -> {:failed, error.__struct__}
+              end
+            end)
+
+          try do
+            assert await_database_drop_lock(
+                     connection,
+                     names.database,
+                     System.monotonic_time(:millisecond) + 4_000
+                   )
+
+            # This wait deliberately crosses the configured ordinary-query
+            # budget after SQL proves DROP is blocked, not a guessed startup delay.
+            assert Task.yield(dropping, ordinary_timeout_ms + 100) == nil
+            assert Keyword.fetch!(repo.config(), :timeout) == ordinary_timeout_ms
+            Postgrex.query!(connection, "ROLLBACK", [])
+            assert :ok = Task.await(dropping, 65_000)
+
+            assert %{rows: [[false, true]]} =
+                     Postgrex.query!(
+                       connection,
+                       "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1), EXISTS(SELECT 1 FROM pg_database WHERE datname = $2)",
+                       [names.database, outer_database]
+                     )
+
+            refute File.exists?(names.storage_root)
+          after
+            Postgrex.query!(connection, "ROLLBACK", [])
+            Task.shutdown(dropping, :brutal_kill)
+          end
+        after
+          Postgrex.query!(connection, "ROLLBACK", [])
+
+          try do
+            Postgrex.query!(connection, ~s(DROP DATABASE IF EXISTS "#{names.database}"), [],
+              timeout: 60_000
+            )
+          after
+            File.rm_rf!(names.storage_root)
+          end
+        end
+      after
+        if Process.alive?(connection), do: GenServer.stop(connection)
+      end
+    after
+      Application.put_env(:singularity_storage, repo, previous_config)
+      assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+    end
+  end
+
+  defp await_database_drop_lock(connection, database, deadline) do
+    Postgrex.query!(connection, "SELECT pg_stat_clear_snapshot()", [])
+
+    %{rows: [[waiting?]]} =
+      Postgrex.query!(
+        connection,
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM pg_stat_activity
+          WHERE query = $1 AND wait_event_type = 'Lock'
+            AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+        )
+        """,
+        [~s(DROP DATABASE IF EXISTS "#{database}")]
+      )
+
+    cond do
+      waiting? ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(10)
+        await_database_drop_lock(connection, database, deadline)
+    end
+  end
+
   defp restore_env(name, nil), do: System.delete_env(name)
   defp restore_env(name, value), do: System.put_env(name, value)
 
