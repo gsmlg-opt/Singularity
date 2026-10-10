@@ -1,8 +1,16 @@
 defmodule Singularity.Storage.Postgres.TagRepositoryTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
-  alias Singularity.Core.{Error, Tag}
-  alias Singularity.Storage.{Fixtures, KnowledgeTestGrants, MigrationRepo}
+  alias Singularity.Core.{Error, OrganizationPage, OrganizationPageQuery, Tag}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    KnowledgeTestGrants,
+    MigrationRepo,
+    ScopedRepo
+  }
+
   alias Singularity.Storage.Postgres.TagRepository
   alias Singularity.Storage.Schema.Audit.Event
 
@@ -201,6 +209,561 @@ defmodule Singularity.Storage.Postgres.TagRepositoryTest do
 
       assert audits(c) == []
     end)
+  end
+
+  test "scoped tag resolution retains canonical identity and audits only creation", c do
+    grants(fn ->
+      first = tag(c.context, "  Straße  ")
+
+      assert {:ok, ^first} =
+               scoped(c, fn context ->
+                 assert {:error, %Error{code: :invalid}} = TagRepository.resolve(context, first)
+
+                 for forged <- [
+                       %{first | normalized_key: "forged"},
+                       %{first | owner_scope_id: Ecto.UUID.load!(c.two.vault_id)}
+                     ] do
+                   assert_private_error(
+                     scoped_call(:resolve_in_scope, [context, forged]),
+                     :invalid
+                   )
+                 end
+
+                 assert {:ok, ^first} = scoped_call(:resolve_in_scope, [context, first])
+                 scoped_call(:resolve_in_scope, [context, tag(context, "STRASSE")])
+               end)
+
+      assert audits(c) == ["knowledge.tag_created"]
+    end)
+  end
+
+  test "scoped attach is idempotent and shares the existing transaction", c do
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context))
+
+      assert :ok =
+               scoped(c, fn context ->
+                 assert {:error, %Error{code: :invalid}} =
+                          TagRepository.attach(context, c.resource_id, stored.tag_id)
+
+                 assert :ok =
+                          scoped_call(:attach_in_scope, [context, c.resource_id, stored.tag_id])
+
+                 scoped_call(:attach_in_scope, [context, c.resource_id, stored.tag_id])
+               end)
+
+      assert {:ok, [^stored]} = TagRepository.list(c.context, c.resource_id)
+      assert Enum.sort(audits(c)) == ~w(knowledge.tag_attached knowledge.tag_created)
+    end)
+  end
+
+  test "scoped detach is idempotent and audits the actual removal", c do
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context))
+      assert :ok = TagRepository.attach(c.context, c.resource_id, stored.tag_id)
+
+      assert :ok =
+               scoped(c, fn context ->
+                 assert {:error, %Error{code: :invalid}} =
+                          TagRepository.detach(context, c.resource_id, stored.tag_id)
+
+                 assert :ok =
+                          scoped_call(:detach_in_scope, [context, c.resource_id, stored.tag_id])
+
+                 scoped_call(:detach_in_scope, [context, c.resource_id, stored.tag_id])
+               end)
+
+      assert {:ok, []} = TagRepository.list(c.context, c.resource_id)
+
+      assert Enum.sort(audits(c)) ==
+               ~w(knowledge.tag_attached knowledge.tag_created knowledge.tag_detached)
+    end)
+  end
+
+  test "outer scoped rollback removes tag assignment and audit effects", c do
+    grants(fn ->
+      candidate = tag(c.context, "CANARY_SCOPED_ROLLBACK")
+
+      assert {:error, :organization_rollback} =
+               scoped(c, fn context ->
+                 assert {:ok, ^candidate} = scoped_call(:resolve_in_scope, [context, candidate])
+
+                 assert :ok =
+                          scoped_call(:attach_in_scope, [context, c.resource_id, candidate.tag_id])
+
+                 {:error, :organization_rollback}
+               end)
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[0, 0]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT (SELECT count(*) FROM content.tags WHERE id=$1), (SELECT count(*) FROM content.resource_tags WHERE tag_id=$1)",
+                   [Ecto.UUID.dump!(candidate.tag_id)]
+                 )
+      end)
+
+      assert audits(c) == []
+    end)
+  end
+
+  test "new scoped seams require matching principal and owner GUCs", c do
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context))
+      query = organization_query(%{limit: 1})
+
+      calls = [
+        {:resolve_in_scope, [tag(c.context, "CANARY_SCOPE_MISMATCH")]},
+        {:attach_in_scope, [c.resource_id, stored.tag_id]},
+        {:detach_in_scope, [c.resource_id, stored.tag_id]},
+        {:list_page_in_scope, [c.resource_id, query, [:asset]]},
+        {:browse_in_scope, [stored.tag_id, query, [:asset]]}
+      ]
+
+      for {method, arguments} <- calls do
+        assert_private_error(scoped_call(method, [c.context | arguments]), :invalid)
+
+        assert {:ok, :ok} =
+                 RequestRepo.transaction(fn ->
+                   assert_private_error(scoped_call(method, [c.context | arguments]), :invalid)
+                   :ok
+                 end)
+
+        for malformed <- [
+              %{c.context | principal_id: Ecto.UUID.load!(c.two.principal_id)},
+              %{c.context | owner_scope_id: Ecto.UUID.load!(c.two.vault_id)}
+            ] do
+          assert :ok =
+                   scoped(c, fn _context ->
+                     assert_private_error(scoped_call(method, [malformed | arguments]), :invalid)
+                     :ok
+                   end)
+        end
+      end
+
+      assert audits(c) == ["knowledge.tag_created"]
+    end)
+  end
+
+  test "resource tag pages traverse all 101 tags using the last returned UUID", c do
+    grants(fn ->
+      expected = seed_organization_tags(c, 101)
+      selector = c.resource_id
+
+      assert {:ok, %OrganizationPage{items: first, next_cursor: cursor}} =
+               organization_page(c, :list_page_in_scope, selector, %{limit: 20}, [:asset])
+
+      assert first == Enum.take(expected, 20)
+      assert is_binary(cursor)
+      assert {:ok, last} = decode_organization_cursor(cursor, c.context, selector, :resource_tags)
+      assert last == List.last(first).tag_id
+
+      assert {:ok, %OrganizationPage{items: changed_limit}} =
+               organization_page(c, :list_page_in_scope, selector, %{limit: 1, cursor: cursor}, [
+                 :asset
+               ])
+
+      assert changed_limit == [Enum.at(expected, 20)]
+      assert collect_organization_tags(c, selector, 20) == expected
+
+      assert_private_error(
+        organization_page(c, :list_page_in_scope, selector, %{limit: 20, cursor: cursor}, [:note]),
+        :not_found
+      )
+
+      for limit <- [1, 50] do
+        assert {:ok, %OrganizationPage{items: items}} =
+                 organization_page(c, :list_page_in_scope, selector, %{limit: limit}, [:asset])
+
+        assert items == Enum.take(expected, limit)
+      end
+    end)
+  end
+
+  test "tag browse filters disallowed kinds before SQL limit and continuation", c do
+    source = KnowledgeFixtures.source!()
+
+    c = %{
+      c
+      | one: source,
+        context: context(source),
+        resource_id: Ecto.UUID.load!(source.resource_id)
+    }
+
+    {excluded, permitted} = organization_documents_and_notes(source, 4, 3)
+
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context, "CANARY_BROWSE"))
+
+      for row <- excluded ++ permitted,
+          do:
+            assert(
+              :ok ==
+                TagRepository.attach(c.context, Ecto.UUID.load!(row.resource_id), stored.tag_id)
+            )
+
+      expected =
+        Enum.map(permitted, &%{resource_id: Ecto.UUID.load!(&1.resource_id), kind: :note})
+
+      assert {:ok, %OrganizationPage{items: first, next_cursor: cursor}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{limit: 2}, [:note])
+
+      assert first == Enum.take(expected, 2)
+
+      assert {:ok, last} =
+               decode_organization_cursor(cursor, c.context, stored.tag_id, :tag_resources)
+
+      assert last == List.last(first).resource_id
+
+      assert {:ok, %OrganizationPage{items: [last_item], next_cursor: :done}} =
+               organization_page(
+                 c,
+                 :browse_in_scope,
+                 stored.tag_id,
+                 %{limit: 2, cursor: cursor},
+                 [:note]
+               )
+
+      assert last_item == List.last(expected)
+
+      assert {:ok, %OrganizationPage{items: [], next_cursor: :done}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{limit: 2}, [])
+
+      assert {:ok, %OrganizationPage{items: [], next_cursor: :done}} =
+               organization_page(
+                 c,
+                 :browse_in_scope,
+                 stored.tag_id,
+                 %{limit: 2, cursor: cursor},
+                 [:document]
+               )
+    end)
+  end
+
+  test "tag browse traverses all 101 resources without a hidden legacy limit", c do
+    source = KnowledgeFixtures.source!()
+
+    c = %{
+      c
+      | one: source,
+        context: context(source),
+        resource_id: Ecto.UUID.load!(source.resource_id)
+    }
+
+    {_excluded, notes} = organization_documents_and_notes(source, 0, 101)
+
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context, "CANARY_BROWSE_ALL"))
+
+      for row <- notes,
+          do:
+            assert(
+              :ok ==
+                TagRepository.attach(c.context, Ecto.UUID.load!(row.resource_id), stored.tag_id)
+            )
+
+      expected = Enum.map(notes, &%{resource_id: Ecto.UUID.load!(&1.resource_id), kind: :note})
+      assert collect_organization_resources(c, stored.tag_id, 20) == expected
+
+      for limit <- [1, 50] do
+        assert {:ok, %OrganizationPage{items: items, next_cursor: cursor}} =
+                 organization_page(c, :browse_in_scope, stored.tag_id, %{limit: limit}, [:note])
+
+        assert items == Enum.take(expected, limit)
+
+        assert {:ok, last} =
+                 decode_organization_cursor(cursor, c.context, stored.tag_id, :tag_resources)
+
+        assert last == List.last(items).resource_id
+      end
+
+      assert {:ok, %OrganizationPage{next_cursor: cursor}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{limit: 20}, [:note])
+
+      assert {:ok, %OrganizationPage{items: [next_item]}} =
+               organization_page(
+                 c,
+                 :browse_in_scope,
+                 stored.tag_id,
+                 %{limit: 1, cursor: cursor},
+                 [:note]
+               )
+
+      assert next_item == Enum.at(expected, 20)
+    end)
+  end
+
+  test "browse pages omit tombstones and expose restored endpoints without changing tags", c do
+    source = KnowledgeFixtures.source!()
+
+    c = %{
+      c
+      | one: source,
+        context: context(source),
+        resource_id: Ecto.UUID.load!(source.resource_id)
+    }
+
+    {_excluded, [note]} = organization_documents_and_notes(source, 0, 1)
+
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context))
+
+      assert :ok =
+               TagRepository.attach(c.context, Ecto.UUID.load!(note.resource_id), stored.tag_id)
+
+      expected = [%{resource_id: Ecto.UUID.load!(note.resource_id), kind: :note}]
+
+      assert {:ok, %OrganizationPage{items: ^expected, next_cursor: :done}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{}, [:note])
+
+      set_organization_deleted(note.resource_id, true)
+
+      assert {:ok, %OrganizationPage{items: [], next_cursor: :done}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{}, [:note])
+
+      assert_private_error(
+        organization_page(c, :list_page_in_scope, Ecto.UUID.load!(note.resource_id), %{}, [:note]),
+        :not_found
+      )
+
+      set_organization_deleted(note.resource_id, false)
+
+      assert {:ok, %OrganizationPage{items: ^expected, next_cursor: :done}} =
+               organization_page(c, :browse_in_scope, stored.tag_id, %{}, [:note])
+    end)
+  end
+
+  test "paged selectors and cursors do not disclose foreign or wrong-context rows", c do
+    grants(fn ->
+      tags = seed_organization_tags(c, 3)
+
+      assert {:ok, %OrganizationPage{next_cursor: cursor}} =
+               organization_page(c, :list_page_in_scope, c.resource_id, %{limit: 1}, [:asset])
+
+      for selector <- [Ecto.UUID.generate(), Ecto.UUID.load!(c.two.resource_id)] do
+        assert_private_error(
+          organization_page(c, :list_page_in_scope, selector, %{}, [:asset]),
+          :not_found
+        )
+      end
+
+      foreign_context = context(c.two)
+
+      {:ok, foreign_tag} =
+        TagRepository.resolve(foreign_context, tag(foreign_context, "CANARY_FOREIGN_TAG"))
+
+      for selector <- [Ecto.UUID.generate(), foreign_tag.tag_id] do
+        assert_private_error(
+          organization_page(c, :browse_in_scope, selector, %{}, [:asset]),
+          :not_found
+        )
+      end
+
+      assert_private_error(
+        organization_page(c, :browse_in_scope, hd(tags).tag_id, %{limit: 1, cursor: cursor}, [
+          :asset
+        ]),
+        :invalid
+      )
+
+      same_owner_note = KnowledgeFixtures.note!(c.one)
+
+      assert_private_error(
+        organization_page(
+          c,
+          :list_page_in_scope,
+          Ecto.UUID.load!(same_owner_note.resource_id),
+          %{limit: 1, cursor: cursor},
+          [:note]
+        ),
+        :invalid
+      )
+
+      other = %{c | context: foreign_context, resource_id: Ecto.UUID.load!(c.two.resource_id)}
+
+      assert_private_error(
+        organization_page(
+          other,
+          :list_page_in_scope,
+          other.resource_id,
+          %{limit: 1, cursor: cursor},
+          [:asset]
+        ),
+        :invalid
+      )
+
+      assert_private_error(
+        organization_page(
+          c,
+          :list_page_in_scope,
+          c.resource_id,
+          %{limit: 1, cursor: cursor <> "x"},
+          [:asset]
+        ),
+        :invalid
+      )
+    end)
+  end
+
+  test "paged inputs reject forged queries and kind filters without returning content", c do
+    grants(fn ->
+      {:ok, stored} = TagRepository.resolve(c.context, tag(c.context))
+
+      for {method, selector} <- [
+            {:list_page_in_scope, c.resource_id},
+            {:browse_in_scope, stored.tag_id}
+          ] do
+        for query <- [
+              %{limit: 1, cursor: nil},
+              %{organization_query(%{}) | limit: 51},
+              Map.put(organization_query(%{}), :owner_scope_id, c.context.owner_scope_id)
+            ] do
+          assert_private_error(
+            scoped(c, &scoped_call(method, [&1, selector, query, [:asset]])),
+            :invalid
+          )
+        end
+
+        for kinds <- [nil, [:unknown], [:asset, :asset], [:asset | :tail]] do
+          assert_private_error(
+            scoped(c, &scoped_call(method, [&1, selector, organization_query(%{}), kinds])),
+            :invalid
+          )
+        end
+      end
+    end)
+  end
+
+  defp scoped(c, fun) do
+    ScopedRepo.transact(
+      c.context.repo,
+      %{principal_id: c.context.principal_id, vault_id: c.context.owner_scope_id},
+      fn repo -> fun.(%{c.context | repo: repo}) end
+    )
+  end
+
+  defp scoped_call(method, arguments), do: apply(TagRepository, method, arguments)
+
+  defp organization_query(params) do
+    assert {:ok, query} = OrganizationPageQuery.new(params)
+    query
+  end
+
+  defp organization_page(c, method, selector, params, kinds),
+    do: scoped(c, &scoped_call(method, [&1, selector, organization_query(params), kinds]))
+
+  defp decode_organization_cursor(cursor, context, selector, operation) do
+    binding = %{
+      owner_scope_id: context.owner_scope_id,
+      selector_id: selector,
+      operation: operation,
+      ordering_version: 1
+    }
+
+    apply(Singularity.Storage.Postgres.OrganizationCursor, :decode, [
+      cursor,
+      binding,
+      Application.fetch_env!(:singularity_runtime, :audit_fingerprint_secret)
+    ])
+  end
+
+  defp seed_organization_tags(c, count) do
+    prefix = Ecto.UUID.generate() |> String.slice(0, 24)
+
+    for index <- 1..count do
+      candidate = %{tag(c.context, "tag #{index}") | tag_id: organization_id(prefix, index)}
+      assert {:ok, stored} = TagRepository.resolve(c.context, candidate)
+      assert :ok = TagRepository.attach(c.context, c.resource_id, stored.tag_id)
+      %{tag_id: stored.tag_id, display_value: stored.display_value}
+    end
+  end
+
+  defp collect_organization_tags(c, selector, limit, cursor \\ nil, acc \\ [], pages \\ 0) do
+    assert pages < 10
+
+    assert {:ok, %OrganizationPage{items: items, next_cursor: next}} =
+             organization_page(
+               c,
+               :list_page_in_scope,
+               selector,
+               %{limit: limit, cursor: cursor},
+               [:asset]
+             )
+
+    assert length(items) <= limit
+
+    if next == :done,
+      do: acc ++ items,
+      else: collect_organization_tags(c, selector, limit, next, acc ++ items, pages + 1)
+  end
+
+  defp collect_organization_resources(c, selector, limit, cursor \\ nil, acc \\ [], pages \\ 0) do
+    assert pages < 10
+
+    assert {:ok, %OrganizationPage{items: items, next_cursor: next}} =
+             organization_page(c, :browse_in_scope, selector, %{limit: limit, cursor: cursor}, [
+               :note
+             ])
+
+    assert length(items) <= limit
+
+    if next == :done,
+      do: acc ++ items,
+      else: collect_organization_resources(c, selector, limit, next, acc ++ items, pages + 1)
+  end
+
+  defp organization_documents_and_notes(source, document_count, note_count) do
+    resources = Ecto.UUID.generate() |> String.slice(0, 24)
+    versions = Ecto.UUID.generate() |> String.slice(0, 24)
+
+    Fixtures.with_owner(fn ->
+      documents =
+        for index <- organization_indices(document_count) do
+          KnowledgeFixtures.insert_document!(source, %{
+            resource_id: Ecto.UUID.dump!(organization_id(resources, index)),
+            resource_version_id: Ecto.UUID.dump!(organization_id(versions, index))
+          })
+        end
+
+      notes =
+        for index <- organization_indices(note_count) do
+          position = document_count + index
+
+          row = %{
+            resource_id: Ecto.UUID.dump!(organization_id(resources, position)),
+            resource_version_id: Ecto.UUID.dump!(organization_id(versions, position)),
+            vault_id: source.vault_id
+          }
+
+          KnowledgeFixtures.insert_note!(MigrationRepo, source, row)
+        end
+
+      {documents, notes}
+    end)
+  end
+
+  defp organization_indices(0), do: []
+  defp organization_indices(count), do: 1..count
+
+  defp organization_id(prefix, index),
+    do:
+      prefix <>
+        (index |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(12, "0"))
+
+  defp set_organization_deleted(resource_id, deleted?) do
+    Fixtures.with_owner(fn ->
+      statement = if deleted?, do: "CURRENT_TIMESTAMP", else: "NULL"
+
+      query!(MigrationRepo, "UPDATE content.resources SET deleted_at=#{statement} WHERE id=$1", [
+        resource_id
+      ])
+    end)
+  end
+
+  defp assert_private_error(result, code) do
+    assert {:error, %Error{code: ^code, message: nil, details: %{}} = error} = result
+    assert error.details == %{}
+    refute inspect(error) =~ "CANARY"
   end
 
   defp context(source),

@@ -295,13 +295,16 @@ Storage new forward `20261011000100_knowledge_runtime_grants.exs` and
 
 ## Task 5: Bounded organization values, ports and queries
 
+The pure and Storage portions are locally qualified. The public resource-tag
+facade remains in Task 6, and permanent-grant cleanup remains coupled to Task 4.
+
 **Create:** Core `organization_page_query.ex`, `organization_page.ex`;
 Domains `organization.ex`; Storage `postgres/organization_cursor.ex` and
 owning pure/adapter tests.
 **Modify:** existing Domains tag/relationship ports and Storage
 `tag_repository.ex`, `relationship_repository.ex` with scoped internal seams.
 
-- [ ] Add failing fixed-key query/page contracts: limit1–50/default20, cursor
+- [x] Add failing fixed-key query/page contracts: limit1–50/default20, cursor
   optional/max2048, ordered unique owner-free outputs and exact cursor binding.
   Query fields are only `limit`/`cursor`; `OrganizationPage.new(operation,
   attrs, query)` receives the server operation separately and returns only
@@ -311,14 +314,14 @@ owning pure/adapter tests.
   duplicate/reversed UUID keys and non-full continuations. Domains' literal
   query dispatch revalidates selector/query/page, with trusted allowed kinds
   passed separately and SQL endpoint-kind filtering before `limit + 1`.
-- [ ] Add tag browse port and limit+1 UUID keyset browse; edge outgoing/incoming
+- [x] Add tag browse port and limit+1 UUID keyset browse; edge outgoing/incoming
   use relationship UUID keysets, selector visibility and live endpoints.
   Preserve legacy calls; avoid hidden max100 truncation on the public seam.
 - [ ] Add `list_resource_tags(session, resource_id, params \\ %{})` with the
   same bounded page contract, tag UUID keyset and resource-selector cursor
   domain. Retain the legacy internal list call; prove a >100-tag resource is
   completely traversable without an unbounded query or silent truncation.
-- [ ] Domain-separated authenticated cursor binds owner, selector, direction
+- [x] Domain-separated authenticated cursor binds owner, selector, direction
   and ordering version using existing secret; tampering/wrong context fails
   sanitized. Add an independent literal Perl/OpenSSL framing/HMAC oracle for
   the design's exact v1 `v/f/i/h` canonical JSON envelope and distinct binding/
@@ -327,13 +330,14 @@ owning pure/adapter tests.
   signed malformed/noncanonical/duplicate-key envelopes as well as bad MACs.
   Limit stays independent; reapply current allowed kinds each SQL page.
   Pages are live, not stable snapshots across mutations.
-- [ ] Add internal in-scope resolve/attach/detach/relate/unrelate/query paths
+- [x] Add internal in-scope resolve/attach/detach/relate/unrelate/query paths
   usable inside Runtime OperationScope without nested transactions; retain
   existing standalone adapter behaviors. No Save/organization atomic coupling.
-- [ ] Preserve tag normalization/first spelling, natural edge identity/pin
-  conflicts, directed semantics and audit-only-on-change. Correct temporary
-  grant helper cleanup to restore existing privileges, not revoke permanent ones.
-- [ ] Run full tag/edge/cursor/query suites and negative RLS tests; SPEC then
+- [x] Preserve tag normalization/first spelling, natural edge identity/pin
+  conflicts, directed semantics and audit-only-on-change.
+- [ ] Correct temporary grant helper cleanup to restore existing privileges,
+  not revoke permanent ones.
+- [x] Run full tag/edge/cursor/query suites and negative RLS tests; SPEC then
   QUALITY review; commit `feat(storage): page knowledge organization queries`.
 
 ## Task 6: Authenticated tag, relationship and backlink operations

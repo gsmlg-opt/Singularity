@@ -2,8 +2,16 @@ defmodule Singularity.Storage.Postgres.RelationshipRepositoryTest do
   use Singularity.Storage.DataCase, async: false
   @moduletag :integration
 
-  alias Singularity.Core.{Error, Relationship}
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, KnowledgeTestGrants, MigrationRepo}
+  alias Singularity.Core.{Error, OrganizationPage, OrganizationPageQuery, Relationship}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    KnowledgeTestGrants,
+    MigrationRepo,
+    ScopedRepo
+  }
+
   alias Singularity.Storage.Postgres.RelationshipRepository
   alias Singularity.Storage.Schema.Audit.Event
 
@@ -340,6 +348,514 @@ defmodule Singularity.Storage.Postgres.RelationshipRepositoryTest do
       assert {:ok, []} = RelationshipRepository.outgoing(data.context, edge.source_resource_id)
       assert audits(data.context) == []
     end)
+  end
+
+  test "scoped relate preserves natural replay and pin conflicts without nesting scope", data do
+    with_grants(fn ->
+      candidate = edge(data)
+      replay = %{candidate | relationship_id: Ecto.UUID.generate()}
+
+      assert {:ok, ^candidate} =
+               organization_scope(data, fn context ->
+                 assert {:error, %Error{code: :invalid}} =
+                          RelationshipRepository.relate(context, candidate)
+
+                 for forged <- [
+                       %{candidate | type: :unknown},
+                       %{candidate | target_resource_id: candidate.source_resource_id},
+                       %{candidate | owner_scope_id: candidate.target_resource_id}
+                     ] do
+                   assert_organization_error(
+                     organization_call(:relate_in_scope, [context, forged]),
+                     :invalid
+                   )
+                 end
+
+                 assert {:ok, ^candidate} =
+                          organization_call(:relate_in_scope, [context, candidate])
+
+                 assert {:error, %Error{code: :conflict}} =
+                          organization_call(
+                            :relate_in_scope,
+                            [
+                              context,
+                              %{
+                                replay
+                                | target_resource_version_id: id(data.second.resource_version_id)
+                              }
+                            ]
+                          )
+
+                 organization_call(:relate_in_scope, [context, replay])
+               end)
+
+      assert [["knowledge.related", metadata]] = audits(data.context)
+
+      assert metadata == %{
+               "source_resource_id" => candidate.source_resource_id,
+               "target_resource_id" => candidate.target_resource_id,
+               "type" => "references"
+             }
+    end)
+  end
+
+  test "scoped unrelate removes once and audits only its actual deletion", data do
+    with_grants(fn ->
+      candidate = edge(data)
+      assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+
+      assert :ok =
+               organization_scope(data, fn context ->
+                 assert {:error, %Error{code: :invalid}} =
+                          RelationshipRepository.unrelate(context, candidate.relationship_id)
+
+                 assert :ok =
+                          organization_call(:unrelate_in_scope, [
+                            context,
+                            candidate.relationship_id
+                          ])
+
+                 organization_call(:unrelate_in_scope, [context, candidate.relationship_id])
+               end)
+
+      assert {:ok, []} =
+               RelationshipRepository.outgoing(data.context, candidate.source_resource_id)
+
+      assert ["knowledge.related", "knowledge.unrelated"] == Enum.map(audits(data.context), &hd/1)
+    end)
+  end
+
+  test "outer rollback removes scoped edge and audit effects", data do
+    with_grants(fn ->
+      candidate = edge(data)
+
+      assert {:error, :organization_rollback} =
+               organization_scope(data, fn context ->
+                 assert {:ok, ^candidate} =
+                          organization_call(:relate_in_scope, [context, candidate])
+
+                 {:error, :organization_rollback}
+               end)
+
+      assert {:ok, []} =
+               RelationshipRepository.outgoing(data.context, candidate.source_resource_id)
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[0]]} =
+                 query!(MigrationRepo, "SELECT count(*) FROM content.relationships WHERE id=$1", [
+                   Ecto.UUID.dump!(candidate.relationship_id)
+                 ])
+      end)
+
+      assert audits(data.context) == []
+    end)
+  end
+
+  test "new scoped edge seams require matching principal and owner GUCs", data do
+    other = KnowledgeFixtures.source!()
+
+    with_grants(fn ->
+      candidate = edge(data)
+      query = organization_query(%{})
+
+      calls = [
+        {:relate_in_scope, [candidate]},
+        {:unrelate_in_scope, [candidate.relationship_id]},
+        {:outgoing_page_in_scope, [candidate.source_resource_id, query, [:note]]},
+        {:incoming_page_in_scope, [candidate.target_resource_id, query, [:note]]}
+      ]
+
+      for {method, arguments} <- calls do
+        assert_organization_error(organization_call(method, [data.context | arguments]), :invalid)
+
+        assert {:ok, :ok} =
+                 RequestRepo.transaction(fn ->
+                   assert_organization_error(
+                     organization_call(method, [data.context | arguments]),
+                     :invalid
+                   )
+
+                   :ok
+                 end)
+
+        for malformed <- [
+              %{data.context | principal_id: id(other.principal_id)},
+              %{data.context | owner_scope_id: id(other.vault_id)}
+            ] do
+          assert :ok =
+                   organization_scope(data, fn _context ->
+                     assert_organization_error(
+                       organization_call(method, [malformed | arguments]),
+                       :invalid
+                     )
+
+                     :ok
+                   end)
+        end
+      end
+
+      assert audits(data.context) == []
+    end)
+  end
+
+  test "both edge page directions traverse beyond 100 using relationship UUID keysets", data do
+    {_documents, notes} = organization_endpoints(data.source, 0, 101)
+
+    with_grants(fn ->
+      for {method, operation} <- organization_directions() do
+        expected = seed_organization_edges(data, operation, notes)
+        selector = id(data.first.resource_id)
+        assert collect_organization_edges(data, method, selector, 20) == expected
+
+        for limit <- [1, 50] do
+          assert {:ok, %OrganizationPage{items: items, next_cursor: cursor}} =
+                   organization_edge_page(data, method, selector, %{limit: limit}, [:note])
+
+          assert items == Enum.take(expected, limit)
+          assert {:ok, last} = organization_decode(cursor, data.context, selector, operation)
+          assert last == List.last(items).relationship_id
+        end
+      end
+    end)
+  end
+
+  test "both endpoint kind filters precede SQL limit and continuation in each direction", data do
+    {excluded, permitted} = organization_endpoints(data.source, 4, 3)
+
+    with_grants(fn ->
+      for {method, operation} <- organization_directions() do
+        seeded = seed_organization_edges(data, operation, excluded ++ permitted)
+        expected = Enum.drop(seeded, 4)
+        selector = id(data.first.resource_id)
+
+        assert {:ok, %OrganizationPage{items: first, next_cursor: cursor}} =
+                 organization_edge_page(data, method, selector, %{limit: 2}, [:note])
+
+        assert first == Enum.take(expected, 2)
+        assert {:ok, last} = organization_decode(cursor, data.context, selector, operation)
+        assert last == List.last(first).relationship_id
+
+        assert {:ok, %OrganizationPage{items: [last_item], next_cursor: :done}} =
+                 organization_edge_page(data, method, selector, %{limit: 2, cursor: cursor}, [
+                   :note
+                 ])
+
+        assert last_item == List.last(expected)
+
+        assert_organization_error(
+          organization_edge_page(data, method, selector, %{limit: 2}, [:asset, :document]),
+          :not_found
+        )
+      end
+    end)
+  end
+
+  test "edge pages omit tombstoned endpoints and restore exact pins and direction", data do
+    with_grants(fn ->
+      outgoing = %{edge(data) | target_resource_version_id: id(data.second.resource_version_id)}
+
+      incoming = %{
+        edge(data)
+        | source_resource_id: id(data.second.resource_id),
+          target_resource_id: id(data.first.resource_id),
+          target_resource_version_id: id(data.first.resource_version_id)
+      }
+
+      assert {:ok, ^outgoing} = RelationshipRepository.relate(data.context, outgoing)
+      assert {:ok, ^incoming} = RelationshipRepository.relate(data.context, incoming)
+      selector = id(data.first.resource_id)
+
+      for {method, expected} <- [
+            {:outgoing_page_in_scope, organization_item(outgoing)},
+            {:incoming_page_in_scope, organization_item(incoming)}
+          ] do
+        assert {:ok, %OrganizationPage{items: [^expected], next_cursor: :done}} =
+                 organization_edge_page(data, method, selector, %{}, [:note])
+      end
+
+      organization_tombstone(data.second.resource_id, true)
+
+      for {method, _operation} <- organization_directions() do
+        assert {:ok, %OrganizationPage{items: [], next_cursor: :done}} =
+                 organization_edge_page(data, method, selector, %{}, [:note])
+
+        assert_organization_error(
+          organization_edge_page(data, method, id(data.second.resource_id), %{}, [:note]),
+          :not_found
+        )
+      end
+
+      organization_tombstone(data.second.resource_id, false)
+
+      for {method, expected} <- [
+            {:outgoing_page_in_scope, organization_item(outgoing)},
+            {:incoming_page_in_scope, organization_item(incoming)}
+          ] do
+        assert {:ok, %OrganizationPage{items: [^expected], next_cursor: :done}} =
+                 organization_edge_page(data, method, selector, %{}, [:note])
+      end
+    end)
+  end
+
+  test "paged edge selectors hide unknown and foreign resources", data do
+    other = KnowledgeFixtures.source!()
+    foreign = KnowledgeFixtures.note!(other)
+
+    with_grants(fn ->
+      for {method, _operation} <- organization_directions(),
+          selector <- [Ecto.UUID.generate(), id(foreign.resource_id)] do
+        assert_organization_error(
+          organization_edge_page(data, method, selector, %{}, [:note]),
+          :not_found
+        )
+      end
+    end)
+  end
+
+  test "edge cursors reject wrong contexts but allow a new limit on the same live page", data do
+    {_documents, notes} = organization_endpoints(data.source, 0, 3)
+
+    with_grants(fn ->
+      outgoing = seed_organization_edges(data, :outgoing, notes)
+      incoming = seed_organization_edges(data, :incoming, notes)
+      selector = id(data.first.resource_id)
+
+      for {method, operation, expected, other_method} <- [
+            {:outgoing_page_in_scope, :outgoing, outgoing, :incoming_page_in_scope},
+            {:incoming_page_in_scope, :incoming, incoming, :outgoing_page_in_scope}
+          ] do
+        assert {:ok, %OrganizationPage{items: [first], next_cursor: cursor}} =
+                 organization_edge_page(data, method, selector, %{limit: 1}, [:note])
+
+        assert first == hd(expected)
+        assert {:ok, first_id} = organization_decode(cursor, data.context, selector, operation)
+        assert first_id == first.relationship_id
+
+        assert {:ok, %OrganizationPage{items: remaining, next_cursor: :done}} =
+                 organization_edge_page(data, method, selector, %{limit: 2, cursor: cursor}, [
+                   :note
+                 ])
+
+        assert remaining == Enum.drop(expected, 1)
+
+        assert_organization_error(
+          organization_edge_page(data, method, selector, %{limit: 1, cursor: cursor}, [
+            :asset,
+            :document
+          ]),
+          :not_found
+        )
+
+        assert_organization_error(
+          organization_edge_page(data, other_method, selector, %{limit: 1, cursor: cursor}, [
+            :note
+          ]),
+          :invalid
+        )
+
+        assert_organization_error(
+          organization_edge_page(
+            data,
+            method,
+            id(data.second.resource_id),
+            %{limit: 1, cursor: cursor},
+            [:note]
+          ),
+          :invalid
+        )
+
+        assert_organization_error(
+          organization_edge_page(data, method, selector, %{limit: 1, cursor: cursor <> "x"}, [
+            :note
+          ]),
+          :invalid
+        )
+      end
+    end)
+  end
+
+  test "edge pages reject forged queries and noncanonical kind filters", data do
+    with_grants(fn ->
+      for {method, _operation} <- organization_directions() do
+        selector = id(data.first.resource_id)
+
+        for query <- [
+              %{limit: 1, cursor: nil},
+              %{organization_query(%{}) | limit: 51},
+              Map.put(organization_query(%{}), :capabilities, ["note.read"])
+            ] do
+          assert_organization_error(
+            organization_scope(
+              data,
+              &organization_call(method, [&1, selector, query, [:note]])
+            ),
+            :invalid
+          )
+        end
+
+        for kinds <- [nil, [:unknown], [:note, :note], [:note | :tail]] do
+          assert_organization_error(
+            organization_scope(
+              data,
+              &organization_call(method, [&1, selector, organization_query(%{}), kinds])
+            ),
+            :invalid
+          )
+        end
+      end
+    end)
+  end
+
+  defp organization_scope(data, fun) do
+    ScopedRepo.transact(
+      data.context.repo,
+      %{principal_id: data.context.principal_id, vault_id: data.context.owner_scope_id},
+      fn repo -> fun.(%{data.context | repo: repo}) end
+    )
+  end
+
+  defp organization_call(method, arguments), do: apply(RelationshipRepository, method, arguments)
+
+  defp organization_query(params) do
+    assert {:ok, query} = OrganizationPageQuery.new(params)
+    query
+  end
+
+  defp organization_edge_page(data, method, selector, params, kinds),
+    do:
+      organization_scope(
+        data,
+        &organization_call(method, [&1, selector, organization_query(params), kinds])
+      )
+
+  defp organization_decode(cursor, context, selector, operation) do
+    binding = %{
+      owner_scope_id: context.owner_scope_id,
+      selector_id: selector,
+      operation: operation,
+      ordering_version: 1
+    }
+
+    apply(Singularity.Storage.Postgres.OrganizationCursor, :decode, [
+      cursor,
+      binding,
+      Application.fetch_env!(:singularity_runtime, :audit_fingerprint_secret)
+    ])
+  end
+
+  defp organization_directions,
+    do: [{:outgoing_page_in_scope, :outgoing}, {:incoming_page_in_scope, :incoming}]
+
+  defp organization_item(edge),
+    do:
+      Map.take(
+        edge,
+        [
+          :relationship_id,
+          :source_resource_id,
+          :target_resource_id,
+          :target_resource_version_id,
+          :type
+        ]
+      )
+
+  defp seed_organization_edges(data, direction, rows) do
+    prefix = Ecto.UUID.generate() |> String.slice(0, 24)
+
+    for {row, index} <- Enum.with_index(rows, 1) do
+      {source, target} =
+        if direction == :outgoing,
+          do: {id(data.first.resource_id), id(row.resource_id)},
+          else: {id(row.resource_id), id(data.first.resource_id)}
+
+      candidate = %{
+        edge(data)
+        | relationship_id: organization_id(prefix, index),
+          source_resource_id: source,
+          target_resource_id: target
+      }
+
+      assert {:ok, ^candidate} = RelationshipRepository.relate(data.context, candidate)
+      organization_item(candidate)
+    end
+  end
+
+  defp collect_organization_edges(
+         data,
+         method,
+         selector,
+         limit,
+         cursor \\ nil,
+         acc \\ [],
+         pages \\ 0
+       ) do
+    assert pages < 10
+
+    assert {:ok, %OrganizationPage{items: items, next_cursor: next}} =
+             organization_edge_page(data, method, selector, %{limit: limit, cursor: cursor}, [
+               :note
+             ])
+
+    assert length(items) <= limit
+
+    if next == :done,
+      do: acc ++ items,
+      else:
+        collect_organization_edges(data, method, selector, limit, next, acc ++ items, pages + 1)
+  end
+
+  defp organization_endpoints(source, document_count, note_count) do
+    resources = Ecto.UUID.generate() |> String.slice(0, 24)
+    versions = Ecto.UUID.generate() |> String.slice(0, 24)
+
+    Fixtures.with_owner(fn ->
+      documents =
+        for index <- organization_indices(document_count) do
+          KnowledgeFixtures.insert_document!(source, %{
+            resource_id: Ecto.UUID.dump!(organization_id(resources, index)),
+            resource_version_id: Ecto.UUID.dump!(organization_id(versions, index))
+          })
+        end
+
+      notes =
+        for index <- organization_indices(note_count) do
+          position = document_count + index
+
+          row = %{
+            resource_id: Ecto.UUID.dump!(organization_id(resources, position)),
+            resource_version_id: Ecto.UUID.dump!(organization_id(versions, position)),
+            vault_id: source.vault_id
+          }
+
+          KnowledgeFixtures.insert_note!(MigrationRepo, source, row)
+        end
+
+      {documents, notes}
+    end)
+  end
+
+  defp organization_indices(0), do: []
+  defp organization_indices(count), do: 1..count
+
+  defp organization_id(prefix, index),
+    do:
+      prefix <>
+        (index |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(12, "0"))
+
+  defp organization_tombstone(resource_id, deleted?) do
+    Fixtures.with_owner(fn ->
+      statement = if deleted?, do: "CURRENT_TIMESTAMP", else: "NULL"
+
+      query!(MigrationRepo, "UPDATE content.resources SET deleted_at=#{statement} WHERE id=$1", [
+        resource_id
+      ])
+    end)
+  end
+
+  defp assert_organization_error(result, code) do
+    assert {:error, %Error{code: ^code, message: nil, details: %{}} = error} = result
+    assert error.details == %{}
+    refute inspect(error) =~ "CANARY"
   end
 
   defp edge(data) do

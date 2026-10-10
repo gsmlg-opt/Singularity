@@ -5,9 +5,9 @@
 **IN PROGRESS — NOT ACCEPTED.** E2E is deferred and NOT RUN, not a passing
 browser/release gate. Tasks 1, 2, 3 and the early Task 8 restore compatibility
 slice are qualified locally after their owning checks and independent SPEC then
-QUALITY review. Task 5's pure Query/Page/dispatch slice is qualified, but its
-real SQL/cursor work and the remaining Phase 4 deliverables/whole-phase
-acceptance are pending.
+QUALITY review. Task 5's pure Query/Page/dispatch and real Storage cursor/paging
+slices are qualified. Authenticated Runtime facades, permanent-grant cleanup,
+the remaining Phase 4 deliverables and whole-phase acceptance are pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -863,9 +863,104 @@ Read-only mapping confirms the existing opaque repository context can carry
 the server-owned scoped-repo callback without changing Domains intents, Command,
 HMAC, OperationScope or Vault. The design and plan now specify exact winning-only
 new-member placement, same-connection current authorization with both epochs,
-retained/replay bypass and ordinary sanitized denial rollback. This bounded
-detail requires independent review before implementation; no Runtime or Storage
-production change has been made for Task 4.
+retained/replay bypass and ordinary sanitized denial rollback. At preparation
+time this detail required independent review before implementation, and no
+Runtime or Storage production change had been made for Task 4. Separate
+`phase4_internal_detail_spec_review` SPEC and `phase4_internal_detail_quality_review`
+QUALITY subsequently passed with no findings and unchanged document hashes.
+The three reviewed documents were committed locally as
+`594d10606a39c66461e97c9c05bf951e1ade051d`.
+
+### Task 5 real Storage qualification
+
+Test-only cursor harness repair 1 renamed `binding/0` without changing any
+assertion or vector. Fresh `38864` passed compilation and executed all nine
+cursor cases with nine expected missing-module failures (0.2 seconds); this is
+actual cursor semantic RED, unlike the earlier compilation failure.
+
+The parent separated the existing complete four-port assertion loop into four
+independent cases so the Tag failure could not hide Relationship RED. Attempt
+`69822` ran four cases with two expected missing-callback failures but generated
+static unreachable-clause warnings from compile-time module constants. A
+generic shared assertion helper preserved every original assertion and removed
+that harness warning: fresh `47392` with `--warnings-as-errors` ran four cases,
+two expected Tag/Relationship callback failures, and both established ports
+PASS (0.1 seconds).
+
+The actual nine-file implementation extends the two Domains repository ports,
+adds Storage `OrganizationCursor`, updates Tag/Relationship adapters and the
+four owning test files. Cursor `10338` passed format/compile and all 20 actual
+organization/search cursor cases (nine new, 11 existing; 0.3 seconds).
+
+First full unit/property check `91031` passed exact nine-file formatting and
+`compile --warnings-as-errors`, then Core **37 tests + two properties**, Domains
+**15 tests** and Storage **20 tests**, all zero failures: **74 actual cases**
+(0.8/0.2/0.3 seconds, seed `215378`). Real PostgreSQL `72452` passed Tag **19**,
+Relationship **20** and unchanged RLS **two** cases: **41 actual cases, zero
+failures**, 20.1 seconds, same seed, exit 0. It proves all four 101-item traversals,
+pre-limit live/kind filtering, exact UUID continuations, matching GUCs, atomic
+outer rollback, idempotent audits, pins/direction and preserved legacy max100.
+It does not prove Runtime current capability checks or public facades.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs --seed 215378
+```
+
+Independent actual `phase4_organization_storage_spec_review` SPEC passed with no
+blocking findings; subsequent separate `phase4_internal_detail_quality_review`
+actual Storage QUALITY passed with zero findings. All nine reviewed file hashes
+stayed unchanged. Internal Tag attach/detach retain the established validator's
+UUID spelling tolerance; the review found no owner/RLS bypass or contrary
+internal contract. Task 6 must enforce canonical client identifiers.
+Fresh `45999` passed exact nine-file `format --check-formatted`, production
+`compile --warnings-as-errors`, and `xref graph --format cycles --fail-above 0`
+with **No cycles found**. `git diff --check` passed. Production Sol repair
+rounds **0**, Astra **0**. This qualifies only the scoped Storage slice; the
+resource-tag public facade and permanent-grant-helper cleanup remain pending.
+Owned-cluster cleanup check `46669` confirmed **zero** generated
+`singularity_test_%` databases and stopped only that private server. All five
+latest generated integration roots were verified absent. The ignored private
+cluster/harness is retained for the remaining authorized local work.
+
+### Task 4 winning-source authorization execution, still in progress
+
+Unchanged Runtime Note mutation/read/API/observability baseline `43434` passed
+all **27 actual unit cases** (0.8 seconds, seed `215378`, warnings-as-errors).
+Additive test-only preparation preserves all 29 existing Storage source cases
+and adds 19 real scoped authorization-context cases, including all three winning
+mutations, exact new-only references, same connection/transaction/GUC, authorization
+before row-share locks/checkpoints, denial full-state rollback, retained/empty
+skip, deleted-source replay and malformed callback contexts.
+
+Fresh PostgreSQL RED `47285` passed production compilation and executed Storage
+**48 cases with 19 expected mapped-repo ArgumentError failures**, all 29 legacy
+cases PASS (25.0 seconds), plus unchanged Runtime authorization **three cases,
+zero failures** (2.3 seconds). No fixture failure; **51 actual cases, 19 expected
+failures**. Parent production changes are limited to NoteRepository unpacking
+the server context and threading its authorization callback separately through
+winning source preparation; no intent/HMAC, Domains, OperationScope or Vault
+change. First implementation `65144` passed format/compile and ran Storage
+**58 cases, four failures** plus Runtime **three, zero failures** (27.4/2.4
+seconds). All four failures were the new test checkpoint helper returning the
+`send/2` tuple instead of the required `:ok`; they are harness failures, not
+GREEN. Sol harness repair 1 adds explicit `:ok` after both callbacks' unchanged
+assertions/messages. No failed production repair round or Astra attempt has
+occurred. Fresh owning validation is recorded after completion below.
+Fresh harness-repair validation `79382` passed production compilation and
+Storage **58 cases, zero failures** (37.7 seconds), plus Runtime authorization
+**three cases, zero failures** (2.2 seconds): **61 actual integration cases
+PASS**, seed `215378`, exit 0, owned server stopped. The source context remains
+an independently unreviewed Task 4 production slice, not Task 4 acceptance.
+
+Runtime test-only preparation adds 34 composition units and minimally updates
+the existing mutation fake's server-context argument assertions. Fresh `13287`
+passed test compilation with warnings-as-errors and ran **61 unit cases, 38
+expected failures**, 3.7 seconds: 32 new missing-source-context/whitelist/check
+failures and six existing cases at the deliberately updated context contract;
+23 controls PASS. Runtime production remains unchanged at this RED. Unit fakes
+and independent literal HMAC terms prove composition contracts, not live source
+authorization. Actual Runtime/Storage integration, DTOs, resolution, grants and
+independent Task 4 reviews remain required.
 
 ## Preserved boundaries and baseline inventory
 
