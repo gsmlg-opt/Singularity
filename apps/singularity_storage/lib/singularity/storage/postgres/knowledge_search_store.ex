@@ -231,12 +231,29 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStore do
     "%" <> escaped <> "%"
   end
 
+  defp candidate_relation(""), do: ""
+
+  defp candidate_relation(_) do
+    """
+    , candidates AS MATERIALIZED (
+      SELECT candidate.entry_id
+      FROM input
+      CROSS JOIN LATERAL content.search_candidate_ids(input.q,input.kind,input.tags) AS candidate
+    )
+    """
+  end
+
+  defp candidate_join(""), do: ""
+
+  defp candidate_join(_),
+    do: "JOIN candidates AS candidate ON candidate.entry_id = entry.entry_id"
+
   defp statement(q) do
     """
     WITH input AS (
       SELECT $1::uuid AS owner, $2::text AS q, $3::text AS kind,
              $4::text AS pattern, $5::uuid[] AS tags
-    ), scored AS MATERIALIZED (
+    )#{candidate_relation(q)}, scored AS MATERIALIZED (
       SELECT entry.vault_id, entry.classification, entry.kind,
              entry.resource_id, entry.resource_version_id, entry.fragment_id,
              entry.entry_id, entry.ordinal, entry.title, left(entry.body, 160) AS snippet,
@@ -244,6 +261,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStore do
              #{rank_expression(q)} AS rank
       FROM content.search_entries AS entry
       CROSS JOIN input
+      #{candidate_join(q)}
       JOIN content.resources AS resource
         ON resource.id = entry.resource_id
        AND resource.vault_id = entry.vault_id

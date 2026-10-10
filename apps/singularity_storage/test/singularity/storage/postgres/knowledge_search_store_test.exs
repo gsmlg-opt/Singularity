@@ -72,6 +72,82 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
     assert document_item.locator == Singularity.Core.SourceLocator.to_map(fragment.locator)
   end
 
+  test "nonempty canonical search without read assignments returns a sanitized forbidden error" do
+    source = KnowledgeFixtures.source!()
+    note = KnowledgeFixtures.note!(source)
+    project!(source, [note])
+    assert_no_read_assignments!(source)
+
+    assert search(source, %{filters(source) | q: "body", kind: :note}) ==
+             {:error, %Error{code: :forbidden, message: nil, details: %{}, retryable?: false}}
+  end
+
+  test "empty query without read assignments preserves the direct canonical source and 13 bindings" do
+    source = KnowledgeFixtures.source!()
+    note = KnowledgeFixtures.note!(source)
+    project!(source, [note])
+    assert_no_read_assignments!(source)
+    query = %{filters(source) | kind: :note}
+
+    original = search(source, query)
+    assert {:ok, %{items: [item], next_cursor: :done}} = original
+    assert Enum.sort(Map.keys(item)) == Enum.sort(@result_keys)
+    assert item.owner_scope_id == Ecto.UUID.load!(source.vault_id)
+    assert item.resource_id == Ecto.UUID.load!(note.resource_id)
+    assert item.resource_version_id == Ecto.UUID.load!(note.resource_version_id)
+    assert item.entry_id == "note:" <> Ecto.UUID.load!(note.resource_version_id)
+    assert item.classification == :private
+    assert item.kind == :note
+    assert item.fragment_id == nil
+    assert item.ordinal == 0
+    assert item.title == "Note"
+    assert item.snippet == "body"
+    assert item.locator == %{"version" => 1, "kind" => "markdown", "heading_path" => []}
+    assert %DateTime{} = item.source_inserted_at
+    assert item.rank == 0
+
+    assert {:ok, captured, summary} = capture_search_summary(source, query)
+    assert captured == original
+    assert summary == %{statements: 1, parameter_count: 13, candidate_references: 0}
+    assert {:flags, []} = :erlang.trace_info(self(), :flags)
+    assert {:traced, false} = :erlang.trace_info({SafeSQL, :query, 4}, :traced)
+  end
+
+  test "invalid public search maps return only the sanitized invalid error" do
+    source = KnowledgeFixtures.source!()
+    query = %{filters(source) | q: " untrimmed "}
+
+    assert apply(@store, :search, [RejectingRepo, query]) ==
+             {:error, %Error{code: :invalid, message: nil, details: %{}, retryable?: false}}
+  end
+
+  test "private search capture refuses another observer's trace pattern" do
+    source = KnowledgeFixtures.source!()
+    function = {SafeSQL, :query, 4}
+    Code.ensure_loaded!(SafeSQL)
+    assert {:flags, []} = :erlang.trace_info(self(), :flags)
+    assert {:traced, false} = :erlang.trace_info(function, :traced)
+
+    try do
+      assert :erlang.trace_pattern(function, true, [:local]) == 1
+      assert capture_search_summary(source, filters(source)) == {:error, :search_trace_owned}
+      assert {:traced, :local} = :erlang.trace_info(function, :traced)
+    after
+      :erlang.trace_pattern(function, false, [:local])
+    end
+
+    assert {:flags, []} = :erlang.trace_info(self(), :flags)
+    assert {:traced, false} = :erlang.trace_info(function, :traced)
+  end
+
+  test "private search capture cleans its traces when scoped setup raises" do
+    source = KnowledgeFixtures.source!()
+
+    assert capture_search_summary(%{}, filters(source)) == {:error, :search_trace_failed}
+    assert {:flags, []} = :erlang.trace_info(self(), :flags)
+    assert {:traced, false} = :erlang.trace_info({SafeSQL, :query, 4}, :traced)
+  end
+
   test "closed validated maps and cursor envelopes fail before repository work" do
     source = authorized_source!()
     base = filters(source)
@@ -786,6 +862,125 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
       cursor: nil,
       policy_version: 1
     }
+  end
+
+  defp assert_no_read_assignments!(source) do
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[0]]} =
+               SafeSQL.query!(
+                 MigrationRepo,
+                 """
+                 SELECT count(*)
+                 FROM core.principal_capabilities AS assignment
+                 JOIN core.capabilities AS capability ON capability.id=assignment.capability_id
+                 WHERE assignment.principal_id=$1 AND assignment.vault_id=$2
+                   AND assignment.revoked_at IS NULL AND capability.name=ANY($3::text[])
+                 """,
+                 [source.principal_id, source.vault_id, ["note.read", "asset.read"]]
+               )
+    end)
+  end
+
+  defp capture_search_summary(source, query) do
+    Code.ensure_loaded!(SafeSQL)
+    caller = self()
+    function = {SafeSQL, :query, 4}
+
+    if :erlang.trace_info(caller, :flags) == {:flags, []} and
+         :erlang.trace_info(function, :traced) == {:traced, false} do
+      reference = make_ref()
+      initial = %{statements: 0, parameter_count: nil, candidate_references: 0}
+
+      {collector, monitor} =
+        spawn_monitor(fn -> collect_search_summary(caller, reference, initial) end)
+
+      try do
+        try do
+          1 = :erlang.trace_pattern(function, true, [:local])
+
+          try do
+            1 = :erlang.trace(caller, true, [:call, {:tracer, collector}])
+            result = search(source, query)
+            delivered = :erlang.trace_delivered(caller)
+
+            receive do
+              {:trace_delivered, ^caller, ^delivered} -> :ok
+            after
+              5_000 -> throw(:search_trace_delivery_timeout)
+            end
+
+            send(collector, {reference, :collect})
+
+            receive do
+              {^reference, :summary, summary} -> {:ok, result, summary}
+            after
+              5_000 -> throw(:search_trace_collection_timeout)
+            end
+          after
+            :erlang.trace(caller, false, [:call])
+          end
+        after
+          :erlang.trace_pattern(function, false, [:local])
+          stop_search_collector!(collector, monitor, reference)
+        end
+      rescue
+        _error -> {:error, :search_trace_failed}
+      catch
+        :throw, :search_trace_cleanup_failed -> {:error, :search_trace_cleanup_failed}
+        _kind, _reason -> {:error, :search_trace_failed}
+      end
+    else
+      {:error, :search_trace_owned}
+    end
+  end
+
+  defp collect_search_summary(caller, reference, summary) do
+    receive do
+      {:trace, ^caller, :call, {SafeSQL, :query, [RequestRepo, statement, parameters, _options]}}
+      when is_binary(statement) and is_list(parameters) ->
+        # Reduce arguments immediately. Only closed counts leave this collector.
+        candidate_references =
+          summary.candidate_references +
+            if(String.contains?(statement, "content.search_candidate_ids"), do: 1, else: 0)
+
+        updated = %{summary | candidate_references: candidate_references}
+
+        updated =
+          if String.starts_with?(statement, "WITH input AS (") and
+               String.contains?(statement, "scored AS MATERIALIZED") do
+            %{updated | statements: updated.statements + 1, parameter_count: length(parameters)}
+          else
+            updated
+          end
+
+        collect_search_summary(caller, reference, updated)
+
+      {^reference, :collect} ->
+        send(caller, {reference, :summary, summary})
+        collect_search_summary(caller, reference, summary)
+
+      {^reference, :stop} ->
+        :ok
+    end
+  end
+
+  defp stop_search_collector!(collector, monitor, reference) do
+    send(collector, {reference, :stop})
+
+    receive do
+      {:DOWN, ^monitor, :process, ^collector, :normal} -> :ok
+      {:DOWN, ^monitor, :process, ^collector, _reason} -> throw(:search_trace_cleanup_failed)
+    after
+      5_000 ->
+        Process.exit(collector, :kill)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^collector, _reason} ->
+            throw(:search_trace_cleanup_failed)
+        after
+          1_000 -> throw(:search_trace_cleanup_failed)
+        end
+    end
   end
 
   defp authorized_source! do
