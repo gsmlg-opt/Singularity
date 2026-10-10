@@ -560,6 +560,143 @@ crypto, keys, custody and assertions. Report the minimal frozen-substrate
 `backup/restorer.ex` inventory patch explicitly. Nonempty attachments,
 citations, tags and edges continue failing the unsupported-backup guard.
 
+### Task 7 bounded renderer and authorized export detail
+
+The recommended implementation reuses the existing exact selected-reference
+and historical resolution ports; no new persistence port, grant, migration,
+byte download, custody path or public Api signature is needed. Existing containing
+Note loading remains authorized by the conjunctive `note.export`/`note.read`
+unlocked shared scope. It already hydrates that Note's body/title before sealed
+membership; the new pre-hydration guarantee concerns **referenced-source**
+titles/fragments, not the already authorized containing Note.
+
+Add pure `Singularity.Core.NoteMarkdownSources.render(markdown, descriptors)`
+returning `{:ok, markdown}` or a content-free Core Error. The exact plain
+descriptor map has only `attachments` and `citations`. Each proper collection
+has at most 100 items with unique member UUIDs and preserves the canonical
+caller/ordinal order, including descending UUIDs and retained-member reordering;
+attachment `(target_resource_id, target_resource_version_id, role)` tuples are
+also unique, regardless of differing member IDs or labels. Different version
+pins remain distinct and attachment/citation overlap is allowed. The union of
+target resource/version identities is at most 100. Each item
+has exactly `reference`, `source`, `href`: an exact canonical Core
+NoteAttachmentReference or NoteCitationReference respectively, the exact plain
+source map `kind/resource_id/resource_version_id/title/deleted?`, and an assigned
+relative href. Reconstruct references with exact equality, including nested
+locator, role and label; never normalize server values or fill missing fields.
+Bind all source kind/resource/version fields to the exact reference. Titles are
+nonblank, UTF-8 and NUL-free; deletion is a boolean. No body, fragment text,
+owner, authorization flag, caller filesystem path or Runtime struct reaches Core.
+
+Runtime converts already canonical membership DTOs into Core reference structs
+with exact field equality. Before any referenced-source hydration, it checks
+each distinct required existing capability on the original scoped repo/session
+with both bound epochs: `note.read` for Note attachments and `asset.read` for
+Asset/Document attachments and citations. All must pass. Preserve the existing
+private/unlocked source-resolution requirement. No OR fallback, silent omission
+or public per-member ResolveSource call is used. After all
+checks, one existing selected callback on the first nonempty membership item
+locks the live containing Resource and must equal the canonical reference.
+Then existing in-scope resolvers hydrate every exact historical member on that
+same scope. Strict Notes.DTO.source_resolution validation binds each result;
+citations still verify the selected fragment text/locator internally, but the
+renderer receives no fragment text. Existing target tombstones remain readable
+as historical metadata. Missing, unauthorized, malformed or over-budget members
+abort the whole export, with no success audit or partial result. Empty collections
+add no selector, target authorization or hydration calls.
+
+Render nonempty sources after the unchanged original body, separated by two
+newlines and a `## Sources` heading, after any provable fence closure described
+below. Emit attachments first, then citations,
+preserving canonical collection order. Ordinary Markdown links show escaped
+titles and optional attachment labels, IDs, kind and exact resource/version
+pins; citations add standard footnote markers and definitions with citation
+UUID, resource/version, fragment ID and readable validated locator. Display PDF
+page/optional character range, Markdown heading path/optional line range, text
+line range or fragment ordinal. Mark deleted sources explicitly as historical.
+Escape Markdown/HTML-sensitive punctuation and render control/newline characters
+visibly in source labels; never interpolate source text as raw Markdown/HTML.
+Footnote labels use ASCII `singularity-source-<citation UUID>` and an integer
+suffix when needed. Scan existing body footnote labels conservatively with
+trim/casefold before choosing deterministic unoccupied labels; do not rewrite
+the user's original body, including existing footnotes.
+
+The appendix must not be swallowed by the containing body's Markdown parsing
+context. Adopt the bounded, dependency-free conservative formatter admission
+recommended by the architecture-only Astra review; this is not a new canonical
+Markdown syntax validator. Empty sources bypass this policy and return the
+original bytes. For nonempty sources, scan physical LF, CRLF and bare-CR lines
+incrementally with only `outside` or `fence(marker, opening_length)` state:
+
+- Outside, recognize an opening maximal run of at least three backticks or
+  tildes only at literal document column zero. Backtick info may contain no
+  backtick; tilde info may contain arbitrary remaining text. Invalid openers
+  fail closed. A recognized opener's entire line belongs to that literal fence.
+- Every other outside line must contain neither `<` nor a contiguous run of
+  three or more backticks or tildes anywhere. Otherwise fail closed. This
+  deliberately rejects raw HTML (even closed), angle-bracket autolinks, `<`
+  inside inline code/prose, and ambiguous indented/container/inline/escaped
+  triple-marker runs. These can be valid Markdown; only nonempty-source export
+  admission is restricted. Ordinary prose, headings, lists, quotes, regular
+  Markdown links and single/double-backtick code remain supported when they
+  avoid those guards. No initial BOM is stripped for fence recognition: a
+  BOM-prefixed fence fails conservatively, not an ordinary BOM-containing body.
+- Inside, recognize a closer with zero to three ASCII leading spaces, the same
+  marker repeated at least the opening length, and only ASCII spaces/tabs
+  afterward. All other lines are literal content, including HTML or apparently
+  nested fences. A closing line cannot simultaneously open another fence.
+- At EOF outside, append the normal separator/section. At EOF inside a proven
+  column-zero fence, append one LF only if the body ends in neither CR nor LF,
+  then exactly the opening number of markers, then the normal separator/section.
+  Never append speculative generic HTML or fence closers. The original body is
+  always the output's exact byte prefix, never escaped, normalized or replaced.
+
+Closed column-zero fences, including literal HTML inside them, stay supported.
+An unfinished proven fence gains exactly one matching appended closer; opaque
+or ambiguous contexts fail before success audit rather than producing hidden
+sources. Add Core/Runtime regressions for these admissions, closures, all raw
+HTML classes, containers, BOM and line-ending variants. Independently
+characterize generated accepted examples with the established local Markdown
+parser: Sources must be a top-level heading and appended links/definitions
+outside code/HTML. This is a pure non-browser diagnostic, not E2E acceptance.
+
+Runtime assigns only `sources/<kind>-<resource UUID>-<version UUID>.<extension>`
+with `asset/bin`, `note/md`, `document/txt`. Core requires exact equality to
+that grammar and pin: schemes, absolute paths, traversal, backslashes, encoded
+separators, query and fragment are all rejected. These identify logical pinned
+destinations, not materialized files: label the appended section as a text-only
+source inventory with no included source files. Phase 5 alone supplies portable
+files/packages. No original filename is used as a destination path.
+
+Canonical input Markdown remains UTF-8/NUL-free and at most **1,048,576 bytes**;
+empty sources return its exact original bytes. Introduce a separate rendered
+export ceiling of **16,777,216 bytes**, checked by pure
+`NoteMarkdownSources.valid_rendered?/1` and reused only by Runtime
+DTO.NoteExport.new/1. Canonical NoteSnapshot, NoteValidation and all canonical
+Markdown write/summary validators remain unchanged. The distinct ceiling avoids
+rejecting a legal 1 MiB Note merely because source metadata is appended. It
+accommodates bounded citation heading metadata (100 × 64 × 255 bytes plus
+conservative escape expansion), body and fixed pins; Asset filenames remain
+unbounded SQL text and therefore require fail-closed title/escaped-output and
+aggregate-budget checks before expansion/return. Never truncate metadata.
+Count each generated byte, including any fence closer and every escape, using
+the same token rules as emission; stop at overflow before constructing escaped
+titles or the complete output. Then emit bounded iodata and flatten once.
+Runtime rejects a resolved title whose bytes exceed the remaining aggregate
+raw-title budget before retaining that result; raw-title bytes cannot exceed
+the rendered ceiling. This bounds accumulated title payloads, not the size of
+a single existing SQL read or total BEAM heap to 16 MiB. No source read port is
+changed. Never claim that the output ceiling is a total allocation ceiling.
+Validate the final NoteExport before appending the existing ID-only success
+audit. A renderer-invalid authenticated descriptor becomes integrity_failure;
+known adapter/authorization faults remain sanitized and abort the scope.
+
+This necessary export-size/route-contract amendment is authorized under the
+continuous product authorization, not a weakening of canonical input or an
+expansion to V3, browser behavior or E2E. Independently review this detail before
+implementation. Preserve empty-export identity and existing exact-version,
+audit and privacy assertions when updating the old nonempty raw-body oracle.
+
 ## Verification and acceptance
 
 Follow red/green focused contracts, independent SPEC then QUALITY review, and

@@ -446,23 +446,71 @@ See the [qualification report](../../verification/2026-10-11-phase-4-acceptance.
 
 ## Task 7: Ordinary Markdown source rendering
 
-**Create:** Core `note_markdown_sources.ex` and owning tests.
-**Modify:** Runtime `notes/export.ex` and owning export tests.
+**Create:** Core `note_markdown_sources.ex` and owning tests; Runtime
+`note_markdown_source_export_test.exs` and `note_markdown_export_integration_test.exs`.
+**Modify:** Runtime `notes/export.ex`, `dto/note_export.ex`, existing owning
+export/DTO tests and the nonempty source-collection route contract as necessary.
+No public Api signature, persistence port, grant or migration change is planned.
 
-- [ ] Add RED for empty byte identity, ordered pinned source information,
+- [x] Independently SPEC then QUALITY review the Task 7 renderer/export detail,
+  including the separate rendered 16 MiB ceiling and unchanged canonical 1 MiB
+  write/input limit, before implementation. This is necessary compatibility,
+  not an unrelated broadening of the old file list.
+
+- [x] Add RED for empty byte identity, ordered pinned source information,
   standard readable footnotes/links and Unicode/Markdown escaping.
-- [ ] Implement pure rendering from validated authorized descriptors and safe
+- [x] Implement pure rendering from validated authorized descriptors and safe
   exporter-assigned relative links, never caller filesystem paths/proprietary
   schemes. Nonempty references append a separated Sources section; footnotes
   include exact UUID/version/fragment and human-readable locator. Do not fetch
   bytes or create a Phase5 portable/V3 package.
-- [ ] Compose after existing `note.export` plus `note.read` and every required
+- [x] Compose after existing `note.export` plus `note.read` and every required
   current source read. Deleted exact sources stay readable as historical
   metadata; unauthorized content is not hydrated or silently exported.
 - [ ] Test escaping/scheme rejection, stable deterministic output, pinned old
   source despite new head, deletion, invalid nested descriptors and privacy.
   Run existing text export/Runtime suites; SPEC then QUALITY review; commit
   `feat(notes): render portable markdown citations`.
+
+Execute the reviewed detail with these deterministic contracts:
+
+1. Add Core RED for exact closed/canonical descriptors, ordered complete sets,
+   empty byte identity (including BOM/line endings), readable ordinary links and
+   all locator forms, deleted status, Unicode/Markdown/control escaping,
+   existing footnote label collisions, exact relative path/pin grammar,
+   malformed references/locators, improper/duplicate/oversize sets, duplicate
+   attachment natural keys with different member UUIDs/labels, legal
+   descending member UUIDs and retained-member reordering without sorting,
+   a legal 1 MiB body with sources and the rendered 16 MiB bound. Keep source
+   body/fragment/owner/authority fields rejected.
+   Characterize and test the reviewed conservative nonempty formatter admission:
+   closed/proven open column-zero fences (both markers), matching/shorter/wrong/
+   indented/content-bearing closers, LF/CRLF/bare CR, exact original prefix;
+   raw HTML classes, autolinks, literal `<`, ambiguous indented/container/inline/
+   escaped triple-runs and BOM-prefixed fences fail without audit. All such
+   bodies with empty membership remain exact bytes. Count fence/escape output
+   before allocation. Use the established local parser read-only to prove the
+   Sources heading and appended references are outside code/HTML, not merely
+   present as text; this does not run a browser or E2E.
+2. Add Runtime RED using the real pure renderer, requiring all source-kind
+   checks with both epochs before the first referenced hydration, one exact
+   containing-reference selector, one existing scope and exact historical pins.
+   A later denial/malformed member, body boundary or budget failure yields no partial output
+   or success audit. Empty membership retains existing calls/byte identity.
+3. Implement the pure renderer and narrowly update only rendered NoteExport
+   validation. Extend Export's existing scope using original authorizer and
+   in-scope selected/resolution ports, not new per-member public operations.
+   Bound retained aggregate raw-title payloads, count rendered output before
+   escape allocation, and finalize/validate the complete DTO before ID-only audit.
+4. Add actual PostgreSQL/Authorize integration with permanent grants for mixed
+   Asset/Note/Document membership, citation locators, changed heads, target
+   deletion, current capability/epoch denial, exact source order/pins and audit
+   privacy. Retain the integration Custodian limitation explicitly; no live
+   custody/byte/browser proof is inferred. Parent serializes every Mix/DB run.
+5. Run all owning Core/Runtime/export/DTO/source suites, static checks and actual
+   SQL; actual SPEC then separate QUALITY on frozen implementation hashes,
+   exact cleanup and scoped local commit. Task 9 remains required for phase
+   acceptance; E2E stays NOT RUN.
 
 ## Task 8: Complete legacy restore compatibility
 

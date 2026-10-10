@@ -1529,6 +1529,12 @@ no material user data was removed. The ignored private cluster is retained.
 Task 6 is locally qualified; Task 7 and whole-phase acceptance remain pending.
 E2E NOT RUN, final browser/release acceptance and publication still excluded.
 
+The exact 19 source/test files plus plan and report were committed locally as
+`4d6d82bcda34a5240ca1b482c4f23bc76b62da72`
+(`feat(runtime): add knowledge organization APIs`, 21 files). The staged
+inventory and whitespace check passed; post-commit worktree status was clean.
+No merge, push, publication or deployment occurred.
+
 Exact final SQL, static/unit and cleanup commands:
 
 ```sh
@@ -1536,6 +1542,183 @@ devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integrati
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format --check-formatted apps/singularity_runtime/lib/singularity/runtime/api.ex apps/singularity_runtime/lib/singularity/runtime/organization/operations.ex apps/singularity_runtime/lib/singularity/runtime/organization/authorizer.ex apps/singularity_runtime/lib/singularity/runtime/organization/dto.ex apps/singularity_runtime/lib/singularity/runtime/dto/organization_tag.ex apps/singularity_runtime/lib/singularity/runtime/dto/organization_resource.ex apps/singularity_runtime/lib/singularity/runtime/dto/organization_relationship.ex apps/singularity_runtime/lib/singularity/runtime/dto/organization_page.ex apps/singularity_domains/lib/singularity/domains/organization/repository.ex apps/singularity_domains/lib/singularity/domains/relationships/repository.ex apps/singularity_storage/lib/singularity/storage/postgres/organization_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/relationship_repository.ex apps/singularity_runtime/test/singularity/runtime/organization_api_test.exs apps/singularity_runtime/test/singularity/runtime/organization_authorizer_test.exs apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_cursor_test.exs apps/singularity_runtime/test/singularity/runtime/organization_api_test.exs apps/singularity_runtime/test/singularity/runtime/organization_authorizer_test.exs apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
 devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%'"
 ```
+
+### Task 7 reviewed boundary, RED and first GREEN
+
+Task 7 is in progress, not locally accepted or whole-phase acceptance. The
+reviewed detail keeps canonical Note writes at 1,048,576 bytes and gives only
+the rendered NoteExport payload a separate 16,777,216-byte ceiling. Relative
+links identify exact immutable logical destinations; no source files or bytes
+are included. All required current source capabilities pass inside the
+original request before any referenced selector/title/fragment hydration.
+The completed DTO is validated before the existing ID-only success audit.
+
+Initial design SPEC found one P2 conflict between UUID sorting and canonical
+membership ordinal order. The repair retains caller/ordinal order, including
+descending UUIDs and retained-member reordering. Subsequent design QUALITY
+found two P2 issues: an appendix could be swallowed by unfinished fenced/HTML
+contexts, and attachment natural-key uniqueness was missing. A bounded
+read-only Astra `PROJECT_ARCHITECTURE` advisory recommended a conservative
+dependency-free formatter scanner and the established natural-key invariant.
+The first advisory handoff lacked its literal routing keys and was corrected
+before inspection; this was not an implementation repair. Fresh SPEC then
+separate QUALITY passed with zero actionable P0–P2 findings on design SHA-256
+`7a9414fffa9ee9e37baef5325b21a0fd2c477e9022eeeec8e6792ae53c616bee` and plan SHA-256
+`083f15cfab12b1a8868ea614aff44d841aca32965a05dce63fc49ac47a888466`.
+Astra architecture advisory count is one; Astra recovery attempts remain zero.
+
+For nonempty sets, raw HTML/autolinks/literal `<` outside proven column-zero
+fences and ambiguous indented/container/inline/escaped triple-marker runs fail
+closed. Recognized open fences receive only a proven matching closing run;
+the original body remains an exact byte prefix. This is an explicit formatter
+admission limitation, not a claim that rejected bodies are invalid Markdown.
+Empty sets retain exact bytes, including BOM/line endings and those contexts.
+The counting pass includes escapes and closers before output allocation.
+The rendered ceiling is not a total BEAM heap bound; Runtime separately bounds
+aggregate retained raw titles.
+
+Initial unit `5007` passed formatting and warnings-as-errors compilation but
+exited 2: **Runtime 26 cases / 23 failures**, 2.0 seconds, seed `215378`.
+The initial Core failures mixed missing production behavior with noncanonical
+uppercase hexadecimal fixture UUIDs, so they were not all accepted as RED.
+Core harness repair 1 lowercased fixture UUIDs and added an exact constructor
+characterization without removing assertions. Run `69258` had **40 cases /
+39 failures**, 2.6 seconds, same seed, exit 2; its enormous missing-module
+argument output was truncated, not a complete per-failure diagnostic record.
+An additive module/function presence assertion made that diagnostic bounded.
+Fresh `30814` had **40 cases / 39 explicit missing-renderer failures**, one
+fixture characterization PASS, 2.5 seconds, exit 2. Runtime and Core behavioral
+RED were thereby established, not silently reclassified as passing.
+
+Initial production validation `84810` failed compilation before tests:
+an opaque reference returned by `:binary.compile_pattern/1` could not be
+injected from a module attribute. This is FAIL, not GREEN. Core Sol production
+repair 1 compiles the quotable pattern list once per render and threads it
+through the same counting/emission passes; all tests were retained. Fresh
+`68188` passed formatting, warnings-as-errors compilation, **Core 40 /
+Runtime 26 cases**, zero failures (16.2 / 5.7 seconds), same seed, exit 0.
+Production Sol repair 1 PASS; failed repair rounds zero; Astra recovery zero.
+
+The existing collection-route characterization `85950` ran **41 cases /
+one failure**, 1.9 seconds, same seed, exit 2: its nonempty export still
+assumed raw-body-only output without source authorization/resolution. The
+necessary test-contract update permits hydration only for export, requires
+fresh source authorization and exact context first, preserves forbidden reads
+for the other seven routes, and replaces arbitrary citation fragment IDs with
+actual content-derived canonical fragment fixtures. It retains the original
+membership/version/scope/audit checks and adds order/pin/privacy checks.
+Fresh `91335` passed this suite plus the new Runtime contracts: **67 cases,
+zero failures**, 4.8 seconds, same seed, exit 0. No production repair was needed.
+
+Independent local parser characterization initially showed why bare appendix
+concatenation is unsafe. A manual closure prototype's first 14-vector runner
+failed all 14 diagnostics because the sample omitted the ordinary citation
+link while requiring two links; correcting the sample retained that assertion
+and passed all 14. These prototypes were not implementation acceptance.
+One attempted actual-runner tool script had a JavaScript quoting syntax error
+before any file edit/execution and was corrected. Actual compiled Core output
+`36664` then passed **41 vectors / zero failures**, exit 0: 23 accepted
+outputs had a top-level Sources heading, exact ordered ordinary pinned links
+and visible citation metadata outside code/HTML, with the exact original
+prefix; 18 rejected contexts produced sanitized invalid errors and retained
+empty-set byte identity. The established local `mdast-util-from-markdown`
+parser was read-only, with no dependency change. This is CommonMark
+characterization, not GFM UI, browser or E2E acceptance. E2E remains NOT RUN.
+
+Exact first GREEN, necessary route characterization/repair and actual parser
+commands (ignored parser scripts remain diagnostic artifacts, not product):
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_core/lib/singularity/core/note_markdown_sources.ex apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_runtime/lib/singularity/runtime/notes/export.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs --warnings-as-errors --seed 215378'
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs && mix test apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs --warnings-as-errors --seed 215378'
+devenv shell -- bash -o pipefail -c 'elixir -pa _build/test/lib/singularity_core/ebin -pa _build/test/lib/jason/ebin .devenv/phase4-task7-ast.exs | node .devenv/phase4-task7-ast.mjs'
+```
+
+Owning static/unit `38406` passed six-file formatting verification,
+warnings-as-errors compilation, **Core 91 / Domains 11 / Storage 9 / Runtime
+317 / Web 44 cases**, zero failures (16.5 / 0.4 / 0.2 / 7.0 / 2.8 seconds),
+seed `215378`, exit 0, and **No cycles found**. Existing export-controller
+and source/organization contracts remain included.
+
+The new actual Runtime integration draft was formatted without manual repair.
+Fresh `80169` passed **26 cases, zero failures**, 30.8 seconds, same seed,
+exit 0, comprising the existing 13-case authorization suite and 13 new export
+cases. Database/root: `singularity_test_fa802e1a0a3412e62ae462a1` /
+`/tmp/singularity/integration/fa802e1a0a3412e62ae462a1`; private server stopped.
+This uses real OperationScope, Authorize, IdentityRepository, RequestRepo,
+ScopedRepo, canonical repositories, permanent grants and **real AuditSink**.
+The established Custodian alone remains an integration adapter, not live
+custody. It proves exact mixed descending membership and all four locators,
+historical metadata after new heads, source tombstone/restore, current
+capability and both-epoch denial before referenced SQL, public facade/Save
+reordering with old version bytes/rows untouched, empty byte identity, a
+canonical 1 MiB body, raw/escaped budget and formatter failures without audits.
+The read-only observer delegates real results and checks the same backend,
+both GUCs and existing authorization ShareLock at each step; it is not an
+interleaving/concurrency proof. New SQL harness/production repair counts zero.
+
+Independent actual `phase4_organization_spec_review` SPEC passed with zero
+actionable P0–P2 findings and identical seven-file/design/plan hashes before
+and after. Its final pending-SQL limitation preceded the parent's completion
+update; the actual parent result above is the SQL evidence, not an inferred
+review result. The native separate QUALITY resumption/fresh spawn encountered
+the agent-thread capacity limit, without starting a review or changing files.
+A fresh isolated Sol/high read-only Codex reviewer is running instead, with
+no inherited implementation/SPEC context, frozen seven-file hashes, no
+delegation, writes, tests or database operations. This preserves independent
+QUALITY rather than treating capacity as a passing review or replacing it
+with implementation self-review. A pre-existing ignored user configuration
+key warning was reported; no user configuration was changed.
+
+Exact owning unit/static and first actual SQL commands:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format --check-formatted apps/singularity_core/lib/singularity/core/note_markdown_sources.ex apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_runtime/lib/singularity/runtime/notes/export.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_core/test/singularity/core/note_source_references_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_cursor_test.exs apps/singularity_runtime/test/singularity/runtime/organization_api_test.exs apps/singularity_runtime/test/singularity/runtime/organization_authorizer_test.exs apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_web/test/singularity/web/note_export_controller_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix format apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs --warnings-as-errors --seed 215378
+```
+
+Complete owning SQL `21537` passed **173 Storage / 55 Runtime cases**,
+zero failures, 109.3 / 75.3 seconds, seed `215378`, exit 0. Its allocated
+database/root were `singularity_test_2bcb8def88d71a8222ac5557` /
+`/tmp/singularity/integration/2bcb8def88d71a8222ac5557`; private server stopped.
+Fresh final static/unit `76859` verified all seven candidate files, compiled
+without warnings, passed **Core 91 / Domains 11 / Storage 9 / Runtime 317 /
+Web 44 cases**, zero failures (15.0 / 0.4 / 0.2 / 6.0 / 2.9 seconds),
+same seed, exit 0, and reported **No cycles found**.
+
+Separate actual QUALITY ran in fresh ephemeral read-only Sol/high thread
+`01a127cb-7f53-7463-b89e-74ab00861cc0`, process `13307`, exit 0. It passed
+with zero actionable P0–P2 findings and the exact seven-file/design/plan hashes
+unchanged before and after. One guessed NoteValidation file lookup failed;
+corrected repository discovery/read completed. This inspection error and the
+ignored user configuration warning are not production failures or test passes.
+No reviewer edited files or ran tests/DB/services. Parent verified the same
+seven source/test hashes after both reviews and final tests. The reviewed
+design/plan hashes precede only the qualification checkbox update.
+
+Cleanup `83351` confirmed **zero generated test databases**, exit 0, and
+stopped only the owned private server. Both exact roots above and
+`.devenv/phase4-pg.2P68Dm/postmaster.pid` were individually verified absent,
+each exit 0. Only generated test data were cleaned by the test lifecycle; no
+material user data were removed. The ignored private cluster and parser/
+review diagnostic artifacts are retained. Task 7 source is locally qualified
+and ready for its exact scoped local commit; Task 9 and whole-phase acceptance
+remain pending. E2E remains NOT RUN. No Vault file, source-custody primitive,
+capability, grant, migration, Api signature, browser assertion or workflow was
+changed.
+
+Exact complete owning SQL, final static/unit and cleanup commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format --check-formatted apps/singularity_core/lib/singularity/core/note_markdown_sources.ex apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_runtime/lib/singularity/runtime/notes/export.ex apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs && mix compile --warnings-as-errors && mix test apps/singularity_core/test/singularity/core/note_values_test.exs apps/singularity_core/test/singularity/core/note_source_references_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_core/test/singularity/core/organization_page_query_test.exs apps/singularity_core/test/singularity/core/organization_page_test.exs apps/singularity_domains/test/singularity/domains/organization_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_cursor_test.exs apps/singularity_runtime/test/singularity/runtime/organization_api_test.exs apps/singularity_runtime/test/singularity/runtime/organization_authorizer_test.exs apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/web/notes_live_test.exs apps/singularity_web/test/singularity/web/note_export_controller_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --warnings-as-errors --seed 215378 && mix xref graph --format cycles --fail-above 0'
+devenv shell -- bash .devenv/phase4-pg-command.sh psql -X --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_database WHERE datname LIKE 'singularity_test_%'"
+```
+
+
+
 
 ## Preserved boundaries and baseline inventory
 

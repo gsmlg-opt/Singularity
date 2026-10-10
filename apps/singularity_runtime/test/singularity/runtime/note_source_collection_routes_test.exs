@@ -1,7 +1,13 @@
 defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
   use ExUnit.Case, async: true
 
-  alias Singularity.Core.{Error, NoteAttachmentReference, NoteCitationReference, SourceLocator}
+  alias Singularity.Core.{
+    DocumentFragment,
+    Error,
+    NoteAttachmentReference,
+    NoteCitationReference
+  }
+
   alias Singularity.Core.NoteSaveResult, as: ReferenceResult
   alias Singularity.Runtime.Notes.{Create, Export, Get, Merge, Restore, Save}
   alias Singularity.Runtime.Notes.DTO, as: NotesDTO
@@ -78,6 +84,7 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
   end
 
   defmodule Reader do
+    import ExUnit.Assertions
     alias Singularity.Runtime.NoteSourceCollectionRoutesTest, as: Contract
 
     def read_membership(context, note, version) do
@@ -86,13 +93,58 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
       Map.fetch!(Contract.state(:membership_results), version)
     end
 
-    # Any forbidden hydration call raises deterministically, rather than
-    # returning a success that could mask an accidental pre-authorization read.
+    # Only export may hydrate, and only after fresh source authorization. The
+    # other routes still fail deterministically on any accidental target read.
     def list_set(_, _, _), do: raise("unit route must not hydrate a whole source set")
-    def select_attachment_in_scope(_, _, _, _), do: raise("unit route must not select a target")
-    def select_citation_in_scope(_, _, _, _), do: raise("unit route must not select a target")
-    def resolve_attachment_in_scope(_, _), do: raise("unit route must not hydrate source titles")
-    def resolve_citation_in_scope(_, _), do: raise("unit route must not hydrate fragment text")
+
+    for kind <- [:attachment, :citation] do
+      selector = String.to_atom("select_#{kind}_in_scope")
+      resolver = String.to_atom("resolve_#{kind}_in_scope")
+
+      def unquote(selector)(context, note, version, id) do
+        require_export(context)
+        assert Contract.state(:source_selected) != true
+        Contract.put_state(:source_selected, true)
+        Contract.record({:source_selection, unquote(kind), id, context})
+        {:ok, Contract.member(unquote(kind), note, version, id)}
+      end
+
+      def unquote(resolver)(context, reference) do
+        require_export(context)
+        assert Contract.state(:source_selected) == true
+        Contract.record({:source_hydration, unquote(kind), reference, context})
+        {:ok, Contract.resolution(unquote(kind), reference)}
+      end
+    end
+
+    defp require_export(context) do
+      assert Contract.state(:exporting) == true
+      assert Contract.state(:source_authorized) == true
+      assert context == Contract.source_context()
+    end
+  end
+
+  defmodule Authorizer do
+    import ExUnit.Assertions
+    alias Singularity.Runtime.NoteSourceCollectionRoutesTest, as: Contract
+
+    def check(:original_dependencies, :scoped_repo, session, requirement) do
+      assert Contract.state(:exporting) == true
+      assert Contract.state(:membership_completed) == true
+
+      assert requirement == %{
+               vault_id: session.vault_id,
+               classification: :private,
+               requires_unlocked?: true,
+               required_capability: "asset.read",
+               principal_authorization_epoch: session.principal_authorization_epoch,
+               vault_authorization_epoch: session.vault_authorization_epoch
+             }
+
+      Contract.put_state(:source_authorized, true)
+      Contract.record({:source_authorize, :scoped_repo, requirement.required_capability})
+      :ok
+    end
   end
 
   defmodule Fingerprint do
@@ -151,7 +203,7 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
   for route <- @routes do
     @route route
 
-    test "#{route} composes exact returned membership before strict conversion without hydration" do
+    test "#{route} composes exact returned membership with only authorized export hydration" do
       assert {:ok, result} = run_route(@route)
       assert_route_collections(@route, result)
       assert_membership_calls(route_versions(@route))
@@ -164,7 +216,36 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
       assert is_integer(first_read) and first_read < first_membership
 
       if @route == :export do
-        assert result.markdown == "PRIVATE_NOTE_BODY"
+        assert String.starts_with?(result.markdown, "PRIVATE_NOTE_BODY\n\n## Sources\n")
+        {:ok, membership} = Map.fetch!(state(:membership_results), @version)
+
+        positions =
+          for reference <- membership.attachments do
+            assert result.markdown =~ reference.target_resource_id
+            assert result.markdown =~ reference.target_resource_version_id
+            {position, _length} = :binary.match(result.markdown, reference.attachment_id)
+            position
+          end
+
+        assert positions == Enum.sort(positions)
+
+        for reference <- membership.citations do
+          assert result.markdown =~ reference.citation_id
+          assert result.markdown =~ reference.source_resource_version_id
+          assert result.markdown =~ reference.fragment_id
+        end
+
+        refute result.markdown =~ "PRIVATE_FRAGMENT_TEXT"
+        assert_received {:source_authorize, :scoped_repo, "asset.read"}
+        refute_received {:source_authorize, _, _}
+        assert_received {:source_selection, :attachment, _, _}
+        refute_received {:source_selection, _, _, _}
+        assert length(Enum.filter(events, &(elem(&1, 0) == :source_hydration))) == 4
+        first_authorization = Enum.find_index(events, &(elem(&1, 0) == :source_authorize))
+        first_selection = Enum.find_index(events, &(elem(&1, 0) == :source_selection))
+        first_hydration = Enum.find_index(events, &(elem(&1, 0) == :source_hydration))
+        assert first_membership < first_authorization
+        assert first_authorization < first_selection and first_selection < first_hydration
         assert result.resource_version_id == @version
         assert_received {:audit, :scoped_repo, event}
         assert event.metadata == %{"resource_version_id" => @version}
@@ -172,6 +253,9 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
         assert first_membership < Enum.find_index(events, &(elem(&1, 0) == :audit))
       else
         refute_received {:audit, _, _}
+        refute_received {:source_authorize, _, _}
+        refute_received {:source_selection, _, _, _}
+        refute_received {:source_hydration, _, _, _}
       end
     end
 
@@ -186,6 +270,10 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
       assert {:ok, result} = run_route(@route)
       assert_route_collections(@route, result)
       assert_membership_calls(route_versions(@route))
+      refute_received {:source_authorize, _, _}
+      refute_received {:source_selection, _, _, _}
+      refute_received {:source_hydration, _, _, _}
+      if @route == :export, do: assert(result.markdown == "PRIVATE_NOTE_BODY")
     end
 
     test "#{route} propagates sanitized membership failures and rejects revision mismatch" do
@@ -305,11 +393,70 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
     send(self(), event)
   end
 
+  def source_context,
+    do: %{repo: :scoped_repo, principal_id: @principal, owner_scope_id: @owner}
+
+  def member(kind, @note, version, id) do
+    {:ok, membership} = Map.fetch!(state(:membership_results), version)
+    field = if kind == :attachment, do: :attachments, else: :citations
+    id_field = if kind == :attachment, do: :attachment_id, else: :citation_id
+    Enum.find(Map.fetch!(membership, field), &(Map.fetch!(&1, id_field) == id))
+  end
+
+  def resolution(:attachment, reference) do
+    %{
+      reference: reference,
+      source: source(:asset, reference.target_resource_id, reference.target_resource_version_id)
+    }
+  end
+
+  def resolution(:citation, reference) do
+    fragment =
+      source_fragment(
+        reference.source_resource_id,
+        reference.source_resource_version_id,
+        reference.locator.fields.ordinal
+      )
+
+    %{
+      reference: reference,
+      source:
+        source(:document, reference.source_resource_id, reference.source_resource_version_id),
+      fragment: Map.take(fragment, [:fragment_id, :ordinal, :text, :locator])
+    }
+  end
+
+  defp source(kind, resource, version),
+    do: %{
+      kind: kind,
+      resource_id: resource,
+      resource_version_id: version,
+      title: "Unit source title",
+      deleted?: false
+    }
+
+  def source_fragment(resource, version, ordinal) do
+    {:ok, fragment} =
+      DocumentFragment.new(%{
+        resource_id: resource,
+        resource_version_id: version,
+        owner_scope_id: @owner,
+        classification: :private,
+        ordinal: ordinal,
+        text: "PRIVATE_FRAGMENT_TEXT",
+        locator: %{version: 1, kind: "fragment", ordinal: ordinal}
+      })
+
+    fragment
+  end
+
   defp events, do: state(:events) |> Enum.reverse()
 
   defp runtime do
     %{
       operation_scope: Scope,
+      authorization: :original_dependencies,
+      authorizer: Authorizer,
       note_repository: Repository,
       knowledge_link_repository: Reader,
       mutation_fingerprint: Fingerprint,
@@ -333,19 +480,26 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
     }
   end
 
-  defp run_route(:get), do: Get.run(runtime(), session(), @note)
-  defp run_route(:version), do: Get.version(runtime(), session(), @note, @pinned)
-  defp run_route(:conflict), do: Get.conflict(runtime(), session(), @note, @conflict)
-  defp run_route(:export), do: Export.run(runtime(), session(), @note)
-  defp run_route(:create), do: Create.run(runtime(), session(), snapshot())
+  defp run_route(route) do
+    put_state(:exporting, route == :export)
+    put_state(:source_authorized, false)
+    put_state(:source_selected, false)
+    do_run_route(route)
+  end
 
-  defp run_route(:restore),
+  defp do_run_route(:get), do: Get.run(runtime(), session(), @note)
+  defp do_run_route(:version), do: Get.version(runtime(), session(), @note, @pinned)
+  defp do_run_route(:conflict), do: Get.conflict(runtime(), session(), @note, @conflict)
+  defp do_run_route(:export), do: Export.run(runtime(), session(), @note)
+  defp do_run_route(:create), do: Create.run(runtime(), session(), snapshot())
+
+  defp do_run_route(:restore),
     do: Restore.run(runtime(), session(), @note, %{mutation_id: @mutation})
 
-  defp run_route(:save),
+  defp do_run_route(:save),
     do: Save.run(runtime(), session(), @note, Map.put(snapshot(), :base_version_id, @pinned))
 
-  defp run_route(:merge),
+  defp do_run_route(:merge),
     do:
       Merge.run(
         runtime(),
@@ -496,15 +650,15 @@ defmodule Singularity.Runtime.NoteSourceCollectionRoutesTest do
 
     citations =
       Enum.map([2, 1], fn ordinal ->
-        {:ok, locator} = SourceLocator.new(%{version: 1, kind: "fragment", ordinal: ordinal})
+        fragment = source_fragment(uuid(offset + 800), uuid(offset + 900), ordinal)
 
         {:ok, reference} =
           NoteCitationReference.new(%{
             citation_id: uuid(offset + ordinal + 600),
             source_resource_id: uuid(offset + 800),
             source_resource_version_id: uuid(offset + 900),
-            fragment_id: String.duplicate(Integer.to_string(ordinal), 64),
-            locator: locator
+            fragment_id: fragment.fragment_id,
+            locator: fragment.locator
           })
 
         reference

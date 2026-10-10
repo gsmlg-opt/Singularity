@@ -1,6 +1,7 @@
 defmodule Singularity.Runtime.DTO.NoteExport do
-  @moduledoc "Portable byte-exact Markdown export for one live canonical private note."
+  @moduledoc "Bounded Markdown export; empty source inventories preserve canonical bytes."
 
+  alias Singularity.Core.NoteMarkdownSources
   alias Singularity.Runtime.DTO.NoteValidation
 
   @media_type "text/markdown; charset=utf-8"
@@ -24,7 +25,7 @@ defmodule Singularity.Runtime.DTO.NoteExport do
          {:ok, _version_id} <- NoteValidation.uuid(attrs, :resource_version_id),
          true <- safe_filename?(attrs.filename),
          true <- attrs.media_type == @media_type,
-         true <- NoteValidation.markdown?(attrs.markdown) do
+         true <- NoteMarkdownSources.valid_rendered?(attrs.markdown) do
       {:ok, struct!(__MODULE__, attrs)}
     else
       _invalid -> NoteValidation.integrity_failure()
