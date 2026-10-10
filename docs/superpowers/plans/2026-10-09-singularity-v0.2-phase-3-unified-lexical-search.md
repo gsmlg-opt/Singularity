@@ -1167,6 +1167,352 @@ the installation-authority amendment above.
 
 ## Task 8: Authenticated API and exact source reads
 
+Task 8 is locally complete after the separately approved architecture-contract
+and guide alignments recorded below. Its scoped acceptance is not full Phase 3
+or release acceptance; Tasks 9–11 and all later release phases remain pending.
+
+Task 7 is committed locally at
+`75df901dc70047c16aeabbcdd92d7b71ef514dc5`. A fresh worker is starting
+Task 8 tests first. Before any Task 8 edits, the existing DTO/legacy Note-read
+baseline passed **22 tests, zero failures**, seed `34731`, in 0.9 seconds.
+The existing 13 DTO contracts remain required. Actual authorization coverage
+must use the established `OperationScope` and live identity adapter; a scope
+or custodian double alone is not proof of live authorization or unlock.
+
+The exact-source adapter shape is closed to `owner_scope_id`, `classification`,
+`kind`, `resource_id`, `resource_version_id`, `fragment_id`, `ordinal`, `title`,
+`body`, `locator`, and `source_inserted_at`. The public `KnowledgeSource` DTO
+removes owner/classification only, retaining ordinal and immutable source time.
+Notes use their exact Markdown body, ordinal zero, and the whole-source
+Markdown locator. Document fragments retain their canonical text/ordinal/locator.
+No digest, storage coordinate, key, or custody descriptor belongs in this value.
+
+The first new unit attempt stopped at a test-fixture compile error: its
+`SessionContext` literal omitted enforced fields (seed `212053`). Reusing the
+complete Session fixture corrected the setup before any production edit.
+The stable unit RED then reported **26 tests, three expected missing
+API/use-case failures, one integration exclusion**, seed `154394`, 0.9 seconds;
+all 22 established tests passed. The real-role exact-source fixture then reached
+the absent `KnowledgeSearchStore.resolve/2` after constructing canonical Note
+and ready Document rows and deleting the projection: **17 reported tests, one
+expected failure, 16 pure exclusions** (one integration test executed), seed
+`401094`, 0.9 seconds. Its owned database/storage were cleaned and PostgreSQL
+stopped.
+
+The expanded unit RED reported **39 tests, ten expected missing API/use-case/DTO
+failures, seven integration exclusions**, seed `10707`, in 1.3 seconds; all 22
+established tests still passed. Expanded integration RED reported **30 tests,
+seven expected missing API/resolve failures, 23 pure exclusions**, seed `85439`,
+in 4.6 seconds. All seven real-role cases reached absent behavior after their
+canonical/live identity/actual custodian fixture setup. These setup successes
+are not yet proof that the new use cases authorize correctly. The owned
+database/storage were cleaned and PostgreSQL stopped before implementation
+was authorized. No production repair round has occurred.
+
+The first implementation unit run passed **39 reported tests, zero failures,
+seven integration exclusions** (32 executed), seed `290968`, in 1.3 seconds.
+The first integration candidate reported **30 tests, two failures, 23 pure
+exclusions** (five of seven executed cases passed), seed `11689`, 8.1 seconds.
+One well-formed mismatched identity returned `invalid` instead of `not_found`;
+one live authority-denial case returned `storage_unavailable` instead of its
+expected authorization error. Historical resolution and the actual unlock
+boundary passed. Both failures require scoped diagnosis against the existing
+repository/read/audit seams before any repair; no authorization, audit, or
+Vault substrate change is authorized. Owned database/storage cleanup and
+PostgreSQL shutdown completed.
+
+The diagnostic rerun preserved both failing assertions and compared the new
+authority path with the established Document read and direct authorizer.
+It reported **30 tests, two failures, 26 exclusions** (four executed), seed
+`88184`, in 7.1 seconds. The first forged Note resource/version pair returned
+the legacy repository's `invalid`. The other failure was specifically revoked
+owner membership: direct authorization returned `forbidden`, while established
+Document read and both new APIs all returned `storage_unavailable`. The existing
+operation scope gives denial-audit failure precedence over the authorization
+error. The isolated database/storage were cleaned and PostgreSQL stopped.
+Only the additive exact-source identity normalization is authorized for repair;
+the erroneous-expectation-versus-boundary question requires independent scope
+review before any test expectation changes. No failed gate is accepted or
+reclassified as passing, and no authorization/audit/Vault change is authorized.
+
+The first bounded product repair normalizes the legacy Note reader's
+nonretryable `invalid` to `not_found` only after the new adapter has validated
+the closed typed selector and scoped owner. Its full owning integration rerun
+reported **30 tests, one failure, 23 exclusions** (six of seven executed cases
+passed), seed `792374`, in 8.1 seconds. Every forged identity now meets the
+unchanged `not_found` assertions; the membership-revocation expectation remains
+failing and untouched pending independent contract review. Owned database/
+storage cleanup and PostgreSQL shutdown completed. No Astra escalation has
+been triggered: the one product repair succeeded for its bounded defect.
+
+**STOP — compatibility gate, 2026-10-10.** The owning Runtime and directly
+related legacy/API/architecture command below exited 2, seed `273163`.
+Runtime reported **106 tests, zero failures, 22 integration exclusions**
+(84 executed), in 1.9 seconds. Web reported **42 tests, eight failures**, in
+1.8 seconds. The failures are outside Task 8's approved edit allowlist:
+
+- `knowledge_phase1_contract_test.exs:182`: application alias cannot be
+  relocated outside its approved insertion context.
+- `notes_scope_contract_test.exs:271`: active README and guide state the v0.2
+  scope lock; it still expects the Phase 1 acceptance/Phase 2 active text.
+- `knowledge_phase1_contract_test.exs:182`: supervisor child cannot be relocated
+  outside its approved insertion context.
+- `knowledge_phase1_contract_test.exs:168`: approved Phase 2 additions preserve
+  every original legacy composition byte; the API no longer matches that
+  contract's exact stripped baseline.
+- `knowledge_phase1_contract_test.exs:182`: Oban queue cannot be relocated
+  outside its approved insertion context.
+- `knowledge_phase1_contract_test.exs:260`: every approved worker block rejects
+  mutation, removal, duplication and relocation.
+- `knowledge_phase1_contract_test.exs:122`: public Document browser routes
+  remain absent and runtime registration is bounded; registration checks fail.
+- `knowledge_phase1_contract_test.exs:55`: active guidance authorizes only the
+  approved Phase 2 slice.
+
+These contracts still encode Phase 2 guidance and exact approved composition
+contexts. Their failures are not yet qualified as harmless or repaired by
+changing expected hashes. Implementation is stopped under the repository's
+out-of-scope-test rule. Both architecture files and every required assertion
+remain untouched. Task 8 is uncommitted and unaccepted; its separate live
+membership-revocation assertion still fails. The read-only contract review
+below does not lift this stop; no Task 9 work,
+authorization/audit change, architecture repair, full-phase acceptance, E2E,
+merge, push, release, or deployment is authorized by this failed gate.
+A narrowly approved architecture-contract amendment would need to enumerate
+the already approved Phase 3 additions while retaining original legacy-byte,
+closed-registration, relocation/mutation, browser-exclusion, and scope-lock
+guarantees; simply replacing baseline hashes is not an acceptable repair.
+
+Independent read-only review concluded that the membership test's new public
+`forbidden` expectation is unsupported by the approved existing-error contract,
+not a requirement to change authorization/audit behavior. A future test-only
+correction must assert direct live authorization's exact `forbidden`, established
+Document read's exact retryable `storage_unavailable`, corresponding stable errors
+from both new APIs, and no new content callback invocation after denial with a
+working positive control. Other denial expectations and all 13 existing DTO
+contracts must stay unchanged. This correction is **not applied** because the
+architecture failures independently require a stop. No successful denial-audit
+persistence or full Task 8 spec/quality acceptance is claimed.
+
+Final read-only preservation checks passed: `git diff --check`, no owned
+PostgreSQL postmaster PID, clean root main at
+`e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`, and unchanged Phase 2 worktree at
+`ff703bd710074738b0391bb2f29d585dc6166d5c`. Its unrelated untracked runtime-outcomes
+plan remains present with SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+### Approved architecture-contract amendment, 2026-10-10
+
+The user explicitly approved resuming with changes to only
+`apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs`
+and `apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs`
+for already-approved Phase 3 additions. Existing Task 8 ownership is unchanged.
+This approval does not authorize production changes to satisfy architecture
+tests, new Vault behavior, E2E, publication, or later phases.
+
+- [x] Reproduce the unchanged two-file gate: **27 tests, eight failures**, seed
+  `56569`, 1.8 seconds, exit 2. No assertion was edited before this rerun.
+- [x] Strip the 12 exact Phase 3 API/application/dispatcher/queue additions
+  once in their approved insertion contexts before the existing Phase 2
+  normalization. Preserve every original legacy-byte digest and negative guard.
+- [x] Exercise mutation, removal, duplication, and relocation of every new
+  approved block; retain existing browser exclusions and scope-lock checks.
+- [x] Require active guidance to agree on Phase 3, retaining all activation,
+  custody, Vault-freeze, and publication restrictions. Do not relabel active
+  Phase 2 guidance as historical merely to pass.
+- [x] Independently review the amendment and rerun the complete scoped
+  compatibility command before accepting Task 8.
+
+Read-only diagnosis found that `docs/guide.md` still declares Phase 2 active in
+its governing links, roadmap, and current implementation gate, unlike README
+and AGENTS. That file is outside this explicitly approved two-file amendment.
+Its consistency failure must remain visible; a guide edit needs separate
+scope approval. Exact composition guards and the already-reviewed in-scope
+Task 8 denial regression can proceed independently without waiving it.
+
+The unchanged owning Runtime integration rerun reported **30 tests, two
+failures, 23 exclusions** (seven executed), seed `787911`, in 7.8 seconds,
+exit 2. Besides the known membership expectation, running the malformed-port
+test first exposed lazy module loading before `function_exported?/3`.
+A fresh no-start VM reproduced `is_loaded == false` and exported-check false;
+`Code.ensure_loaded/1` returned the actual module, after which the exported-check
+was true. The test-only correction adds explicit successful loading before
+the unchanged export and malformed-selector assertions. No source behavior
+change is needed. Owned database/storage cleanup and PostgreSQL shutdown
+completed before any test edit was authorized.
+
+The test-only corrections passed the full owning live suite: **30 reported
+tests, zero failures, 23 exclusions** (seven executed), seed `216576`, in
+8.2 seconds, exit 0. The denial matrix now proves exact direct-authorizer and
+established Document-read errors, exact public errors, successful real-adapter
+callback positive controls, and no content callbacks after each denial.
+Membership revocation retains direct `forbidden` and existing retryable
+`storage_unavailable` public behavior; all other expected denial codes and the
+original 13 DTO contracts remain unchanged. The explicit module-loading
+assertion precedes the unchanged export/malformed-port assertions. This result
+does not establish successful denial-audit persistence. Owned database/storage
+cleanup and PostgreSQL shutdown completed; no auth/audit/Vault source changed.
+
+The amendment's initial combined gate reported Runtime **106 tests, zero
+failures, 22 exclusions** (84 executed), 1.8 seconds, and Web **44 tests, four
+failures**, 1.7 seconds, seed `359211`, exit 2. Three failures were the unchanged
+guide's active-phase inconsistency. One new negative fixture relocated API map
+entries inside an incomplete function body, so its syntax/registration positive
+control failed before reaching the byte guard. Amendment repair 1 changed only
+the two relocation destinations to complete syntax boundaries; no parse,
+registration, mutation, or baseline assertion was removed.
+
+The complete same scoped command then reported Runtime **106 tests, zero
+failures, 22 exclusions** (84 executed), 1.9 seconds, and Web **44 tests, three
+failures**, 1.7 seconds, seed `839908`, exit 2. All 48 new Phase 3 mutation/removal/
+duplication/relocation scenarios, original Phase 2 guards, closed registration,
+legacy-byte digests, browser exclusions, and dependency-boundary checks passed.
+The only remaining failures are:
+
+- `notes_scope_contract_test.exs:271`: guide roadmap declares Phase 2, not Phase 3.
+- `knowledge_phase1_contract_test.exs:61`: active guide disagrees with README/AGENTS.
+- `knowledge_phase1_contract_test.exs:120`: guide governing links/current gate
+  still target Phase 2.
+
+The guide remains untouched. These failures are not waived: full Task 8
+acceptance and commit remain blocked on separately authorized alignment of
+the guide's active header, roadmap, and current gate, preserving historical
+sections and all existing restrictions. One bounded amendment fixture repair
+succeeded; no Astra escalation was needed. Two fresh parallel review dispatches
+hit the runner's thread limit; independent review stages are serialized instead.
+
+Combined live regressions also passed on an owned fresh database: Storage
+**27 tests, zero failures**, 15.3 seconds, plus Runtime **60 reported tests,
+zero failures, 38 exclusions** (22 executed), 15.7 seconds, seed `273758`,
+exit 0. This is **49 executed integration tests**, covering new search/exact
+source behavior plus legacy Note search, Asset search, and Document APIs.
+Owned database/storage cleanup and PostgreSQL shutdown completed.
+
+Independent read-only Task 8 SPEC review passed, followed by a separate
+QUALITY review with no actionable findings in the six Runtime/Storage
+implementation and test paths. The two-file architecture amendment then
+passed its separate SPEC review: all 12 source additions matched their exact
+normalization blocks, original Phase 2 hashes/registration/negative controls
+were retained, and the three guide-consistency failures remained required.
+The amendment's separate independent QUALITY review also passed with no
+Critical, Important, or Minor findings. Reviewers made no edits or test/service
+mutations. These bounded reviews do not waive the failed compatibility gate
+or establish Task 8 acceptance.
+
+Scoped formatting verification, warnings-as-errors compilation, and xref
+completed successfully (exit 0); xref reported **No cycles found**.
+`git diff --check` passed. A protected-path diff confirmed no changes to
+`docs/guide.md`, AGENTS, README, configuration, `OperationScope`, `Authorize`,
+or migrations. No E2E, Vault feature work, authorization/audit behavior change,
+Task 9 work, commit, merge, push, tag, release, or deployment occurred.
+
+Final preservation checks passed again: no owned PostgreSQL postmaster PID,
+clean root main at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`, and unchanged
+Phase 2 worktree at `ff703bd710074738b0391bb2f29d585dc6166d5c`. Its unrelated
+untracked runtime-outcomes plan remains present with unchanged SHA-256
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+All task processes and review commands have finished; owned code/test files
+remain frozen pending the guide-only scope decision. The full release goal
+remains incomplete.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_runtime/lib/singularity/runtime/api.ex apps/singularity_runtime/lib/singularity/runtime/search/search.ex apps/singularity_runtime/lib/singularity/runtime/search/resolve.ex apps/singularity_runtime/lib/singularity/runtime/dto/knowledge_source.ex apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs + compile --warnings-as-errors + xref graph --format cycles --fail-above 0
+git diff --check
+git diff --exit-code -- docs/guide.md AGENTS.md README.md config apps/singularity_runtime/lib/singularity/runtime/operation_scope.ex apps/singularity_runtime/lib/singularity/runtime/authorize.ex apps/singularity_storage/priv/repo/migrations
+```
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/asset_search_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_search_store_test.exs
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix run --no-start --no-compile -e 'module = Singularity.Storage.Postgres.KnowledgeSearchStore; IO.inspect({:before, :code.is_loaded(module), function_exported?(module, :resolve, 2)}); IO.inspect(Code.ensure_loaded(module)); IO.inspect({:after, function_exported?(module, :resolve, 2)})'
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs apps/singularity_runtime/test/singularity/runtime/note_api_test.exs apps/singularity_runtime/test/singularity/runtime/asset_search_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_runtime/test/singularity/runtime/api_test.exs apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+```
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs:931 apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs:1091
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/lib/singularity/runtime/search/search.ex apps/singularity_runtime/lib/singularity/runtime/search/resolve.ex apps/singularity_runtime/lib/singularity/runtime/dto/knowledge_source.ex apps/singularity_runtime/lib/singularity/runtime/api.ex apps/singularity_storage/lib/singularity/storage/postgres/knowledge_search_store.ex apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs + test apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs + test apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs
+```
+
+### Approved guide alignment, 2026-10-10
+
+The user approved the guide-only alignment requested after the three remaining
+consistency failures: update the active governing links, roadmap, and current
+implementation gate to Phase 3, preserving historical material and all existing
+restrictions. Existing Task 8 ownership remains unchanged; no test assertion,
+Vault/auth/audit behavior, E2E, later-phase work, or publication is authorized
+by this documentation amendment.
+
+Before any guide edit, the complete two-module architecture command reproduced
+**29 tests, three failures**, seed `791684`, 1.6 seconds, exit 2. The failures
+were exactly the guide's Phase 2 roadmap and missing Phase 3 governing links/
+current gate. All other architecture assertions passed. The guide was clean
+against HEAD `75df901dc70047c16aeabbcdd92d7b71ef514dc5` at this baseline.
+
+- [x] Apply only the approved guide sections; retain all historical and
+  activation/publication/custody/Vault restrictions.
+- [x] Rerun the complete scoped unit/architecture compatibility command and
+  live search/legacy regressions without editing their assertions.
+- [x] Obtain independent guide SPEC review followed by QUALITY review; record
+  exact verification and preservation evidence before Task 8 acceptance.
+
+Only the three approved guide regions changed. The original governing links,
+Phase 1 acceptance, qualified Phase 2 tested source/documentation handoff,
+historical sections 1–20, invariants/ADRs in sections 22–23, and all existing
+restrictions are preserved. Independent SPEC review passed, followed by a
+separate QUALITY review with no findings. Both reviewers independently checked
+the actual diff, link targets, and byte-identical historical regions. No repair
+round or Astra escalation was needed for this guide amendment.
+
+The exact complete scoped compatibility command recorded above passed:
+Runtime **106 reported tests, zero failures, 22 exclusions** (84 executed),
+1.9 seconds, and Web **44 tests, zero failures**, 1.7 seconds, seed `292933`,
+exit 0. The two architecture files' SHA-256 values remained unchanged across
+this guide-only repair (`90ea2b3f90c77a36599b83596dae7d0a866db503f096db4d65a39fdcb916b105`
+and `213771fb89c8bd39e61d9ab402fca10366014bfc6fa06eab15272c6971d59926`).
+No required assertion was changed, skipped, weakened, or reclassified.
+
+The exact combined live regression command recorded above also passed:
+Storage **27 tests, zero failures**, 13.3 seconds, and Runtime **60 reported
+tests, zero failures, 38 exclusions** (22 executed), 10.5 seconds, seed
+`281966`, exit 0: **49 executed integration tests**. The owned database/storage
+lifecycle completed, its allocated storage root was absent afterward, and the
+owned PostgreSQL instance stopped with no postmaster PID remaining.
+
+The exact scoped format/compile/xref command recorded above passed again,
+exit 0, with **No cycles found**. `git diff --check` and protected-path checks
+passed. AGENTS, README, configuration, `OperationScope`, `Authorize`, and
+migrations remained unchanged. The previously reviewed Task 8 implementation
+and test-only denial correction remained frozen during this amendment.
+
+Task 8's six Runtime/Storage implementation/test paths, two architecture
+contracts, guide alignment, and this evidence record form one locally tested
+and independently reviewed change. Exact immutable source resolution, live
+authorization/unlock boundaries, denial callback exclusion, and legacy
+Note/Asset/Document API compatibility have scoped evidence above. Successful
+denial-audit persistence is not established by these tests. No migration,
+grant, Vault feature, auth/audit behavior change, E2E, full-phase acceptance,
+merge, push, tag, release, deployment, or production activation occurred.
+
 **Files:** Create Runtime `search/search.ex`, `search/resolve.ex`, the three DTO
 files in the map, and `apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs`.
 Modify Runtime `api.ex` and the new Storage search adapter for `resolve/2`.
@@ -1186,24 +1532,24 @@ Pre-change baseline: existing Retrieval knowledge/legacy search and Runtime
 used the explicit test environment and shared locked dependency path above;
 no PostgreSQL or E2E ran.
 
-- [ ] RED: injected-runtime API rejects owner overrides and converts a valid
+- [x] RED: injected-runtime API rejects owner overrides and converts a valid
   internal page to exactly the public result keys; malformed/foreign adapter
   values never escape. Use the established `note_reads_test.exs` scope fake
   only for orchestration, followed by actual-role integration coverage.
-- [ ] Compose existing `OperationScope.with_read_request/4`: Note uses
+- [x] Compose existing `OperationScope.with_read_request/4`: Note uses
   `note.read` plus existing unlock; Document uses `asset.read` and
   `requires_unlocked?: false`; mixed uses both capabilities, sorted and conjunctive,
   with the Note unlock requirement. Never silently return only one authorized kind.
-- [ ] Add exact `SearchSource` resolution independent of projection presence.
+- [x] Add exact `SearchSource` resolution independent of projection presence.
   Reuse NoteRepository exact version lookup; read Document fragment by full
   resource/version/fragment/owner identity and live parent/ready state. Do not
   join a current-head equality into historical exact resolution. Revalidate
   canonical locator, identity, and content bounds before constructing the DTO.
-- [ ] API errors distinguish malformed `invalid` from identity/tombstone
+- [x] API errors distinguish malformed `invalid` from identity/tombstone
   `not_found`; preserve established authorization errors. Return exact title/body
   and locator, never source storage coordinates or a silently updated head.
   No binary download/custody change belongs in this use case.
-- [ ] Real tests remove the projection, advance a Note head, and resolve the
+- [x] Real tests remove the projection, advance a Note head, and resolve the
   older result; forge each identity component and verify failure. Assert public
   API dependency boundaries and all legacy Notes/Asset API contracts remain intact.
 
@@ -1212,7 +1558,7 @@ devenv shell -- mix test apps/singularity_runtime/test/singularity/runtime/knowl
 devenv shell -- mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs
 ```
 
-- [ ] Review and commit `feat(runtime): expose authenticated unified search and exact sources`.
+- [x] Review and commit `feat(runtime): expose authenticated unified search and exact sources`.
 
 Task 8 independent result/page DTO slice: **implemented and reviewed**, commit
 `1f9f71b`. `KnowledgeSearchResult.from_result/2` and

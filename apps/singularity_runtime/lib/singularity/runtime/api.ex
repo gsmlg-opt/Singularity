@@ -20,9 +20,11 @@ defmodule Singularity.Runtime.Api do
   """
 
   alias Singularity.Core.Error
+  alias Singularity.Core.SearchSource
   alias Singularity.Domains.Notes
   alias Singularity.Retrieval.AssetMetadataSearch
   alias Singularity.Retrieval.NoteLexicalSearch
+  alias Singularity.Retrieval.KnowledgeSearchQuery
   alias Singularity.Runtime.Api.UploadHandle
   alias Singularity.Runtime.AssetEvents
   alias Singularity.Runtime.Assets.AcceptUpload
@@ -40,6 +42,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.BackupVault
   alias Singularity.Runtime.DTO.AssetSummary
   alias Singularity.Runtime.DTO.BackupStatus
+  alias Singularity.Runtime.DTO.KnowledgeSearchPage
+  alias Singularity.Runtime.DTO.KnowledgeSource
   alias Singularity.Runtime.DTO.SearchPage
   alias Singularity.Runtime.DTO.Session
   alias Singularity.Runtime.DTO.UploadGrant
@@ -63,6 +67,8 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.Notes.Trash, as: NoteTrash
   alias Singularity.Runtime.OperationScope
   alias Singularity.Runtime.ResolveSession
+  alias Singularity.Runtime.Search.Search, as: KnowledgeSearch
+  alias Singularity.Runtime.Search.Resolve, as: SearchSourceResolver
   alias Singularity.Runtime.SessionContext
   alias Singularity.Runtime.StorageAdapter
   alias Singularity.Runtime.UnlockVault
@@ -268,6 +274,48 @@ defmodule Singularity.Runtime.Api do
   end
 
   def search_notes(_config, _session, _params), do: {:error, :invalid}
+
+  @spec search_knowledge(Session.t(), map() | keyword()) ::
+          {:ok, KnowledgeSearchPage.t()} | {:error, atom()}
+  def search_knowledge(session, params),
+    do: with_production(&search_knowledge(&1, session, params))
+
+  @doc false
+  def search_knowledge(config, %Session{} = session, params) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, query} <- KnowledgeSearchQuery.new(context.vault_id, params),
+         {:ok, page} <- invoke(config, :search_knowledge, [context, knowledge_params(query)]),
+         {:ok, dto} <- KnowledgeSearchPage.from_page(page, query) do
+      {:ok, dto}
+    else
+      result -> normalize_error(result)
+    end
+  end
+
+  def search_knowledge(_config, _session, _params), do: {:error, :invalid}
+
+  @spec resolve_search_source(Session.t(), term()) ::
+          {:ok, KnowledgeSource.t()} | {:error, atom()}
+  def resolve_search_source(session, selector),
+    do: with_production(&resolve_search_source(&1, session, selector))
+
+  @doc false
+  def resolve_search_source(config, %Session{} = session, input) when is_map(config) do
+    with {:ok, context} <- session_context(session),
+         {:ok, selector} <- SearchSource.new(input),
+         true <- not is_struct(input) or input === selector,
+         {:ok, source} <- invoke(config, :resolve_search_source, [context, selector]),
+         {:ok, dto} <- KnowledgeSource.from_source(source, context.vault_id, selector) do
+      {:ok, dto}
+    else
+      false -> {:error, :invalid}
+      result -> normalize_error(result)
+    end
+  end
+
+  def resolve_search_source(_config, _session, _input), do: {:error, :invalid}
+
+  defp knowledge_params(query), do: Map.take(query, [:q, :kind, :tag_ids, :limit, :cursor])
 
   @spec trash_notes(Session.t(), map() | keyword()) ::
           {:ok, Singularity.Runtime.DTO.NoteTrashPage.t()} | {:error, atom()}
@@ -1057,6 +1105,12 @@ defmodule Singularity.Runtime.Api do
       end,
       search_notes: fn session, params ->
         NoteSearch.run(runtime, session, params)
+      end,
+      search_knowledge: fn session, params ->
+        KnowledgeSearch.run(runtime, session, params)
+      end,
+      resolve_search_source: fn session, selector ->
+        SearchSourceResolver.run(runtime, session, selector)
       end,
       subscribe_assets: &AssetEvents.subscribe/1,
       trash_notes: fn session, params ->

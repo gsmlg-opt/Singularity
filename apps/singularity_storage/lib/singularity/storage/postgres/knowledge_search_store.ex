@@ -1,13 +1,16 @@
 defmodule Singularity.Storage.Postgres.KnowledgeSearchStore do
   @moduledoc false
 
-  alias Singularity.Core.Error
+  @behaviour Singularity.Core.KnowledgeSearchStore
+
+  alias Singularity.Core.{Error, SearchSource, Types}
   alias Singularity.Storage.SafeSQL
-  alias Singularity.Storage.Postgres.{KnowledgeError, KnowledgeSearchCursor}
+  alias Singularity.Storage.Postgres.{KnowledgeError, KnowledgeSearchCursor, NoteRepository}
 
   @key_fields ~w(rank source_inserted_at resource_id resource_version_id ordinal entry_id)a
 
   @spec search(module(), map()) :: {:ok, map()} | {:error, Error.t()}
+  @impl true
   def search(repo, query) do
     token = if is_map(query), do: Map.get(query, :cursor), else: nil
 
@@ -27,6 +30,145 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStore do
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->
       {:error, KnowledgeError.from(error)}
+  end
+
+  @impl true
+  def resolve(repo, %SearchSource{} = selector) do
+    with {:ok, ^selector} <- SearchSource.new(selector),
+         true <- repo.in_transaction?(),
+         {:ok, context} <- request_context(repo),
+         {:ok, owner} <- scoped_owner(context) do
+      resolve_kind(repo, owner, selector)
+    else
+      {:error, error} -> {:error, KnowledgeError.from(error)}
+      _ -> invalid()
+    end
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, KnowledgeError.from(error)}
+  end
+
+  def resolve(_repo, _selector), do: invalid()
+
+  defp scoped_owner(%{rows: [[principal, owner]]}) do
+    with {:ok, _} <- Types.canonical_uuid(%{principal: principal}, :principal),
+         {:ok, owner} <- Types.canonical_uuid(%{owner: owner}, :owner) do
+      {:ok, owner}
+    end
+  end
+
+  defp scoped_owner(_), do: invalid()
+
+  defp resolve_kind(repo, owner, %SearchSource{kind: :note} = selector) do
+    case NoteRepository.get_version(
+           repo,
+           owner,
+           selector.resource_id,
+           selector.resource_version_id
+         ) do
+      {:ok, note} ->
+        {:ok,
+         %{
+           owner_scope_id: note.vault_id,
+           classification: note.classification,
+           kind: :note,
+           resource_id: note.resource_id,
+           resource_version_id: note.resource_version_id,
+           fragment_id: nil,
+           ordinal: 0,
+           title: note.title,
+           body: note.markdown,
+           locator: %{"version" => 1, "kind" => "markdown", "heading_path" => []},
+           source_inserted_at: note.inserted_at
+         }}
+
+      # The selector and scoped owner are already canonical. The legacy exact
+      # reader classifies a version bound to another resource as invalid.
+      {:error, %Error{code: :invalid, retryable?: false}} ->
+        {:error, Error.new(:not_found)}
+
+      {:error, error} ->
+        {:error, KnowledgeError.from(error)}
+    end
+  end
+
+  defp resolve_kind(repo, owner, %SearchSource{kind: :document} = selector) do
+    case SafeSQL.query(
+           repo,
+           """
+           SELECT fragment.vault_id, fragment.classification, fragment.resource_id,
+                  fragment.resource_version_id, fragment.id, fragment.ordinal,
+                  document.title, fragment.text, fragment.locator, version.inserted_at
+           FROM content.document_fragments AS fragment
+           JOIN content.document_versions AS document
+             ON document.resource_version_id = fragment.resource_version_id
+            AND document.resource_id = fragment.resource_id
+            AND document.vault_id = fragment.vault_id
+            AND document.classification = fragment.classification
+            AND document.state = 'ready'
+           JOIN content.resource_versions AS version
+             ON version.id = document.resource_version_id
+            AND version.resource_id = document.resource_id
+            AND version.vault_id = document.vault_id
+            AND version.classification = document.classification
+           JOIN content.resources AS resource
+             ON resource.id = version.resource_id
+            AND resource.vault_id = version.vault_id
+            AND resource.classification = version.classification
+            AND resource.kind = 'document'
+            AND resource.deleted_at IS NULL
+           WHERE fragment.vault_id = $1 AND fragment.classification = 'private'
+             AND fragment.resource_id = $2 AND fragment.resource_version_id = $3
+             AND fragment.id = $4
+           """,
+           [
+             Ecto.UUID.dump!(owner),
+             Ecto.UUID.dump!(selector.resource_id),
+             Ecto.UUID.dump!(selector.resource_version_id),
+             selector.fragment_id
+           ]
+         ) do
+      {:ok,
+       %{
+         rows: [
+           [
+             vault,
+             "private",
+             resource,
+             version,
+             fragment,
+             ordinal,
+             title,
+             body,
+             locator,
+             timestamp
+           ]
+         ]
+       }} ->
+        {:ok,
+         %{
+           owner_scope_id: Ecto.UUID.load!(vault),
+           classification: :private,
+           kind: :document,
+           resource_id: Ecto.UUID.load!(resource),
+           resource_version_id: Ecto.UUID.load!(version),
+           fragment_id: fragment,
+           ordinal: ordinal,
+           title: title,
+           body: body,
+           locator: locator,
+           source_inserted_at: timestamp
+         }}
+
+      {:ok, %{rows: []}} ->
+        {:error, Error.new(:not_found)}
+
+      {:ok, _} ->
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+
+      {:error, error} ->
+        {:error, KnowledgeError.from(error)}
+    end
   end
 
   defp cursor_secret do

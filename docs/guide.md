@@ -4,7 +4,7 @@
 **Product type:** Personal Data and Knowledge Operating System<br>
 **Initial deployment:** Single owner, multiple devices, local-first<br>
 **Active release:** `0.2.0`, the first complete single-user personal knowledge base<br>
-**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), [approved Phase 1 design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md), [Phase 1 implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md), [approved Phase 2 design](superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md), [Phase 2 implementation plan](superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
+**Governing documents:** [approved release design](superpowers/specs/2026-08-31-singularity-v0.2-release-design.md), [canonical release directive](superpowers/plans/2026-08-31-singularity-v0.2-release.md), [approved Phase 1 design](superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md), [Phase 1 implementation plan](superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md), [approved Phase 2 design](superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md), [Phase 2 implementation plan](superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md), [approved Phase 3 design](superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md), [Phase 3 implementation plan](superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md), and [ADR 0003](adr/0003-vault-frozen-for-knowledge-base-development.md)
 
 > **Active `0.2.0` scope**
 >
@@ -2031,9 +2031,12 @@ module or release deliverable.
 Qdrant is out of scope for `0.2.0`.
 
 Phase 1 is accepted locally at `a80957da41582de40bdf586a0cba1e14644acf0a`.
-The active implementation slice is Phase 2 under the
-[approved import/extraction design](superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md)
-and [detailed implementation plan](superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md).
+Phase 2 has [qualified local acceptance](verification/2026-10-09-phase-2-acceptance.md)
+on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`, recorded by documentation
+handoff `ff703bd710074738b0391bb2f29d585dc6166d5c`.
+The active implementation slice is Phase 3 under the
+[approved unified-search design](superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
+and [detailed implementation plan](superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md).
 Later phases still require separate approved designs and detailed plans.
 Version bumps, tags, releases, pushes, and deployments remain separately gated.
 
@@ -2101,11 +2104,11 @@ Additional ADR work requires phase-specific approval.
 
 # 24. Current implementation gate
 
-Phase 2 is the current target. Follow its approved import/extraction design and
+Phase 3 is the current target. Follow its approved unified-search design and
 detailed implementation plan above; do not infer product implementation authority from the
 historical architecture material in this guide.
 
-Phase 2 must finish with recorded scoped evidence, a clean worktree, the complete
+Phase 3 must finish with recorded scoped evidence, a clean worktree, the complete
 supported verification gate passing, and independent review. Production canonical
 writes remain disabled. It must not begin later phases, modify Vault functionality,
 bump versions, tag, publish, push, or deploy without separate authorization.

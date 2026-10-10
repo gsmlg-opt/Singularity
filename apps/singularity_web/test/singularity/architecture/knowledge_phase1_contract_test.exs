@@ -2,9 +2,10 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   use ExUnit.Case, async: true
 
   @repo_root Path.expand("../../../../..", __DIR__)
-  @design "2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md"
-  @plan "2026-09-22-singularity-v0.2-phase-2-import-extraction.md"
-  @phase1 "a80957da41582de40bdf586a0cba1e14644acf0a"
+  @design "2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md"
+  @plan "2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md"
+  @phase2 "c34935a112a2b4b807ed741e8e67e44d4e63eafe"
+  @handoff "ff703bd710074738b0391bb2f29d585dc6166d5c"
   @baseline "6c3e8d5afb2cc9dbf264d276796070e16aa49e55"
   @api "apps/singularity_runtime/lib/singularity/runtime/api.ex"
   @application "apps/singularity_runtime/lib/singularity/runtime/application.ex"
@@ -51,8 +52,13 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     @dispatcher => [:Documents, :document_source_lease, "document_extract"],
     "config/config.exs" => [:document_extract]
   }
+  @phase3_document_terms %{
+    @application => [:document_projection],
+    @dispatcher => [:DocumentProjection, "document_projection"],
+    "config/config.exs" => [:document_projection]
+  }
 
-  test "active guidance authorizes only the approved Phase 2 slice" do
+  test "active guidance authorizes only the approved Phase 3 slice" do
     for {path, start, finish} <- [
           {"AGENTS.md", "## Active release", "## Vault freeze"},
           {"README.md", "## Active `0.2.0` scope", "## Development"},
@@ -61,9 +67,12 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
         ] do
       section = active_section!(path, start, finish)
 
+      assert section =~ ~r/active implementation slice is (?:the separately approved )?Phase 3/,
+             "#{path} does not identify the approved Phase 3 as the active slice"
+
       for marker <- [
-            "Phase 1 is accepted locally at `#{@phase1}`.",
-            "active implementation slice is Phase 2",
+            "qualified local acceptance",
+            @phase2,
             "superpowers/specs/#{@design}",
             "superpowers/plans/#{@plan}",
             "Later phases still require separate approved designs and detailed plans.",
@@ -71,24 +80,56 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             "Public import, extraction workers, search, Note Save integration, backup V3, and browser behavior remain in their designated later phases.",
             "Version bumps, tags, releases, pushes, and deployments remain separately gated."
           ] do
-        assert section =~ marker, "#{path} is missing active Phase 2 governance: #{marker}"
+        assert section =~ marker, "#{path} is missing active Phase 3 governance: #{marker}"
       end
+
+      if path == "AGENTS.md", do: assert(section =~ @handoff)
+    end
+  end
+
+  test "Phase 3 authority retains its qualified Phase 2 base and release exclusions" do
+    for {path, start, finish} <- [
+          {"docs/superpowers/specs/#{@design}", "## Status and authority",
+           "## Goal and boundaries"},
+          {"docs/superpowers/plans/#{@plan}", "## Authority, baseline, and execution discipline",
+           "All commands below run from the Phase 3 worktree root. Its local `_build`"}
+        ] do
+      section = active_section!(path, start, finish)
+      assert section =~ @phase2
+      assert section =~ @handoff
+    end
+
+    boundaries =
+      active_section!(
+        "docs/superpowers/specs/#{@design}",
+        "## Goal and boundaries",
+        "## Architecture choice"
+      )
+
+    for marker <- [
+          "Excluded: Phase 4 attachment/citation/source-set writes, tag mutations",
+          "V3 backup, new browser pages",
+          "semantic search, Qdrant, embeddings, OCR, extraction changes",
+          "No new capability, custody, key, or Vault policy is added.",
+          "The seven-application dependency graph remains unchanged."
+        ] do
+      assert boundaries =~ marker
     end
   end
 
   test "guide governing links and final implementation gate agree with the active slice" do
     guide = read_source("docs/guide.md")
     [header, _] = String.split(guide, "\n---\n", parts: 2)
-    assert header =~ "[approved Phase 2 design](superpowers/specs/#{@design})"
-    assert header =~ "[Phase 2 implementation plan](superpowers/plans/#{@plan})"
+    assert header =~ "[approved Phase 3 design](superpowers/specs/#{@design})"
+    assert header =~ "[Phase 3 implementation plan](superpowers/plans/#{@plan})"
 
     [_, gate] = String.split(guide, "# 24. Current implementation gate\n", parts: 2)
     gate = String.replace(gate, ~r/\s+/, " ")
 
     for marker <- [
-          "Phase 2 is the current target.",
-          "approved import/extraction design and detailed implementation plan",
-          "Phase 2 must finish with recorded scoped evidence, a clean worktree, the complete supported verification gate passing, and independent review.",
+          "Phase 3 is the current target.",
+          "approved unified-search design and detailed implementation plan",
+          "Phase 3 must finish with recorded scoped evidence, a clean worktree, the complete supported verification gate passing, and independent review.",
           "Production canonical writes remain disabled.",
           "It must not begin later phases, modify Vault functionality, bump versions, tag, publish, push, or deploy without separate authorization."
         ] do
@@ -125,6 +166,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
     for route <- routes do
       refute inspect(route) =~ ~r/document|extract/i
+      refute inspect(route) =~ ~r/knowledge|search/i
     end
 
     for path <- Map.keys(@runtime_baselines) do
@@ -165,7 +207,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     })
   end
 
-  test "approved Phase 2 additions preserve every original legacy composition byte" do
+  test "approved Phase 2 and Phase 3 additions preserve every original legacy composition byte" do
     for {path, expected} <- @runtime_baselines do
       assert_runtime_baseline!(path, read_source(path), expected)
     end
@@ -261,13 +303,14 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- worker_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = strip_phase3_additions!(path, source)
       assert [before, rest] = String.split(source, addition)
 
       for replacement <- ["", addition <> addition, addition <> "  # unapproved worker change\n"] do
         changed = before <> replacement <> rest
 
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+          assert_phase2_runtime_baseline!(path, changed, @runtime_baselines[path])
         end
       end
 
@@ -277,10 +320,45 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
         String.replace(before <> rest, destination, destination <> addition, global: false)
 
       refute relocated == source
-      assert_document_registration!(path, relocated)
+      assert_document_registration!(path, relocated, :phase2)
 
       assert_raise ExUnit.AssertionError, fn ->
-        assert_runtime_baseline!(path, relocated, @runtime_baselines[path])
+        assert_phase2_runtime_baseline!(path, relocated, @runtime_baselines[path])
+      end
+    end
+  end
+
+  test "every approved Phase 3 block rejects mutation, removal, duplication and relocation" do
+    for {path, preceding, addition, following, destination} <- phase3_additions() do
+      source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      assert [before, rest] = String.split(source, addition)
+      assert [_, _] = String.split(source, preceding <> addition <> following)
+
+      relocated =
+        String.replace(before <> rest, destination, destination <> addition, global: false)
+
+      refute relocated == source
+      assert_document_registration!(path, relocated)
+
+      assert [token] =
+               Regex.run(
+                 ~r/SearchSource|KnowledgeSearchQuery|KnowledgeSearchPage|KnowledgeSearch|search_knowledge|SearchProjectionReconciler|DocumentProjection|document_projection/,
+                 addition
+               )
+
+      mutated = String.replace(addition, token, token <> "Unapproved", global: false)
+      refute mutated == addition
+
+      for changed <- [
+            before <> rest,
+            before <> addition <> addition <> rest,
+            before <> mutated <> rest,
+            relocated
+          ] do
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+        end
       end
     end
   end
@@ -324,6 +402,11 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp assert_runtime_baseline!(path, source, expected) do
+    source = strip_phase3_additions!(path, source)
+    assert_phase2_runtime_baseline!(path, source, expected)
+  end
+
+  defp assert_phase2_runtime_baseline!(path, source, expected) do
     legacy =
       case path do
         @api ->
@@ -370,6 +453,16 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     assert_digest!(path, legacy, expected)
   end
 
+  defp strip_phase3_additions!(path, source) do
+    Enum.reduce(phase3_additions(), source, fn
+      {^path, preceding, addition, following, _destination}, remaining ->
+        strip_in_context!(remaining, preceding, addition, following)
+
+      _other, remaining ->
+        remaining
+    end)
+  end
+
   defp strip_unique!(source, addition) do
     assert [before, rest] = String.split(source, addition)
     before <> rest
@@ -385,14 +478,116 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     assert actual == expected, "#{path} changed from accepted baseline #{@baseline}"
   end
 
-  defp assert_document_registration!(path, source) do
+  defp assert_document_registration!(path, source, phase \\ :current) do
     assert {:ok, ast} = Code.string_to_quoted(source)
     actual = ast |> document_terms() |> Enum.uniq() |> Enum.sort()
-    expected = @document_terms |> Map.get(path, []) |> Enum.sort()
+    phase3 = if phase == :current, do: Map.get(@phase3_document_terms, path, []), else: []
+    expected = Enum.sort(Map.get(@document_terms, path, []) ++ phase3)
     assert actual == expected, "unapproved Document registration found in #{path}"
   end
 
   defp read_source(path), do: @repo_root |> Path.join(path) |> File.read!()
+
+  # Remove only the exact approved Phase 3 bytes in their original context,
+  # then prove every Phase 2 addition and the unchanged legacy digests below.
+  defp phase3_additions do
+    [
+      {@api, "  alias Singularity.Core.Error\n", "  alias Singularity.Core.SearchSource\n",
+       "  alias Singularity.Domains.Notes\n", "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  alias Singularity.Retrieval.NoteLexicalSearch\n",
+       "  alias Singularity.Retrieval.KnowledgeSearchQuery\n",
+       "  alias Singularity.Runtime.Api.UploadHandle\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  alias Singularity.Runtime.DTO.BackupStatus\n",
+       "  alias Singularity.Runtime.DTO.KnowledgeSearchPage\n" <>
+         "  alias Singularity.Runtime.DTO.KnowledgeSource\n",
+       "  alias Singularity.Runtime.DTO.SearchPage\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  alias Singularity.Runtime.ResolveSession\n",
+       "  alias Singularity.Runtime.Search.Search, as: KnowledgeSearch\n" <>
+         "  alias Singularity.Runtime.Search.Resolve, as: SearchSourceResolver\n",
+       "  alias Singularity.Runtime.SessionContext\n",
+       "  alias Singularity.Runtime.KeyCustodian\n"},
+      {@api, "  def search_notes(_config, _session, _params), do: {:error, :invalid}\n\n",
+       ~S"""
+         @spec search_knowledge(Session.t(), map() | keyword()) ::
+                 {:ok, KnowledgeSearchPage.t()} | {:error, atom()}
+         def search_knowledge(session, params),
+           do: with_production(&search_knowledge(&1, session, params))
+
+         @doc false
+         def search_knowledge(config, %Session{} = session, params) when is_map(config) do
+           with {:ok, context} <- session_context(session),
+                {:ok, query} <- KnowledgeSearchQuery.new(context.vault_id, params),
+                {:ok, page} <- invoke(config, :search_knowledge, [context, knowledge_params(query)]),
+                {:ok, dto} <- KnowledgeSearchPage.from_page(page, query) do
+             {:ok, dto}
+           else
+             result -> normalize_error(result)
+           end
+         end
+
+         def search_knowledge(_config, _session, _params), do: {:error, :invalid}
+
+         @spec resolve_search_source(Session.t(), term()) ::
+                 {:ok, KnowledgeSource.t()} | {:error, atom()}
+         def resolve_search_source(session, selector),
+           do: with_production(&resolve_search_source(&1, session, selector))
+
+         @doc false
+         def resolve_search_source(config, %Session{} = session, input) when is_map(config) do
+           with {:ok, context} <- session_context(session),
+                {:ok, selector} <- SearchSource.new(input),
+                true <- not is_struct(input) or input === selector,
+                {:ok, source} <- invoke(config, :resolve_search_source, [context, selector]),
+                {:ok, dto} <- KnowledgeSource.from_source(source, context.vault_id, selector) do
+             {:ok, dto}
+           else
+             false -> {:error, :invalid}
+             result -> normalize_error(result)
+           end
+         end
+
+         def resolve_search_source(_config, _session, _input), do: {:error, :invalid}
+
+         defp knowledge_params(query), do: Map.take(query, [:q, :kind, :tag_ids, :limit, :cursor])
+
+       """, "  @spec trash_notes(Session.t(), map() | keyword()) ::\n",
+       "  def trash_notes(_config, _session, _params), do: {:error, :invalid}\n\n"},
+      {@api,
+       "      search_notes: fn session, params ->\n        NoteSearch.run(runtime, session, params)\n      end,\n",
+       "      search_knowledge: fn session, params ->\n" <>
+         "        KnowledgeSearch.run(runtime, session, params)\n      end,\n" <>
+         "      resolve_search_source: fn session, selector ->\n" <>
+         "        SearchSourceResolver.run(runtime, session, selector)\n      end,\n",
+       "      subscribe_assets: &AssetEvents.subscribe/1,\n",
+       "      subscribe_assets: &AssetEvents.subscribe/1,\n"},
+      {@application, "  alias Singularity.Storage.Postgres.NoteRepository\n",
+       "  alias Singularity.Storage.Postgres.SearchProjectionReconciler\n", "\n  @impl true\n",
+       "  alias Singularity.Runtime.BackupKeyLease\n"},
+      {@application, "      document_worker: DocumentWorkerRepository,\n",
+       "      document_projection: SearchProjectionReconciler,\n",
+       "      document_extractors: %{\n", "      assets: AssetRepository,\n"},
+      {@dispatcher, "  alias Singularity.Runtime.Documents.Extract\n",
+       "  alias Singularity.Runtime.Documents.Projection, as: DocumentProjection\n",
+       "  alias Singularity.Runtime.DownloadLease\n",
+       "  alias Singularity.Runtime.AssetEvents\n"},
+      {@dispatcher,
+       "  def handle(context, %{job_type: \"document_extract\"} = envelope),\n    do: Extract.run(context, envelope)\n\n",
+       "  def handle(context, %{job_type: \"document_projection\"} = envelope),\n    do: DocumentProjection.run(context, envelope)\n\n",
+       "  def handle(_context, _envelope), do: {:error, Error.new(:job_failed)}\n",
+       "  @impl true\n  def handle(context, %{job_type: \"asset_verify\"} = envelope),\n    do: run_asset_job(context, envelope, Verify)\n\n"},
+      {@dispatcher, "  def wake_waiting(_command), do: {:error, Error.new(:invalid)}\n\n",
+       "  @impl true\n  def handle_failure(\n" <>
+         "        _context,\n        %JobEnvelope{job_type: \"document_projection\"},\n" <>
+         "        %Error{} = failure,\n        _attempt\n      ),\n" <>
+         "      do: {:error, Error.new(failure.code, retryable?: failure.retryable?)}\n\n",
+       "  @impl true\n  def handle_failure(\n        context,\n        %JobEnvelope{job_type: \"document_extract\"} = envelope,\n",
+       "  @impl true\n  def handle(context, %{job_type: \"asset_verify\"} = envelope),\n    do: run_asset_job(context, envelope, Verify)\n\n"},
+      {"config/config.exs", "    document_extract: 2,\n", "    document_projection: 2,\n",
+       "    backup: 1,\n", "  tailwind: [\n"}
+    ]
+  end
 
   defp worker_additions do
     [
