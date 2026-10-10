@@ -231,6 +231,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
             UNION ALL SELECT 1 FROM content.resource_versions
             UNION ALL SELECT 1 FROM content.assets
             UNION ALL SELECT 1 FROM content.note_versions
+            UNION ALL SELECT 1 FROM content.note_source_set_seals
             UNION ALL SELECT 1 FROM content.note_conflicts
             UNION ALL SELECT 1 FROM content.note_search_documents
             UNION ALL SELECT 1 FROM content.note_mutation_receipts
@@ -1224,6 +1225,27 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
         log: false
       )
 
+    %{rows: note_source_seal_rows} =
+      SQL.query!(
+        MigrationRepo,
+        """
+        SELECT note_resource_version_id::text, note_resource_id::text,
+               vault_id::text, classification, attachment_count, citation_count
+        FROM content.note_source_set_seals
+        WHERE vault_id = $1
+        ORDER BY note_resource_version_id
+        """,
+        [Ecto.UUID.dump!(vault_id)],
+        log: false
+      )
+
+    expected_seals =
+      Enum.map(note_version_rows, fn [version_id, resource_id, _revision, classification | _] ->
+        [version_id, resource_id, vault_id, classification, 0, 0]
+      end)
+
+    assert note_source_seal_rows == expected_seals
+
     %{rows: note_conflict_rows} =
       SQL.query!(
         MigrationRepo,
@@ -1374,6 +1396,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
         metadata: metadata,
         note_conflicts: length(note_conflict_rows),
         note_versions: length(note_version_rows),
+        note_source_seals: length(note_source_seal_rows),
         notes: length(note_resource_rows),
         objects: objects,
         resources: resources,
@@ -1406,6 +1429,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
       note_resources: note_resource_rows,
       note_search_results: note_search_rows,
       note_versions: note_version_rows,
+      note_source_seals: note_source_seal_rows,
       unreconciled_jobs: unreconciled_jobs,
       search_results:
         Enum.map(search_rows, fn row ->
@@ -1432,6 +1456,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   defp assert_restored!(source, destination) do
     assert source.counts.notes == 4
     assert source.counts.note_versions == 9
+    assert source.counts.note_source_seals == 9
     assert source.counts.note_conflicts == 2
     assert source.counts.deleted_notes == 1
     assert length(source.note_live_resource_ids) == 3
@@ -1452,6 +1477,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     assert destination.plaintext_hashes == source.plaintext_hashes
     assert destination.note_resources == source.note_resources
     assert destination.note_versions == source.note_versions
+    assert destination.note_source_seals == source.note_source_seals
     assert destination.note_conflicts == source.note_conflicts
     assert destination.note_events == source.note_events
     assert destination.note_search_results == source.note_search_results

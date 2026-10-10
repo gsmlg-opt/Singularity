@@ -338,14 +338,14 @@ test destination/reset helpers for the new derived table; never classify
 legitimate restored seals as post-restore excluded data. V1/V2 schema/export
 wire columns, crypto and all original canonical assertions remain unchanged.
 
-- [ ] Add RED for derived destination seal inventory and restored empty seals.
-- [ ] Include seals in pre-restore lock/empty checks separately from the
+- [x] Add RED for derived destination seal inventory and restored empty seals.
+- [x] Include seals in pre-restore lock/empty checks separately from the
   post-restore excluded-table list; restore legitimately regenerates seals.
-- [ ] Run full original V1/V2 restore oracle; assert every restored Note version
+- [x] Run full original V1/V2 restore oracle; assert every restored Note version
   has exact immutable empty seal, unchanged canonical counts/bytes/digests and
   search reconstruction. Preserve unsupported-backup rejection for nonempty
   attachments/citations/tags/edges, not empty derived seals.
-- [ ] Verify rollback/resume inventory and unchanged wire manifests, no backup
+- [x] Verify rollback/resume inventory and unchanged wire manifests, no backup
   cryptography/key lifecycle changes. Explicitly report frozen-substrate file
   patch; SPEC then QUALITY review; commit `fix(backup): regenerate note source seals`.
 

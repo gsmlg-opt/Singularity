@@ -2562,7 +2562,11 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
-  defp destination_tables, do: LogicalSchemaV2.tables() ++ @excluded_tables
+  defp destination_tables do
+    # Note INSERT finalizers regenerate these derived seals, not wire records.
+    # Lock/check them before import, but permit legitimate post-restore seals.
+    LogicalSchemaV2.tables() ++ @excluded_tables ++ ["content.note_source_set_seals"]
+  end
 
   defp lock_destination_tables(repo) do
     tables = destination_tables() |> Enum.sort() |> Enum.map_join(", ", &quote_table/1)

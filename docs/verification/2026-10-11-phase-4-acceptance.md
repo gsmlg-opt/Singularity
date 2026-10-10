@@ -3,9 +3,10 @@
 ## Current status
 
 **IN PROGRESS — NOT ACCEPTED.** E2E is deferred and NOT RUN, not a passing
-browser/release gate. Tasks 1 and 2 are qualified locally after their owning
-checks and independent SPEC then QUALITY review. Restore compatibility and
-remaining Phase 4 deliverables/whole-phase acceptance are pending.
+browser/release gate. Tasks 1, 2 and the early Task 8 restore compatibility
+slice are qualified locally after their owning checks and independent SPEC then
+QUALITY review. Atomic Note source composition and remaining Phase 4
+deliverables/whole-phase acceptance are pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
 `codex/v0.2-phase-4-knowledge-links`, based on Phase 3 documentation handoff
 `617f0b986a3ecffba14c952988e39e3afe022cea`. Phase 3's exact clean tested source
@@ -389,6 +390,10 @@ findings. Separate `phase4_source_seal_quality` then returned QUALITY PASS,
 with no Critical, Important or Minor findings. Task 2 is qualified locally;
 authenticated Note composition, runtime activation and whole-phase acceptance
 remain pending. This reviewed slice changes no Vault production file or feature.
+Local implementation commit: `2012526940ba68f43892467fffeafdabb4f72161`
+(`feat(storage): seal note version sources`), containing only the eight reviewed
+implementation/test/support files plus this report and Task 2 plan checklist.
+The separately owned four Task 8 files remain uncommitted at this checkpoint.
 
 ## Task 8 observed restore RED and compatibility patch
 
@@ -420,8 +425,62 @@ failures, 12.6 seconds, seed `215378`, across all three complete owning files.
 The actual seal-lock barrier and exact restored/rewrapped seal checks passed.
 Database/root: `singularity_test_423df3a94abc1d1ec5f0819d` and
 `/tmp/singularity/integration/423df3a94abc1d1ec5f0819d`; the owned server stopped.
-Unit contracts, full Runtime oracle and implementation SPEC then QUALITY review
-remain pending; Task 8 is not accepted yet.
+Unit/static `16401` also exited 0: **18 reported cases, 14 excluded — four unit
+cases executed**, zero failures, 2.7 seconds, same seed. Complete formatter
+check, warnings-as-errors compile and xref zero cycles passed in that command.
+All 17 original owning cases plus the new lock contract have now run across
+integration and unit scopes; no excluded case is counted as executed. Full
+Runtime oracle and implementation SPEC then QUALITY review remain pending;
+Task 8 is not accepted yet.
+
+Full independent Runtime V1/V2 oracle `57792` exited 0 using the exact owned
+cluster. It completed encrypted backup, V2 restore, authenticated access/search
+and canonical/byte/crypto comparisons, plus the established V1 destination
+compatibility branch. Exact regenerated seal identity/private/count assertions
+covered all nine source and destination Note versions; original assertions
+remained. Expected repeated migration-module definition and enum-OID refresh
+diagnostics do not change this successful terminal result. This oracle is not
+browser/E2E or production activation proof.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.restore
+```
+
+Allocated databases/roots:
+
+- `singularity_test_52c269ab39bb7adcdaa1f511`,
+  `/tmp/singularity/integration/52c269ab39bb7adcdaa1f511` (source).
+- `singularity_test_56c3b836240b74484baba74b`,
+  `/tmp/singularity/integration/56c3b836240b74484baba74b` (V2 destination).
+- `singularity_test_02a51592d3b341869fa84f8b`,
+  `/tmp/singularity/integration/02a51592d3b341869fa84f8b` (V1 destination).
+
+The owned server stopped. Final cleanup `25621` confirmed zero generated test
+databases in that cluster; all five Task 8 integration/oracle roots above were
+absent. Fresh `phase4_source_seal_spec` implementation SPEC review passed with
+no findings on the actual four-file candidate against `2012526`. Separate
+`phase4_source_seal_quality` then returned QUALITY PASS with no Critical,
+Important or Minor findings, including fresh/pending/replay inventory paths,
+task cleanup and preserved original assertions. Task 8 is qualified locally
+at this schema checkpoint, with zero production repair rounds/Astra attempts;
+prior test-preparation review fix 1 was recorded above. Relevant full restore
+checks remain required after later Note composition changes and at whole-phase
+acceptance. The only frozen-substrate production patch is the explicitly
+reported derived destination inventory addition, not Vault feature work.
+
+## Task 3 pre-change characterization
+
+While a Sol worker prepares only the new source-composition test file, parent
+`3517` exited 0 on the complete existing Note repository/concurrency/rollback
+owning suites: **28 tests, zero failures**, 34.2 seconds, seed `215378`.
+Note composition production code is still unchanged. The generated database/root
+were `singularity_test_5051e4813236000675a572b0` and
+`/tmp/singularity/integration/5051e4813236000675a572b0`; the owned server stopped.
+This is characterization, not new source inheritance/lock protocol acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/note_repository_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_concurrency_test.exs apps/singularity_storage/test/singularity/storage/note_mutation_rollback_test.exs --seed 215378
+```
 
 ```sh
 devenv shell -- bash .devenv/phase4-pg-command.sh mix do format apps/singularity_storage/lib/singularity/storage/backup/restorer.ex, compile --warnings-as-errors, singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs --seed 215378

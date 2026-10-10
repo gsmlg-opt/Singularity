@@ -385,8 +385,10 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
         ]
       )
 
-      note_graph_snapshot_in_transaction()
+      :ok
     end)
+
+    note_graph_snapshot()
   end
 
   defp note_graph_snapshot do
@@ -394,7 +396,27 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
   end
 
   defp note_graph_snapshot_in_transaction do
+    %{rows: seal_rows} =
+      query!(
+        """
+        SELECT note_resource_version_id, note_resource_id, vault_id, classification,
+               attachment_count, citation_count, inserted_at
+        FROM content.note_source_set_seals
+        WHERE note_resource_id = $1
+        ORDER BY note_resource_version_id
+        """,
+        [uuid(@note_resource_id)]
+      )
+
+    expected_seals =
+      [@note_initial_version_id, @note_canonical_version_id, @note_competing_version_id]
+      |> Enum.sort()
+      |> Enum.map(&[uuid(&1), uuid(@note_resource_id), uuid(@vault_id), "private", 0, 0])
+
+    assert Enum.map(seal_rows, &Enum.take(&1, 6)) == expected_seals
+
     %{
+      source_seals: seal_rows,
       resources:
         query!(
           """
@@ -668,6 +690,7 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
            identity.sessions identity.auth_attempts content.asset_stages
            content.upload_grants content.asset_search_documents content.note_search_documents
            content.note_mutation_receipts audit.backup_manifests audit.backup_manifest_objects
+           content.note_source_set_seals
            audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
          ])
       |> Enum.uniq()

@@ -261,6 +261,48 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
   end
 
   @tag :integration
+  test "locks derived source seals before importing into an empty destination" do
+    with_clean_destination(fn storage_root ->
+      fixture = complete_verified_fixture()
+      object_root = Path.join(storage_root, "seal-lock-restore")
+      parent = self()
+
+      restore =
+        Task.async(fn ->
+          receive do
+            :start_seal_restore ->
+              send(parent, :seal_restore_started)
+
+              Restorer.import(
+                %{object_storage: {LocalFilesystemAdapter, %{root: object_root}}},
+                MigrationRepo,
+                %{verified: fixture.verified, cut: fixture.cut, binding: fixture.binding}
+              )
+          after
+            5_000 -> raise "source seal restore start barrier timed out"
+          end
+        end)
+
+      try do
+        owner_transaction(fn ->
+          query("LOCK TABLE content.note_source_set_seals IN ACCESS SHARE MODE")
+          %{rows: [[holder_backend]]} = query("SELECT pg_backend_pid()")
+          send(restore.pid, :start_seal_restore)
+          assert_receive :seal_restore_started
+          assert await_seal_restore_lock(holder_backend, 200)
+          assert Task.yield(restore, 0) == nil
+        end)
+
+        assert {:ok, %Restorer.Imported{}} = Task.await(restore)
+        assert_destination_rows(fixture.ids)
+        assert_excluded_tables_empty()
+      after
+        Task.shutdown(restore, :brutal_kill)
+      end
+    end)
+  end
+
+  @tag :integration
   test "imports every logical group and publishes exact authenticated ciphertext" do
     with_clean_destination(fn storage_root ->
       fixture = full_verified_fixture()
@@ -1896,6 +1938,29 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                ]
              ] = version_rows
 
+      assert %{rows: seal_rows} =
+               query(
+                 """
+                 SELECT note_resource_version_id::text, note_resource_id::text,
+                        vault_id::text, classification, attachment_count, citation_count
+                 FROM content.note_source_set_seals
+                 WHERE vault_id = $1
+                 ORDER BY note_resource_version_id
+                 """,
+                 [Ecto.UUID.dump!(vault_id)]
+               )
+
+      expected_seals =
+        Enum.map(version_rows, fn [version_id, _revision, _parent, _merge, _title, _markdown] ->
+          note_id =
+            if version_id == tombstoned_version_id, do: tombstoned_resource_id, else: resource_id
+
+          [version_id, note_id, vault_id, "private", 0, 0]
+        end)
+
+      assert length(seal_rows) == 6
+      assert seal_rows == expected_seals
+
       assert %{rows: conflict_rows} =
                query(
                  """
@@ -1984,6 +2049,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                 identity.sessions identity.auth_attempts content.asset_stages
                 content.upload_grants content.asset_search_documents
                 content.note_search_documents content.note_mutation_receipts
+                content.note_source_set_seals
                 audit.backup_manifests audit.backup_manifest_objects audit.restore_import_sagas
                 jobs.oban_jobs jobs.oban_peers
               ] do
@@ -2021,6 +2087,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
                    ('content.note_search_documents', (SELECT count(*) FROM content.note_search_documents)),
                    ('content.search_entries', (SELECT count(*) FROM content.search_entries)),
                    ('content.note_mutation_receipts', (SELECT count(*) FROM content.note_mutation_receipts)),
+                   ('content.note_source_set_seals', (SELECT count(*) FROM content.note_source_set_seals)),
                    ('audit.backup_manifests', (SELECT count(*) FROM audit.backup_manifests)),
                    ('audit.backup_manifest_objects', (SELECT count(*) FROM audit.backup_manifest_objects)),
                    ('jobs.oban_jobs', (SELECT count(*) FROM jobs.oban_jobs)),
@@ -2083,6 +2150,7 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
            identity.sessions identity.auth_attempts content.asset_stages
            content.upload_grants content.asset_search_documents content.note_search_documents
            content.note_mutation_receipts audit.backup_manifests audit.backup_manifest_objects
+           content.note_source_set_seals
            audit.restore_import_sagas jobs.oban_jobs jobs.oban_peers
          ])
       |> Enum.uniq()
@@ -2102,6 +2170,30 @@ defmodule Singularity.Storage.Backup.RestoreImportTest do
       end)
 
     result
+  end
+
+  defp await_seal_restore_lock(_holder_backend, 0), do: false
+
+  defp await_seal_restore_lock(holder_backend, attempts) do
+    %{rows: [[waiting?]]} =
+      query(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_locks
+          WHERE relation = 'content.note_source_set_seals'::regclass
+            AND mode = 'AccessExclusiveLock' AND NOT granted
+            AND $1 = ANY(pg_catalog.pg_blocking_pids(pid))
+        )
+        """,
+        [holder_backend]
+      )
+
+    if waiting? do
+      true
+    else
+      Process.sleep(10)
+      await_seal_restore_lock(holder_backend, attempts - 1)
+    end
   end
 
   defp query(statement, parameters \\ []) do
