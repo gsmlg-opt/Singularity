@@ -385,6 +385,18 @@ Use this bounded, private two-result envelope instead:
    searches, each with its own scoped transaction and fixed drain; no extra
    search/EXPLAIN execution may contaminate the cold/warm sequence.
 
+Preserve the original plan test's transaction-local settings assertion when
+moving observation into `search_summary/3`. After capture and evidence
+validation have completed and owned tracing has stopped, but before the same
+scoped transaction exits, privately run the original fixed read-only settings
+query. Require its exact single row to remain
+`["singularity_web", "on", "on", "5s", "0.3"]` for current user, row security,
+sequential scans, statement timeout, and trigram threshold. This query follows
+the completed search/drain pair; it never intervenes between them, replays a
+search, or supplies plan evidence. Keep the same closed summary shape and
+fixed missing-evidence error. This relocates an existing assertion rather
+than adding settings changes, nested scopes, or a production hook.
+
 Parse candidate context as exact ordered frames, not a whole-string
 single-function regex. Require the literal `SQL statement "` prefix followed by
 the exact selected Query Text bytes, whose edge-trimmed value matches the

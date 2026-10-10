@@ -4,19 +4,23 @@
 
 **IN PROGRESS — Phase 3 is not accepted.**
 
-Qualification baseline: `191e58691eac2413fec3b0b302397775fe527aff` on
+Current source: `996fdbea5284fdbd6cd12c7fd3df9ba60d861596` on
 `codex/v0.2-phase-3-search-design`, in the project-local Phase 3 worktree.
 The approved implementation is locally complete through Task 10. Task 11's
-privacy contracts pass locally; its selective query-plan gate fails. Query-plan
-recovery, complete affected-suite checks, independent final reviews, and
-exact-clean-SHA README acceptance remain outstanding.
+privacy and actual-call cold/warm selective query-plan contracts pass locally.
+The guarded-index repair's scoped gates and independent complete-candidate
+SPEC and separate QUALITY source reviews pass. Complete affected-suite checks
+and exact-clean-SHA README acceptance remain outstanding; these scoped results
+do not accept Phase 3.
 
 The bounded Astra diagnosis is complete. The user's 2026-10-10
 [continuous development authorization](../../AGENTS.md#continuous-development-authorization--2026-10-10)
-removes the former routine approval blocker. Its proposed repair now proceeds
-through a documented architecture amendment, detailed plan, new forward
-migration, verification, and independent review. The failed index gate remains
-failed until actual executed-plan evidence proves the repair.
+removes the former routine approval blocker. The repair proceeded through a
+documented architecture amendment, detailed plan, new forward migration,
+verification, and independent review. Original failed index qualification
+`69774` remains historical evidence; actual executed-plan owning gate `54358`
+and combined search regression `14560` subsequently passed without weakening
+the required assertions.
 
 The user restriction on E2E remains in force: browser tests are **NOT RUN** in
 this qualification. This cannot be represented as a complete README gate or
@@ -1114,6 +1118,304 @@ reviewed design `4d32dd0f...`. No runtime proof is inferred from that review;
 the temporary helper remains unqualified until the new RED/GREEN and actual
 cold/warm gates execute.
 
+The amended design, implementation plan, and accumulated evidence were committed
+locally as `f2c2fb5feaa78d1dee288cbbd39a60038874f377`
+(`docs: correct search observation and rebuild wait contracts`).
+
+The independent restore compatibility batch `71569`, exit 0, seed `215378`,
+passed **36 integration tests in 29.9 seconds** (44 total, eight pure excluded).
+It covered unified search restore, integrity audit, restore import, and logical
+exporter. Allocation `singularity_test_63336e00afdff95be8a5c839` was disposed
+and PostgreSQL stopped. The complete V1/V2 restore oracle remains a separate
+required check; this subset does not qualify Task 6 or full phase acceptance.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/unified_search_restore_test.exs apps/singularity_storage/test/singularity/storage/integrity_audit_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs --seed 215378
+```
+
+Amended Task 6 RED `58298`, exit 2, seed `215378`, executed six pure tests in
+1.2 seconds: the original pure test passed and **all five new contracts failed
+at the missing `validate_search_envelope/1` export**, outside callbacks/error
+catching (17 total, 11 integration excluded). Formatted owning-test hash is
+`1f894e915bb964e58b2f389c7e67a13e4307c29906f1b7995728c465f244e880`.
+The temporary helper remained `5a67bd12...` and original 8,192-row plan test
+`bc063726...` during RED. Sol may now implement the first two-result repair;
+no helper success or index qualification is inferred from expected RED.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs, test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378
+```
+
+The complete V1/V2 restore command `90085` exited 0. It allocated source
+`singularity_test_6e516fefc837d601548174a2`, V2 destination
+`singularity_test_c0c41fe8af5ed94982f6435c`, and V1 destination
+`singularity_test_66be652f47751606eedaa835`, with matching integration storage
+roots. The established oracle completed and the owned PostgreSQL instance
+stopped. Postgrex type-cache reload debug messages and migration-module
+redefinition warnings were present; this is not a warning-free command or
+a diagnostic-privacy proof. No legacy migration or Vault file was changed.
+The runtime privacy test and legacy Note concurrency test retain their frozen
+hashes `17e6eeeb...` and `d49e2288...`.
+
+```sh
+devenv shell -- bash .devenv/phase3-restore.sh
+```
+
+Post-restore read-only cleanup inventory `12129` exited 0: no generated test
+databases remain, every recorded integration/storage root is absent, and the
+owned PostgreSQL instance stopped. Root/main and the Phase 2 verification
+worktree are clean; the Phase 2 implementation worktree retains only its
+protected untracked integration plan with unchanged SHA `350a6557...`.
+The current `git diff --check` is clean. This checkpoint precedes the new
+Task 6 helper implementation and is not final candidate cleanup.
+
+Independent interim QUALITY source review by `search_observer_actual_review`
+passed for frozen Phase 3 source `c34935a...` through `f2c2fb5...`, with no
+concrete security/privacy/authorization/snapshot/race/restore or maintainability
+findings. Production remains unchanged since its earlier SPEC review at
+`193f1c3...`. This review explicitly excludes the three still-changing Task 6
+files and the untracked privacy test; it does not replace the final
+complete-candidate SPEC and separate QUALITY reviews.
+
+Task 6 Sol repair 1 removed every temporary probe and EXPLAIN replay and added
+the immediate drain plus strict two-channel validator. Parent formatting and
+pure validation `72713`, exit 2, seed `215378`, executed six pure tests in
+1.2 seconds: **five passed, one failed** (17 total, 11 integration excluded).
+The backend/PID rejection suite caught a floating-point returned PID accepted
+by numerically loose `==`; no assertion was weakened. Formatted helper hash is
+`fc7c31b7b99ec9dff1d391adcdf2bcbb5d248856eebcc46c0c70661674a9be08`.
+Removing only the added search-observation block reproduces the exact qualified
+lifecycle/authorization helper SHA `87213eef...`, independently checked by
+the parent. Owning tests remain `1f894e91...`; original plan test remains
+`bc063726...`. This is **one failed Sol repair round** for this Task 6 issue;
+the same frozen bytes are undergoing owning integration diagnosis before
+the next repair. Astra architecture consultation is not a repair round.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format apps/singularity_storage/test/support/knowledge_search_plan_observer.ex, test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs --seed 215378
+```
+
+The same first-repair bytes passed owning integration `90913`, exit 0,
+seed `215378`: **11 integration tests in 5.6 seconds** (17 total, six pure
+excluded), including original-call positive/empty proof, three successive
+same-backend calls, cleanup and diagnostic confinement. Allocation
+`singularity_test_ead805296e33a6d922b6bc70` was disposed and PostgreSQL stopped.
+This does not override the pure float-PID failure. Read-only diagnosis
+confirmed a four-comparison strict-identity repair; the second Sol repair
+changes only both connection IDs, drain row count, and drain PID rows from
+`==` to `===`, preserving all assertions and lifecycle/source proof.
+
+Independent NEW-test-only SPEC and separate QUALITY reviews by
+`search_observer_actual_review` passed on owning hash `1f894e91...`. Removing
+only its six new contracts/helpers reproduces previous owning-test bytes
+`cc1b231b...`. Synthetic proof does not replace actual Store/cold/warm evidence;
+final implementation and complete-candidate reviews remain outstanding.
+
+Task 6 repair 2 helper hash
+`3a079c213115eb0329c2fd816ebe0ea42872cc5a67af3a58bfa430dce685db20`
+passed pure rerun `15446`, exit 0, seed `215378`: **six pure tests in
+1.5 seconds** (17 total, 11 integration excluded). Owning integration `36117`,
+exit 0, same seed, passed **11 tests in 6.3 seconds** (17 total, six pure
+excluded). Allocation `singularity_test_1c732137f9608f57104d50c4` was disposed
+and PostgreSQL stopped. These results close the float-PID regression, not
+the entire helper review.
+
+Independent implementation SPEC review found a P2 evidence gap: the buffer
+guard aggregates outer and nested candidate nodes, so candidate buffers alone
+can satisfy it when every original outer node lacks buffer instrumentation.
+The design requires original outer buffer proof independently. A new named
+pure rejection contract is being added without changing the existing 17 tests.
+This is the **second failed Sol repair round**: repair 1 failed pure validation;
+repair 2 passed its existing tests but failed independent SPEC review. Bounded
+Astra recovery is therefore authorized under the established escalation rule,
+after the new RED is verified. No third Sol implementation repair or assertion
+waiver is substituted for that escalation. Astra repair attempts remain zero
+at this checkpoint; its earlier architecture consultation is counted separately.
+
+The additional outer-buffer contract produced parent RED `80654`, exit 2,
+seed `215378`: **only that new contract failed**, while the prior six pure
+contracts passed in 1.5 seconds (18 total, 11 integration excluded). Current
+formatted owning-test hash is
+`495e08538802de389216c2bf59b57b1bc5b286370f118ed2343793252d74eeba`;
+helper remained `3a079c21...`. The test first proves the valid closed baseline,
+then removes all ten buffer fields recursively from only the original outer
+plan and requires the fixed missing-evidence error. The existing 17 test
+bodies were preserved. Independent pre-repair SPEC and separate QUALITY both
+failed on that same P2, with no additional concrete findings.
+
+`search_outer_buffer_astra_recovery` is now the sole helper writer for bounded
+recovery, gate `SOL_REPEATED_FAILURE`, Astra attempt 1. Its ownership excludes
+tests, production, SQL/settings/roles, documentation, and the original plan
+test. The parent remains sole formatting, execution, and Git owner. A repair
+is not qualified until the new pure contract, real owning tests, and independent
+review all pass. E2E and publication remain prohibited.
+
+Astra recovery attempt 1 helper
+`cd5bc59deae22b3ba55e0676d5b252541ae14d14aa7c69b27cdaa9a175fc60e7`
+passed parent pure `5167`, exit 0, seed `215378`: **seven tests in 1.2 seconds**
+(18 total, 11 integration excluded), and owning integration `13257`, exit 0,
+same seed: **11 tests in 5.4 seconds** (18 total, seven pure excluded).
+Allocation `singularity_test_0218a3b9c64f00a90bfd55f6` was disposed and PostgreSQL
+stopped. Independent SPEC closure and separate QUALITY closure by the nonauthor
+`search_observer_actual_review` passed on those exact helper/test bytes.
+The P2 is closed: only an executed original outer node can satisfy its buffer
+requirement. Existing aggregate counters, test assertions, and lifecycle
+baseline remain unchanged. Cumulative counters for this issue: two failed Sol
+rounds, one successful Astra recovery attempt, zero failed Astra attempts.
+This qualifies only the small helper, not the 8,192-row cold/warm plan gate.
+
+Read-only preparation for the original plan test identified its existing
+transaction-local settings assertion. The design and Task 6 explicitly retain
+that exact assertion inside the helper, after completed capture/validation and
+before the scoped transaction exits. It may not be dropped during the planned
+observer-interface rewrite. This is remaining planned contract preservation,
+not a reopening or broadening of the resolved Astra buffer repair.
+
+That narrow preservation amendment passed independent doc-only SPEC and separate
+QUALITY review by `search_observer_actual_review` at design SHA
+`d5c26a3f614b89654ec3ccc5e64c6073324cfd7da897aa053d2daad4e56a084d`
+and plan review checkpoint `be5ad1b8...`; the plan subsequently records this
+reviewed design digest explicitly. Sol resumed only the remaining planned
+helper assertion relocation and original four-contract plan rewrite. The
+existing observer owning tests remain frozen, and no performance gate is
+claimed passed before the rewritten real tests execute.
+
+The remaining settings-assertion relocation and original plan rewrite are now
+formatted at helper SHA
+`780dede425cc42fad6988ce32f9d06e954616839439a20e944792de5386fc2e8`
+and plan-test SHA
+`298d78db00db2095bce11146a9ea7405f763f361ebf42eb6fa83d5ec3baeff2b`.
+The owning test remains `495e0853...`; removing the helper's new search block
+still reproduces original lifecycle SHA `87213eef...`. The four original test
+names, 60-second test timeout, canonical fixture/builders/ANALYZE, query
+strings, and ordinary five-second timeout test body are preserved. The
+selective contracts now make seven actual searches per fresh observer backend
+and additionally check exact immutable version/entry identity.
+
+Parent pure rerun `89223`, exit 0, seed `215378`, passed **seven tests in
+1.2 seconds** (18 total, 11 integration excluded). Owning real rerun `13888`,
+exit 0, same seed, passed **11 tests in 5.4 seconds** (18 total, seven pure
+excluded). Allocation `singularity_test_9ecb4fe2ff80bcd8c577d63a` was disposed
+and PostgreSQL stopped. The original four-contract performance gate is now
+running on these exact bytes; no result is yet claimed.
+
+Independent source SPEC and separate QUALITY review of the protected untracked
+runtime privacy test `17e6eeeb...` by `search_observer_actual_review` passed,
+with no concrete findings. It covers all eight contracts and six content
+canaries, supported/raw telemetry confinement, metadata stores, real
+cancellation/retry/source denial, and bounded owned cleanup. Parent execution
+evidence remains `75124` and combined `51110`; this source review did not rerun
+tests or modify files and does not establish production or phase acceptance.
+
+Original four-contract plan qualification `54358`, exit 0, seed `215378`,
+passed **all four tests in 34.0 seconds** at helper `780dede4...` and plan
+`298d78db...`. Each selective contract made exactly seven actual searches on
+one fresh real-web observer backend: title-trigram backend `1653382` reported
+one candidate call, one outer row/loop, and 50 buffer nodes on every sample;
+FTS backend `1658973` reported the same counts with 49 buffer nodes. Both cold
+sample 1 and warm samples 6/7 (and every intermediate sample) reported executed
+`search_entries_fts`, `search_entries_title_trigram`, and
+`search_entries_body_trigram`; the required index and exact immutable result
+identity assertions passed. No replay or forced planner setting was used.
+
+The unchanged one-/two-character cases returned 20 ranked rows plus a cursor
+with 21 outer rows and measured **32,768 / 32,766 search-entry row visits**
+across original inner and outer access nodes. These are accumulated visits,
+not distinct canonical rows, and exceed the unchanged 90%-of-8,192 threshold.
+Their access names were only Index Scan, Bitmap Heap Scan, and Seq Scan.
+The unchanged ordinary uninstrumented five-second relation-lock timeout,
+sanitized retryable error, settings/context rollback, and successful retry
+also passed. Allocation `singularity_test_3ca65814357fad96e9b3f8a1` was disposed
+and PostgreSQL stopped. Historical selective failure `69774` remains recorded;
+this is its qualified owning repair, not full Phase 3 acceptance. Task 6
+independent review and Task 8 combined/static gates remain in progress.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --seed 215378
+```
+
+Final bounded Task 6 independent SPEC and separate QUALITY review by
+`search_observer_actual_review` passed on helper `780dede4...`, original plan
+`298d78db...`, and owning test `495e0853...`, with no concrete findings. Its
+read-only comparison confirmed byte-identical timeout-body and fixture-builder
+sections and exact relocation of the original settings query. All 13 Task 6
+checklist items are now complete. Those three files alone were committed
+locally as `becc2eff733254dc1c8c13f6ca7db3ac8484753f`
+(`test(storage): qualify actual nested cold and warm search plans`).
+
+Parent Task 8 static/focused gate `24357`, exit 0, seed `215378`, passed full
+format checking, compilation with warnings as errors, and xref with zero cycles.
+It passed **118 executed pure/property/architecture tests**: storage 19 in
+2.6 seconds (77 total, 58 integration excluded), retrieval 26 in 0.6 seconds,
+runtime 27 in 1.4 seconds (47 total, 20 integration excluded), and web
+architecture 46 in 1.8 seconds. No assertions or architectural baseline hashes
+were relaxed. The combined five-file search integration batch is now running
+on the committed candidate; final Task 8 review/cleanup/handoff remains pending.
+
+That combined search batch `14560`, exit 0, seed `215378`, passed **86
+integration tests in 94.1 seconds** (93 total, seven pure excluded) on
+`becc2eff...`. In the combined fixture population, the short cases measured
+33,002 / 33,000 row visits. Both selective seven-call sequences again retained
+one candidate invocation and one outer row/loop, with every required executed
+index present: title backend `3598792` had 49 buffer nodes cold and 52 in
+samples 6/7; FTS backend `3604185` had 49 cold and 51 in samples 6/7. No assertion
+or planner setting changed. Allocation `singularity_test_e0b908577667c6f4472ca08c`
+was disposed and PostgreSQL stopped.
+
+All Task 8 owning batches have now passed: search `14560` (86), migration/
+role/schema/RLS `84484` (109), runtime/projection/privacy `51110` (66), restore
+compatibility `71569` (36), and complete V1/V2 restore `90085` (exit 0). These
+are scoped counts, not distinct-test totals; earlier runs before `becc2eff...`
+used byte-identical production and owning regression files, with only the
+subsequently qualified test-only observer/plan changes added. The exact clean-SHA
+ordered README gate remains separate and incomplete.
+
+The nonauthor `search_observer_actual_review` completed independent
+**complete-candidate SPEC and separate QUALITY source reviews**, both PASS,
+with no concrete findings. Scope: all 83 tracked changes from accepted Phase 2
+`c34935a...` through `becc2eff...`, plus protected untracked privacy test
+`17e6eeeb...` and reviewed design `d5c26a3...`. It audited the full inventory
+and cross-boundary contracts, reusing unchanged scoped reviews. This does not
+convert prohibited E2E or unrun full README checks into success, nor accept
+Phase 3. Final evidence-document synchronization and cleanup remain pending.
+
+Fresh privacy owning rerun `19825`, exit 0, seed `215378`, passed **all eight
+integration contracts in 13.3 seconds** on final guarded-search code. Its
+frozen SHA remains `17e6eeeb...`. Allocation
+`singularity_test_1be7772cad85b707ed15a37b` was disposed and PostgreSQL stopped.
+Only that independently reviewed file was committed locally as
+`996fdbea5284fdbd6cd12c7fd3df9ba60d861596`
+(`test(runtime): guard unified search diagnostic privacy`). The complete
+source-review scope is unchanged in bytes; the extra file is now tracked.
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs --seed 215378
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_runtime/test/singularity/runtime/knowledge_search_privacy_test.exs --seed 215378
+```
+
+Final repair cleanup inventory `40529`, exit 0, verified **zero generated test
+databases and zero recorded storage roots**, including the entire V1/V2 restore
+allocation and every diagnostic/repair attempt; owned PostgreSQL stopped.
+All parent commands and worker execution commands are terminal. Existing helper
+owning tests verify collector/Repo/monitor/trace teardown and removal of only
+owned observation defaults on success and failure. Current Markdown-link
+validation found all 22 local links valid across the repair design/plan,
+Phase 3 plan, and this evidence report; `git diff --check` is clean.
+
+Root/main remains clean at `e866990f...`; Phase 2 verification remains clean at
+`c34935a...`; Phase 2 implementation remains at `ff703bd7...` with only its
+protected untracked integration plan, SHA `350a6557...`, unchanged. The legacy
+Note concurrency test is still `d49e2288...`; production candidate migration
+and Store retain exact qualified hashes `5254c585...` and `53e4b3ba...`.
+No Vault feature work, production data/backfill/activation, merge, push, version
+bump, tag, release, deployment, or E2E occurred. Scoped repair evidence is ready
+for final document review and local handoff commit; broader Phase 3 verification
+and the explicitly prohibited E2E gate remain outstanding.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0, test apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_cursor_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs apps/singularity_retrieval/test/singularity/retrieval/knowledge_search_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_search_api_test.exs apps/singularity_runtime/test/singularity/runtime/search_rebuild_test.exs apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs --seed 215378
+```
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with
@@ -1139,14 +1441,14 @@ the subsequent governance changes are recorded separately above.
 
 | Gate | Status |
 | --- | --- |
-| Selective real-role FTS/trigram query plans on analyzed fixtures | FAIL: two selective content-index assertions, `69774` |
-| Honest short-query limitation and fixed-timeout error | PASS: two owning contracts, `69774` |
-| Runtime content-canary/privacy/cancellation/retry contracts | PASS: eight owning contracts, `75124`; prior failures retained above |
+| Selective real-role FTS/trigram query plans on analyzed fixtures | PASS: cold/warm actual-call owning gate `54358`; historical failure `69774` retained |
+| Honest short-query limitation and fixed-timeout error | PASS: owning gate `54358`; earlier `69774` retained |
+| Runtime content-canary/privacy/cancellation/retry contracts | PASS: fresh eight-contract owning run `19825` and combined `51110`; prior failures retained above |
 | All new and directly affected PostgreSQL suites | NOT RUN for final candidate |
-| Complete V1/V2 restore on final candidate | NOT RUN; Task 10 scoped oracle passed |
+| Complete V1/V2 restore | PASS: `90085` on guarded-function production source; exact clean-SHA ordered gate remains NOT RUN |
 | Exact clean-SHA ordered README gate | NOT RUN |
 | Manual E2E | NOT RUN under user restriction |
-| Final independent complete-candidate specification/quality review | NOT RUN |
+| Final independent complete-candidate specification/quality source review | PASS: `search_observer_actual_review`, all tracked Phase 3 changes plus the exact privacy test now committed at `996fdbea...`; phase acceptance remains separate |
 
 ## Preserved risks and boundaries
 

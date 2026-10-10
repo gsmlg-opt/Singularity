@@ -2090,7 +2090,7 @@ Update Phase 3 checklist/evidence and active-phase documentation on acceptance.
 Necessary repairs follow the continuous authorization and a synchronized
 design/plan; this file list is not an approval boundary.
 
-- [ ] Add deterministic synthetic, analyzed query-plan fixtures. Verify
+- [x] Add deterministic synthetic, analyzed query-plan fixtures. Verify
   selective FTS/trigram queries have viable indexed plans without forcing the
   planner. Record the intentional nonselectivity of short literal queries;
   verify the fixed timeout fails with a sanitized error, not an empty success.
@@ -2116,7 +2116,7 @@ git diff --check
 
   These static checks supplement, not replace, the complete README sequence.
   No green subset is phase or release acceptance.
-- [ ] Obtain independent spec and quality review of the complete candidate.
+- [x] Obtain independent spec and quality review of the complete candidate.
   Resolve findings within approved scope; route internal-organization dependency
   defects upstream under AGENTS.md. Preserve any failed gate's evidence rather
   than relabeling it passing after a narrower rerun.
@@ -2127,6 +2127,28 @@ git diff --check
   complete or publish anything merely because Phase 3 passes.
 
 ### Task 11 qualification in progress, 2026-10-10
+
+Guarded-index repair owning qualification is now green on local test commit
+`becc2eff733254dc1c8c13f6ca7db3ac8484753f`: all four original 8,192-row
+query-plan contracts passed (`54358`), including seven same-backend cold/warm
+searches for both required indexes, honest short scans, and the original
+five-second ordinary-reader timeout/rollback/retry. Combined search regression
+passed 86 integration tests (`14560`); static and focused pure/property/
+architecture checks passed 118 tests with zero xref cycles (`24357`).
+Independent complete-candidate SPEC and separate QUALITY source reviews by
+the nonauthor `search_observer_actual_review` passed for all tracked Phase 3
+changes plus the previously untracked privacy test. That exact privacy test
+passed its fresh eight-test owning rerun (`19825`) and is now committed locally
+as `996fdbea5284fdbd6cd12c7fd3df9ba60d861596`.
+
+See the [guarded repair plan](2026-10-10-singularity-v0.2-phase-3-search-index-repair.md)
+and [verification record](../../verification/2026-10-09-phase-3-acceptance.md)
+for exact hashes, gate counts, historical failures, two failed Sol repair
+rounds and successful Astra recovery, migration/restore evidence, and cleanup.
+This closes query-plan qualification and source review only. Remaining broader
+Phase 3/ordered clean-SHA README verification is still required. E2E remains
+**NOT RUN** under the user restriction, so Phase 3 is not accepted and Phase 4
+does not begin. Historical checkpoints below are retained, not recast as green.
 
 Baseline `191e58691eac2413fec3b0b302397775fe527aff`: 337 executed affected
 unit/property cases passed (session `92363`, seed `215378`). This does not
