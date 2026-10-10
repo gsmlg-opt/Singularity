@@ -4,7 +4,15 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   @moduletag :integration
 
   alias Singularity.Core.{DocumentFragment, Error, SourceLocator}
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, RequestRepo, ScopedRepo}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    MigrationRepo,
+    RequestRepo,
+    SafeSQL,
+    ScopedRepo
+  }
 
   @store Singularity.Storage.Postgres.KnowledgeSearchStore
   @result_keys ~w(owner_scope_id classification kind resource_id resource_version_id fragment_id entry_id ordinal title snippet locator source_inserted_at rank)a
@@ -14,7 +22,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "empty query returns the owner's current canonical Note and ready Document entries" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = KnowledgeFixtures.note!(source)
     {document, fragment} = KnowledgeFixtures.ready_document!(source)
 
@@ -65,7 +73,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "closed validated maps and cursor envelopes fail before repository work" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     base = filters(source)
 
     invalid = [
@@ -99,8 +107,8 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "search requires a scoped transaction and the query owner must match its GUC" do
-    source = KnowledgeFixtures.source!()
-    other = KnowledgeFixtures.source!()
+    source = authorized_source!()
+    other = authorized_source!()
 
     assert {:error, %Error{code: :invalid}} =
              apply(@store, :search, [RequestRepo, filters(source)])
@@ -109,7 +117,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "FTS-only candidates use the weighted simple vector and exact integer score" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "Neutral heading", "alpha bridge beta")
     project!(source, [note])
     q = "alpha beta"
@@ -136,7 +144,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "eligible title typos match trigram similarity with the fixed integer score" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "postgresql", "neutral body")
     project!(source, [note])
     q = "postgreql"
@@ -163,7 +171,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "trigram eligibility counts Unicode code points rather than graphemes" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "a b", "neutral body")
     project!(source, [note])
     q = "a\u0301b"
@@ -193,7 +201,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "a candidate matching FTS literal and trigram branches occurs once with the combined score" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "alpha", "alpha")
     project!(source, [note])
 
@@ -218,7 +226,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "short Unicode and CJK substrings match independently of tokenization" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "Neutral heading", "prefixXYsuffix 前中文后")
     project!(source, [note])
 
@@ -232,7 +240,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "literal percent underscore backslash and punctuation do not become LIKE wildcards" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     literal = note!(source, "Neutral heading", "x%z x_z x\\z !!!")
     other = note!(source, "Different heading", "xyz unrelated")
     project!(source, [literal, other])
@@ -249,7 +257,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "OR quotes and minus signs remain plain text rather than websearch operators" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     plain = note!(source, "Neutral heading", "alpha bridge beta")
     literal = note!(source, "Different heading", "alpha OR beta")
     project!(source, [plain, literal])
@@ -267,7 +275,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "full-body eligibility returns only a bounded plain Unicode snippet" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     prefix = :binary.copy("😀", 160)
     note = note!(source, "Neutral heading", prefix <> " distantneedle <strong>raw</strong>")
     project!(source, [note])
@@ -282,8 +290,8 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "kind filters and canonical AND tags include all Document fragments without exposing labels" do
-    source = KnowledgeFixtures.source!()
-    foreign = KnowledgeFixtures.source!()
+    source = authorized_source!()
+    foreign = authorized_source!()
     note = note!(source, "Note", "body")
     {document, _} = document!(source, ["one", "two"])
     project!(source, [note, document])
@@ -319,8 +327,8 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "stale projections never expose historical deleted or foreign sources" do
-    source = KnowledgeFixtures.source!()
-    foreign = KnowledgeFixtures.source!()
+    source = authorized_source!()
+    foreign = authorized_source!()
     live = note!(source, "Live", "signal")
     historical = note!(source, "Historical conflict", "signal")
     deleted = note!(source, "Deleted", "signal")
@@ -370,7 +378,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "an extracting Document with staged canonical fragments and stale entries is not visible" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     document = KnowledgeFixtures.document!(source)
     fragment = fragment!(source, document, "signal", 0)
 
@@ -423,7 +431,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "open conflicts preserve the canonical head while a stale competing projection is omitted" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     conflicted = note!(source, "Base", "base")
     control = note!(source, "Control", "canonicalneedle")
     canonical = KnowledgeFixtures.uuid()
@@ -512,7 +520,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
   end
 
   test "fixed settings override caller transaction settings and remain transaction local" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
 
     RequestRepo.checkout(fn ->
       query!(RequestRepo, "SELECT search_extensions.similarity('','')")
@@ -540,7 +548,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
 
   @tag timeout: 20_000
   test "a real statement deadline returns a sanitized retryable error and cleans the transaction" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     note = note!(source, "timeout-title-canary", "timeout-body-canary")
     project!(source, [note])
     start_supervised!({MigrationRepo, pool_size: 2})
@@ -778,6 +786,37 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchStoreTest do
       cursor: nil,
       policy_version: 1
     }
+  end
+
+  defp authorized_source! do
+    source = KnowledgeFixtures.source!()
+    capabilities = ["note.read", "asset.read"]
+
+    Fixtures.with_owner(fn ->
+      for name <- capabilities do
+        SafeSQL.query!(
+          MigrationRepo,
+          "INSERT INTO core.capabilities(id,name) VALUES($1,$2) ON CONFLICT(name) DO NOTHING",
+          [KnowledgeFixtures.uuid(), name]
+        )
+      end
+
+      result =
+        SafeSQL.query!(
+          MigrationRepo,
+          """
+          INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id)
+          SELECT $1,$2,capability.id FROM core.capabilities AS capability
+          WHERE capability.name=ANY($3::text[])
+          ON CONFLICT(principal_id,vault_id,capability_id) DO NOTHING
+          """,
+          [source.principal_id, source.vault_id, capabilities]
+        )
+
+      assert result.num_rows == length(capabilities)
+    end)
+
+    source
   end
 
   defp search(source, query) do

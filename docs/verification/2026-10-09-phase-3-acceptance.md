@@ -565,6 +565,147 @@ Local-link check `ba81d4` passed four documents and 18 links; `git diff --check`
 passed. Candidate implementation qualification remains NOT RUN at this plan
 handoff. There is no outstanding user choice or routine approval gate.
 
+## Guarded candidate implementation: first expected RED
+
+The reviewed implementation plan was committed locally as
+`13e52189742270b727957281d2d978a5a421a587`
+(`docs(storage): plan guarded search candidate implementation`). No merge,
+push, release, deployment, E2E, or Vault work occurred.
+
+Sol authored the first direct-function contract; the parent added private,
+once-per-source existing-capability assignment wrappers in the three owning
+Store/pagination/plan test files. Shared fixture defaults and all original
+assertions are unchanged. Formatting session `36729` exited 0. A mechanical
+fixture patch initially failed to apply due to hunk order; no partial edit
+occurred, and correcting the order applied the intended fixture-only changes.
+
+Parent session `31744`, exit 2, seed `215378`, ran one integration case in
+2.4 seconds:
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs --seed 215378
+```
+
+The real `singularity_web` login, real canonical Note/ready Document, projection,
+and explicit existing read assignments passed their preconditions. The exact
+remaining failure was closed `:candidate_function_missing`, as intended before
+creating `content.search_candidate_ids(text,text,uuid[])`. The migration version
+`20261010000000` was checked unused. The harness allocated
+`singularity_test_9e2a8023906026eb5f40f339`, disposed of the database/storage root,
+and stopped its PostgreSQL server. No production code existed at this RED.
+Product repair rounds remain zero; this expected regression failure is not a
+failed repair attempt and does not change the recorded observer counters.
+
+The parent reran the original Store/pagination contracts after their fixture-only
+permission setup changes, still before any production edit. Session `87477`,
+exit 0, seed `215378`, passed **21 integration tests** in 30.6 seconds with the
+same command as baseline session `70425`. Allocation
+`singularity_test_a2892aab29f52d4500ef137f` was disposed and the owned server
+stopped. This validates the explicit fixture authority setup, not the pending
+candidate function or selective-index repair.
+
+Read-only cleanup inventory `54242`, exit 0, independently confirmed zero
+generated and recorded test databases and absent recorded storage roots,
+including both new allocations, then stopped the owned PostgreSQL server.
+The frozen runtime privacy and legacy Note concurrency test hashes remained
+unchanged (`6da120`).
+
+## Guarded candidate implementation: authority and catalog RED
+
+Independent Sol reviewer `/root/search_fixture_authority_review` returned
+separate SPEC and QUALITY PASS verdicts for the three parent-authored fixture
+changes, with no findings. Reversing the local wrappers/call replacements and
+necessary alias formatting reproduced both tracked HEAD files byte-for-byte
+and the original plan-test hash
+`01b20aca6afb66f65e0e62f17cbc083e5753603b446e62412dae0fb0595da570`.
+The reviewer did not run tests or claim implementation qualification.
+
+Sol expanded the owning candidate module to 11 contracts. Parent formatting
+`98666` exited 0; formatted test hash was
+`fe46b5ea6a5b3e4eff1f5524b7c850d05c569a04e9f00ea82007b4ecebd0a9ff`.
+Parent integration `46619`, exit 2, seed `215378`, took 10.5 seconds using the
+same owning command as `31744`: **11 tests, 9 expected failures**. Eight failed
+with closed `:candidate_function_missing`; the catalog contract found no
+function row. Actual dispatcher and pre-authentication logins already denied
+schema access, so those two negative controls passed. Worker execution was one
+of the missing-function failures. Existing role attributes/memberships, forced
+RLS and policy/grant/index baselines passed their assertions before and after
+the attempted candidate call. No fixture/authentication defect was masked by
+this expected RED, and no production code had yet been added.
+
+Allocation `singularity_test_aa09894178fc697796e1d4c9` was disposed by the
+harness and its owned PostgreSQL server stopped. Sol then received only the
+new forward migration for implementation; the test remained frozen for
+independent review. These expected RED checks do not increment repair counters.
+
+Independent candidate-test review initially required two coverage repairs:
+the partial web-policy substring assertion was not an exact pre-migration
+baseline, and a candidate-name-prefix function inventory could miss another
+privileged helper. Sol added one historical predecessor comparison. It compares
+the complete fresh security snapshot (including full policy expressions) with
+`20261009000400`, and requires the full non-system-schema SECURITY DEFINER
+signature/owner inventory to differ by exactly the new candidate function.
+Parent review also corrected the system-schema filter from SQL wildcard
+`LIKE 'pg_%'` to the literal reserved prefix regex `'^pg_'`. No assertion was
+weakened; the old substring loop was replaced by exact historical equality.
+Final formatting `34606` exited 0 without changing the final candidate-test
+hash `904cb794fe5514ae6c9d7c5ee0651ee0febe504ac3af6e710e014a2145012811`.
+Independent SPEC then QUALITY re-review passed with both findings closed.
+This early predecessor check is not the later populated historical migration
+upgrade/canonical-byte gate from Task 7.
+
+The new migration's literal function SQL matches the reviewed plan. Parent
+formatting `56580` exited 0; final migration hash:
+`5ce4fd3e4408963718acfb60d0d8a570d5bb40396f5020c993a011beba67dca4`.
+Independent SPEC and QUALITY source review both passed with no findings.
+Only this new function/owner/ACL/fixed settings are added; all released
+migrations, role attributes, RLS, Store code, and Vault remain unchanged.
+
+Parent session `99086`, exit 0, seed `215378`, passed **45 integration tests**
+in 147.4 seconds against the migration candidate:
+
+```sh
+devenv shell -- bash .devenv/phase3-integration.sh apps/singularity_storage/test/singularity/storage/roles_test.exs apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs --seed 215378
+```
+
+Allocation `singularity_test_9cc42b2e202c60a4ce6dbdba` was disposed and the owned
+server stopped. These unchanged role/projection-schema gates passed; candidate
+direct-call GREEN remains a separate required command. Production repair
+counters remain zero; source-review corrections are not failed repair rounds.
+
+## Guarded candidate Tasks 1–2: scoped GREEN checkpoint
+
+Parent `58453`, exit 0, seed `215378`, passed all **12 candidate integration
+tests** in 17.5 seconds with the unchanged owning integration command. Exact
+real-web Note/Document/all identity sets, capability conjunction/denials,
+non-web runtime denial, hardened function catalog/ACL, unchanged complete
+predecessor security state, and the sole-added-privileged-function inventory
+all passed. Allocation `singularity_test_cbb4b99a32a713a1b25b8961` was disposed
+and the owned PostgreSQL stopped. Candidate test and migration hashes remained
+the independently reviewed `904cb794...` and `5ce4fd3e...` above.
+
+Static verification `63024`, exit 0, passed changed-file formatting and
+warnings-as-errors compilation, with **zero xref cycles**:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_storage/priv/repo/migrations/20261010000000_create_guarded_search_candidates.exs apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_store_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_pagination_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Cleanup inventory `53484`, exit 0, verified zero generated/recorded test
+databases, absent recorded storage roots, and stopped its owned server.
+Root/main, both protected Phase 2 worktrees, their protected integration plan,
+and the frozen runtime privacy test remained unchanged. `git diff --check`
+passed; only owned paths are eligible for the local commit.
+
+This is the guarded function and explicit fixture-authority checkpoint only.
+The Store has not yet been changed to use it. Input/context/revocation/concurrency,
+actual nested index evidence, populated historical upgrade, full regression,
+and complete-candidate reviews remain outstanding. The original selective
+index qualification remains FAIL, and E2E remains NOT RUN. The original
+untracked plan test is included with this batch's approved fixture-only change;
+its known selective failures are preserved, not claimed fixed. No phase or
+release acceptance, Vault change, merge, push, or deployment is implied.
+
 ## Earlier local hygiene for the failed-plan qualification slice
 
 Session `43627` exited 0: both new tests format correctly, compilation with

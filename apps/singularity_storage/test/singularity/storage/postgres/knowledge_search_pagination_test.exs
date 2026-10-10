@@ -3,13 +3,21 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPaginationTest do
   @moduletag :integration
 
   alias Singularity.Core.{DocumentFragment, Error, SourceLocator}
-  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, RequestRepo, ScopedRepo}
+
+  alias Singularity.Storage.{
+    Fixtures,
+    KnowledgeFixtures,
+    MigrationRepo,
+    RequestRepo,
+    SafeSQL,
+    ScopedRepo
+  }
 
   @store Singularity.Storage.Postgres.KnowledgeSearchStore
   @timestamp ~U[2026-10-01 00:00:00.000000Z]
 
   test "tied mixed-kind pages preserve the complete ordering tuple across many fragments" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     notes = Enum.map(1..3, fn _ -> KnowledgeFixtures.note!(source) end)
     {document, fragments} = document!(source, 63)
     project!(source, notes ++ [document])
@@ -31,8 +39,8 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPaginationTest do
   end
 
   test "cursor filters are bound while the page limit may change" do
-    source = KnowledgeFixtures.source!()
-    other = KnowledgeFixtures.source!()
+    source = authorized_source!()
+    other = authorized_source!()
     notes = Enum.map(1..4, fn _ -> KnowledgeFixtures.note!(source) end)
     project!(source, notes)
     base = query(source, 1)
@@ -58,7 +66,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPaginationTest do
   end
 
   test "rank and immutable recency descend before UUID ties on every page" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
 
     rows = [
       {"body body body", ~U[2026-09-01 00:00:00.000000Z]},
@@ -121,7 +129,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPaginationTest do
   end
 
   test "every cursor page rechecks committed canonical tombstones" do
-    source = KnowledgeFixtures.source!()
+    source = authorized_source!()
     notes = Enum.map(1..3, fn _ -> KnowledgeFixtures.note!(source) end)
     project!(source, notes)
     base = query(source, 1)
@@ -246,6 +254,37 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPaginationTest do
       cursor: nil,
       policy_version: 1
     }
+
+  defp authorized_source! do
+    source = KnowledgeFixtures.source!()
+    capabilities = ["note.read", "asset.read"]
+
+    Fixtures.with_owner(fn ->
+      for name <- capabilities do
+        SafeSQL.query!(
+          MigrationRepo,
+          "INSERT INTO core.capabilities(id,name) VALUES($1,$2) ON CONFLICT(name) DO NOTHING",
+          [KnowledgeFixtures.uuid(), name]
+        )
+      end
+
+      result =
+        SafeSQL.query!(
+          MigrationRepo,
+          """
+          INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id)
+          SELECT $1,$2,capability.id FROM core.capabilities AS capability
+          WHERE capability.name=ANY($3::text[])
+          ON CONFLICT(principal_id,vault_id,capability_id) DO NOTHING
+          """,
+          [source.principal_id, source.vault_id, capabilities]
+        )
+
+      assert result.num_rows == length(capabilities)
+    end)
+
+    source
+  end
 
   defp search(source, query),
     do:

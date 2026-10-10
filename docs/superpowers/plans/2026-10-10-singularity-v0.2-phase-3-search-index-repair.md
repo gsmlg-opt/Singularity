@@ -58,7 +58,7 @@ ExUnit excludes integration cases in the ordinary unit command; report executed 
 
 **Files:** Create `search_candidate_ids_test.exs`; modify only the three enumerated direct-Store fixture files.
 
-- [ ] Add an `async: false`, integration-tagged owning module with a positive Note and ready Document built using `KnowledgeFixtures`, then projected with the existing private builder inside `Fixtures.with_owner/1`. Its first test calls the new function with `q="o"`, `kind="all"` (both established fixture titles contain this literal) through `ScopedRepo.transact(RequestRepo, scope, callback)` and expects only the two exact `entry_id` values, deduplicated and ordered by `COLLATE "C"`. Assert real `session_user = current_user = 'singularity_web'` before the call; no SET ROLE substitutes for this positive control.
+- [x] Add an `async: false`, integration-tagged owning module with a positive Note and ready Document built using `KnowledgeFixtures`, then projected with the existing private builder inside `Fixtures.with_owner/1`. Its first test calls the new function with `q="o"`, `kind="all"` (both established fixture titles contain this literal) through `ScopedRepo.transact(RequestRepo, scope, callback)` and expects only the two exact `entry_id` values, deduplicated and ordered by `COLLATE "C"`. Assert real `session_user = current_user = 'singularity_web'` before the call; no SET ROLE substitutes for this positive control.
 
 The private direct-call seam is fixed and parameterized. Convert database results/errors to closed identities/error tuples inside the helper before any assertion; never inspect raw errors or their query fields in failure output:
 
@@ -108,7 +108,7 @@ test "real web reads only canonical Note and ready Document identities" do
 end
 ```
 
-- [ ] Give each owning test file a private source-construction wrapper, replacing its calls to `KnowledgeFixtures.source!/0`, not its search helper. The existing Store/pagination wrappers seed both reads; the new authority file seeds exactly the capability list supplied by each case. Keep invalid-map and foreign-owner assertions unchanged. The plan fixture seeds both reads once when `canonical_fixture!/0` creates its source. Seed the existing product capability names if their definition rows are absent (fresh Storage migrations do not seed `asset.read`), then assignments; this follows the reconciler's established owning fixture pattern. Never invent a capability meaning or un-revoke an assignment:
+- [x] Give each owning test file a private source-construction wrapper, replacing its calls to `KnowledgeFixtures.source!/0`, not its search helper. The existing Store/pagination wrappers seed both reads; the new authority file seeds exactly the capability list supplied by each case. Keep invalid-map and foreign-owner assertions unchanged. The plan fixture seeds both reads once when `canonical_fixture!/0` creates its source. Seed the existing product capability names if their definition rows are absent (fresh Storage migrations do not seed `asset.read`), then assignments; this follows the reconciler's established owning fixture pattern. Never invent a capability meaning or un-revoke an assignment:
 
 ```elixir
 defp seed_reads!(source, names) do
@@ -136,15 +136,22 @@ end
 
 This wrapper is called once per newly created source. Negative cases retain their absent/revoked assignments throughout; no per-search setup or shared fixture mutation is allowed. An empty names list is valid in the authority module and inserts zero rows.
 
-- [ ] Parent runs the new owning file. Expected RED is undefined `content.search_candidate_ids(text,text,uuid[])` after its live-role/canonical preconditions pass, not a fixture or authentication failure. Check `rg --files apps/singularity_storage/priv/repo/migrations | rg '20261010000000'` is empty before creating the migration; do not renumber another migration. Record no production edit yet.
+- [x] Parent runs the new owning file. Expected RED is undefined `content.search_candidate_ids(text,text,uuid[])` after its live-role/canonical preconditions pass, not a fixture or authentication failure. Check `rg --files apps/singularity_storage/priv/repo/migrations | rg '20261010000000'` is empty before creating the migration; do not renumber another migration. Record no production edit yet.
+
+Task 1 execution: parent `31744`, exit 2, seed `215378`, 2.4 seconds,
+one test failed exactly with the closed `:candidate_function_missing` category
+after the real web-login and canonical fixture prerequisites passed. Migration
+version availability was checked before implementation. This is intended RED,
+not a failed repair round. The original Store/pagination assertions remain
+unchanged; their local authority wrappers are fixture-only changes.
 
 ## Task 2: Create the guarded forward-only candidate function
 
 **Files:** New migration and `search_candidate_ids_test.exs`.
 
-- [ ] Add independent real-role contracts for Note-only, Document-only, and conjunctive all-kind reads. Each uses a fresh source and the exact required read assignments; note.write/asset.write are not substitutes. Assert both-read all success, each single-read all denial, and direct worker/dispatcher/preauth denial through their actual Repo logins. Use catalog ACL evidence for PUBLIC and existing unrelated-role denial controls; do not create a new production role or membership.
-- [ ] Add the fixed catalog contract before migration implementation: exact three argument types and `RETURNS TABLE(entry_id text)`; one function and no additional privileged helper; owner table owner; `prosecdef=true`, `provolatile='v'`, `proparallel='u'`, `proisstrict=false`; exact two `proconfig` values; no PUBLIC or non-web runtime EXECUTE. Capture existing role attributes/memberships, ENABLE/FORCE flags, policies, grants, and three valid/ready GIN index definitions as immutable comparison data. Parent runs owning RED and records the missing function.
-- [ ] Implement `Singularity.Storage.Migrations.CreateGuardedSearchCandidates`, `up/0` with `SET LOCAL ROLE singularity_table_owner`, one CREATE FUNCTION, explicit OWNER/REVOKE/GRANT, then `SET LOCAL ROLE NONE`. `down/0` raises exactly `Ecto.MigrationError, "Guarded search candidates migration is forward-only"`. Use this function header and guard, not a new authorization abstraction:
+- [x] Add independent real-role contracts for Note-only, Document-only, and conjunctive all-kind reads. Each uses a fresh source and the exact required read assignments; note.write/asset.write are not substitutes. Assert both-read all success, each single-read all denial, and direct worker/dispatcher/preauth denial through their actual Repo logins. Use catalog ACL evidence for PUBLIC and existing unrelated-role denial controls; do not create a new production role or membership.
+- [x] Add the fixed catalog contract before migration implementation: exact three argument types and `RETURNS TABLE(entry_id text)`; one function and no additional privileged helper; owner table owner; `prosecdef=true`, `provolatile='v'`, `proparallel='u'`, `proisstrict=false`; exact two `proconfig` values; no PUBLIC or non-web runtime EXECUTE. Capture existing role attributes/memberships, ENABLE/FORCE flags, policies, grants, and three valid/ready GIN index definitions as immutable comparison data. Parent runs owning RED and records the missing function.
+- [x] Implement `Singularity.Storage.Migrations.CreateGuardedSearchCandidates`, `up/0` with `SET LOCAL ROLE singularity_table_owner`, one CREATE FUNCTION, explicit OWNER/REVOKE/GRANT, then `SET LOCAL ROLE NONE`. `down/0` raises exactly `Ecto.MigrationError, "Guarded search candidates migration is forward-only"`. Use this function header and guard, not a new authorization abstraction:
 
 ```sql
 CREATE FUNCTION content.search_candidate_ids(
@@ -269,7 +276,17 @@ GRANT EXECUTE ON FUNCTION content.search_candidate_ids(text,text,uuid[]) TO sing
 
 The fixed source marker is part of the candidate SELECT, not the authorization query. No dynamic SQL, persistent write, per-branch LIMIT, rank, caller scope, extra helper, timer reset, or planner override enters the function. Every emitted identity is unique because `matched` uses UNION and `search_entries.entry_id` is its existing primary key.
 
-- [ ] Parent reruns owning GREEN. Expected exact positive identities and fixed 42501 denials, not empty-success authorization fallback. Parent also runs the unchanged roles and search-projection schema gates. Make a small local commit of the new migration, owning test, and three fixture-only authority changes after this batch passes; use explicit paths and message `feat(storage): add guarded canonical search candidates`.
+- [x] Parent reruns owning GREEN. Expected exact positive identities and fixed 42501 denials, not empty-success authorization fallback. Parent also runs the unchanged roles and search-projection schema gates. Make a small local commit of the new migration, owning test, and three fixture-only authority changes after this batch passes; use explicit paths and message `feat(storage): add guarded canonical search candidates`.
+
+Task 2 execution: parent `46619` recorded 11 tests with nine expected
+missing-function/catalog failures before implementation. Final owning run
+`58453`, exit 0, passed all 12 contracts in 17.5 seconds; role/projection-schema
+gate `99086`, exit 0, passed 45 unchanged tests in 147.4 seconds. All runs used
+seed `215378`. Independent SPEC and QUALITY reviews passed for the new migration,
+owning tests, and fixture-only changes. Review strengthened complete historical
+policy equality and the all-user-schema privileged-function inventory using
+predecessor `20261009000400`; this is not the later populated upgrade gate.
+Source/input/concurrency/index qualification in Tasks 3–8 remains outstanding.
 
 ## Task 3: Qualify direct input, context, revocation, and shadowing guards
 
