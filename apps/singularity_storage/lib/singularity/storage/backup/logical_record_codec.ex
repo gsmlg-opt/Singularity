@@ -4,6 +4,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   alias Singularity.Core.Error
   alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Backup.LogicalSchemaV2
+  alias Singularity.Storage.Backup.LogicalSchemaV3
 
   @cut_type 0x0001
   @row_type 0x0002
@@ -33,15 +34,16 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   @spec tables() :: [binary()]
   def tables, do: tables(@default_version)
 
-  @spec tables(1 | 2) :: [binary()]
+  @spec tables(1 | 2 | 3) :: [binary()]
   def tables(1), do: LogicalSchema.tables()
   def tables(2), do: LogicalSchemaV2.tables()
+  def tables(3), do: LogicalSchemaV3.tables()
   def tables(_version), do: []
 
   @spec encode_cut(map()) :: {:ok, map()} | {:error, Error.t()}
   def encode_cut(attrs), do: encode_cut(attrs, @default_version)
 
-  @spec encode_cut(map(), 1 | 2) :: {:ok, map()} | {:error, Error.t()}
+  @spec encode_cut(map(), 1 | 2 | 3) :: {:ok, map()} | {:error, Error.t()}
   def encode_cut(attrs, version) when is_map(attrs) do
     with {:ok, schema} <- schema_for(version),
          :ok <- validate_cut_attrs(attrs, schema) do
@@ -57,7 +59,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   def encode_row(table, primary_key_values, ordered_column_values),
     do: encode_row(table, primary_key_values, ordered_column_values, @default_version)
 
-  @spec encode_row(binary(), list(), list(), 1 | 2) ::
+  @spec encode_row(binary(), list(), list(), 1 | 2 | 3) ::
           {:ok, map()} | {:error, Error.t()}
   def encode_row(table, primary_key_values, ordered_column_values, version)
       when is_binary(table) do
@@ -85,7 +87,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   @spec encode_object(map()) :: {:ok, map()} | {:error, Error.t()}
   def encode_object(attrs), do: encode_object(attrs, @default_version)
 
-  @spec encode_object(map(), 1 | 2) :: {:ok, map()} | {:error, Error.t()}
+  @spec encode_object(map(), 1 | 2 | 3) :: {:ok, map()} | {:error, Error.t()}
   def encode_object(attrs, version) when is_map(attrs) do
     with {:ok, _schema} <- schema_for(version),
          :ok <- validate_object_attrs(attrs) do
@@ -467,6 +469,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
 
   defp schema_for(1), do: {:ok, LogicalSchema}
   defp schema_for(2), do: {:ok, LogicalSchemaV2}
+  defp schema_for(3), do: {:ok, LogicalSchemaV3}
   defp schema_for(_version), do: invalid()
 
   defp invalid, do: {:error, Error.new(:backup_invalid)}

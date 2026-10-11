@@ -12,6 +12,32 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   @object_id "00000000-0000-4000-8000-000000000a04"
   @key_domain_id "00000000-0000-4000-8000-000000000a05"
   @record_payload_limit 16 * 1024 * 1024
+  @v3_cut_hex """
+  8368096D0000001E73696E67756C61726974792E6261636B75702E6C6F676963616C2E63757461036D000000243030303030
+  3030302D303030302D343030302D383030302D3030303030303030306130316D0000002430303030303030302D303030302D
+  343030302D383030302D3030303030303030306130326D0000002430303030303030302D303030302D343030302D38303030
+  2D3030303030303030306130336D0000000F3130303A3132303A3130312C313139612A6B0026000000000000000000000000
+  00000000000000000000000000000000000000000000000000006100
+  """
+  @v3_row_hex """
+  8368056D0000001E73696E67756C61726974792E6261636B75702E6C6F676963616C2E726F77610361236C0000000168026D
+  00000004757569646D0000002430303030303030302D303030302D343030302D383030302D3030303030303030306130316A
+  6C0000000768026D00000004757569646D0000002430303030303030302D303030302D343030302D383030302D3030303030
+  3030303061303168026D00000004757569646D0000002430303030303030302D303030302D343030302D383030302D303030
+  30303030303061303268026D00000004746578746D000000077072697661746568026D00000004746578746D00000005546F
+  70696368026D00000004746578746D00000005746F70696368026D00000004757569646D0000002430303030303030302D30
+  3030302D343030302D383030302D30303030303030303061303368026D0000000974696D657374616D706D0000001B323032
+  362D31302D31315430303A30303A30302E3030303030305A6A
+  """
+  @v3_object_hex """
+  83680B6D0000002173696E67756C61726974792E6261636B75702E6C6F676963616C2E6F626A656374610361006D00000024
+  30303030303030302D303030302D343030302D383030302D3030303030303030306130346D0000002430303030303030302D
+  303030302D343030302D383030302D3030303030303030306130326D0000002430303030303030302D303030302D34303030
+  2D383030302D3030303030303030306130356D00000007707269766174656D00000020A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1
+  A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A16D0000002C6F626A656374732F30303030303030302D303030302D343030302D38
+  3030302D30303030303030303061303462000010006D00000020A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2A2
+  A2A2A2A2A2A2A2A2
+  """
   @logical_v1_contract_sha256 "e7d4d4a31c99edb4a7e23ea592bd563eb5644aead6ed29538b692a0c5157083a"
   @logical_v1_tables [
     "identity.people",
@@ -332,7 +358,16 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     assert {:ok, object_record} = LogicalRecordCodec.encode_object(object_attrs)
 
-    for invalid_version <- [0, 3, "2"] do
+    for invalid_version <- [
+          0,
+          4,
+          "2",
+          "3",
+          nil,
+          true,
+          {:logical_version, 3},
+          %{logical_version: 3}
+        ] do
       assert_invalid(LogicalRecordCodec.encode_cut(v2_cut_attrs, invalid_version))
 
       assert_invalid(
@@ -647,7 +682,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
       compressed,
       non_canonical,
       wire({"wrong.tag", 1, 0, primary_key_values, ordered_column_values}),
-      wire({"singularity.backup.logical.row", 3, 0, primary_key_values, ordered_column_values}),
+      wire({"singularity.backup.logical.row", 4, 0, primary_key_values, ordered_column_values}),
       wire({"singularity.backup.logical.row", 2, 0, primary_key_values}),
       wire({
         "singularity.backup.logical.row",
@@ -796,6 +831,206 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     assert {:ok, object} = LogicalRecordCodec.encode_object(object_attrs())
     assert :binary.match(cut.payload, canary) == :nomatch
     assert :binary.match(object.payload, canary) == :nomatch
+  end
+
+  test "explicit V3 selection adds exactly the eight knowledge tables without changing defaults" do
+    assert LogicalRecordCodec.tables(3) ==
+             LogicalRecordCodec.tables(2) ++
+               [
+                 "content.document_versions",
+                 "content.document_fragments",
+                 "content.document_import_receipts",
+                 "content.note_attachments",
+                 "content.note_citations",
+                 "content.tags",
+                 "content.resource_tags",
+                 "content.relationships"
+               ]
+
+    assert LogicalRecordCodec.default_version() == 2
+    assert LogicalRecordCodec.tables() == LogicalRecordCodec.tables(2)
+
+    for version <- [0, 4, "3", nil, {:logical_version, 3}, %{logical_version: 3}] do
+      assert LogicalRecordCodec.tables(version) == []
+    end
+  end
+
+  test "explicit V3 cut encoding and decoding match the independent 228-byte golden vector" do
+    record = golden_record(0x0001, @v3_cut_hex, 228)
+    counts = List.duplicate(0, 38)
+    attrs = cut_attrs(table_count_vector: counts)
+
+    assert record.payload ==
+             wire(
+               {"singularity.backup.logical.cut", 3, @manifest_id, @vault_id, @snapshot_id,
+                "100:120:101,119", 42, counts, 0}
+             )
+
+    assert {:ok, ^record} = LogicalRecordCodec.encode_cut(attrs, 3)
+
+    assert {:ok, %{kind: :cut, logical_version: 3} = decoded} =
+             LogicalRecordCodec.decode(record.type, record.payload)
+
+    assert Map.drop(decoded, [:kind, :logical_version]) == attrs
+
+    assert LogicalRecordCodec.descriptor(record) == %{
+             record_type: 0x0001,
+             payload_length: 228,
+             sha256: :crypto.hash(:sha256, record.payload)
+           }
+  end
+
+  test "explicit V3 row encoding and decoding match the independent 375-byte golden vector" do
+    record = golden_record(0x0002, @v3_row_hex, 375)
+    primary_key = [{"uuid", @manifest_id}]
+    values = v3_tag_values()
+
+    assert record.payload ==
+             wire({"singularity.backup.logical.row", 3, 35, primary_key, values})
+
+    assert {:ok, ^record} =
+             LogicalRecordCodec.encode_row("content.tags", primary_key, values, 3)
+
+    assert {:ok,
+            %{
+              kind: :row,
+              logical_version: 3,
+              table: "content.tags",
+              table_ordinal: 35,
+              primary_key_values: ^primary_key,
+              ordered_column_values: ^values
+            }} =
+             LogicalRecordCodec.decode(record.type, record.payload)
+
+    assert LogicalRecordCodec.descriptor(record) == %{
+             record_type: 0x0002,
+             payload_length: 375,
+             sha256: :crypto.hash(:sha256, record.payload)
+           }
+  end
+
+  test "explicit V3 object encoding and decoding match the independent 308-byte golden vector" do
+    record = golden_record(0x0003, @v3_object_hex, 308)
+    attrs = object_attrs()
+
+    assert record.payload ==
+             wire(
+               {"singularity.backup.logical.object", 3, 0, @object_id, @vault_id, @key_domain_id,
+                "private", :binary.copy(<<0xA1>>, 32), "objects/#{@object_id}", 4_096,
+                :binary.copy(<<0xA2>>, 32)}
+             )
+
+    assert {:ok, ^record} = LogicalRecordCodec.encode_object(attrs, 3)
+
+    assert {:ok, %{kind: :object, logical_version: 3} = decoded} =
+             LogicalRecordCodec.decode(record.type, record.payload)
+
+    assert Map.drop(decoded, [:kind, :logical_version]) == attrs
+
+    assert LogicalRecordCodec.descriptor(record) == %{
+             record_type: 0x0003,
+             payload_length: 308,
+             sha256: :crypto.hash(:sha256, record.payload)
+           }
+  end
+
+  test "V3 cuts reject incomplete, excess, forged and invalid count vectors independently" do
+    for counts <- [
+          List.duplicate(0, 30),
+          List.duplicate(0, 37),
+          List.duplicate(0, 39),
+          List.replace_at(List.duplicate(0, 38), 35, -1),
+          List.replace_at(List.duplicate(0, 38), 35, "0"),
+          List.replace_at(List.duplicate(0, 38), 35, 9_223_372_036_854_775_808),
+          [0 | :invalid_tail],
+          %{table_count: 38}
+        ] do
+      assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(table_count_vector: counts), 3))
+
+      assert_invalid(
+        LogicalRecordCodec.decode(
+          0x0001,
+          wire(
+            {"singularity.backup.logical.cut", 3, @manifest_id, @vault_id, @snapshot_id,
+             "100:120:101,119", 42, counts, 0}
+          )
+        )
+      )
+    end
+
+    assert_invalid(
+      LogicalRecordCodec.encode_cut(
+        cut_attrs(table_count_vector: [999_999 | List.duplicate(0, 37)]),
+        3
+      )
+    )
+
+    for attrs <- [
+          cut_attrs(table_count_vector: List.duplicate(0, 38), object_count: -1),
+          cut_attrs(table_count_vector: List.duplicate(0, 38), object_count: 500_000)
+        ] do
+      assert_invalid(LogicalRecordCodec.encode_cut(attrs, 3))
+    end
+  end
+
+  test "V3 decode rejects malformed appended row schemas and object evidence" do
+    primary_key = [{"uuid", @manifest_id}]
+    values = v3_tag_values()
+
+    for {ordinal, key, columns} <- [
+          {38, primary_key, values},
+          {-1, primary_key, values},
+          {35, primary_key, Enum.drop(values, -1)},
+          {35, primary_key, values ++ [{"null"}]},
+          {35, primary_key, List.replace_at(values, 2, {"bytes", "private"})},
+          {35, primary_key, List.replace_at(values, 2, {"null"})},
+          {35, [], values},
+          {35, [{"uuid", @object_id}], values}
+        ] do
+      assert_invalid(
+        LogicalRecordCodec.decode(
+          0x0002,
+          wire({"singularity.backup.logical.row", 3, ordinal, key, columns})
+        )
+      )
+    end
+
+    record = golden_record(0x0003, @v3_object_hex, 308)
+    term = :erlang.binary_to_term(record.payload, [:safe])
+
+    for malformed <- [
+          put_elem(term, 2, -1),
+          put_elem(term, 6, "public"),
+          put_elem(term, 7, <<0::248>>),
+          put_elem(term, 9, -1),
+          put_elem(term, 10, <<0::264>>)
+        ] do
+      assert_invalid(LogicalRecordCodec.decode(0x0003, wire(malformed)))
+    end
+
+    assert_invalid(
+      LogicalRecordCodec.encode_row("content.note_source_set_seals", primary_key, values, 3)
+    )
+
+    assert_invalid(LogicalRecordCodec.encode_object(object_attrs(ciphertext_hash: <<0::264>>), 3))
+  end
+
+  defp golden_record(type, hex, expected_size) do
+    payload = hex |> String.replace(~r/\s+/, "") |> Base.decode16!()
+    assert byte_size(payload) == expected_size
+    %{type: type, payload: payload, payload_length: expected_size}
+  end
+
+  defp v3_tag_values do
+    [
+      {"uuid", @manifest_id},
+      {"uuid", @vault_id},
+      {"text", "private"},
+      {"text", "Topic"},
+      {"text", "topic"},
+      {"uuid", @snapshot_id},
+      {"timestamp", "2026-10-11T00:00:00.000000Z"}
+    ]
   end
 
   defp cut_attrs(overrides \\ []) do

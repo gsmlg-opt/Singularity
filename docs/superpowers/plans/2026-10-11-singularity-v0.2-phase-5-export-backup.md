@@ -155,7 +155,7 @@ Record shutdown/database/root cleanup after every failure and before handoff.
 **Record:** coordinator-owned Phase 5 design/plan and acceptance report.
 **Depends on:** independent design/plan review resolving the draft condition.
 
-- [ ] Write active guidance tests requiring Phase 5 design/plan narrative links,
+- [x] Write active guidance tests requiring Phase 5 design/plan narrative links,
   exact Phase 4 tested SHA and handoff, the retained qualified Phase 3/4 history,
   V3 preparation default V2, closed production writes, Vault freeze and E2E
   deferral. Change only current active-phase expectations; retain all historical
@@ -182,7 +182,7 @@ assert section =~ "New canonical writes remain unavailable to production runtime
   there as active prose, not a quoted command/test fence. Preserve historical
   Phase 3/4 authority tests and active-prose negative assertions.
 
-- [ ] Run both full governance suites before documentation edits:
+- [x] Run both full governance suites before documentation edits:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
@@ -190,15 +190,15 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
   Expected RED: current active narrative is Phase 4; old negative/historical
   assertions still pass. An unrelated failure is diagnosed, never stripped.
-- [ ] Add only narrative links outside the five governing bullets and update
+- [x] Add only narrative links outside the five governing bullets and update
   active guidance to: `The active implementation slice is Phase 5 under` the
   design/plan; Phase 4 accepted at the exact tested SHA, documentation handoff
   at the exact base; `Logical V3 preparation keeps default V2 and the current
   unsupported-canonical guard closed until writer and restore qualify together.`
   Keep historical Phase 4 design/plan exclusions historical and intact.
-- [ ] Run both complete suites to GREEN, format/compile/xref and diff checking.
+- [x] Run both complete suites to GREEN, format/compile/xref and diff checking.
   No application/guard/runtime baseline-stripping change belongs to this task.
-- [ ] Complete SPEC then QUALITY, record the unaccepted Phase 5 status and
+- [x] Complete SPEC then QUALITY, record the unaccepted Phase 5 status and
   commit `docs: start phase five export and backup qualification` using exactly
   the reviewed guidance/contracts and Phase 5 documents.
 

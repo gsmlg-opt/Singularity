@@ -446,13 +446,394 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifierTest do
     fixture = fixture(2)
 
     unknown_version_records =
-      List.update_at(fixture.verified.records, 0, &record_with_logical_version(&1, 3))
+      List.update_at(fixture.verified.records, 0, &record_with_logical_version(&1, 4))
 
     assert_invalid(
       unknown_version_records
       |> verified_with_records(fixture.verified)
       |> LogicalBundleVerifier.verify(fixture.binding)
     )
+  end
+
+  test "reconstructs an authenticated V3 wire cut containing all eight appended table shapes" do
+    fixture = v3_fixture()
+    assert fixture.verified.manifest.version == 1
+
+    assert {:ok, cut} = LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+    assert {:ok, ^cut} = verify_streamed(fixture.verified, fixture.binding)
+
+    assert cut == %{
+             manifest_id: @manifest_id,
+             logical_version: 3,
+             vault_id: @vault_id,
+             snapshot_id: @snapshot_id,
+             database_snapshot: "100:120:101,119",
+             outbox_high_water_mark: 42,
+             object_inventory: [
+               %{
+                 asset_object_id: @object_one_id,
+                 ciphertext_byte_size: byte_size(fixture.raw_one),
+                 ciphertext_hash: :crypto.hash(:sha256, fixture.raw_one),
+                 classification: :private,
+                 inventory_position: 0,
+                 key_domain_id: @key_domain_one_id,
+                 lookup_digest: :binary.copy(<<0xA1>>, 32),
+                 storage_ref: "objects/one",
+                 vault_id: @vault_id
+               },
+               %{
+                 asset_object_id: @object_two_id,
+                 ciphertext_byte_size: byte_size(fixture.raw_two),
+                 ciphertext_hash: :crypto.hash(:sha256, fixture.raw_two),
+                 classification: :sensitive,
+                 inventory_position: 1,
+                 key_domain_id: @key_domain_two_id,
+                 lookup_digest: :binary.copy(<<0xA2>>, 32),
+                 storage_ref: "objects/two",
+                 vault_id: @vault_id
+               }
+             ]
+           }
+  end
+
+  test "both verifier paths reject bidirectional V3 and legacy mixed row versions" do
+    fixtures = %{1 => fixture(1), 2 => fixture(2), 3 => v3_fixture()}
+
+    for {cut_version, row_version} <- [{3, 1}, {1, 3}, {3, 2}, {2, 3}] do
+      fixture = Map.fetch!(fixtures, cut_version)
+
+      assert {:ok, %{logical_version: ^cut_version}} =
+               LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+
+      assert {:ok, %{logical_version: ^cut_version}} =
+               verify_streamed(fixture.verified, fixture.binding)
+
+      mixed_row =
+        fixture.verified.records
+        |> Enum.at(1)
+        |> record_with_logical_version(row_version)
+
+      assert {:ok, %{kind: :row, logical_version: ^row_version}} =
+               LogicalRecordCodec.decode(mixed_row.type, mixed_row.payload)
+
+      verified =
+        fixture.verified.records
+        |> List.replace_at(1, mixed_row)
+        |> verified_with_records(fixture.verified)
+
+      assert_invalid_both(verified, fixture.binding)
+    end
+  end
+
+  test "both verifier paths reject bidirectional V3 and legacy mixed object versions" do
+    fixtures = %{1 => fixture(1), 2 => fixture(2), 3 => v3_fixture()}
+
+    for {cut_version, object_version} <- [{3, 1}, {1, 3}, {3, 2}, {2, 3}] do
+      fixture = Map.fetch!(fixtures, cut_version)
+
+      assert {:ok, %{logical_version: ^cut_version}} =
+               LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+
+      assert {:ok, %{logical_version: ^cut_version}} =
+               verify_streamed(fixture.verified, fixture.binding)
+
+      object_position = 1 + Enum.sum(fixture.counts)
+
+      mixed_object =
+        fixture.verified.records
+        |> Enum.at(object_position)
+        |> record_with_logical_version(object_version)
+
+      assert {:ok, %{kind: :object, logical_version: ^object_version}} =
+               LogicalRecordCodec.decode(mixed_object.type, mixed_object.payload)
+
+      verified =
+        fixture.verified.records
+        |> List.replace_at(object_position, mixed_object)
+        |> verified_with_records(fixture.verified)
+
+      assert_invalid_both(verified, fixture.binding)
+    end
+  end
+
+  test "both verifier paths reject malformed V3 cut vectors and authenticated row schemas" do
+    fixture = v3_fixture()
+
+    assert {:ok, %{logical_version: 3}} =
+             LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+
+    assert {:ok, %{logical_version: 3}} = verify_streamed(fixture.verified, fixture.binding)
+    [cut | remaining] = fixture.verified.records
+    term = :erlang.binary_to_term(cut.payload, [:safe])
+
+    for counts <- [
+          Enum.take(fixture.counts, 30),
+          Enum.drop(fixture.counts, -1),
+          fixture.counts ++ [0],
+          List.replace_at(fixture.counts, 30, -1),
+          List.replace_at(fixture.counts, 30, "1"),
+          fixture.counts |> List.replace_at(30, 0) |> List.replace_at(35, 2)
+        ] do
+      invalid_cut = wire_record(0x0001, put_elem(term, 7, counts))
+      verified = verified_with_records([invalid_cut | remaining], fixture.verified)
+      assert_invalid_both(verified, fixture.binding)
+    end
+
+    document_row = Enum.at(fixture.verified.records, 6)
+    row_term = :erlang.binary_to_term(document_row.payload, [:safe])
+    columns = elem(row_term, 4)
+
+    for malformed <- [
+          put_elem(row_term, 2, 38),
+          put_elem(row_term, 3, []),
+          put_elem(row_term, 3, [{"uuid", @snapshot_id}]),
+          put_elem(row_term, 4, Enum.drop(columns, -1)),
+          put_elem(row_term, 4, List.replace_at(columns, 3, {"bytes", "private"})),
+          put_elem(row_term, 4, List.replace_at(columns, 3, {"null"})),
+          put_elem(row_term, 4, List.replace_at(columns, 2, {"uuid", @other_vault_id}))
+        ] do
+      verified =
+        fixture.verified.records
+        |> List.replace_at(6, wire_record(0x0002, malformed))
+        |> verified_with_records(fixture.verified)
+
+      assert_invalid_both(verified, fixture.binding)
+    end
+  end
+
+  test "both verifier paths reject malformed V3 object evidence and raw-object integrity" do
+    fixture = v3_fixture()
+
+    assert {:ok, %{logical_version: 3}} =
+             LogicalBundleVerifier.verify(fixture.verified, fixture.binding)
+
+    assert {:ok, %{logical_version: 3}} = verify_streamed(fixture.verified, fixture.binding)
+    object_position = 1 + Enum.sum(fixture.counts)
+    evidence = Enum.at(fixture.verified.records, object_position)
+    term = :erlang.binary_to_term(evidence.payload, [:safe])
+
+    for malformed <- [
+          put_elem(term, 2, 1),
+          put_elem(term, 4, @other_vault_id),
+          put_elem(term, 6, "public"),
+          put_elem(term, 7, <<0::248>>),
+          put_elem(term, 9, byte_size(fixture.raw_one) + 1),
+          put_elem(term, 10, :binary.copy(<<0xFF>>, 32))
+        ] do
+      verified =
+        fixture.verified.records
+        |> List.replace_at(object_position, wire_record(0x0003, malformed))
+        |> verified_with_records(fixture.verified)
+
+      assert_invalid_both(verified, fixture.binding)
+    end
+
+    verified =
+      fixture.verified.records
+      |> List.replace_at(object_position + 2, %{
+        type: 0x8000,
+        payload: fixture.raw_one <> "tampered"
+      })
+      |> verified_with_records(fixture.verified)
+
+    assert_invalid_both(verified, fixture.binding)
+  end
+
+  test "both verifier paths reject zero, unknown and forged cut-version terms" do
+    fixture = fixture(2)
+
+    for version <- [0, 4, "3", nil, true, {:logical_version, 3}, %{logical_version: 3}] do
+      verified =
+        fixture.verified.records
+        |> List.update_at(0, &record_with_logical_version(&1, version))
+        |> verified_with_records(fixture.verified)
+
+      assert_invalid_both(verified, fixture.binding)
+    end
+  end
+
+  # These independent row terms qualify wire shape only, not historical restore admission.
+  defp v3_fixture do
+    fixture = fixture(2)
+    counts = fixture.counts ++ List.duplicate(1, 8)
+    [legacy_cut | _rest] = fixture.verified.records
+
+    cut_term =
+      legacy_cut.payload
+      |> :erlang.binary_to_term([:safe])
+      |> put_elem(1, 3)
+      |> put_elem(7, counts)
+
+    inherited_rows =
+      fixture.verified.records
+      |> Enum.slice(1, 5)
+      |> Enum.map(&record_with_logical_version(&1, 3))
+
+    objects =
+      fixture.verified.records
+      |> Enum.slice(6, 2)
+      |> Enum.map(&record_with_logical_version(&1, 3))
+
+    raw_objects = Enum.slice(fixture.verified.records, 8, 2)
+
+    records =
+      [wire_record(0x0001, cut_term)] ++ inherited_rows ++ v3_rows() ++ objects ++ raw_objects
+
+    %{fixture | counts: counts, verified: verified_with_records(records, fixture.verified)}
+  end
+
+  defp v3_rows do
+    uuid = fn id -> {"uuid", id} end
+    private = {"text", "private"}
+    inserted_at = {"timestamp", "2026-10-11T00:00:00.000000Z"}
+    null = {"null"}
+    fragment_id = String.duplicate("a", 64)
+    digest = {"bytes", :binary.copy(<<0xA1>>, 32)}
+    locator = {"json", %{"kind" => "fragment", "ordinal" => 0}}
+
+    [
+      {30, [0],
+       [
+         uuid.(@related_id),
+         uuid.(@resource_one_id),
+         uuid.(@vault_id),
+         private,
+         uuid.(@related_id),
+         uuid.(@resource_two_id),
+         uuid.(@related_id),
+         uuid.(@object_one_id),
+         digest,
+         {"integer", 26},
+         {"text", "text/plain"},
+         {"text", "Document"},
+         uuid.(@related_id),
+         {"text", "pending"},
+         {"integer", 0},
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         inserted_at,
+         null,
+         null,
+         null
+       ]},
+      {31, [0],
+       [
+         {"text", fragment_id},
+         uuid.(@resource_one_id),
+         uuid.(@related_id),
+         uuid.(@vault_id),
+         private,
+         {"integer", 0},
+         {"text", "Document text"},
+         digest,
+         locator,
+         inserted_at
+       ]},
+      {32, [0, 1, 2],
+       [
+         uuid.(@vault_id),
+         uuid.(@related_id),
+         uuid.(@snapshot_id),
+         digest,
+         {"text", "completed"},
+         uuid.(@resource_one_id),
+         uuid.(@related_id),
+         inserted_at
+       ]},
+      {33, [0, 1],
+       [
+         uuid.(@related_id),
+         uuid.(@snapshot_id),
+         uuid.(@resource_two_id),
+         uuid.(@vault_id),
+         private,
+         uuid.(@resource_one_id),
+         uuid.(@related_id),
+         {"text", "document"},
+         {"integer", 0},
+         {"text", "source"},
+         null,
+         inserted_at
+       ]},
+      {34, [0, 1],
+       [
+         uuid.(@related_id),
+         uuid.(@snapshot_id),
+         uuid.(@resource_two_id),
+         uuid.(@vault_id),
+         private,
+         uuid.(@resource_one_id),
+         uuid.(@related_id),
+         {"text", fragment_id},
+         locator,
+         {"integer", 0},
+         inserted_at
+       ]},
+      {35, [0],
+       [
+         uuid.(@related_id),
+         uuid.(@vault_id),
+         private,
+         {"text", "Topic"},
+         {"text", "topic"},
+         uuid.(@related_id),
+         inserted_at
+       ]},
+      {36, [0, 1, 2],
+       [uuid.(@resource_one_id), uuid.(@related_id), uuid.(@vault_id), private, inserted_at]},
+      {37, [0],
+       [
+         uuid.(@related_id),
+         uuid.(@vault_id),
+         private,
+         uuid.(@resource_one_id),
+         uuid.(@resource_two_id),
+         null,
+         {"text", "related_to"},
+         uuid.(@related_id),
+         inserted_at
+       ]}
+    ]
+    |> Enum.map(fn {ordinal, key_positions, values} ->
+      primary_key = Enum.map(key_positions, &Enum.at(values, &1))
+      wire_record(0x0002, {"singularity.backup.logical.row", 3, ordinal, primary_key, values})
+    end)
+  end
+
+  defp wire_record(type, term) do
+    payload = :erlang.term_to_binary(term, [:deterministic])
+    %{type: type, payload: payload, payload_length: byte_size(payload)}
+  end
+
+  defp verify_streamed(verified, binding) do
+    with {:ok, state} <- LogicalBundleVerifier.init(binding) do
+      events =
+        Enum.flat_map(verified.records, fn record ->
+          [{:record_start, record.type, byte_size(record.payload)}] ++
+            Enum.map(chunk_binary(record.payload, 3), &{:record_chunk, &1}) ++ [:record_end]
+        end)
+
+      result =
+        Enum.reduce_while(events, {:ok, state}, fn event, {:ok, state} ->
+          case LogicalBundleVerifier.handle_event(state, event) do
+            {:ok, next_state} -> {:cont, {:ok, next_state}}
+            {:error, %Error{}} = error -> {:halt, error}
+          end
+        end)
+
+      with {:ok, state} <- result do
+        LogicalBundleVerifier.finish(state, verified.manifest)
+      end
+    end
+  end
+
+  defp assert_invalid_both(verified, binding) do
+    assert_invalid(LogicalBundleVerifier.verify(verified, binding))
+    assert_invalid(verify_streamed(verified, binding))
   end
 
   defp fixture(logical_version \\ 2) do

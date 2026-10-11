@@ -6,6 +6,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Backup.LogicalSchemaV2
+  alias Singularity.Storage.Backup.LogicalSchemaV3
   alias Singularity.Storage.Backup.Manifest
 
   @cut_record_type 0x0001
@@ -733,6 +734,7 @@ defmodule Singularity.Storage.Backup.LogicalBundleVerifier do
 
   defp schema_for(1), do: {:ok, LogicalSchema}
   defp schema_for(2), do: {:ok, LogicalSchemaV2}
+  defp schema_for(3), do: {:ok, LogicalSchemaV3}
   defp schema_for(_version), do: invalid()
 
   defp invalid, do: {:error, Error.new(:backup_invalid)}
