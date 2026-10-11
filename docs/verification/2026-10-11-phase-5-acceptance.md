@@ -807,3 +807,573 @@ Actual crypto composition in this isolated fixture is not live runtime authority
 or final restore/export acceptance. No frozen consumer, Vault feature, migration,
 production data, activation, merge, push, publication or deployment change.
 E2E **NOT RUN**.
+
+## Task3 actual SOURCE SPEC closure, fresh SOURCE QUALITY and local commit
+
+Non-author `phase5_task3_source_spec` completed the bounded SOURCE SPEC closure:
+**PASS**, no remaining findings. Its prior full four-file source review was
+carried forward, not claimed as a fresh complete reread. It freshly read the
+entire wrapper-context repair, the complete new independent contract, current
+plan/report delta, relevant unchanged real wrapper/consumer/replay definitions
+and all five new actual verification logs. Reversing only this bounded repair
+and new contract reproduced both original source hashes. All four current
+source and56 frozen entries passed before/after; no edits or test execution.
+Faithful native closure `.devenv/phase5-task3-source-spec-closure-native.md` SHA
+`ca116c7e3ab038ab3493e55216e010d9b0197dd570e0a58c6205ab85b34c1ae2`.
+
+Only after that closure, a fresh separate non-author
+`phase5_task3_source_quality` completed actual SOURCE QUALITY: **PASS**, no
+findings. It read all four current source files in full,2,680 lines: helper
+1–1,167, fixture contract1–1,150, DDL contract1–213 and literal JSON1–150.
+It read complete Task3/Task11 requirements and current plan/report delta,
+relevant design and supporting registries/environment/identity/crypto/seal/
+reader definitions, plus all five new actual logs. It did not claim a full
+design/plan/report reread. Current source/frozen receipts and document hashes
+passed before/after. Reviewer tests NOT RUN; no edits, Git mutation, Mix,
+formatter, DB or service operations. Reviewer stopped. Faithful native quality
+record `.devenv/phase5-task3-source-quality-native.md` SHA
+`dee3ffe3d93bf239dda825f897e19bcf76cddeea4dbb6e7267094fec13698374`.
+
+Parent checked the exact four-source receipt and reviewed plan/report hashes,
+empty index, absence of active hooks and clean scoped diff. Only four Task3
+files and the two records were staged. Commit completed normally at
+`465c377ade63b38bccabcac729e998ddc61ba473`,
+`test(backup): add independent v3 history and ddl fixtures`, six files,
+2,987 insertions/11 deletions. Worktree status was empty immediately afterward.
+This post-verdict record and the Task3 checkbox are added afterward and will
+be included in the next slice's independent document-delta review; they are
+not retroactively part of the already reviewed document hashes.
+
+Task3 is now **accepted locally**; Phase5 remains NOT accepted. The next slice
+is typed, authenticated V3 preflight without enabling canonical V3 import.
+No frozen production code, Vault feature, migration, runtime activation,
+production data, merge, push, release or deployment change. E2E **NOT RUN**.
+
+## Task4 digest contracts, actual RED and bounded test-oracle correction
+
+Task4 now has an explicit selected typed-framing protocol in its plan, an
+independent digest contract and a new internal digest implementation. This is
+not full Task4 acceptance and does not enable V3 canonical import.
+Parent first formatted only the digest contract (`12417`,exit0), removed an
+unused alias and made its synthetic timestamp literals explicit. Complete
+owning execution `74911` of
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_digest_test.exs --seed 215378 --warnings-as-errors
+```
+
+completed normally with exit2, **7 tests/7 expected missing-implementation
+failures**,38.3 seconds. Actual ignored RED log SHA
+`411418d12d0cf9756e98332071f5c9716d114b205a73c1422671aece13a32665`;
+initial test SHA `5364f3638b6961255255d5d2fc7129250fe2ed9b0ff0334595bbc067f570cdd0`.
+Private allocated root/database `489b705c84a19b3ac543e6c3` was removed;
+live maintenance query found no test databases.
+
+Only after that real RED, root implemented SQL scalar/recursive JSON encoding,
+fixed registry projection/PK ordering, migration transaction/role checks,
+one-row SafeSQL fetches and framed incremental SHA. Format `73494` exited0.
+First same complete verification `9280` exited2, **7 tests/2 failures**,39.8
+seconds. Actual first-implementation log SHA
+`8eddbe9e3ab036583c31829ec88eff28447dc25df01a341245f6faf26de961ff`.
+All scalar/JSON vectors passed. Both remaining failures identified a new test
+oracle mistake: root incorrectly used three columns for identity.people,
+where the unchanged frozen V2 prefix has five: id/display_name/metadata/
+inserted_at/updated_at. Production correctly used the full five all along.
+The test CTAS omitted metadata/updated_at, and its three-column empty SHA was
+not a valid frozen-table expectation. No production defect was concealed.
+
+The bounded test-contract correction adds an explicit literal five-column
+assertion; specifies deterministic metadata and both timestamps for both
+input rows; copies every projected column in the CTAS; and replaces only the
+three incorrectly constructed table hashes with independently framed
+five-column literal-byte SHA oracles. Every scalar/null/JSON, ordered/reversed
+row, equal-count mutation, real canonical/staged and canonical preservation
+assertion remains. Historical three-column calculations and new five-column
+bytes are both retained in ignored chronology SHA
+`23a513d4578067195e93dbff7514535d9b12b9b4a268c8acb8712253454b8a41`.
+Hashes were calculated from literal hex via GNU sha256sum, not from the
+function under test. Source stayed
+`8cf35be108eb496da5d930c27f7eef244e8b551d9d1235c15bd2247b25f2288a`.
+
+Parent formatted only this contract (`1351`,exit0), then repeated the complete
+same command (`14437`,exit0): **7 tests/0 failures**,38.7 seconds.
+Actual scoped GREEN log SHA
+`57078a7fb2b7ec3663ed3c1b3b25c89d31edc707331f79014bf28ea6b2aed260`.
+Corrected test SHA
+`a41e8208a06136ccfc5fb005d7ef39854a5c2b9368dfd9512f94672dc97def92`.
+Allocated root/database `b32e236626a0a589c2c59596` was removed, explicit root
+absence passed, and maintenance query again returned no test databases.
+
+A non-author Sol read the complete281-line contract and230-line implementation,
+selected protocol and full chronology plus actual frozen definition/logs.
+Its separate read-only literal-byte computation reproduced seed, empty, sorted
+two-row and reversed SHA exactly, confirmed117-byte projection/106- and126-byte
+rows, no self-derived oracle or weakened assertion, and stable before/after
+source/test/chronology hashes: bounded correction review **PASS**. Reviewer
+tests NOT RUN, no edits/application/Mix/SQL/service/Git mutation, and STOP.
+This bounded correction review is not whole Task4 SOURCE SPEC/QUALITY; that
+reviewer is the later preflight author and cannot review its own full slice.
+
+Cumulative bounded Sol compatibility/contract repair attempts6, all resolved;
+failed same-defect repair rounds0, Astra implementation attempts0. The complete
+preflight contract RED and implementation are pending. Task4/Phase5 NOT
+accepted. All56 frozen entries still pass. No Vault feature, released migration,
+production data, activation, merge, push, release or deployment change.
+E2E **NOT RUN**.
+
+
+## Task4 complete preflight RED and bounded test-selector correction
+
+The new preflight contract has17 groups, using actual authenticated Replay,
+real private filesystem staging and the complete independent historical SQL
+fixture. Parent formatted only this test and its strictly test-only bundle
+transform extension (session29319,normal exit0). Initial owning execution81419
+of the following complete file ended normally,exit2,17 tests/16 failures,
+112.8 seconds:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs --seed 215378 --warnings-as-errors
+```
+
+The unchanged real verifier's wire-invalid group passed. The initial failures
+included missing preflight/wrapper functions and a test fixture selector error:
+private numeric IDs used a500-prefix while the actual helper uses600-prefix.
+Tool output was truncated by giant missing-function arguments; ignored
+`.devenv/phase5-task4-preflight-red-initial-excerpt.log` is explicitly an
+**excerpt**, not a complete failure-by-failure transcript. Its SHA is
+`2b40524fe6617ee956b8c9a14086ddef822f9b0bf12de87a37c662021624287a`.
+The normal17/16 footer is retained. Allocated database/root
+`b6da7572ed3d12570ecf81f6` was removed; root absence and no remaining private
+test databases were checked.
+
+Before any preflight production implementation, the test author made one
+bounded test-only correction: private `id/1` now uses600-prefix; stable
+`@ids`, `@unknown`, every numeric selector, all17 groups and their behavioral
+assertions remain unchanged. Additive module/function availability assertions
+keep missing-source failures concise, without skipping or weakening behavior.
+Existing Restorer calls use a private test helper retaining the same actual
+apply call. No fixture-helper or production edit in this correction. Parent
+formatted only the corrected preflight test (71601,normal exit0); corrected
+test SHA `e964c48e6f90bc6780f67f331bd2ce760533434b4c9d9438422ff994e8668ea4`,
+helper remains
+`6eedf397690a5e38b93be3bd4d3bc2467399c19e94e1763bac05be4e312c0da7`.
+
+The same complete command was repeated (37772),normal exit2,**17 tests/16
+expected missing-implementation failures**,82.3 seconds. The wire-invalid
+group again passed; every failure now reaches the missing preflight or
+Restorer preflight function, with no fixture selector error. Complete returned
+output was retained unfiltered, five chunks/30,555 characters/no truncation,
+in `.devenv/phase5-task4-preflight-selector-red.log`, SHA
+`6475e8179ea70afea5a001cfab6ffceefc186b02d4511bc5abd6e992b500e76d`.
+Allocated database/root `8f4a545956c3acb15e2e316a` was removed; explicit root
+absence exited0 and the live private maintenance query returned no test DBs.
+
+Only after this complete corrected RED did production implementation start.
+One Sol owns only the new KnowledgePreflight module; root owns only the narrow
+Restorer staging wrapper and existing digest/records. The wrapper requires the
+same exact input keys, actual Replay, authenticated binding and identical V3
+cut, then invokes stage/validate in the caller transaction. It does not change
+ordinary import's explicit V1/V2 selector or canonical import behavior. Tests
+and frozen sources remain untouched during implementation. Full GREEN,
+independent whole-slice SOURCE SPEC, subsequent fresh separate SOURCE QUALITY
+and local commit remain pending; Task4/Phase5 are **NOT accepted**.
+
+Cumulative bounded Sol compatibility/test-contract corrections7; no failed
+same-production-defect repair round, Astra implementation attempts0. The new
+selector correction establishes the intended RED entry point, not successful
+implementation. No Vault feature, schema migration, runtime activation,
+production data, merge, push, release or deployment change. E2E **NOT RUN**.
+
+## Task4 legal expanded-row digest boundary: actual RED, repair and GREEN
+
+An independent literal-byte calculation identified a valid V3 wire record
+whose PostgreSQL JSON expansion and typed row framing exceed the wire payload
+limit. The existing 16 MiB wire limit is unchanged and must not be reused as
+an encoded-row limit. Literal metadata is an object with a16,767,216-byte
+string and1,000 numeric array entries. Its independently encoded JSON payload
+is16,785,286 bytes, cell16,785,296 bytes and complete five-column row16,785,376
+bytes. The independent final table SHA is
+`c714e3d40d807916e9a7d462deb3d3b382aeabf3c204e8e5ea77cbf5a4a5b161`.
+Ignored vector record SHA
+`b932584ce568f0fc8e9cd782c12a0ea9fcaa9655cb82ed74dfdd0f176448e24e`
+retains the independent calculation. A separate non-author read-only review
+reconstructed the literal bytes and SHA, preserved all seven original groups,
+and confirmed the protocol boundary. Native bounded review SHA
+`2b943788bc4507efb8aac650c274075b396fcb2e29348519864f9214f131b291`.
+That review did not prove bounded SQL transport and is not full Task4 review.
+
+Root therefore added both the large legal-wire record and an actual SQL-cursor
+transport contract: real PostgreSQL rows, reverse insertion/native PK order,
+64 KiB maximum returned byte chunk and one-row SafeSQL fetches. Only numeric
+chunk lengths/offsets are retained. Parent formatted the owning sources/tests
+(49985,normal exit0). First complete nine-group run98953 ended normally,exit2,
+**9 tests/2 failures**,50.7 seconds. Besides the intentionally missing chunk
+query, this run exposed a test construction error: binding already serialized
+JSON to `$2::jsonb` causes the actual Postgrex JSON codec to encode it as a JSON
+string rather than an object. It did not yet reach the intended row boundary.
+Full actual log SHA
+`ce4d0fefa1cb865d5ec4987e6b1e4367eb45b324996ab1f1a219b7c809094459`.
+
+Before any digest production correction, the bounded test-only correction
+casts the serialized value through `($2::text)::jsonb` and adds an actual
+`jsonb_typeof(metadata) = 'object'` assertion. All previous literal lengths,
+SHA, wire size and seven original contract groups remain. Format75359 exited0;
+the same complete command52731 ended normally,exit2,**9 tests/2 failures**,
+55.1 seconds. All original seven groups passed. The correctly typed legal wire
+record reached the implementation and was rejected as `backup_invalid`; the
+chunk query remained absent. Full actual RED log SHA
+`2f3840a90665cfca774ba53779f07aa152551fcbbb840a5367672424b4e9381a`.
+
+Only after that RED, root replaced the full-row client fetch/size guard with
+fixed-source SQL slices and an incremental row hash. SQL orders by the frozen
+native PK then byte offset and returns at most65,536 bytes per fetch. Row length
+framing is fed once, chunks continue the same hash, and the table count advances
+once at the last chunk. The fixed scalar/JSON/projection/folding protocol and
+wire limits remain unchanged. An internal fixed-registry `row_chunks_sql/2`
+seam permits the independent real-cursor contract; unknown table/selector is
+rejected before SQL.
+
+Source format24213 exited0. First repair verification42646 ended normally,
+exit2,**9 tests/5 failures**,32.2 seconds: a new SQL qualifier parameter was
+shadowed by the pre-existing local row-prefix expression, producing invalid
+SQL. Full actual failed attempt, including the compiler warning, is retained
+at SHA `a339ce11aed1af5db188afc08f8d0890b6176080d73839bac87317a6f6adb0b4`.
+The narrow source-only correction renames that qualifier parameter and its use;
+no test changed. Format75527 exited0; repeat51393 ended normally,exit0,
+**9 tests/0 failures**,32.7 seconds, with no warning in returned output.
+Full actual GREEN log SHA
+`5ca2b5ad215cf454a0a27afa3b3fa49282a896cc3968d89bc7507de2a7921fb4`.
+Current digest source SHA
+`eac3031b30eb4d9306eb9592884dd67a77d5eb50e57279815f060b3d6544d2f5`;
+current nine-group contract SHA
+`e868879c49a3bece52430c048fe521aee3028737a9b5ade04a12703c726063a4`.
+
+Each owning run completed normally and removed its allocated root/database:
+`a60ba3e50fb77695a8670c62`, `d0f473c2e11be93f156c2f1d`,
+`cf93d1cc44de854a0eb32e64`, `96b80ce2dcf4ce2be91bd0d9`.
+Parent separately checked each root's absence. Later live maintenance inspection
+again found no private test databases. This proves the tested client transport
+and literal digest boundary, not PostgreSQL/VM memory instrumentation.
+
+Cumulative compatibility/test-contract corrections8 resolved. This new digest
+boundary had one failed initial implementation verification, followed by one
+narrow SQL correction and GREEN; there were not two failed same-defect Sol
+repair rounds. Astra implementation attempts0. Full Task4 SOURCE SPEC and
+subsequent fresh SOURCE QUALITY remain pending. No frozen file, wire protocol,
+Vault feature, migration, canonical activation or publication change.
+E2E **NOT RUN**.
+
+## Task4 initial complete staged-preflight implementation verification
+
+The Sol preflight author stopped after self-review; parent read all1,292
+formatted source lines. Stage SHA
+`dcbf4cf7f236feb8dbf7ee90e90349b8f7b4e26c3e91920c7b6c945b8bf7a8e4`;
+narrow Restorer wrapper SHA
+`92110338dc608614f1c81d27b7ef076a09f84faa4a3f8a3bb2aa1ffca8555c50`.
+The unchanged complete preflight command ran as36291 and ended normally,exit2,
+**17 tests/5 failures**,128.8 seconds. Every failure is a required positive:
+complete historical graph, wrapper composition, large original/multiple batches,
+structurally valid unique false plaintext SHA, and the initial positive before
+stale/wrong-cut validation. Full unfiltered returned output is retained in
+`.devenv/phase5-task4-preflight-green-attempt1.log`, SHA
+`75f0c096d27bb388e4b21966cf088b2e328b332ac3234aaa2530db89ef9d6bc3`.
+Allocated root/database `4457ed742e400b21e96ddd0c` was removed; parent separately
+checked root absence and live no-test-database state.
+
+The twelve passing groups are not feature acceptance: semantic negative cases
+can pass while an earlier unrelated positive failure rejects every bundle.
+The late-final-authentication-fault contract did observe real inserts, all five
+object seals and cleanup, but does not prove later semantic/digest success.
+Two authors performed bounded read-only diagnosis with no source/test edits or
+application execution. A concrete fixture/unchanged-codec generation-zero
+idempotency spelling mismatch was found statically; its executable contract
+and a privacy-safe genuine-stage branch-localization probe are pending.
+No first live failure cause is claimed yet. Task4/Phase5 **NOT accepted**;
+production import remains V1/V2 only. E2E **NOT RUN**.
+
+## Task4 fixture job-contract characterization and content-free localization
+
+Before changing the fixture, its author added one actual-row contract to the
+complete fixture owner. It reconstructs the existing seeded outbox envelope,
+calls the unchanged EnvelopeCodec, requires the producer's exact unsuffixed
+generation-zero key and revision0, and checks the matching submission/payload
+and unchanged canonical rows. All twelve previous fixture groups and the six
+DDL groups remain. Parent format58661 ended normally,exit0; contract SHA
+`fe29955140129fd88321b99b8ca0d80e07d89f9d02a0d4cd321de59df216bc81`.
+Complete fixture plus DDL execution57566 ended normally,exit2,**19 tests/1
+failure**,93.4 seconds. The only failure is the new actual decode assertion,
+returning redacted `job_failed`; all eighteen previous groups pass.
+Full actual RED log `.devenv/phase5-task4-fixture-envelope-red.log` SHA
+`1d8044c090fe827c281db5887591cee52680b613915f50d9f9dee0b4bc908068`.
+Allocated root/database `a619cd781cc7999a676e8d67` was removed and explicit
+root absence passed.
+
+To distinguish this confirmed latent fixture defect from an earlier Stage
+failure, the Stage author supplied a genuine fixture/Reader/Replay diagnostic
+probe. The parent formatted it (67204,normal exit0). Its Erlang trace requests
+only local calls with `:arity`: no argument, return or exception payload enters
+the tracer. It records static function/arity names and numeric batch/chunk
+counts, preserves an actual positive success assertion, and cleans tracing and
+owned stages in `after`. The exact formatted source is archived in ignored
+`.devenv/phase5-task4-preflight-probe_test.exs`, SHA
+`337e3e62933c819b040c150bfbada79252606e7004d101736e52e1154bed4d03`.
+
+Initial routing through an app-prefixed `../` path was incorrect: execution4064
+ended normally,exit0, but no app matched any test file. This is **NOT RUN**, not
+PASS or a successful probe. Its actual output is retained at ignored log SHA
+`732cc5b0e12d33818cafe96defe83f689d6b165befdc5e5e3825325d27c6eb55`.
+Allocated root/database `74657b8d04aa26505486ab61` was removed. A byte-identical
+temporary copy under `apps/singularity_storage/.devenv/` fixed routing without
+changing probe behavior; that nested path was not ignored, so it was kept
+explicitly unstaged and later removed with apply_patch. The ignored archive
+remains recoverable; no user file or ignore configuration was changed.
+
+Correct routed execution81735 ended normally,exit2,**1 test/1 failure**,16.9
+seconds. Actual trace has8,931 arity-only calls. Its branch sequence reaches
+all earlier semantic checks, then `jobs!/2`, `job!/2`, its type/UUID conversion
+calls and immediate rollback; digest calculation is never reached. Numeric
+observations:33 real insertion batches,114 rows,120 metadata records/62,106
+bytes, five object chunks/880 ciphertext bytes. Full content-free actual output
+`.devenv/phase5-task4-preflight-probe-red.log` SHA
+`8641d746fe208e3ca9b074810fdccdc764d8c901bdd7f839c37b117d42a43435`.
+Allocated root/database `4a90804bafd3d9febe80e632` was removed and root absence
+passed. Live maintenance inspection after the preceding fixture/unmatched run
+found no test databases; later owning-run cleanup is checked again below.
+
+Combined with the actual independent codec RED and unchanged producer/codec
+definitions, the live trace localizes the positive bundle's failure to its
+seeded job envelope: helper generation-zero keys incorrectly end in `:0`,
+where the established generation-zero producer and decoder omit that suffix.
+Only those two helper literals (outbox and matching submission) were corrected;
+revision0 and every other seeded row/behavior remain unchanged. Reversing only
+these two suffix removals reproduces helper SHA
+`6eedf397690a5e38b93be3bd4d3bc2467399c19e94e1763bac05be4e312c0da7`.
+Current helper SHA
+`fb99a94ef3022bbbe0639b28df1e1f2f77a2873db547ddc0c6c853e44348e92f`;
+the new actual-row contract and all preflight assertions remain unchanged.
+Stage source remains `dcbf4cf7f236feb8dbf7ee90e90349b8f7b4e26c3e91920c7b6c945b8bf7a8e4`.
+Parent helper format53892 ended normally,exit0. Complete fixture/DDL and
+preflight reruns are pending; no GREEN is inferred from the diagnosis.
+This is a necessary fixture-contract correction, not relaxed production
+validation or a frozen codec change. Astra implementation attempts0;
+Task4/Phase5 **NOT accepted**. E2E **NOT RUN**.
+
+## Task4 complete owning GREEN, static and compatibility regressions
+
+After only the two seeded job-key corrections, complete fixture/DDL rerun24527
+ended normally,exit0,**19 tests/0 failures**,92.9 seconds. This includes the new
+actual frozen-codec regression and all eighteen previous fixture/DDL groups.
+Actual ignored GREEN log SHA
+`03f90342dcd1ab0f9b70956a16dc230532b91b9a1d7126ac4daf23e92a58c107`.
+Allocated root/database `d78e02c76dc128e9d69da41c` was removed; explicit root
+absence and subsequent live no-test-database query passed.
+
+Parent ran both complete Task4 owners together, not only selected positives:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_digest_test.exs --seed 215378 --warnings-as-errors
+```
+
+Execution3529 ended normally,exit0,**26 tests/0 failures**,281.3 seconds:
+all seventeen preflight groups and all nine digest groups. The positive real
+historical graph, narrow wrapper, large original/multiple insertion batches,
+structurally legal false plaintext SHA and initial positive for transaction/cut
+counterproofs now pass; semantic negatives no longer rely on the bad baseline
+job. The complete legal expanded-row SHA and actual bounded SQL-cursor contract
+also pass with the corrected fixture. No Stage or required assertion changed
+after the initial17/5 failure. Full actual ignored GREEN log
+`.devenv/phase5-task4-complete-green.log` SHA
+`97efa80fd46b65fc54904f655090551ffa065ecc35eca1a118a40166a385efd3`.
+Allocated root/database `5b14e50d96fb521fedcf0020` was removed and root absence
+passed.
+
+Parent repeated the complete umbrella static command recorded under Task3:
+format check, compile with warnings as errors, and xref cycles fail-above0.
+Execution91730 ended normally,exit0, **No cycles found**. Full actual static log
+SHA `8cdbbfd69c1f289de4fe007feb8146921f7cb02f695077c43b87b3a930f75e12`.
+The unchanged complete legacy restore/V1 SQL command recorded under Task3 ran
+as72415,normal exit0,**14 reported tests/0 failures/5 excluded**,8.9 seconds:
+nine actual SQL cases. Actual legacy log SHA
+`20d3389ce4c957c0a2f407bfcc65d0616ba39d674803655b1bbdfcc2b5c12865`.
+Allocated root/database `68b324fb3c889c026f9889b0` was removed and root absence
+passed. The five non-SQL exclusions are not claimed as SQL execution.
+
+The complete pure/downstream command recorded under Task3 then ran as86126,
+normal exit0: Core72/0,Storage51/0,Runtime26/0,Web37/0 — **186 tests/0 failures**,
+including all five previously excluded non-SQL cases. Actual full log SHA
+`caceb937b54bf13c9cce7da96dac7b429c0038b4e83f3a3acadde7516117d21e`.
+All56 frozen entries passed again against the unchanged historical baseline;
+`git diff --check` passed. A final live private maintenance query found no test
+databases. The socket-only parent-owned cluster remains running for later
+Phase5 tasks; it is not falsely reported as stopped.
+
+Main is clean and remains `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`.
+The actual worktree registry confirms all protected branch HEADs unchanged;
+Phase4 is clean at `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. The protected
+Phase2 user-untracked plan retains SHA
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+No unrelated file, released migration, workflow, dependency, frozen lease/
+crypto/custody or production configuration changed.
+
+The fixture-job contract correction passed its first complete bounded repair
+verification. Cumulative compatibility/test-contract corrections9 resolved;
+the separate digest SQL qualifier correction is recorded above, not silently
+counted as a test change. No defect has two failed Sol repair rounds; Astra
+implementation attempts0. Source is frozen in the seven-file
+`.devenv/phase5-task4-source-review.sha256` receipt for an actual non-author
+full SOURCE SPEC, followed only after closure by fresh separate SOURCE QUALITY.
+Neither review nor a Task4 commit has happened yet. Task4/Phase5 **NOT accepted**;
+canonical V3 import/default activation remain closed. E2E **NOT RUN**.
+
+## Task4 actual full SOURCE SPEC finding and genuine generation regression
+
+Fresh non-author `phase5_task4_source_spec` completed actual full SOURCE SPEC:
+**FAIL**, one important generation-provenance finding. It read all seven
+current changed source files in full,9,191 lines, including the entire3,565-line
+Restorer and complete fixture/test owners; complete Task4/protocol and relevant
+Task5 boundary, design §§6/7, Task3→Task4 report delta, full tracked diff and
+actual chronology/logs/literal-vector/bounded native review evidence. Registry,
+Reader/Replay, verifier/codec, producer/lifecycle, adapter/SafeSQL/Core and DDL
+dependencies were targeted, not a whole-repository/full-governance review.
+All seven source and56 frozen entries, receipt/document SHAs, HEAD and empty
+index remained unchanged before/after. Reviewer tests/application/SQL/service
+execution, edits and Git mutations: none. Commands finished and reviewer STOP.
+Faithful native review `.devenv/phase5-task4-source-spec-native.md` SHA
+`a3e1420b235dcffc3f232ec61c2aecdd108889152b795590a71d4f70ceffba72`.
+For precision, its excerpt reference applies only to initial missing-module
+RED81419; the initial implementation17/5 archive36291 is complete/unfiltered.
+
+Finding: every extraction event matched Document identity/owner/classification,
+but only the current extracting attempt checked generation. A second, internally
+valid, not-yet-dispatched event can request generation9 for a pending version
+whose persisted generation is0 and enter accepted staged digests. The frozen
+producer/claim/retry/recovery contracts supply the correct bound: a pending
+request may equal the persisted generation; claiming increments it; older
+events remain valid history. The reviewer proposed a source-backed counterproof,
+not an executed one. Existing26/0 does not cover or close this finding.
+
+Before any production repair, parent added one genuine Reader/Replay group and
+one small test helper; all seventeen prior groups and assertions remain byte-for-
+byte intact. Removing only these additions reproduces previous test SHA
+`e964c48e6f90bc6780f67f331bd2ce760533434b4c9d9438422ff994e8668ea4`.
+Parent format59958 ended normally,exit0; new complete test SHA
+`11807c49c1f8ceb25c66827f58ac886d83c592b573a05caf1452658d495d2dc1`.
+The group first stages and validates three positives: pending generation0/
+request0, pending generation2/request2 equality, and generation2/request1 stale
+history. It preserves original extracting job/submission/progress/effect rows,
+adds a fresh event UUID/sequence with exact matching generation key and payload,
+has no submission for the additional undispatched event, and uses genuine
+authentication plus coherently recalculated cut/row counts. Negative cases
+cover future events on pending, failed and ready Document versions.
+
+Focused execution21025 of the new group's actual line721 ended normally,exit2,
+**18 reported tests/1 failure/17 excluded**,22.3 seconds: only this one new group
+executed. All three positives passed before the first negative incorrectly
+returned `{:ok, counts_and_digests}`. Thus this is a genuine semantic RED, not a
+key-syntax or broken-baseline failure. The failed/ready negative iterations were
+not reached in RED and are not claimed as executed. Full returned output
+`.devenv/phase5-task4-generation-red.log` SHA
+`2db00073be9af1406ddcaeaee64a75d0a08370eb6986c1a2b211002b9b22c6d1`.
+Its byte displays contain ExUnit's own inspect limits; returned tool output is
+complete. Allocated root/database `091cd2cddd81af423aa86272` was removed and
+explicit root absence passed.
+
+Only afterward the Stage author added one SQL conjunct to the matching-Document
+check: `expected_entity_revision <= attempt_generation`, for every extraction
+event. Existing extracting-current `generation - 1`, scope/capability/identity,
+all other semantics and every test remain unchanged. Removing only this conjunct
+reproduces original Stage SHA
+`dcbf4cf7f236feb8dbf7ee90e90349b8f7b4e26c3e91920c7b6c945b8bf7a8e4`.
+Current Stage SHA
+`82cf1475cabd4ffa6238d8d860fc82d72255f9eff99a91c5c7f225b3cf39fef6`;
+parent format28964 ended normally,exit0. Full eighteen-group preflight plus
+nine-group digest rerun is now in progress. No GREEN or finding closure is
+inferred yet. This is the first bounded production repair of this distinct
+review finding, not a failed repair round; Astra implementation attempts0.
+No frozen lifecycle/codec, Vault feature, migration, canonical import/default
+activation, production data or publication change. E2E **NOT RUN**.
+
+## Task4 generation-bound full owning verification
+
+Complete execution86548 of the same two-file owning integration command above
+ended normally,exit0, **27 tests/0 failures**,301.6 seconds: all eighteen
+preflight groups and nine digest groups. The new generation group executes all
+three legal pending/equality/stale positives and all pending/failed/ready future
+generation negatives. All prior groups and assertions remain intact. Full actual
+ignored output `.devenv/phase5-task4-generation-complete-green.log` SHA
+`724b7b003fdbcaf25eb7e1070e3024e49ad06ec30fee6f37fa2a5a924a8f381d`.
+Allocated root/database `679a963e1ca22ab02d747394` was removed; explicit root
+absence and a subsequent live maintenance query found no test databases.
+
+The complete format-check, compile-warnings-as-errors and xref-cycle gate was
+repeated after the repair as99402,normal exit0, **No cycles found**. Actual log
+`.devenv/phase5-task4-generation-static.log` SHA
+`8cdbbfd69c1f289de4fe007feb8146921f7cb02f695077c43b87b3a930f75e12`.
+All56 historical frozen entries passed again; `git diff --check` passed.
+Fixture/DDL19/0, legacy SQL14 reported/0/5 excluded and pure/downstream186/0
+above were executed before this one-conjunct/new-test review repair, not falsely
+represented as rerun afterward. Their source owners are unchanged.
+
+The first seven-file review receipt remains historical and unmodified. Current
+seven-file receipt `.devenv/phase5-task4-source-review-v2.sha256` SHA
+`451a59909e8fb65d691aeb0c900358e11e123c6bf8b74fd22f58ff9d5a2285ff`
+binds the exact repaired Stage and full regression owners. This first bounded
+production repair passed its complete owning verification; no failed repair
+round is claimed. Astra implementation attempts0. The original full SOURCE
+SPEC reviewer must still close its actual finding, then a separate fresh
+non-author must perform full SOURCE QUALITY. No Task4 commit or acceptance is
+claimed yet; canonical V3 import/default activation remain closed. E2E **NOT RUN**.
+
+## Task4 actual bounded SOURCE SPEC closure
+
+The original independent full SOURCE SPEC reviewer returned **PASS**, closing
+its future-generation finding with no remaining specification findings.
+It carried its actual prior seven-file9,191-line coverage and freshly read
+the complete repaired Stage1,292 lines and full preflight test1,340 lines,
+**2,632 fresh lines**. The approximate1,341-line handoff was a line-count typo;
+the reviewed1340-line test retained the exact expected hash. The other five
+source hashes were verified unchanged; no fresh full Restorer reread is claimed.
+It read the complete new plan/report delta and actual RED/GREEN/static logs,
+verified independent source/test/doc reversals, and repeated all56 frozen and
+seven v2 source checks before/after. HEAD and empty index remained stable;
+all commands finished, no edits/tests/application/SQL/services/Git mutations.
+Faithful native `.devenv/phase5-task4-source-spec-closure-native.md` SHA
+`36a8efd7d684376d1003c9db25674e9737b0109cceb5b3910fefc7428132f490`.
+Reviewed plan SHA
+`8dbf00c816194e5be35885aee71ba232c82e4e39caf83af21eae734d38c3d1c6`;
+reviewed report SHA
+`aa97e98855c71d9bb1eae4da245dedc1b06e70ca9d7b940538b312ed7252eada`.
+This paragraph is post-verdict evidence, not retroactively part of that review.
+Separate fresh full SOURCE QUALITY is still required. Task4/Phase5 are not
+accepted; canonical V3 import/default activation remain closed. E2E **NOT RUN**.
+
+## Task4 actual fresh full SOURCE QUALITY and local-commit readiness
+
+Fresh separate non-author `phase5_task4_source_quality` returned **PASS**, no
+actionable findings. It read all seven current source/test files in full,
+**9,275 lines**, including the entire3,565-line Restorer; full tracked source
+diff and Task3→Task4 report delta, complete Task4 protocol/Task5 boundary and
+design §§6/7/8. Dependency review was selective, including complete SafeSQL/V3
+registry and relevant frozen Reader/Replay, adapter/codec/producer/Core paths;
+not a repository-wide audit. It scrutinized actual log and literal/native review
+chronologies, not merely receipts or a parent summary. All seven v2 source
+entries and56 frozen entries passed before/after, HEAD/index/diffcheck and
+reviewed document hashes stayed unchanged. All commands finished; no edits,
+Mix/formatter/tests/application/SQL/services/Git mutations. Faithful native
+`.devenv/phase5-task4-source-quality-native.md` SHA
+`8ae9b7a35286a5df154cb97a85b34925efa7802fc75dd21f08636b5f7188a503`.
+Its reviewed report SHA
+`8241bf78b770f2dde7f179f1d4c4fb4d1565a874c2f78835f7ca61e04c1da1ff`
+and plan SHA
+`8dbf00c816194e5be35885aee71ba232c82e4e39caf83af21eae734d38c3d1c6`
+remain historical review bindings. This post-verdict readiness record/checklist
+update is not retroactively included in either review.
+
+Parent reconfirmed protected main/other worktree HEADs and clean main/Phase4,
+unchanged protected Phase2 user-untracked plan SHA, empty index and no custom
+hook path/installed pre-commit/commit-msg hook. Only the seven reviewed source
+owners and two scoped plan/report files will be staged. Task4 qualifies for
+its narrow local commit under continuous authority after owning27/0, post-repair
+static gate and actual independent SPEC→QUALITY. This is not Phase5 acceptance,
+canonical V3 import/default activation or runtime/browser qualification.
+No Vault feature work occurred. E2E **NOT RUN**; no push/merge/release/deployment.

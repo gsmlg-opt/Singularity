@@ -9,6 +9,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
   alias Singularity.Storage.Backup.{BundleReader, LogicalBundleVerifier, LogicalRecordCodec}
   alias Singularity.Storage.Backup.{LogicalSchemaV2, LogicalSchemaV3}
   alias Singularity.Storage.Crypto.{ChunkedAEAD, Format, KeyWrapper}
+  alias Singularity.Storage.Jobs.EnvelopeCodec
   alias Singularity.Storage.Local.PathGuard
 
   @fixtures Singularity.Storage.Backup.KnowledgeBackupFixtures
@@ -828,6 +829,52 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
                head["deleted_at"] == nil and
                  head["current_version_id"] == entry["resource_version_id"]
              end)
+    end)
+  end
+
+  test "the stored generation-zero extraction job decodes through the frozen envelope contract" do
+    with_fixture(fn fixture ->
+      before = direct_canonical_rows(fixture)
+      assert [event] = before["core.outbox_events"]
+      assert [submission] = before["jobs.job_submissions"]
+      assert event["event_type"] == "document.extraction_requested"
+      assert event["expected_entity_revision"] == 0
+      assert submission["outbox_event_id"] == event["id"]
+      assert submission["job_type"] == "document_extract"
+
+      encoded = %{
+        "version" => event["envelope_version"],
+        "job_id" => event["id"],
+        "job_type" => submission["job_type"],
+        "idempotency_key" => event["idempotency_key"],
+        "vault_id" => event["vault_id"],
+        "principal_id" => event["principal_id"],
+        "required_capability" => event["required_capability"],
+        "principal_authorization_epoch" => event["principal_authorization_epoch"],
+        "vault_authorization_epoch" => event["vault_authorization_epoch"],
+        "classification" => event["classification"],
+        "correlation_id" => event["correlation_id"],
+        "causation_id" => event["causation_id"] || event["id"],
+        "expected_entity_revision" => event["expected_entity_revision"],
+        "attempt" => 0,
+        "payload" => event["payload"]
+      }
+
+      assert {:ok, decoded} = EnvelopeCodec.decode(encoded)
+      expected_key = "document-extraction:#{@ids.extracting_version_id}"
+      assert decoded.idempotency_key == expected_key
+      assert decoded.expected_entity_revision == 0
+
+      assert decoded.payload == %{
+               "resource_id" => @ids.extracting_document_id,
+               "resource_version_id" => @ids.extracting_version_id
+             }
+
+      assert event["idempotency_key"] == expected_key
+      assert submission["idempotency_key"] == expected_key
+      assert submission["vault_id"] == event["vault_id"]
+      assert submission["classification"] == event["classification"]
+      assert direct_canonical_rows(fixture) == before
     end)
   end
 

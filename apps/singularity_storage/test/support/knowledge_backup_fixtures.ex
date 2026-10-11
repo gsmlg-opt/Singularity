@@ -154,6 +154,15 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     end)
   end
 
+  # Transform only disposable wire input. Capture ciphertext using the unmodified
+  # canonical metadata before a test changes an owner, digest or storage path.
+  def transformed_bundle(fixture, options) when is_list(options) do
+    original_rows = canonical_rows(fixture)
+    originals = object_payloads(fixture, original_rows["content.asset_objects"])
+    rows = Keyword.get(options, :rows, &Function.identity/1).(original_rows)
+    build_bundle(fixture, rows, 3, Keyword.get(options, :mode, :replay), options, originals)
+  end
+
   def search_rows(fixture) do
     owner_query(fn ->
       %{
@@ -692,7 +701,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     insert("core.outbox_events",
       id: id(700),
       event_type: "document.extraction_requested",
-      idempotency_key: "document-extraction:#{ids.extracting_version_id}:0",
+      idempotency_key: "document-extraction:#{ids.extracting_version_id}",
       vault_id: owner.vault_id,
       principal_id: owner.principal_id,
       required_capability: "asset.read",
@@ -714,7 +723,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
       vault_id: owner.vault_id,
       outbox_event_id: id(700),
       classification: "private",
-      idempotency_key: "document-extraction:#{ids.extracting_version_id}:0",
+      idempotency_key: "document-extraction:#{ids.extracting_version_id}",
       job_type: "document_extract"
     )
 
@@ -829,6 +838,26 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
   defp canonical_value(_key, value), do: value
 
   defp bundle(fixture, rows, logical_version, mode) do
+    originals = object_payloads(fixture, canonical_rows(fixture)["content.asset_objects"])
+    {:ok, result} = build_bundle(fixture, rows, logical_version, mode, [], originals)
+    result
+  end
+
+  defp object_payloads(fixture, objects) do
+    Map.new(objects, fn object ->
+      {:ok, path} =
+        PathGuard.object_path(
+          fixture.destination.object_root,
+          object["vault_id"],
+          object["key_domain_id"],
+          Base.encode16(object["lookup_digest"], case: :lower)
+        )
+
+      {object["id"], File.read!(path)}
+    end)
+  end
+
+  defp build_bundle(fixture, rows, logical_version, mode, options, originals) do
     schemas = if logical_version == 2, do: LogicalSchemaV2.all(), else: LogicalSchemaV3.all()
     manifest_id = id(900)
     snapshot_id = id(901)
@@ -836,19 +865,19 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     objects = Enum.sort_by(rows["content.asset_objects"], & &1["id"])
     counts = Enum.map(schemas, &length(Map.fetch!(rows, &1.table)))
 
-    {:ok, cut_record} =
-      LogicalRecordCodec.encode_cut(
-        %{
-          database_snapshot: "1:2:",
-          manifest_id: manifest_id,
-          snapshot_id: snapshot_id,
-          vault_id: fixture.owner.vault_id,
-          outbox_high_water_mark: high_water,
-          table_count_vector: counts,
-          object_count: length(objects)
-        },
-        logical_version
-      )
+    cut_input =
+      %{
+        database_snapshot: "1:2:",
+        manifest_id: manifest_id,
+        snapshot_id: snapshot_id,
+        vault_id: fixture.owner.vault_id,
+        outbox_high_water_mark: high_water,
+        table_count_vector: counts,
+        object_count: length(objects)
+      }
+      |> transform(options, :cut)
+
+    {:ok, cut_record} = LogicalRecordCodec.encode_cut(cut_input, logical_version)
 
     row_records =
       Enum.flat_map(schemas, fn schema ->
@@ -870,41 +899,37 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
         end)
       end)
 
-    object_records =
+    evidence =
       Enum.map(Enum.with_index(objects), fn {object, index} ->
-        {:ok, record} =
-          LogicalRecordCodec.encode_object(
-            %{
-              asset_object_id: object["id"],
-              object_index: index,
-              vault_id: object["vault_id"],
-              key_domain_id: object["key_domain_id"],
-              classification: object["classification"],
-              lookup_digest: object["lookup_digest"],
-              ciphertext_hash: object["ciphertext_hash"],
-              ciphertext_byte_size: object["ciphertext_byte_size"],
-              storage_ref: object["storage_ref"]
-            },
-            logical_version
-          )
+        %{
+          asset_object_id: object["id"],
+          object_index: index,
+          vault_id: object["vault_id"],
+          key_domain_id: object["key_domain_id"],
+          classification: object["classification"],
+          lookup_digest: object["lookup_digest"],
+          ciphertext_hash: object["ciphertext_hash"],
+          ciphertext_byte_size: object["ciphertext_byte_size"],
+          storage_ref: object["storage_ref"]
+        }
+      end)
+      |> transform(options, :evidence)
 
+    object_records =
+      Enum.map(evidence, fn object ->
+        {:ok, record} = LogicalRecordCodec.encode_object(object, logical_version)
         record
       end)
 
     raw_records =
-      Enum.map(objects, fn object ->
-        {:ok, path} =
-          PathGuard.object_path(
-            fixture.destination.object_root,
-            object["vault_id"],
-            object["key_domain_id"],
-            Base.encode16(object["lookup_digest"], case: :lower)
-          )
+      objects
+      |> Enum.map(&Map.fetch!(originals, &1["id"]))
+      |> transform(options, :raw)
+      |> Enum.map(&%{type: 0x8000, payload: &1})
 
-        %{type: 0x8000, payload: File.read!(path)}
-      end)
-
-    records = [cut_record | row_records] ++ object_records ++ raw_records
+    records =
+      ([cut_record | row_records] ++ object_records ++ raw_records)
+      |> transform(options, :records)
 
     recovery = %{
       "binding" => %{"manifest_id" => manifest_id, "vault_id" => fixture.owner.vault_id},
@@ -967,6 +992,8 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     {:ok, source} =
       LocalDestination.reader_source(%{backup_root: fixture.destination.object_root}, filename)
 
+    source = Keyword.get(options, :source, &Function.identity/1).(source)
+
     binding = %{
       manifest_id: manifest_id,
       vault_id: fixture.owner.vault_id,
@@ -981,19 +1008,18 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
         do: options ++ [verifier: {LogicalBundleVerifier, binding}],
         else: options
 
-    {:ok, verified} = BundleReader.authenticate_all(source, options)
-
-    cut =
+    with {:ok, verified} <- BundleReader.authenticate_all(source, options) do
       if mode == :replay do
         Process.put(@replays, [verified | Process.get(@replays, [])])
-        verified.cut
+        {:ok, %{verified: verified, cut: verified.cut, binding: binding}}
       else
-        {:ok, cut} = LogicalBundleVerifier.verify(verified, binding)
-        cut
+        with {:ok, cut} <- LogicalBundleVerifier.verify(verified, binding),
+             do: {:ok, %{verified: verified, cut: cut, binding: binding}}
       end
-
-    %{verified: verified, cut: cut, binding: binding}
+    end
   end
+
+  defp transform(value, options, key), do: Keyword.get(options, key, &Function.identity/1).(value)
 
   defmodule FixtureCrypto do
     @moduledoc false

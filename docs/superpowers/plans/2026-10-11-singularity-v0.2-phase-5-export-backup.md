@@ -458,20 +458,36 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   fixture content; no real credentials/user content. Immutable V1 fixture stays
   byte-identical; fixed V2 vectors stay explicit version 2. V1 fixture encoding
   continues through the frozen codec/golden path, never a new V1 Exporter writer.
-- [ ] Assert fixture legality independently before testing export/restore;
+- [x] Assert fixture legality independently before testing export/restore;
   do not bypass source seals, lifecycle or constraints. Run owning fixtures/
   schema files to GREEN; SPEC then QUALITY, commit
   `test(backup): add independent v3 history and ddl fixtures`.
+
+Task3 accepted locally at `465c377ade63b38bccabcac729e998ddc61ba473` after
+the complete 18/0 owning SQL rerun, static gate, legacy SQL and 186/0 downstream
+regressions. The non-author SOURCE SPEC closure carried its full prior source
+review and read the complete bounded wrapper repair/new contract; a separate
+fresh non-author SOURCE QUALITY read all four current files,2,680 lines, and
+passed without findings. Exact receipts and coverage limitations are recorded
+in the acceptance report. This closes only the fixture slice, not Phase5 or
+live runtime acceptance. E2E remains NOT RUN.
 
 ## Task 4: Authenticate, type-stage and preflight before canonical mutation
 
 **Create:** `apps/singularity_storage/lib/singularity/storage/backup/knowledge_preflight.ex`,
 `apps/singularity_storage/lib/singularity/storage/backup/knowledge_restore_digest.ex`,
-`apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs`.
+`apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs`,
+`apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_digest_test.exs`.
 **Modify:** Storage `backup/restorer.ex` only its V3 staging entry path.
+**Necessary test-contract changes:** `apps/singularity_storage/test/support/knowledge_backup_fixtures.ex`
+for genuine authenticated row/object transforms and the two generation-zero
+idempotency literals; `apps/singularity_storage/test/singularity/storage/backup/knowledge_backup_fixtures_test.exs`
+for the actual seeded-envelope decoder regression. The frozen producer/decoder
+and all prior assertions remain unchanged; RED, diagnosis and bounded correction
+are recorded in the acceptance report under continuous development authority.
 **Depends on:** Tasks 1 and 3; does not enable V3 canonical import.
 
-- [ ] Add RED tests calling `KnowledgePreflight.stage/4` with an authenticated
+- [x] Add RED tests calling `KnowledgePreflight.stage/4` with an authenticated
   `%BundleReader.Verified{replay: %BundleReader.Replay{}}`, bound manifest/cut, migration connection and
   owned object staging adapter. Reject unauthenticated data before creating
   staging. Inspect canonical table counts before/after every rejection:
@@ -483,7 +499,7 @@ assert {:error, %Error{code: :backup_invalid}} =
 assert KnowledgeBackupFixtures.canonical_rows(owner) == before
 ```
 
-- [ ] Run the full preflight integration file; expected RED is missing stage
+- [x] Run the full preflight integration file; expected RED is missing stage
   implementation. Implement connection-local typed temporary tables with fixed
   compile-time identifiers/projections, `ON COMMIT DROP`, exact PK/secondary
   unique indexes and at most 500-row insertion batches. Consume bounded
@@ -493,7 +509,7 @@ assert KnowledgeBackupFixtures.canonical_rows(owner) == before
   `BundleReader.reduce_verified/3` events are provisional until its final authentication
   succeeds: effects stay in the uncommitted transaction and unpublished owned
   object stages. Keep the existing Verified/Replay types and crypto path.
-- [ ] Define `KnowledgePreflight.validate/3` to return only bound counts,
+- [x] Define `KnowledgePreflight.validate/3` to return only bound counts,
   canonical per-table digests and typed staged ownership after all joins pass.
   Check owner/classification/creator/membership; typed heads; Note digests,
   revisions/parent/merge DAG/conflicts; Document immutable historical source
@@ -502,7 +518,12 @@ assert KnowledgeBackupFixtures.canonical_rows(owner) == before
   concatenated extracted hash; Note source types/owners/ordinals/uniqueness/
   no self links/limits/exact locator; tag Core normalization/owner uniqueness;
   edge types/version ownership; completed receipts and durable payload shapes.
-- [ ] Define `KnowledgeRestoreDigest.projection/1` from the immutable registry
+  Every extraction event's expected generation must be no greater than its
+  pinned Document version's persisted generation. Preserve legal pending
+  equality and older/stale events; the current extracting job still requires
+  exactly persisted generation minus1. Characterize with genuine authenticated
+  undispatched events, not a forged Verified or syntactically invalid key.
+- [x] Define `KnowledgeRestoreDigest.projection/1` from the immutable registry
   and `table_digest/3` using sorted PKs and explicit typed length-framed row
   encoding. Both staged and canonical rows use the same projection; never hash
   generic maps, destination-selected metadata or unstable timestamps. For byte
@@ -511,24 +532,93 @@ assert KnowledgeBackupFixtures.canonical_rows(owner) == before
   object encoding. Freeze independent vectors for null/empty/multibyte/JSON and
   equal-count row changes. Expected digests are computed from authenticated
   staged rows before admission. SQL finalization must use the identical encoding.
-- [ ] Reject duplicates, mixed versions, extra/missing rows, wrong counts,
+- [x] Reject duplicates, mixed versions, extra/missing rows, wrong counts,
   dangling/cross-owner/type references, cyclic Note ancestry, incorrect fragment
   IDs/ordinals/locators/digests, non-ready fragments, unsupported formats,
   pending receipts, receipt disagreement, ambiguous Asset bindings and malformed
   job provenance. Historical released associations/nulled Asset pointers remain
   legal only with exact immutable Document pin and retained object.
-- [ ] Validate exact inventory union and evidence/raw one-to-one mapping;
+- [x] Validate exact inventory union and evidence/raw one-to-one mapping;
   reject missing/extra foreign objects, truncated/changed ciphertext and lengths.
   Source plaintext hash comparison is deferred specifically to Task 9, not
   replaced with ciphertext hashing. Assert no canonical insert before complete
   preflight and bounded buffering with record/page observer barriers.
-- [ ] Run full file to GREEN:
+- [x] Run full file to GREEN:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs --seed 215378 --warnings-as-errors
 ```
 
   SPEC then QUALITY, commit `feat(restore): stage and preflight canonical v3 graph`.
+
+### Task4 selected typed-digest and test-boundary detail
+
+This implements the already required framed digest and its independent vectors;
+it adds no product/API authorization or canonical V3 import. `projection/1`
+returns the immutable V3 schema, never destination catalog metadata.
+`table_digest(repo, table, :staged | :canonical)` returns a bound count/32-byte
+SHA pair. Fixed staged relations are `pg_temp.knowledge_restore_0` through `_37`.
+`install/1`, the fixed-tag, fixed-`value`-identifier `value_encoding_sql/1`
+and fixed-registry `row_chunks_sql/2` are internal SQL compilation/test seams,
+not runtime or bundle-selected SQL. The SQL side encodes bytes; Elixir streams
+one at-most65,536-byte encoded-row slice per fetch and folds only a digest/count
+and the current incremental hash context. Length is framed once per row;
+the digest chain and count advance only after its final slice. Wire payload
+limits remain unchanged: typed JSON framing can expand a legal16 MiB record.
+No generic map/ETF/JSON text digest or Decimal rounding.
+
+Let `U(n)` be unsigned 64-bit big-endian framing, within signed PostgreSQL
+length/count limits, and `F(bytes) = U(byte_size(bytes)) || bytes`. Scalar tags
+are boolean01, integer02, bytes03, text04, UUID05, timestamp06 and JSON07.
+Every cell is `tag || presence || F(payload)`; presence00 for SQL NULL with
+empty payload, presence01 otherwise. Payloads: Boolean00/01; signed big-endian
+int64; raw bytea; UTF-8 text; canonical16-byte UUID; signed UTC epoch
+microseconds; or the following recursive binary JSON:
+
+- null00, false01, true02;
+- number03 plus framed exact `trim_scale(numeric)::text`, no float/Decimal
+  precision conversion (1/1.0/1e0 and -0/0 agree);
+- string04 plus framed unescaped UTF-8;
+- array05 plus element count, then framed recursively encoded elements;
+- object06 plus key count, then framed key UTF-8 and framed encoded value,
+  ordered by UTF-8 key bytes, not database locale.
+
+Row bytes are `U(column_count)` followed by cells in immutable wire order.
+Projection bytes `P` are `U(column_count)`, then each framed column name/tag/
+nullable byte, then `U(PK_count)` and ordered zero-based PK positions. With
+`domain = "singularity:knowledge-restore-digest:v1"`:
+
+```text
+D0 = SHA256(00 || F(domain) || U(3) || F(table_name) || F(P))
+Di = SHA256(01 || D(i-1) || F(row_bytes_i))
+final = SHA256(02 || Dn || U(row_count))
+```
+
+Native UUID/integer and byte-ordered text PK sorting is fixed. Task5 must
+independently implement the identical protocol in owned, pinned SQL functions
+and ordered cursors; it must not trust a caller-created pg_temp helper.
+Independent scalar/JSON literal vectors include signed bounds, pre-epoch and
+microsecond timestamps, multibyte/escaped strings, SQLNULL versus JSONnull,
+empty containers, nested byte-sorted keys and numbers beyond34 digits. Literal
+empty/two-row/reversed-row SHA vectors were calculated from separately framed
+literal bytes before production code, not via the function under test.
+
+Additional independent literal JSON/row vectors cover a legal wire row whose
+framed row is16,785,376 bytes. Its exact SHA remains required, not an increased
+wire limit. A separate real SafeSQL cursor contract observes only numeric chunk
+lengths/offsets, proves at-most65,536-byte payloads and native PK order on reverse
+inserted rows, and checks empty canonical/invalid-identifier selection. This
+qualifies bounded client transport, not database/VM memory instrumentation.
+
+Wire-invalid duplicates/mixed versions/order/count/evidence-raw equality are
+rejected by the unchanged real verifier before Replay issuance; tests must not
+forge Verified to shift those failures to Stage. Coherently counted semantic
+graph and object-row/evidence disagreement negatives use genuine Replay.
+Stage/validate share the caller migration transaction and use local savepoint
+rollback plus an independent owned-stage cleanup ledger on failure. A narrowly
+scoped trusted numeric observer measures real batches/metadata/object appends;
+it makes no VM-memory or disabled Ecto-telemetry claim. Source plaintext SHA
+equality remains Task9; Notes have no invented SHA column. E2E stays NOT RUN.
 
 ## Task 5: Migration-only transaction-bound admission and deferred finalizer
 

@@ -6,6 +6,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   alias Singularity.Core.ObjectRef
   alias Singularity.Core.StageRef
   alias Singularity.Storage.Backup.BundleReader
+  alias Singularity.Storage.Backup.KnowledgePreflight
   alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
@@ -148,6 +149,35 @@ defmodule Singularity.Storage.Backup.Restorer do
   end
 
   def import(_context, _migration_repo, _input), do: backup_invalid()
+
+  @doc "Stages authenticated V3 privately in the caller's migration transaction; never imports."
+  @spec preflight_knowledge(map(), module(), map()) :: {:ok, map()} | {:error, Error.t()}
+  def preflight_knowledge(context, migration_repo, input)
+      when is_map(context) and is_atom(migration_repo) and is_map(input) do
+    with true <- exact_keys?(input, @input_keys),
+         %BundleReader.Verified{replay: %BundleReader.Replay{}} = verified <- input.verified,
+         {:ok, %{logical_version: 3} = cut} <- authenticated_cut(verified, input.binding),
+         true <- cut == input.cut,
+         {:ok, storage} <- object_storage(context),
+         {:ok, staged} <-
+           KnowledgePreflight.stage(
+             migration_repo,
+             verified,
+             cut,
+             Map.put(storage, :observer, Map.get(context, :preflight_observer))
+           ),
+         {:ok, summary} <- KnowledgePreflight.validate(migration_repo, staged, cut) do
+      {:ok, summary}
+    else
+      _invalid -> backup_invalid()
+    end
+  rescue
+    _exception -> backup_invalid()
+  catch
+    _kind, _reason -> backup_invalid()
+  end
+
+  def preflight_knowledge(_context, _migration_repo, _input), do: backup_invalid()
 
   defp authenticated_cut(
          %BundleReader.Verified{
