@@ -2,7 +2,7 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks0–8 scoped source/gates are locally qualified, with Task8 actual full SOURCE SPEC and distinct fresh QUALITY PASS; exact local commit handoff follows below. All Task13 design/test-layout/zero-ready contract amendments pass actual SPEC/fresh QUALITY; the invalid newly authored SQL fixture still needs correction and repeated complete causal RED before production GO.**
+**IN PROGRESS — Tasks0–8 scoped source/gates are locally qualified; Task8 tested source is locally committed at `21d066036edbcb3f0a0737ae2dca36a9cea79427`, after actual full SOURCE SPEC and distinct fresh QUALITY PASS. All Task13 design/test-layout/zero-ready contract amendments pass actual SPEC/fresh QUALITY; its corrected SQL fixture and repeated complete causal RED are in progress before production GO. Task9B compatibility tests are being authored separately; no Task9 production repair is qualified.**
 Phase5 as a whole is not accepted; Tasks9–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
@@ -3542,6 +3542,58 @@ pure gate. The old four-test receipt remains historical, not regenerated.
 All three Task13 production modules remain absent; SQL first RED still pending.
 No task/phase acceptance, E2E NOT RUN, publication or production-data action.
 
+## Task8 local source commit and next scoped test work
+
+Actual distinct fresh nonauthor `phase5_task8_full_implementation_quality`
+completed full implementation QUALITY PASS, with no Critical, Important or
+Minor finding. It read all four production files, complete owning tests,
+protected fixture/privacy sources, current governing documents and relevant
+normal-publication/physical-path/saga/frozen-custody seams (7,989 lines), checked
+the actual preceding SOURCE SPEC record and complete SQL78/0, pure50/0 and
+static logs, and independently matched both receipts (17/17), Task7four,
+Task13four and frozen56. It did not execute the parent-owned gates. Parent
+factual record `.devenv/phase5-task8-source-quality-record.md`, SHA
+`e9010fde30d95e6c2f07691802911cd139e62907d270949f0fdaebb45091582b`,
+is not a verbatim transcript. Its verdict qualifies only Task8; Task9 restore,
+Task11 real upload/restore integrity and Task12 guarded default activation
+remain mandatory. Phase5 remains unaccepted.
+
+Parent then committed two exact local units, without source writes or gate
+reruns between verification and source commit:
+
+- Documentation commit `990657d71250b8eb633111aeb44d2f2ab32e47a3`,
+  `docs(phase5): record reviewed backup compatibility contracts`: only the
+  governing Phase5 design/plan/report and two reviewed storage-reference
+  compatibility design/plan documents (five files).
+- Tested implementation commit `21d066036edbcb3f0a0737ae2dca36a9cea79427`,
+  `feat(backup): export retained knowledge with explicit logical v3`: only
+  Exporter, new forward00500/read-grants and00600/V3-guard, Runtime.Application,
+  full V3 exporter owner, retained logical-exporter owner and Application owner
+  (seven files). The protected common fixture and all four unaccepted Task13
+  test/helper files were not staged.
+
+Both commits completed normally, exit0 (6d0eb9 and2e2776). Parent inspected
+exact cached paths/stat and cached whitespace checks before each commit.
+Postcommit `git diff --exit-code HEAD --` all seven tested source paths exited0
+(9349a1); both Task8 receipts, all four unaccepted Task13 files, acceptedTask7four
+and frozen56 matched (33d9f5 exit0). The only remaining source/test paths were
+the previously untracked Task13 files; index was not used for them. Main remains
+clean at `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b` (aeef8e/151d78), and the
+unrelated Phase2 plan remains SHA
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`
+(818647). No merge, push, publication, release or deployment occurred.
+
+After this local closure, parent issued test-only GO to the original Task13
+author for its single new Repository owning file: correct the invalid zero-ready
+fixture per reviewed amendment and add distinct input/precommit/real-COMMIT
+denials. A disjoint Sol author owns only existing Task9B preflight/admission
+test files, preserving all old graph and genuine admission assertions while
+adding UUID/mixed positives and wrong-reference negatives. No production module,
+accepted migration or frozen boundary may change during this authoring step.
+Parent remains the sole formatter/Mix/SQL/service/Git actor and will repeat full
+causal RED gates before implementation. E2E remains NOT RUN/manual-only;
+failed Sol repair rounds0, Astra implementation repair attempts0.
+
 ## Task8 full QUALITY PASS: scoped local qualification, not Phase5 acceptance
 
 Actual fresh independent `phase5_task8_full_implementation_quality` completed
@@ -3729,3 +3781,1356 @@ assertions and adds genuine input/precommit/real-COMMIT denial. Source tests are
 still unchanged; parent waits for Task8 local closure before author GO, then
 repeats whole Task13 pure/SQL gates before any of its production modules.
 No task/phase acceptance, E2E NOT RUN, publication or production-data action.
+
+## Post-Task8 test authoring and repeated RED — fixture corrections still required
+
+The preceding pending-review statements are historical; current Task8 scoped
+acceptance and exact two local commits are recorded under its local source commit
+section above. Source remains `21d066036edbcb3f0a0737ae2dca36a9cea79427`.
+Parent checked Task8's fifteen plan items and compatibility TaskA's three items
+only after that actual source/gate/review closure. These are status updates, not
+new normative permission or Phase5 acceptance.
+
+Task13 author completed only the reviewed Repository owning test amendment:
+legitimate terminal unsupported metadata with actual original binding retained,
+SQL zero-fragment/zero-byte input rejection, owner-role precommit denial and a
+separate actual-COMMIT constraint case. It also added only six narrow private
+test helpers and a fixed RR delegation in its existing test-only owner scope.
+Parent read every amended case/helper/scope. Raw author receipt
+`.devenv/phase5-task13-ready-zero-authored.sha256`, SHA
+`476447a464a1aa1b1ae5df6d76f0e1c800de88ade54deb87c923c53dec4526e1`;
+parent factual handoff record
+`.devenv/phase5-task13-ready-zero-test-author-record.md`, SHA
+`5950605a069c470d36af3f8be365e125f3010e7811db1644879a3b735fff4658`.
+Neither raw receipt nor predicted counts are execution acceptance. All three other
+Task13 test/helper files stayed byte-identical. There are83 authored Task13 cases.
+
+Disjoint Task9B author added four preflight cases and six admission cases, with
+all existing assertions unchanged (only an alias line replaced to add the
+existing MigrationTestEnvironment). They cover independent UUID/mixed positives,
+coherent wrong references, physical aliases, actual deferred mutation rejection
+and historical00600→00700 function/security equivalence. Parent read the full
+two-file430-added-line diff and strengthened only its new mutation case to
+observe normal callback return and exact object-closure COMMIT error. Current
+final guard accepts both pending/imported saga state; pending alone was not a
+defect. That clarification is not a failed-gate repair. SQL fixture cases do not
+prove normal upload or Task11's complete unchanged-custody chain.
+
+After both authors closed, sole parent formatter97080 finished normally69d2db
+exit0. New six-source formatted receipt
+`.devenv/phase5-task13-task9b-formatted-contracts.sha256`, SHA
+`b84574cbb098e54efbf476174f1cc69429208f6f48854b1929e933b04c6e67e8`,
+pins all four Task13 test/helper files plus both Task9B owners. Its entries are
+Repositoryf7007a99, Spool3e7998fb, Snapshotca04b0ed, fixture062f3402,
+PreflightTest8c117dc4 and AdmissionTest93e2b7e2. Both Task8 receipts/frozen56
+matched (c48d59), plus the three unchanged acceptedTask7 source/import entries
+(c3d01c). The acceptedTask7 preflight-test entry is deliberately no longer
+current because of reviewed additive Task9B tests; its old receipt is preserved,
+not regenerated or falsely declared matching. Preflight production stays
+`4dd34dfa1309706816b30673e8bdf3767c18751584f9939e92990e1e63fd3f7f`,
+accepted00300 stays
+`4ae1672c4c263ed3869a0fe3a00e09969b46e7b4a507db782d12bc6bae13a92f`.
+New00700 is absent (1c494c exit0); no production implementation occurred.
+
+Repeated complete Task13 pure13087 finished normally01bee8 exit2:
+Core72/0, Spool29/29, Runtime28 reported11 failures17 SQL exclusions;
+**112 actual pure tests:72 PASS,40 missing-feature FAIL**. Every failure is
+missing Spool or fixed ExportSnapshot, with no compile error. Full untruncated
+archive `.devenv/phase5-task13-ready-zero-pure-red.log`, SHA
+`039e7a670c7352183d7fdd7e976298e7fb625aae8ef1aab758b3b612b3f3a37d`.
+Six sources matched after closure (d1f3db). No exclusion is counted as PASS.
+
+Repeated complete Task13 SQL72382 finished normally942469 exit2:
+Repository26 reported25 failures, Runtime28 reported17 failures11 pure
+exclusions; **43 actual SQL tests:1 PASS,42 FAIL**. Classification is41
+missing-feature failures and1 newly authored COMMIT fixture failure. The
+unchanged SQL input test genuinely passed both zero-fragment/zero-byte branches.
+The COMMIT case failed BEFORE its commit boundary: Postgrex42501 schema-content
+denial at claim_document_extraction, testline868. No actual-COMMIT success or
+rejection is claimed for that failed case. Full untruncated archive
+`.devenv/phase5-task13-ready-zero-sql-red.log`, SHA
+`d30e70a11513cdc4ba94da0278d49ee5adc7dd970dcc18b68172632d5a3c8e08`.
+All six sources/frozen56 matched (3cf59a). Allocated root
+`/tmp/singularity/integration/a36fdead4fbaf3f1d5bd2597` is absent (9c82fe);
+maintenancef5505b finished normallyexit0 with no allocated test database.
+
+Actual read-only Sol diagnosis finds the fixture passed MigrationRepo's default
+pool_size10 to Postgrex.start_link and then manually issued BEGIN/role/GUC/claim
+as independent pool checkouts. Those calls do not pin one backend, while the
+NOINHERIT migration session legitimately lacks content access without its owner
+role. Primary Ecto Supervisor and DBConnection checkout/transaction sources
+support a driver-aware Postgrex.transaction callback with one tx handle for all
+queries, normal callback-return witness, exact deferred completion error and
+fresh owner-transaction rollback-state verification. An earlier type-reload
+hypothesis is not supported and is not recorded as cause. No grant, membership,
+constraint, helper or production change is needed. Correction is not yet applied;
+Task13 production GO remains withheld pending repeated complete causal RED.
+
+Independent valid work continues: parent started the complete Task9B SQL gate
+33119 on the same frozen source. Its observed partial UUID/mixed preflight
+rejections are not a completed gate. New admission fixture mistakes are also
+being diagnosed read-only; no production repair GO or source mutation while
+that command runs. Every failed gate remains failed evidence. E2E NOT RUN;
+Vault/custody/key/capability/policy/crypto semantics unchanged; no publication,
+deployment, production activation or data action.
+
+## Task9B first complete RED closure and test-only correction authorization
+
+The previously running complete preflight/admission gate33119 finished normally
+5e3b32 exit2: **70 actual tests,7 FAIL,63 PASS**,492.7seconds. Full untruncated
+archive `.devenv/phase5-task9b-reference-first-sql-red.log`, SHA
+`cebbe52281925e07b26024cd98bb9e3c8eadeaf730b12a8513c11b9a36bc204b`.
+Two failures genuinely reproduce UUID/mixed preflight rejection. Four new
+admission cases fail earlier on a PK-descriptor fixture KeyError; the new
+forward-migration witness fails earlier on NOINHERIT migration-role access to
+the audit namespace. Those five failures do not characterize the admission
+predicate or missing00700 yet. The sixty established cases and three other new
+counterproofs passed, including the strengthened actual deferred-reference
+mutation case with normal callback-return witness and exact object-closure
+COMMIT rejection. No failed case is relabeled PASS.
+
+After normal closure, all six formatted contracts and all56 frozen entries
+matched (765842 exit0). Allocated root
+`/tmp/singularity/integration/699dfcb76fedc0578335bdef` is absent (11045a exit0);
+maintenance3b6123 finished normallyexit0 with no allocated test database.
+The archived beginning additionally records two distinct-types warnings in the
+new generated PreflightTest UUID/mixed cases: per-case unquoted atoms make
+their inline comparisons statically disjoint. No warning is treated as success
+or silenced through compiler options.
+
+Actual read-only Sol diagnosis identifies two narrow admission-fixture fixes:
+resolve primary-key column names through descriptor positions in schema.columns,
+and capture both historical/current function definitions through the existing
+owner_transaction helper while leaving Ecto.Migrator outside those transactions.
+Parent now authorizes these corrections plus a small new-test-only helper for
+the generated reference cases' warnings. Full/inverse function-definition and
+security comparisons, all variants, row ordering and existing assertions stay
+mandatory. This is not permission to alter production, roles, grants or DDL.
+
+In parallel, parent authorizes only the separately diagnosed Task13 COMMIT
+fixture correction recorded above: driver-pinned transaction handle, successful
+UPDATE/ready-state witnesses, normal callback-return witness, exact deferred
+completion error, then owner-transaction rollback-state verification. Other
+Task13 contracts remain byte-identical. Parent remains sole formatter/test/SQL/
+service/Git owner. Both authors must close before source is frozen and complete
+owning RED gates repeat; neither Task9B nor Task13 production GO is given yet.
+Task8 remains scoped accepted at21d0660; Phase5 remains unqualified. E2E NOT RUN;
+no Vault/custody/key/capability/policy/crypto change or publication/data action.
+
+## Test-only correction closure and complete causal Task13 RED
+
+Both actual authors closed their narrow corrections without running formatter,
+Mix/tests, SQL, services or Git mutations. Parent read all changed case/helper
+blocks; sole formatter74455 closed normally5cadd7 exit0. New formatted six-source
+receipt `.devenv/phase5-task13-task9b-fixture2-contracts.sha256`, SHA
+`5d133dab41fe8e4c5fb085719457352c15575cda64342193e94961b04099fbe0`,
+pins Repositoryb044f092, PreflightTest7024a8c6, AdmissionTest032b1855 and the
+three unchanged Task13 files. Parent factual, not-verbatim author record:
+`.devenv/phase5-task13-task9b-fixture2-author-record.md`.
+
+Complete Task13 pure55889 closed normally01c2fe exit2: Core72/0, Spool29/29,
+Runtime28 reported11 failures17 SQL exclusions. **112 actual pure tests:
+72 PASS,40 missing-feature FAIL**; no compilation error. Full untruncated
+archive `.devenv/phase5-task13-fixture2-pure-red.log`, SHA
+`54251118453d9b490fa567428bb6907da301787b2287b55f6df23ce2b6340e97`.
+All six source entries matched after normal closure (4cab5b exit0).
+
+Complete Task13 SQL26290 closed normally69f66d exit2: Repository26/24,
+Runtime28 reported17 failures11 pure exclusions. **43 actual SQL tests:
+2 PASS,41 missing-feature FAIL**. Every failed block is an UndefinedFunctionError
+for missing new production modules, with no warning. Both independent established
+completion-boundary cases now actually pass: SQL input denial of zero fragments/
+zero aggregate bytes, and genuine driver COMMIT rejection after normal callback
+return with successful ready-state witnesses, exact deferred constraint and
+post-failure pending/nil state. This is constraint evidence, not successful
+ready-zero export or a committed Runtime corruption fixture. Full untruncated
+archive `.devenv/phase5-task13-fixture2-sql-red.log`, SHA
+`f65e737da03573fe6cca579f30e9a5636b4518b32345fd9de9893f7bb299dfc6`.
+Six sources and all56 frozen entries matched (0d3c66 exit0). Allocated root
+`/tmp/singularity/integration/fa65ed2289fdf233747e4245` is absent (d7a437 exit0);
+maintenance05ce60 completed normallyexit0 with no allocated test database.
+Previous failed fixture runs remain failed evidence; neither is relabeled.
+
+Task13's complete causal RED requirement now closes. Production writing still
+waits for the currently running complete Task9B gate12238 to close, because all
+source stays frozen during parent verification. Task13 production repair rounds0,
+Astra0; its single test-fixture correction is distinct. Task9B test-fixture
+round1 is authored, not yet validated. No Task9B production implementation or
+acceptance yet; Task8 remains scoped accepted and Phase5 remains unqualified.
+E2E NOT RUN/manual-only; no frozen substrate, publication or production-data action.
+
+## Complete causal Task9B RED and disjoint production GO
+
+The complete gate12238 finished normally06d620 exit2: **70 actual tests,
+5 FAIL,65 PASS**,664.2seconds. Full untruncated archive
+`.devenv/phase5-task9b-fixture2-sql-red.log`, SHA
+`5b6a5f1ce78321196ec9948ad65a896ab297352371f2dd69b35d4fffc5f789e8`.
+Both UUID/mixed preflight positives fail specifically at the old reference
+predicate; both independent direct-owner SQL positives now reach the actual
+object-closure guard and fail there rather than an earlier fixture error.
+The historical00600 witness now reaches Ecto.Migrator and gets[] instead of
+the required new00700. These are the five causal production-absence failures.
+All sixty established cases and the five new wrong-reference/physical-alias/
+deferred-mutation counterproofs pass. No compiler warning, fixture error or
+timeout; no required assertion, variant or default timeout was changed.
+Test-only Sol correction round1 succeeded; production Sol rounds0/Astra0.
+
+After normal closure, the current six-contract receipt, both Task8 receipts and
+all56 frozen entries match (b8065b exit0). Allocated root
+`/tmp/singularity/integration/073b492a13295e96011c4cb9` is absent (b31e43 exit0);
+maintenance5eacbe closed normallyexit0 with no allocated test database.
+Preflight production remains4dd34dfa. Parent's initial checksum command used
+a nonexistent00300 filename (623a11 exit1); rg resolves the actual accepted
+`20261011000300_knowledge_restore_admission.exs`, whose corrected check retains
+SHA`4ae1672c4c263ed3869a0fe3a00e09969b46e7b4a507db782d12bc6bae13a92f`.
+That read-only command error is not a failed product gate or a production repair.
+
+Actual Sol read-only production preparation confirms the complete accepted
+function has one exact path predicate, with ten continuation spaces after its
+heredoc dedent. Existing temporary live-lookup uniqueness already rejects
+physical aliases independent of reference spelling; no extra production guard
+is needed. Parent now gives disjoint production GO: Task9B author owns only
+Preflight's exact two-form predicate and new forward00700; Task13 author owns
+only the new Spool module. All tests, accepted migrations, protected helpers,
+Task8 and frozen substrate remain unchanged. Neither worker runs formatter,
+Mix/tests, SQL, services or Git; parent freezes all source after both close and
+runs complete owners. Repository/Snapshot, compatibility C–E and later tasks
+still await their own dependent GO. Task8 remains scoped accepted; Phase5
+unqualified; no E2E, publication, activation or production-data action.
+
+## Task9B author closure and disjoint Task13 Runtime wiring
+
+Actual Task9B Sol author closed its two-file production patch and all read/hash
+commands. Parent read the complete one-line Preflight diff and entire30-line
+forward00700. Raw Preflight SHA
+`77e8116d85e2133fb7a62c36adf2dfba89276c77fb7747f1ba38663a9d8539ad`;
+raw00700 SHA
+`9422e8695bf465f1441fc3cd795d05d6b2f6aa038ab58c53ac5d00b4a1965d0c`.
+Parent factual, not-verbatim author record:
+`.devenv/phase5-task9b-production-author-record.md`. No formatter/test/SQL or
+acceptance by author; source frozen while disjoint Task13 authoring continues.
+
+The complete causal Task13 RED already closed above. To execute independent
+files concurrently, parent now owns only the new Runtime ExportSnapshot entry;
+Sol retains only new Storage Spool. Parent re-read using-elixir-skills and
+elixir-thinking, all118 lines of new Runtime source, full359-line OperationScope,
+353-line Authorize,114-line ScopedRepo,62-line SessionContext,95-line Core
+KnowledgeExport and both complete Snapshot owning modules/shared fixture.
+The simple Runtime entry adds no process or shared-adapter/policy change. It
+fixes RR through a private scoped adapter pair, calls unchanged shared request
+scope and actual repeated Authorize, binds caller/repo/structured session,
+returns after transaction closure and aborts the ORIGINAL operation descriptor
+on callback/COMMIT/authorization/error. Ordinary KnowledgeError sanitization is
+reused. Root raw118-line source SHA
+`247ebce7a581131b6884b08f9092b2ce6edef0d97494be99dc1ef533f696e024`;
+no code gate or independent review yet. Sol confirms its abort design accepts
+exact original ownership across generations and invalidates later sealed refs.
+
+Spool source-only self-review is still in progress. Parent will format/freeze
+all current authors before running complete pure/SQL owners; missing Repository
+still prevents Task13 implementation acceptance. Required tests/assertions and
+frozen files remain unchanged. The environment lacks unbuffer; use established
+complete gate commands rather than installing a system package or changing
+test scope/options. Main is clean (5d2e80); unrelated Phase2 untracked plan
+retains350a6557 (261dcd). No merge/push/release/deployment/production/E2E action.
+
+## Task13 initial source closure and four-file formatting
+
+Actual Spool Sol author closed its sole source914lines, raw SHA
+`3095109042b51376fa8113b3e6e8ab68200ed8e1c01dc7924b98351aae399a70`;
+parent read the entire file to EOF (2cea03,73b3e8), actual count821e31.
+Parent factual, not-verbatim source-only handoff:
+`.devenv/phase5-task13-spool-initial-author-record.md`. All authors are closed;
+all source/tests/support stay frozen through parent gates. No Repository yet.
+
+Sole parent four-file formatter82773 finished normally609c3d exit0. Formatted
+Spool SHA`df06e33bd0cc7a949c18c7ea0c3d45367ad4d9842ee6726dde5b6d76a32bca9c`;
+Runtime Snapshot SHA`c5a03af6b2b84c1d136869d6db5db81a999ab964aa6ff6e7952c3a609c643563`.
+Task9B Preflight/00700 hashes unchanged. New ten-source receipt
+`.devenv/phase5-task13-task9b-initial-production.sha256` pins six frozen
+contracts plus four production files. Prior receipts/logs are preserved.
+Six contracts, both Task8 receipts and all56 frozen entries matchbc23ab exit0;
+accepted00300 remains4ae1672c (2b3b00). These are author/format/hash checks,
+not new pure/SQL PASS, independent review or Task13/Task9B acceptance.
+Complete owning gates follow, with source frozen. E2E NOT RUN/manual-only;
+no substrate/publication/activation/production-data action.
+
+## Task13 initial production pure gate: actual failure and read-only diagnosis
+
+Complete five-file pure38666 closed normally724a87 exit2: Core72/0,
+Spool29/7 failures, Runtime28 reported0 failures17 SQL exclusions. **112
+actual tests:105 PASS,7 FAIL**, all seven in Spool; no compiler warning/error.
+Full untruncated archive `.devenv/phase5-task13-initial-production-pure.log`,
+SHA`c0a9f3f6527fd71ee70323592c2e3e2d8791aad3eaa9ca9d26d69c625dce958b`.
+Ten-source receipt SHA`46e61167d43c083a2dda7688abbe54cc9feaaffb7a6da6d8b2725db67265fa9a`;
+all10 entries and all56 frozen sources match927abd exit0. Failed cases remain
+required, unchanged assertions: original-size reserve, stable metadata pages,
+missing/retargeted private Asset binding, actual disk accounting, pending Asset
+draft, cancellation/neighbour preservation and unsealed/stale metadata append.
+
+Parent authorizes Sol author READ-ONLY causal diagnosis, not patch or acceptance.
+Snapshot11 pure PASS is wiring evidence only, not real Repository/SQL/COMMIT
+qualification. No Task13 SQL success yet; Repository remains absent. The separate
+Task9B complete SQL owners now run with ALL source/tests/support frozen; TaskC
+read-only preparation can proceed, but dependent implementation remains gated.
+No repair round has been executed; E2E NOT RUN/manual-only. No frozen substrate,
+publication, production activation or data change.
+
+## Spool read-only diagnosis and narrow correction plan
+
+Actual Sol author closed read-only diagnosis; no source/gate mutation. All seven
+initial failures encounter newly authored uppercase UUID positives before
+meaningful Spool behavior. Parent corroborates current helper/core/path/source
+blocks (c08da7,a75407,47d156,24b011,50c82c). Production lowercase-canonical
+validation remains correct and MUST NOT be widened. Initial complete112/7 gate
+remains FAILED evidence, not reclassified as success.
+
+Separate production/reference-fixture defect: current Spool rejects normal
+finalized object UUID and accepts arbitraryobjects/*; helper invents
+objects/<uuid>.bin. Established persistence plus reviewed two-form contract
+requires exact object UUID OR exact owner/domain/lookup canonical path.
+Parent factual diagnosis/repair plan:
+`.devenv/phase5-task13-spool-initial-failure-diagnosis-record.md`.
+After currently running complete Task9B SQL closes/cleanup, correct only new
+UUID/positive-reference helpers, preserving all assertions; add UUID positive
+and exact-reference counterproofs, run whole pure RED, then permit sole owned
+production matcher correction. No source edit GO during verification. Production
+Sol rounds0/Astra0; no Task13 acceptance or new SQL/pure success claimed.
+
+TaskC read-only preparation also closed; three-API two-view/saga/original-object
+binding remains as reviewed, no test/production authoring until B+retained gates.
+Parent prepared later Task14 existing interfaces only, recorded in
+`.devenv/phase5-task14-source-read-preparation.md`; zero-byte Asset composition
+needs an explicit source-backed design/review before use, no frozen lease change
+or implicit exception. No E2E, publication/activation/production-data action.
+
+## Task9B initial production SQL GREEN and closed cleanup
+
+Complete two-owner SQL30413 closed normally588d26 exit0: **70 actual tests,
+0 failures**,628.2seconds. Entire function-definition/inverse-predicate/security
+attribute equality witness executed, along with UUID/mixed direct owner commits,
+all sixty established cases and the new wrong-reference/alias/deferred mutation
+counterproofs. No warning, fixture failure, timeout, required-assertion change or
+extra production guard. Full untruncated archive
+`.devenv/phase5-task9b-initial-production-sql.log`, SHA
+`c627e1bd5c24a0557a899fccbfcd1d29823f7a7464505bbf782660a6da1fbd48`.
+Current ten-source receipt, both Task8 receipts and all56 frozen sources match
+531cb3 exit0. Allocated root
+`/tmp/singularity/integration/f5d165bd378698c8261355a6` is absent (a20467 exit0);
+maintenance3e588c closed normallyexit0 with no allocated test database.
+
+Task9B's narrow patch and complete owning gate pass; required full retained
+gate still precedes TaskC authoring. No compatibility/Phase5 acceptance yet.
+All commands closed. Parent now gives TEST-ONLY correction GO to the sole new
+SpoolTest helper/reference fixture plus independent exact-reference variants,
+as the read-only diagnosis plan states. Every old assertion/default timeout stays;
+no production matcher change until whole pure causal reference RED. Task13 remains
+unqualified; no Repository yet. No E2E/publication/activation/production-data action.
+
+## Spool fixture/reference correction closure and unchanged assertions proof
+
+Actual Sol TEST-ONLY author closed sole SpoolTest raw796lines/31cases; raw SHA
+`803c5b6fb8f2a627677a352167d5c8730d07abf30956af80e6f7fe826f82b29c`.
+Parent read complete raw sourcef6f0f7/new cases6d037f/helpersd609e9. All29 old
+cases/assertions are independently proven unchanged: remove only two new cases
+and invert only two authorized helper edits into an ignored historical copy;
+its SHA matches EXACT old3e7998fb (34f10c), not a regenerated baseline receipt.
+New two cases cover exact finalized UUID preservation and15 malformed/mismatched
+reference/binding variants. Fixture now emits canonical lowercase UUIDs and the
+literal established owner/domain/HMAC path. No source validation weakening.
+
+Sole parent formatter8652 closed36a429 exit0; formatted test SHA
+`1fbe2ed114cca3a6785b3d440a4ce98e342a37c1c5768ebc77b26abdaa3a92e4`.
+All other9 initial test/production sources remain byte-identical. New ten-source
+receipt `.devenv/phase5-task13-spool-reference-red.sha256` preserves earlier
+receipts/logs. Parent factual author record:
+`.devenv/phase5-task13-spool-reference-test-author-record.md`.
+Production matcher stays unchanged until the complete five-file causal pure RED
+closes; no new gate PASS or Task13 acceptance yet. No E2E/substrate/publication/
+activation/production-data action.
+
+## Spool exact-reference causal RED and production-only repair GO
+
+Whole five-file pure16210 closed normallyf9b1eb exit2: Core72/0, Spool31/2,
+Runtime28 reported0 failures17 SQL exclusions. **114 actual tests:112 PASS,
+2 FAIL**. All29 original Spool cases now pass; two added cases fail exactly at
+normal finalized UUID rejection and wrong-owner canonical path acceptance.
+No compilation warning/error or earlier malformed-positive fixture error.
+The negative matrix stops at its first exposed bad admission in RED; all15
+variants remain required for GREEN, not inferred as executed from this failure.
+Full untruncated archive `.devenv/phase5-task13-spool-reference-causal-pure-red.log`,
+SHA`001527205ec1bc97188fa0f4d34e6119d610ac43f9c347cacaf7ad754fe928c8`.
+New ten-source receipt SHA`f64399cafa140b12567685df819ce74315e35756d3bff21a7fb7ba22f5b3db08`;
+all10+56 sources matchc8d635 exit0. Earlier initial7/112 FAIL remains preserved.
+
+All gates are closed. Parent now grants sole Spool production owner Sol repair1:
+only exact whole-binding reference matcher (object UUID OR literal canonical
+owner/domain/lookup path), keeping all canonical UUID/SHA/key shape/plaintext/
+budget/filesystem checks. Tests/helper/other modules frozen; no formatter/Mix/
+SQL/services/Git by author. Repository GO follows complete pureGREEN, not given
+now; source/review/Task13 acceptance remains pending. E2E NOT RUN/manual-only;
+no frozen substrate/publication/activation/production-data change.
+
+## Spool reference repair1 source closure before complete GREEN attempt
+
+Actual Sol author closed only Spool's two edited functions, raw1178lines SHA
+`b643cd8039bf97e0aaf806e0334cdfd218f34714686161cda453f4eca31d938a`.
+Parent read edited blocka4d91f: pass complete validated binding, accept exact
+object ID OR literal owner/domain/lookup canonical path; no normalization or
+other validation/accounting/filesystem change. Author closed all commands and
+ran no formatter/Mix/test/SQL/services/Git. Parent sole formatter67821 closed
+normallyexit0. All other9 current contract/production hashes remain unchanged.
+New ten-source receipt `.devenv/phase5-task13-spool-reference-repair1.sha256`;
+parent factual record `.devenv/phase5-task13-spool-reference-repair1-author-record.md`.
+Whole five-file pure validation follows with all source frozen. This is authored
+Sol repair1/Astra0, not passing validation/Task13/Phase5 acceptance. Repository
+still absent; genuine SQL and independent reviews remain required. E2E NOT RUN;
+no frozen substrate/publication/activation/production-data action.
+
+## Spool repair1 complete pure GREEN; partial implementation SQL running
+
+Whole five-file pure78077 closed normallyac932c exit0: Core72/0, Spool31/0,
+Runtime28 reported0 failures17 SQL exclusions. **114 actual pure tests,
+0 failures**. All15 exact-reference negative variants execute successfully,
+all29 original Spool cases remain, and valid UUID/canonical positive binding
+equality passes. No warning/error, skipped assertion or timeout change. Full
+untruncated archive `.devenv/phase5-task13-spool-reference-repair1-pure.log`,
+SHA`36b7026f728873c9293de1151be5fc7529660177a14b8cd422634fc645eb46b7`.
+Repair1 receipt SHA`57426398b71e27ee1a6e7dbb9dad01dfd7f4afad0a1ef192f2bfc1d85196d635`;
+all10+56 sources match2d60bd exit0. Formatted Spool remainsb643cd80. Parent
+formatter67821 closedf3c0e8 exit0. Sol production repair1 succeeds on complete
+pure owners; Astra0. This is pure Spool/Snapshot proof, not Task13 acceptance.
+
+Parent now runs the complete two-file43-test SQL owner selection44307 with
+all source/tests/support frozen. Repository remains absent, so full Task13
+cannot pass yet; do not infer authorization, real COMMIT success or capture
+closure from the pure result. Real current partial SQL results and cleanup
+will be recorded before Repository source GO. No E2E/substrate/publication/
+activation/production-data action.
+
+## Task 13 partial SQL closed FAIL; actual observer/audit diagnosis
+
+Complete two-file SQL44307 closed normally5ef0e4 exit2: Repository26/19FAIL,
+Runtime28 reported7FAIL with11 pure exclusions. **43 actual tests/26 failures**.
+Reported17 PASS cannot independently qualify live authorization: the newly
+authored ObservedIdentity strict-boolean guard throws before its real SQL
+delegate, and unchanged Authorize maps that exception to forbidden. Positive
+capture/source-set/cut/COMMIT witnesses remain unqualified; Repository absent.
+Untruncated archive `.devenv/phase5-task13-partial-initial-production-sql.log`,
+SHA`c83c8d16047aad0dedd9e021580a29d36a1f8935b5327360b2c78d62d198e808`.
+All10+56 hashes match71eaef exit0. Actual allocated root
+`/tmp/singularity/integration/70130a5db3ee6d78a7e1ee8d` absent1f5176 exit0;
+maintenance421d27 exit0 EMPTY. All commands closed; failed evidence preserved.
+
+Sol diagnosis additionally identified three new capture expectations which
+contradict existing frozen denial-audit semantics: forged principal/owner and
+revoked membership fail real audit INSERT RLS; OperationScope intentionally
+returns the real AuditSink error. Parent read actual OperationScope158-177,
+AuditSink56-74, released00600 principal predicate352-380/policies1144-1180,
+released00800 live-session SQL1375-1464 and the new tests. No production
+authorization, audit, custody, capability or policy repair is authorized.
+The separately authored test-contract correction design/plan at
+`2026-10-12-singularity-v0.2-phase-5-snapshot-denial-audit-contract*` require
+actual independent source/spec and distinct fresh quality review before those
+three assertions change. Exact live denial and exact real42501 audit failure
+will be separate mandatory proofs, not a widened denial-error allowlist.
+
+Sole fixture-only Boolean correction authored by Sol: explicit is_nil on
+barrier and process-dictionary value. Parent fully read201 lines; only its
+guard changes, real delegate and5s barrier unchanged. Parent formatter27938
+closed normallycb655f exit0. New fixture SHA
+`90d71d4386e5e762f0c83650934be0042e578ae70fe980daa49e0960dfbb37cd`;
+all production/assertions/other9 sources unchanged, frozen56 matchesb100a5.
+New immutable ten-source receipt
+`.devenv/phase5-task13-observer-boolean-correction.sha256` preserves old ones.
+Complete owning SQL rerun follows with all source frozen; no Repository GO,
+new passing gate or Task13 acceptance yet. E2E NOT RUN/manual-only; no frozen
+substrate/publication/activation/backfill/production-data action.
+
+## Boolean fixture correction: complete SQL RED, source and cleanup closed
+
+Complete two-file SQL1532 closed normally1899e9 exit2: Repository26/20FAIL,
+Runtime28 reported7FAIL with11 pure exclusions. **43 actual tests/27 failures**.
+The observer now executes the real identity delegate and both cut barriers
+advance. Missing Repository still prevents successful source closure/capture,
+callback sealing and actual post-capture COMMIT witnesses. The three incorrect
+denial-audit capture expectations remain actual FAIL pending independently
+reviewed contract correction; none is reclassified as PASS. Earlier43/26FAIL
+remains preserved, including the masked authority defect.
+
+Full untruncated archive
+`.devenv/phase5-task13-observer-boolean-corrected-sql-red.log`, SHA
+`88b1a666decdefc1e50c43c2ad47ca9ce48030a9193e61a9c6a1c3263eb1e041`.
+New ten-source receipt SHA
+`d2f619ba2c738dd6ac99f7e03747f617fe4d92dcc147a73b06a20ee36065af81`;
+all10+56 sources match59da93 exit0. Maintenance d3b850 exits0 EMPTY;
+actual allocated root `/tmp/singularity/integration/4f3621b0402e691d3d7cb77a`
+is absent. SQL/maintenance/formatter commands all closed.
+
+Parent reruns the whole five-file pure selection with all source frozen.
+Independent nonauthor amendment SOURCE/SPEC review is concurrently read-only;
+fresh distinct QUALITY follows it. No three-case assertion edit or Repository
+GO yet. No E2E/frozen substrate/publication/activation/backfill/production-data
+action, and no new Task13/Phase5 acceptance.
+
+## Boolean correction complete pure GREEN; amendment source/spec PASS
+
+Whole five-file pure39164 closed normallyd31e25 exit0: Core72/0, Spool31/0,
+Runtime28 reported0 failures17 SQL exclusions. **114 actual pure tests,
+0 failures**. Full archive
+`.devenv/phase5-task13-observer-boolean-corrected-pure.log`, SHA
+`99d387be5eccc46e456fd4409a450da0958ed58de91891ed3f45e8f82e2c527e`.
+All10+56 source hashes match7030ee exit0; git diff--check a11dcd exit0.
+No default timeout/assertion/case change. Original new Runtime test before the
+three-case amendment is retained byte-identically in ignored
+`.devenv/phase5-task13-snapshot-before-denial-contract.exs`, matching original
+SHA`ca04b0ed08c17f6e8c37754c1053354530120042d7c261721a424673d4d45c5e`.
+All runtime/service commands closed.
+
+Actual nonauthor SOURCE/SPEC review by
+`/root/phase5_task9b_reference_contract_author` completed PASS against both
+amendment documents and real Authorize/live-session SQL, OperationScope,
+AuditSink/released RLS, ScopedRepo, Audit and current tests. Exact genuine
+unauthenticated/forbidden decisions and real42501 audit-failure separation
+preserve/strengthen the denial predicate; observers can delegate the actual
+pinned RequestRepo and reraised Postgrex exception without fabricating results.
+This is design-only approval, not actual changed-test/gate acceptance.
+Distinct fresh QUALITY reviewer
+`/root/phase5_task13_denial_contract_quality` is now read-only on actual source.
+No assertion-edit or Repository GO before that result. E2E NOT RUN/manual-only;
+no frozen substrate/publication/activation/backfill/production-data action.
+
+## Task 13 denial/audit amendment fresh QUALITY PASS and test-only GO
+
+Fresh distinct actual-source QUALITY reviewer
+`/root/phase5_task13_denial_contract_quality` completed PASS, no blockers.
+Exact native live denials, successful actual identity-return witnesses and
+real42501 original Postgrex reraising through unchanged RequestRepo/AuditSink
+preserve authority/audit semantics and prevent exception-based false proof.
+Both design/plan hashes verified; all10+56 baseline receipts matched in that
+review. Actual nonauthor SOURCE/SPEC and fresh QUALITY records are retained in
+`.devenv/phase5-task13-denial-audit-amendment-{spec,quality}-review.md`.
+This is design-only approval, not implementation/gate/Task13 acceptance.
+
+All runtime commands closed. Parent grants Sol13 ONLY new Runtime SQL test-file
+ownership for the reviewed three-case correction; production, othertests,
+sharedfixture and frozen56 unchanged. Author uses apply_patch only and cannot
+format/runMix/tests/SQL/services/Git. Parent inverse-checks all untouched bodies,
+formats, records new immutable receipt then runs whole114pure/43SQL selection.
+Repository GO is still withheld until truthful complete causal RED closes.
+All failed evidence remains; E2E NOT RUN/manual-only, no frozen substrate/
+publication/activation/backfill/production-data action.
+
+## Reviewed three-case test correction authored; complete gates start
+
+Sol13 authored only new Runtime snapshot test observers/three-case dispatch/
+native-denial helpers, rawSHA227fd5e6. Parent read full source97e248, actual
+three-block diffcf6e6d, and inverse-reconstructed complete original byte-identical
+ca04b0ed (753b47exit0). All original13literal declarations/28expanded cases,
+nine other allowlists and cleanup/defaulttimeouts remain; no extra test case
+or production assertion change. All other9 sources matchd0b8c1exit0,
+frozen56match0274dfexit0. Parent formatter25309 closes704a74exit0; formatted
+testSHA`a52f7468935445814f12721190fa4c624dad05df23a5df729626ebc9f9b97cbd`.
+Factual author record `.devenv/phase5-task13-denial-audit-test-author-record.md`;
+new immutable receipt `.devenv/phase5-task13-denial-audit-contract-tests.sha256`.
+
+Parent starts whole five-file pure selection, then whole two-file SQL selection,
+all source frozen. Actual exact denial/real42501 audit/no-capture witnesses must
+pass; missing Repository remains RED, not Task13acceptance. No Repo productionGO
+or changed failure classification. E2E NOTRUN/manual-only; no frozen substrate/
+publication/activation/backfill/production-data action.
+
+Separately, full retained legacy two-file pure56908 closed normallya55c79exit0:
+Storage14reported0failures9SQLexclusions, **5 actual pure tests/0failures**.
+Full archive `.devenv/phase5-task9b-retained-legacy-pure.log`, SHA
+`f984dcd68da684cde389b7e464856ed3dab6e3c32f1530faa73fab4d853c4a9e`.
+Task9B own70SQLGREEN remains valid; full16-file retained SQL is still required
+before Task9C authoring. No assertion/timeout change or compatibility acceptance.
+
+## Three-case test dispatch initial complete pure gate FAIL; Sol repair1
+
+Whole five-file pure9370 closed normally5b6ec4 exit1. Core72/0, Spool31/0,
+Runtime28reported0failures17SQLexclusions: **114actual pure assertions execute
+without failures, but the required gate FAILS on33 real compiler warnings**.
+The new loop embeds each @denial literal; its `in` macro emits comparisons with
+distinct atom literals at line529, including excluded SQL case definitions.
+No genuine native-denial/auditSQL witness is established by this pure run.
+Full untruncated archive `.devenv/phase5-task13-denial-audit-initial-pure-fail.log`,
+SHA`627f824e686d4a6a6dec69c9dc921631e502070a41d8b37a92f0799f1b300ca8`.
+Ten-source receipt SHA`a04af5e3dd11e7c2e14fced135c57438097d9af6ad93d6e00fcbc036ebc9194b`;
+all10+56 match0b38d3exit0. All commands closed; SQL not started with warnings.
+
+Parent grants the first Sol repair for this test-dispatch compiler defect:
+ordinary private dynamic predicate preserving exact three-case partition,
+no warning suppression or change to WAE/cases/assertions/timeouts/observers.
+Sol13 closed sole new Runtime test edit at rawSHA
+`f6fd64c98824ec56fdb30c88725df37badaff3331922e36793ccb85c8188571f`.
+Repository remains absent/noGO; repair1 validation pending, Astra0. This failure
+stays FAIL and is not pureGatePASS/Task13acceptance. E2E NOTRUN/manual-only;
+no frozen substrate/publication/activation/backfill/production-data action.
+
+## Dispatcher repair1 source closure; complete pure/SQL revalidation
+
+Sole Sol13 dispatcher correction calls an ordinary private predicate preserving
+the exact three-case list. Parent read condition1645da/helperbc9883 and inverse
+reconstructed the entire prior formatted source byte-identicallya52f7468
+(926ce1exit0). No observer/denial/audit/assertion/case/timeout change. Parent
+formatter92938 closed normally762552exit0, raw/formattedtestSHA
+`f6fd64c98824ec56fdb30c88725df37badaff3331922e36793ccb85c8188571f`.
+Author commands closed; parent factual record
+`.devenv/phase5-task13-denial-dispatch-repair1-author-record.md` and newreceipt
+`.devenv/phase5-task13-denial-audit-dispatch-repair1.sha256` preserve earlierFAIL.
+Parent repeats whole five-file pure, then whole two-fileSQL selections, source
+frozen. This is first Solrepair for dispatcher defect, pendingverification/Astra0;
+Spool's successful separate repair1 unchanged. No RepoGO/newPASS/Task13acceptance.
+No E2E/frozen substrate/publication/activation/backfill/production-data action.
+
+## Dispatcher repair1 complete closure and Repository authoring GO
+
+Whole five-file pure1192 closed normallyd99079 exit0: Core72/0, Spool31/0,
+Runtime28reported0failures17SQLexclusions, **114 actual pure tests/0 failures**,
+zero compiler warnings under the unchanged warnings-as-errors gate. Full
+archive `.devenv/phase5-task13-denial-dispatch-repair1-pure.log`, SHA
+`06a0028ed860835317ddc8d69614afc15267caf5104e2065f7322b532f907f81`.
+
+Whole two-file SQL42210 closed normallybbd7da exit2: Repository26/20failures,
+Runtime28reported/4failures/11pureexclusions, **43 actual SQL tests/24 failures**.
+The three strengthened wrong-principal, wrong-owner and revoked-membership
+cases now PASS through actual identity/native-denial/42501/audit-failure and
+no-selection witnesses. Comparing complete prior/current failure-name sets
+removes exactly those three names and introduces none. The twenty Repository
+and four positive capture/callback/cut/COMMIT witnesses remain RED because
+Repository is still absent; this is not Task13 acceptance or a successful
+authenticated capture. Full archive
+`.devenv/phase5-task13-denial-audit-causal-sql-red.log`, SHA
+`b5e4b98e23e2a547958db18d32a773d216829b8b474a9dfa36958ade061c2db9`.
+
+After SQL closure all10source entries match712427exit0 and frozen56 match
+5ce614exit0. Allocated root `/tmp/singularity/integration/314fbadfbdca2f1de28aea6b`
+is absent (cf4922exit0); private maintenance query ba0731exit0 has no leftover
+`singularity_test_%` databases. Dispatcher Sol repair1 succeeds; Astra0.
+Earlier failed gates remain FAIL, including the initial warning-bearing run.
+
+All source/runtime commands are closed. The reviewed truthful causal RED now
+permits Sol13 sole authoring of NEW Storage KnowledgeExport.Repository only.
+Other production/tests/support/frozen sources remain unchanged; parent alone
+formats/runs complete gates and verifies frozen/source receipts after author
+closure. Actual independent nonauthor source/spec and distinct fresh quality
+reviews still precede Task13 acceptance/local commit. E2E NOT RUN/manual-only;
+no custody/Vault semantics, publication, activation, backfill or production data.
+
+## Task13 bounded NEW fixture reference amendment; Repository author continues
+
+Sol13 found inherited schema-only `knowledge-test/<UUID>` storage_ref before
+writing correct strict Repository. Parent read actual new helper90cc03,
+established KnowledgeFixtures source/prepared_sourcea155c8/9ec476 and retained
+RepositoryTest SQL stored-reference equalityd5c85a. A production normalization
+or Spool weakening would violate the reviewed exact binding contract.
+
+Parent authored fixture-only design/plan, SHA669d57fc/abfa9e83; actual nonauthor
+SOURCE SPEC `/root/phase5_task9b_reference_contract_author` PASS and distinct
+fresh QUALITY `/root/phase5_task13_fixture_ref_quality` PASS, no blockers.
+Actual records `.devenv/phase5-task13-fixture-ref-{spec,quality}-review.md`, SHA
+`a243577c33891b518dc297317ae9a3f65dc9a0d92805bef08ffc7fb0b6820639`
+and `8454f21c3a2e0890665f15173ed04565255df0d13146f4f9fb07d75011904b78`.
+
+Parent added only exact id/owner/inherited-reference UPDATE RETURNING plus
+actual stored UUID equality inside the NEW helper's existing owner-only setup,
+before request work. Raw helperSHA
+`d815a27c87ae5549c5b762ffad4b98e5ab0cb2d46401faada0a664c5e831fb41`.
+Fullsource read e97dec; removing solely the newblock reconstructs entire original
+90d71d43 byte-identically. Preserved before/inverse files both hash90d71d43
+(d47c6fexit0). Established KnowledgeFixturesfc3ea206 unchanged; other9 receipt
+entries match97c8e6exit0 and frozen56 matchc179c2exit0. No test/assertion/case/
+timeout, size/hash/generation/cipher or production change in this correction.
+Metadata-only capture fixtures do not prove authenticated encrypted originals.
+
+No formatter/Mix/SQL/service/Git mutation overlaps authoring. Sol13 continues
+ONLY new Repository; parent waits for source closure before formatting the
+authorized files/new11 receipt and repeating whole114pure/43SQL. Prior43/24
+gate remains FAIL; no post-edit PASS or Task13 acceptance yet. E2E NOT RUN;
+no frozen substrate, publication, activation, backfill or production data.
+
+## Task14 zero-only read source-backed design preparation
+
+Readonly Sol9 composition preparation closed with a feasible caller-only fixed
+OperationScope adapter: actual authorized callback, Asset-first then object/
+selected envelope/domain-version FOR SHARE, canonical zero0/format1/cipher134,
+original download/custody/lease/audit/COMMIT unchanged. Object-only/preflight/
+after-read checks cannot prevent a late nonempty association/material reload.
+Existing runtime grants suffice; no frozen privilege/key/lease change is needed.
+
+Parent read actual scope/download/selection/custody/Format/AuthenticatedReader
+and authored bounded zero-only design/plan at SHA9185f3f7/4b5c1059, fully read
+7214cc/736e09 plus exact reviewed-final barrier wording. Existing4MiB AEAD-record
+alignment is not a64KiB cipher-format assumption; delivery/writer chunks remain
+bounded64KiB. Actual SOURCE SPEC review is now read-only; distinct freshQUALITY
+and Task13 qualification are still required before Task14 implementation GO.
+The master :all prohibition is not silently bypassed. No Task14 code, runtime
+gate or acceptance; E2E NOT RUN/manual-only and publication/production unchanged.
+
+## Repository initial source closure and complete gates: still RED
+
+Sol13 closed new Repository authoring only, raw SHA
+`4e54e82e1d0f89fdfec30de4ea6758799336e4a51cdf884a37c78cf46b0e1b32`.
+Parent read its entire source, including the immutable Document-source seam;
+no unchecked post-seal Document-binding map escapes. Parent formatter66208
+closed b895bc exit0; formatted Repository SHA
+`73c1003c1c12bce1627aa171b8d1d5c2332eba35babd7d89852566bbf908d35a`.
+The new fixture helper remains d815a27c. New11-source receipt
+`.devenv/phase5-task13-repository-initial-production.sha256` has SHA
+`a1fac6b0925109eb7c125fe0e4339b7d81454c9cf0828f508bfeab3caa244780`.
+
+Parent froze all source/test/support and ran the unchanged complete selections.
+Whole five-file pure78656 closed b8b114 exit0: Core72/0, Spool31/0,
+Runtime28 reported with17 SQL exclusions: **114 actual tests, 0 failures**,
+no compiler warnings under warnings-as-errors. Full archive
+`.devenv/phase5-task13-repository-initial-production-pure.log`, SHA
+`4482de1a6c5f9f0728d905e35dc81cfd47b03c86fb593b458bb2af20b84aee69`.
+
+Whole two-file real SQL16022 closed ca6b70 exit2: Storage26/12 failures,
+Runtime28 reported/0 failures/11 pure exclusions: **43 actual SQL tests,
+12 failures**. Runtime's17 actual cases now PASS, including positive capture,
+callback/cut/real COMMIT and retained denial/audit witnesses; this does not
+qualify Repository or Task13. Storage's positive captures return retryable
+storage_unavailable, and two real precommit-state cases fail their required
+query witnesses. No assertion, timeout, test selection or error contract is
+weakened. Full archive
+`.devenv/phase5-task13-repository-initial-production-sql.log`, SHA
+`0b0f859e759d5ca2940d8356e7d751173478c6e16a4d9948e5b7b3731ace4f38`.
+All prior failed gates remain FAIL.
+
+After normal SQL closure all11 receipt entries match ca0996 exit0 and frozen56
+match452ead exit0. Exact allocated root
+`/tmp/singularity/integration/9cf11de7aecab9ab89eaa5e2` is absent
+(e5ae3f exit0); private maintenance5d2412 exit0 returns no leftover
+singularity_test databases. All parent commands closed. Sol13 has bounded
+Repository-only diagnosis/repair1 GO; all other source/test/support and frozen
+substrate are unchanged. No source acceptance, Task13 acceptance, phase
+acceptance or local commit yet. Actual nonauthor SPEC then distinct fresh
+QUALITY still follow complete required GREEN. Astra0; E2E NOT RUN/manual-only;
+no publication, activation, backfill, production data or Vault feature work.
+
+## Task14 zero-only design reviews closed; master documents reconciled
+
+Actual nonauthor SOURCE SPEC by
+`/root/phase5_task9b_reference_contract_author` PASS, followed by distinct fresh
+QUALITY by `/root/phase5_task14_zero_read_quality` PASS, no blocking findings.
+Both fully reviewed design9185f3f7 and plan4b5c1059 against actual frozen
+OperationScope/Download/selection/custody/reader/lease/audit/COMMIT sources.
+Records `.devenv/phase5-task14-zero-read-spec-review.md` and matching QUALITY
+record have SHA
+`3a078c70ea302c626bc7b4da6ccbbb785f8132e4edc020dc02b3a9846fa0987f`
+and `c41a2e21110ffa74c2159555f295f6d00e8ed23b731643f1f886addd2f166492`.
+These are design reviews, not runtime/original-byte qualification.
+
+Parent incorporated only the reviewed canonical-zero caller exception and
+unchanged internal4MiB AEAD alignment clarification into master design at
+SHA `417844d47ca41a39c67face6a015097ea9d1bf64fa2a561bc50f457a2b59ed6b`,
+then reconciled Task14 and the plan's current-design receipt while preserving
+historical hashes and Task13 prerequisites. Review-completed checkboxes change
+only Task14 amendment plan status (current SHA b6ca3729); no implementation
+or gate checkbox is asserted. Genuine two-connection locked-zero/candidate/
+final-AEAD/COMMIT owning tests remain required. No Task14 implementation GO
+while Task13 is RED; E2E NOT RUN and all frozen/publication/production
+boundaries remain unchanged.
+
+## Repository repair1 source closure and full pure GREEN; SQL pending
+
+Actual source diagnosis: established sealed membership returns ordered
+owner-free NoteAttachmentReference/NoteCitationReference values without an
+ordinal field. Initial Repository record builders dereferenced that absent
+field, raising KeyError subsequently redacted to storage_unavailable. Sol13
+changed only Enum.with_index on each independently validated ordered list and
+explicit ordinal arguments to the two record builders. Membership seal/count/
+contiguous-order checks, provenance, authority and every test remain unchanged.
+Raw/formatted Repository SHA
+`56c864e8cc2e15aba87bb3873c9f3ce7dbea6f49ce54c6f06d34f642df52304a`.
+Parent inspected changed sections236336/095f78; exact inverse file restores the
+entire initial formatted SHA73c1003c (b3a734 exit0). Formatter51053 closed
+ab3605 exit0, no warnings. New11-source receipt
+`.devenv/phase5-task13-repository-repair1.sha256` has SHA
+`005c9a7f855d0896967b45acc60f0c70cae28460e459c6c850b20234747e52de`.
+
+Whole five-file pure63826 closed46c2a8 exit0: Core72/0, Spool31/0,
+Runtime28reported/17SQLexcluded: **114 actual tests,0 failures**, unchanged
+warnings-as-errors and default timeouts. Full archive
+`.devenv/phase5-task13-repository-repair1-pure.log`, SHA
+`62187d682403c0cc55e2cfd0322a59a80be0257a4e61574a368cef603da9c6f8`.
+All11 match3f61ce exit0 and frozen56 matche907fd exit0. Whole two-file SQL54662
+now runs with all source/test/support frozen. Repair1 SQL outcome pending;
+this pure PASS does not qualify Repository or Task13.
+
+## Precommit native-permission diagnostic: observed constraint, not a workaround
+
+The two missing precommit witnesses occur before Repository: new test adapter
+sets table_owner before real OperationScope native Authorize. Released
+core.live_session_authorization(uuid) has web-only EXECUTE. Parent executed a
+bounded metadata-only permission diagnostic in an allocated private database,
+without text, credentials, statements or parameter output. Actual owner role
+has_function_privilege=false and its native call returns PostgreSQL42501.
+The attempted web-before-authorization composition also fails: Migration login
+cannot SET LOCAL ROLE singularity_web. Diagnostic40434 closed40b4f8 exit1,
+not PASS. Full initial archive
+`.devenv/phase5-task13-precommit-native-permission-probe-initial.log`, SHA
+`ef1a38e2f918228e76698d22eef2c0935a64dbb55100e3cb6ef2ca71e5f0c579`.
+Allocated root011f13fb514be5899f564ca1 is absent(e8a3be exit0);
+TestEnvironment cleanup ran normally. No grant, role membership/attribute,
+production credential, fixture assertion or frozen source changed.
+
+Parent assigned Astra read-only PROJECT_ARCHITECTURE for the genuine same-
+connection native-authority/owner-precommit test seam. This is design advice,
+not an Astra repair attempt or automatic acceptance. Do not replace real
+authorization with maps/GUCs, pass a separate connection as equivalent, delete
+required precommit witnesses or silently introduce an administrator runtime
+repository. Any feasible bounded test amendment still requires actual SOURCE
+SPEC then distinct fresh QUALITY before implementation. Other independent
+valid work may continue. E2E NOT RUN/manual-only; no publication, activation,
+backfill, production data or Vault feature work.
+
+## Repository ordinal repair1 full SQL closed: ten graph failures removed
+
+Whole two-file SQL54662 closed8329db exit2: Storage26/2 FAIL, Runtime28reported/
+11pureexcluded/0 FAIL, **43 actual SQL tests/2 failures**. Comparing complete
+initial/current failure-name sets removes exactly the ten graph-capture names,
+introduces none, and retains only the two precommit callback witnesses. The
+bounded ordinal correction's actual graph contracts now pass; complete Task13
+still FAILS and cannot advance. Full archive
+`.devenv/phase5-task13-repository-repair1-sql.log`, SHA
+`4ab60c382ed1ebc39e31cb50a1aefc72f1f96a6b2ccae8f934810b8d5af03bc3`.
+All11 source entries match56c6cc exit0, frozen56 match3c391e exit0; allocated
+root23bc53db7aabeef38937f1de absent164ccf exit0; private maintenance5af24f exit0
+returns no leftover test databases. No further Repository production repair
+is justified by these remaining before-callback test failures.
+
+## Existing definer-role diagnostic closed; bounded test design pending review
+
+Read-only Astra PROJECT_ARCHITECTURE found migration's EXISTING SET TRUE
+membership in authorization_definer and the released native function's owner.
+No administrator connection or new grant is necessary. Parent second isolated
+permission probe14424 closed7f3047 exit0. Actual owner EXECUTE remains false;
+actual existing definer SET/function owner/EXECUTE and native no-row invocation
+succeed on SAME pinned MigrationRepo backend/transaction/RR/off/GUCs. Fixed
+owner restoration and post-closure migration role/cleared GUCs were observed
+before checkout release. This is permission/connection evidence, not a real
+live-session or Repository proof. Original failed web-role probe remains FAIL.
+
+Second full archive `.devenv/phase5-task13-precommit-definer-permission-probe.log`,
+SHA `79abb898ec1543df4cebd07a946b36892171ccb79404fce9021af9f6c046852e`;
+probe source SHA d80e657f. Exact root30b435d4e416995027e878b1 absent6ef1bc exit0;
+maintenanceb10226 exit0 empty. All11 match1dcf46 exit0/frozen56 matche5de98 exit0.
+Architecture advice is not a repair round; Astra repairs0. Ordinary source
+gate failure remains FAIL, not skipped or mislabeled E2E.
+
+Parent used brainstorming/writing-plans to author bounded new precommit-native-
+authority design/plan, complete reads7e855d/a6cc84. Reviewed-draft candidate SHA
+`b1bc11dbaab25679bd2f7079c4c52da1738ea0867d12474a48c1ef6650136ae2`
+and `c42238e0dcd92d18cd3baaf4545bbd5509eff854223dfcf9e84749a3b67588b1`.
+Actual NONAUTHOR SOURCE SPEC now reviews those documents and real sources;
+distinct fresh QUALITY follows. Selected test-local Identity decorator delegates
+original ObservedIdentity/native identity query unchanged under existing definer
+role, restores owner before content, retains real Authorize/requirements/custody
+and every original assertion, and adds exact content-error/native-call/cleanup
+witnesses. No authorizer fake, second connection, grant, admin repo, cached row,
+production/shared fixture/frozen-source change. No test implementation GO yet.
+
+Parent concurrently started the separately required Task9B complete16-file
+retained SQL50680. All source/test/support are FROZEN through normal closure;
+docs/read-only design reviews may proceed. No Task9C/test authoring or Task13
+acceptance is claimed from that running gate. E2E NOT RUN/manual-only; no
+publication, production activation/backfill/data or Vault feature work.
+
+## Precommit design SOURCE SPEC closed; retained SQL failures under diagnosis
+
+Actual nonauthor `/root/phase5_task13_final_spec` SOURCE SPEC PASS on complete
+design b1bc11db and plan c42238e0; no blocking findings, all reads closed.
+Reviewer checked real released SET membership/function ownership/native
+identity, actual Authorize/custody/scope, both complete precommit cases,
+required exact integrity errors and outside-wrapper genuine-native-return /
+owner-restoration witnesses. The no-row probe remains permission/composition
+ONLY. Parent preserved the factual review in
+`.devenv/phase5-precommit-native-authority-source-spec-review.md`.
+Fresh distinct `/root/phase5_precommit_native_quality` now reviews the exact
+design/plan and actual source. No design acceptance or test-author GO yet.
+
+Live complete retained SQL50680 has emitted six actual assertion failures in
+KnowledgeRlsTest/KnowledgeGrantsTest: existing baseline matrices expect false
+SELECT while the observed grants include true SELECT. Gate remains RUNNING;
+these are not a final failure total or completed verdict. Read-only Sol
+diagnosis traces each role/table/privilege against accepted Phase5 migrations
+and actual temporary-grant cleanup. No assertion or production grant changed;
+do not assume every mismatch is contract drift, narrow the gate or report it
+GREEN. Required legacy contract corrections, if evidenced, need a bounded
+design/plan and actual independent reviews before implementation.
+
+The full sixteen selected-file receipt has SHA
+`24ef9b0df02d8d931d9a664f747b42ca19e087daa0b54138fd36525a92331f18`.
+All source/test/support remain FROZEN during50680. Task9C and Task13 acceptance
+are still NO GO. E2E NOT RUN/manual-only; no frozen Vault feature work,
+publication or production activation/backfill/data.
+
+## Precommit amendment design reviews passed; precise retained ACL amendment drafted
+
+Fresh distinct `/root/phase5_precommit_native_quality` actual-source QUALITY
+PASS on the same complete design b1bc11db/plan c42238e0, no blockers, all reads
+closed. It checked complete precommit cases/native role and function/source
+restoration/RR/cleanup. Implementation checkpoint: native identity can RETURN
+storage error after aborting a subtransaction; savepoint restoration must cover
+that path, preserve exact result and expose restoration failures outside
+Authorize rescue. This is required already, not a permission change.
+Factual QUALITY record SHA
+`df6257e80920d56e48747552b358bd816f3e0bb881ea1293d9ccc7e240bf614e`;
+SOURCE SPEC record SHA
+`569a3a47159d8edef06638f0c31ccdf03d53cdac3652cd69543a8ab68ca731b3`.
+Parent updated only review status/checks and masterTask13 amendment link.
+Current status-only design SHA e4b3fd03 / plan50573e02 differ from reviewed
+candidate hashes as declared; no substantive amendment change. SQL50680 still
+RUNNING, so no test-author GO or Task13 acceptance.
+
+Actual read-only Sol ACL diagnosis closed through both complete old test files,
+grant/owner helpers, accepted00500/00600 and prior policy/grant source. All six
+emitted failures are old worker SELECT-denial expectations. Three fail INITIAL
+checks before temporary helpers, hence cannot establish cleanup leakage. Real
+helper preserves initially-true privileges. Exact approved worker SELECT covers
+seven tables only; receipts/seals and all mutation/other-role/private-function
+denials remain. Parent preserved factual diagnosis in
+`.devenv/phase5-retained-backup-reader-grant-diagnosis.md` and drafted bounded
+two-test contract design/plan with stronger genuine baseline RLS witnesses.
+Complete draft SHA ae8ce5cc / plan77feaebf; actual nonauthor SOURCE SPEC now
+reviews these and real source, followed by distinct fresh QUALITY.
+
+No test/source/support/production permission changed. Gate final count/exit and
+normal cleanup are pending; preserve entire running FAIL evidence and keep all
+source frozen. Task9C remains NO GO until complete16 GREEN; Task13 has separate
+complete owning gates/final actual reviews/local acceptance. E2E NOT RUN;
+no publication, production activation/backfill/data or Vault feature work.
+
+## Retained ACL design review factual correction and SOURCE SPEC PASS
+
+Initial actual SOURCE SPEC FAIL found a documentation count error: complete
+unchanged KnowledgeGrantsTest has thirteen cases, not the diagnosis's fourteen;
+KnowledgeRlsTest has two. Parent literal listing6d0d1f confirms. Corrected ONLY
+fourteen-to-thirteen in the two draft documents; no tests added/deleted or
+reclassified. Initial FAIL record SHAb61e2858 remains. Factual diagnosis record
+now includes the count correction (current SHA6a4d923d).
+
+Actual nonauthor SOURCE SPEC fully reread corrected design
+`d19067aa09be33b5cd2b5f9568c4188a4510503bdeee50a292aa213f5583c860`
+and plan
+`d68e4320f061292c2373de5a4bdda1e2517d768aac47ee5223412ec455d06ecd`:
+PASS, no remaining findings. Reviewer inverse-substituted the sole word and
+reproduced exact previous draft hashes, rechecked all five real source hashes,
+and preserved complete cases/native denials/RLS/cleanup. All reads closed,
+reviewer repair0. Parent factual record
+`.devenv/phase5-backup-reader-grant-contract-source-spec-review.md` retained.
+Fresh distinct QUALITY now reviews corrected full documents and actual source.
+No author GO while SQL50680 remains running, no gate/task acceptance. E2E
+NOT RUN/manual-only; source/test/support frozen and all safety exclusions intact.
+
+## Retained ACL design QUALITY PASS; additional admission timeout is separate
+
+Fresh distinct actual-source QUALITY PASS on complete corrected design d19067aa/
+plan d68e4320, no blockers, all reads closed. Actual seven-table worker read-only
+matrix, helper preservation, full two+thirteen case retention, exact native
+denials/FORCE RLS/rollback and real baseline owner-filter probes were checked.
+Factual QUALITY record SHA
+`82e53fe85eaec60d8cfba5784bf7ee9a32972aec76e8aead32bcb34ad8d37b7e`;
+preceding SOURCE SPEC record SHA57833118. Parent changed only reviewed status/
+checkboxes/masterTask9 reconciliation (current design51012dfa/plan9d150a86).
+Implementation remains NO GO while live50680 runs.
+
+The complete gate additionally emitted failure7 AdmissionTest360, default60s
+timeout during cleanup of a graph-reference negative, and failure8
+AdmissionTest735 killed GenServer during next destination setup. Final count/
+exit is still pending. These are NOT explained or accepted by the ACL review.
+Read-only Sol inspected complete affected cases/source and private helpers/
+real migration lifecycle/server control log. Ten negative variants each migrate
+and drop a fresh destination inside one60s case; logs show seven expected graph
+rejections approximately7–8s apart before DROP cancellation, consistent with
+cumulative fixture cost, not proof of a60s blocked DROP. Prior own70/0 full gate
+took628.2s. The next killed setup may be interrupted-cleanup cascade but this
+remains UNPROVEN pending complete trace/normal post-gate cleanup.
+
+Proposed bounded repair for independent review only: one empty migrated
+destination for ten rollback-only negatives, each independently authenticated
+binding, every exact constraint/error/no-import assertion and stage/replay
+cleanup retained; no timeout increase, skipped variant, production or protected
+helper change. No implementation GO, source/test/support still FROZEN.
+New-timeout Sol0/Astra0; Repository ordinal Sol1 separately resolved. Ordinary
+failures stay in diagnosis/repair, not user-approve wait or mislabeled E2E.
+E2E NOT RUN; no publication/activation/data or Vault feature work.
+
+## Retained admission fixture design review started; capture gap declared
+
+Parent drafted bounded admission-fixture lifecycle design SHA
+`28674f51a69d2e15d82946cf3b2d3fe8442b5a8ddac0113ac6958607f7fdd6d0`
+and plan
+`c798847e5860ec8e82adc57bdf9a2842ca8018ce252932778b07d0a0dc7965f4`.
+Prepare original ten authenticated sources BEFORE opening one empty migrated
+destination; keep each independent real native rollback/complete no-import /
+bundle binding/stage/replay cleanup and every exact original graph assertion.
+Private helper factoring only in owning Admission test; all protected helpers,
+production sources, case names/counts and default60 unchanged. Actual nonauthor
+SOURCE SPEC now reads full documents and actual sources; fresh QUALITY follows.
+Factual read-only diagnosis `.devenv/phase5-admission-fixture-lifecycle-diagnosis.md`
+is retained; this is design preparation, not implementation or qualification.
+
+Live gate subsequently emitted multiple KnowledgeLink/NoteSources setup
+already_started failures naming the same MigrationRepo PID. Treat them as FAIL,
+not proof of unrelated product defects or confirmed cascade. Original poll
+8c9a28 exceeded its tool output budget (original18775 tokens, tool limit9000),
+so that available captured chunk is TRUNCATED. Do not call its archive a complete
+raw gate log or claim all omitted traces were inspected. Subsequent polls use
+32000 before saving/tailing. A bounded app-terminal recovery read did not return
+and was terminated without touching the running gate. Complete final counts/
+exit and cleanup are still pending; next complete validation must be captured
+without truncation. No assertion/timeouts/source/support changes while50680
+remains live. E2E NOT RUN; all product/safety/publication boundaries unchanged.
+
+## Complete retained gate closed FAIL and exact interrupted resources recovered
+
+SQL50680 closedb5f831 exit2,1770.8s:347reported/3excluded,
+**344 actual tests/93 failures**. Available output archive
+`.devenv/phase5-task9b-retained-initial-available-output.log`, SHA
+`121387f50f6ae99092950a29ef63e8a249567890660cce0131941355cf7d74eb`,
+explicitly INCOMPLETE for internally truncated8c9a28. Complete final total/exit
+are actual; do not claim every omitted trace inspected or every later failure
+confirmed as cascade. Initial six ACL/timeout/killed setup and observed same-PID
+already_started failures remain FAIL. Source-selected16 match815548 exit0,
+Task13all11 matchbd6808 exit0, frozen56 matchcbaad9 exit0; top rootc2285e9b
+absent2bf51b exit0. No source/test/support changed during the running gate.
+
+Postclosure maintenancee8ead8 found exactly ONE test DB2ec3cea7e55addff10c65b35,
+matching canceled DROP; bounded read8494d6 showed no active backend and root
+e96f56 was real owned0700 directory. Parent regular explicit DROP0b9ec7 exit0
+removed ONLY that disposable test DB; no FORCE or other DB. Its exact directory
+was moved recoverably(cfb69f exit0) to
+`.devenv/phase5-retained-interrupted-fixture-root-2ec3cea7e55addff10c65b35`.
+Postmaintenance11f0ae exit0 EMPTY, original root07d181 absent, retained dir
+16248f0700. Normal case cleanup had been interrupted, not retrospectively PASS.
+No production or unrelated data/file was touched.
+
+## Reviewed bounded test repairs source-closed; validation restarted
+
+Admission fixture design actual nonauthor SOURCE SPEC and distinct fresh QUALITY
+PASS on complete28674f51/c798847e. Both real case/private-helper/graph/owner
+rollback/all-schema empty-state and protected outer lifecycle were inspected,
+all read commands closed. QUALITY requires explicit successful replay discard
+because API may return error; parent added that stronger witness and clarified
+design, with stage cleanup in finally even if discard fails. Factual ignored
+SOURCE SPEC/QUALITY records retained. This is not timing/cascade qualification.
+
+After gate/recovery closure parent issued sole NEW Repository-test GO to Sol,
+and authored disjoint two retained ACL tests plus Admission fixture repair.
+No production, helper/config/grant/role/migration/frozen source changed. ACL
+literal seven-table worker read-only/nongrantable matrix retains every native
+mutation/private/receipt/seal denial; stronger baseline worker owner filtering
+runs outside temporary grants. Both Rls/thirteen Grants cases remain.
+Admission prepares all ten original sources, asserts exact mode count/order,
+reuses ONE real empty destination for separate native rollback transactions;
+full original body/error/no-import/authenticated binding remains. Parent
+read-only inversef22124 reproduces ENTIRE prior Admission SHA032b1855 before
+formatting, proving only bounded fixture composition/stronger cleanup changed.
+
+Sol Repository test author closed all commands: raw1095df6e, all26 cases and
+original assertions/default timeouts retained. Only two precommit cases/new
+fixed native Identity decorator/private pinned-observation+MFA witnesses changed.
+Same repo/backend/fullxid/RR/off/owner/principal/caller/native successful rows,
+fixed definer savepoint/owner restoration and postrollback role/GUC/locks are
+asserted outside Authorize rescue. Exact unsealed integrity_failure includes
+actual read_membership/3 call during capture using arity-only singleMFA/caller
+trace; no argument/return-content capture, ExUnit --trace or timeout change.
+Parent read complete changed regions5ac5d4/e2d5e1/833d76/cd43f2; author source
+hashf4c075 matches. No test author claimed PASS or ran runtime commands.
+
+Parent formatted ONLY four changed test files91033 closed62493a exit0. Current
+Repository test6c9af577 / ACL e24dcace,efd5c7c8 / Admission761e3bb8.
+Immutable thirteen-source receipt
+`.devenv/phase5-reviewed-test-repairs.sha256` SHA
+`8a8dcf955725357d6e73121b70f1165afb68ca53620af187972e2eed76326c69`;
+retained sixteen-source receipt
+`.devenv/phase5-task9b-retained-repair1-16-sql.sha256` SHA
+`334c971c0c2013347eae5fa690546e29353a0e2ac86d64b76ae45f2b74dc69ad`.
+All13 match35c549 exit0/frozen56 match8c4fcf exit0. Parent started unchanged
+complete five-file Task13 pure gate10317; all source/test/support now FROZEN.
+No other gate/source authoring overlaps it. Whole114pure/43SQL/own70/retained16
+results and exact counts are pending; final actual implemented SOURCE SPEC then
+fresh QUALITY/local acceptance still required. Task9C/Task14 remain NO GO.
+E2E NOT RUN/manual-only; no publication/activation/backfill/data/Vault feature work.
+
+## Reviewed test repairs: pure GREEN, native test compile FAIL and bounded rename
+
+Complete five-file pure10317 closed f67b46 exit0: Core72/0, Spool31/0,
+Runtime28reported/17SQLexcluded/0, hence114 actual tests/0 failures. Full archive
+`.devenv/phase5-reviewed-test-repairs-pure.log` SHA
+`89f95f4b0cb7f6d087c87de1bd75bac9a4e4e2a1c8ed4b46241379abf393d4cc`.
+All13 source and frozen56 matched after closure (02df80/668e76 exit0).
+This pure result alone does not accept Task13 or qualify native identity.
+
+Unchanged complete Task13 SQL75470 closed1cdf49 exit1 during compilation,
+before any cases: new test-local `binding/1` conflicts with imported
+`Kernel.binding/1`. No test count or SQL contract PASS is claimed. Full archive
+`.devenv/phase5-reviewed-test-repairs-task13-sql-initial.log` SHA
+`cc45e60ad29ff33f46225df248febf2f50b4660f32e61fa55f5a44f6190c182c`.
+After normal closure all13 source matchedd10cb9, frozen56 matcheda98011;
+allocated root38ee36a7bade858abbe8859a absent11a7ca and maintenance0b137c
+exit0 EMPTY. No source/test/support changed during this failed gate.
+
+Parent authorized only the owning NEW RepositoryTest compile repair1. Sol
+closed authoring at raw SHA
+`f84c8d07ecd5010e86384636e5ec41423d1d3c8d601fd503d8a9dcd2a1806ff4`:
+exactly seven helper/callsite substitutions `binding` to `backend_binding`.
+Parent read all seven positions; whole-file read-only inversecb25e1 reproduces
+exact prior6c9af577 hash. No assertion, timeout, trace, native behavior, case,
+production, helper, grant, role, import or frozen source changed. Native test
+compile Solrepair1/Astra0 is distinct from production ordinal Solrepair1 and
+the separate retained-test fixture corrections. Formatting and repeated complete
+owning gates remain required, followed by actual implemented NONAUTHOR SOURCE
+SPEC and distinct fresh QUALITY. Task13/Task9/Task14 remain unaccepted.
+E2E NOT RUN/manual-only; all product/safety/publication boundaries unchanged.
+
+## Complete Task13 gates GREEN; final actual source review FAIL on two uncovered contracts
+
+After sole test rename, format43581 closedee7d62 exit0; current complete13
+receipt SHA7147849f. Whole pure30124 closed9eaf8e exit0,114actual/0;
+full log124d8871324efe0b5cdca367c8979be4561999cd1ed2b2c61661067e1bf3baaf.
+Whole SQL56307 closed7e2fd9 exit0:26Storage+17Runtime=43actual/0,
+11pureexcluded; full log877e722a9ab938eb769128392bbe60c7d7f7bd1ef31c2d36ab2e6c3c3dfd867d.
+Normal postclosure13matchadea59/frozen56match90a74f/rootb5d30da9absentce18e7/
+maintenancee3c68d EMPTY/diffcheckee2883 all exit0. Whole static64093 closed
+164879 exit0 format-check/compileWAE/xref No cycles found, full log SHA
+8cdbbfd69c1f289de4fe007feb8146921f7cb02f695077c43b87b3a930f75e12.
+
+Actual NONAUTHOR final SOURCE SPEC returned FAIL despite those GREEN gates,
+after complete seven-file/design/masterTask13/amendment/dependency source read.
+Two untested existing contracts are unmet: all-state envelope join falsely rejects
+valid rotated objects or captures inactive envelopes; Document original join
+uses mutable Asset pointer cleared by actual deletion despite immutable retained
+Document pin. Parent verified actual query, rotation path, deletion release/nil
+shape and unchanged Document custody source-object path. Existing positive
+deletion test only changes state/deletion time and is not that cleanup witness.
+Factual ignored final source FAIL record retained; no other blocker identified,
+all reviewer commands closed, reviewer repair0. Task13 stays unaccepted and
+Task14 NO GO. Master detailed plan records causal SQL regressions/minimal new
+Repository correction; no frozen behavior, grant or migration expansion.
+Historical failed gates remain FAIL; E2E NOT RUN/manual-only, no publication.
+
+## Task13 causal original-binding regressions and bounded repair1
+
+The actual final source FAIL is retained in
+`.devenv/phase5-task13-final-source-spec-review-initial.md`, SHA
+`e46d1ab5731ae90450788042c675ab849297e621f8bf39da5f5722e495d36094`.
+Parent verified unchanged rotation readers and actual source-Asset deletion:
+old envelopes remain after domain-version retirement, while Document retention
+keeps the pinned object after the mutable Asset pointer is NULL and its
+resource_assets association is released. These are existing Task13 contracts,
+not new product scope. No frozen rotation/deletion/custody semantics changed.
+
+Sol added three causal owning SQL cases and strengthened the existing retained
+Document case, keeping all26 original cases, every original assertion and the
+default timeouts. Metadata-only envelope setup is not authenticated-byte proof.
+Both inactive states are tested; unique active selection retains retired rows,
+multiple active candidates deny, and actual release/NULL/deleted-resource shape
+still resolves only the immutable Document pin. Parent sole formatting5822
+closed046a58 exit0; current RepositoryTest75cd3b5f. Production remained prior
+56c864e8 during causal RED. Whole SQL81105 closed58d7e5 exit2:
+29Storage/3 failures +17Runtime/0 =46 actual/3 failures,11 excluded.
+The three failures are inactive-only capture, valid rotated capture and genuine
+retained-Document capture; the ambiguity rejection and other cases passed.
+Full raw archive `.devenv/phase5-task13-original-binding-causal-red.log` SHA
+`f7e91de2b09be37f99df0342be6bd43de0ab0e631669e57387371bce92b0c65e`.
+Postclosure source13/frozen56/root/maintenance checks all completed normally.
+
+The incorrect successful inactive-only result left one test-owned sealed spool.
+Parent read its exact real path,0700 ownership, two0600 regular files and absent
+destination, then moved ONLY operation62276c4d-71ea-4fb8-af52-98b2af3dd426
+recoverably to
+`.devenv/phase5-task13-causal-red-unexpected-spool-62276c4d-71ea-4fb8-af52-98b2af3dd426`.
+The old path is absent; the preserved directory remains0700. No production or
+unrelated data was touched or deleted. Failed-case normal cleanup is not
+retrospectively PASS.
+
+Production Solrepair1 changes ONLY the NEW Repository: six bounded substitutions
+pass nil for ordinary Asset and canonical source.object_id for Document, choose
+that exact bound object independently of the mutable Asset pointer, and require
+active domain-version state before unchanged LIMIT2/one ambiguity enforcement.
+All identity/owner/classification/association/result/size/context/budget checks
+remain. Parent whole-file read-only inverse reconstructs the ENTIRE old source
+SHA56c864e8; current productione537e0ea. Tests unchanged75cd3b5f. Sole production
+format31002 closed2401bd exit0. New binding Solrepair1/Astra0 remains separate
+from earlier ordinal repair1 and test helper rename1.
+
+Immutable current13 receipt
+`.devenv/phase5-task13-original-binding-repair1.sha256` SHA
+`83233e8c14fb4346321bce61e840f9851e84a0960dbf4197467dd7a65e1c4cee`.
+Whole five-file pure99523 closedc61f1c exit0:72Core+31Spool+11Runtime=
+114 actual/0,17SQL excluded. Full archive
+`.devenv/phase5-task13-original-binding-repair1-pure.log` SHA
+`28940ea6559bff4f86350522ebfc6729b28c0ce18ccf1c6c05eff60fe815e23b`.
+Whole two-file SQL9553 closed6afe2b exit0:29Repository+17Runtime=46 actual/0,
+11pure excluded. Both pending and retired branches execute in GREEN.
+Full archive `.devenv/phase5-task13-original-binding-repair1-sql.log` SHA
+`27486beaf5553e9667f55e6a500b47e90443a6bc7cbb02ed8b4658f2318c26cc`.
+
+After normal SQL closure, source13 matches986059 exit0; frozen56 matches117a2f
+exit0 with unchanged registryd0296d24 verified27f310. Allocated root
+`/tmp/singularity/integration/0b1561ab6783437cca780abb` absentc40470 exit0;
+maintenance4378ef exit0 EMPTY; diffcheck1353d5 exit0. Whole static15860 closed
+e7a887 exit0 using unchanged format-check/compileWAE/xref-zero-cycle command;
+full archive `.devenv/phase5-task13-original-binding-repair1-static.log` SHA
+`8cdbbfd69c1f289de4fe007feb8146921f7cb02f695077c43b87b3a930f75e12`.
+Actual seven applicationsd82a6b; poststatic diff3a0ba0 exit0. All source/test/
+support stayed frozen during gates. Final repaired actual NONAUTHOR SOURCE SPEC
+and distinct fresh QUALITY remain pending; no Task13 local acceptance or
+Task14 implementation GO is claimed by these gate results alone.
+E2E NOT RUN/manual-only; no merge/push/version/tag/release/deploy/activation/
+backfill/production-data or Vault feature work.
+
+## Task13 final repaired SOURCE SPEC PASS; independent actual QUALITY FAIL
+
+Actual NONAUTHOR SOURCE SPEC closed PASS on current83233e8c receipt, all7
+owning files/full design/masterTask13/amendments and actual dependencies;
+complete changed Repository1189/RepoTest2244 lines, unchanged5 prior full-read
+hashes, full114/46/static archive reads and parent normalcleanup evidence.
+Factual ignored record
+`.devenv/phase5-task13-final-repaired-source-spec-review.md` SHA
+`590da4c9d64e04120c07d9443cdf2990e27b9f00dc516ec29245cec8986cdaa4`.
+Initial SOURCE FAIL remains preserved; this PASS covers that repaired candidate.
+
+Distinct fresh actual QUALITY then returned FAIL with one new P1: ordinary
+Asset original_binding accepts only available, but unchanged AssetRepository
+authorized_object/authorized_download_descriptor, Note source admission and
+actual metadata lifecycle admit available/processing/ready. A normal ready
+Asset sealed source reaches body capture then fails integrity. Current fixture
+stays available, so46GREEN does not cover this path. The reviewer read all7
+files throughEOF/full governing documents and traced actual source paths;
+no additional blocker and no edits/gates, all own reads closed. Prior active
+envelope/retained Document fixes remain resolved. Factual initial actual QUALITY
+FAIL record is retained; Task13/localcommit/Task14 stay NO GO.
+
+Parent assigned read-only causal preparation, which independently confirmed
+actual reader/state/liveness contracts. Two new owning cases must distinguish
+processing/ready ordinary Asset bodies from retained Document admission, retain
+genuine Authorize and both established-reader witnesses plus exact private
+binding/draft/cleanup/sentinel. They are metadata selection, not real-byte or
+metadata-worker proof. Test/source authoring waits for current independent
+own70 SQL47202 normalclosure; all source/test/support remain frozen.
+E2E NOT RUN and all product/safety/publication boundaries remain unchanged.
+
+## Ordinary Asset-state causal coverage and production repair1
+
+The first complete new-state SQL45828 closed1de59e exit2:31Repository/2
+fixture-witness failures +17Runtime/0 =48actual/2. Both failures occurred BEFORE
+authorization/capture because the new witness followed a nil Asset resource
+head. This is NOT causal RED for the production defect. Full raw archive
+`.devenv/phase5-task13-live-asset-initial-sql.log` SHAb40e5cbd is preserved.
+The established fixture creates its immutable version separately and leaves
+the mutable head nil. Sol witness repair1 joins the exact pinned version and
+separately asserts the nil head; it preserves all strong committed-state,
+native-authorization, established-reader, capture and cleanup assertions.
+Whole-file inverse after removing only the two new cases/helper equals prior
+75cd3b5f, proving every original29 case/assertion remains unchanged.
+The parent formatter initially used wrong dev dependency context and failed
+before formatting; its full log51f3c756 is retained. Repeating the established
+MIX_ENV=test/root-deps invocation closed711463 exit0; test76810aa3 unchanged.
+
+With production still e537e0ea, unchanged whole SQL43321 closeda1045a exit2:
+31Repository/2 causal failures +17Runtime/0 =48actual/2. Both ordinary-state
+cases pass committed pin/state witnesses, genuine Authorize and BOTH existing
+Asset readers, then fail only capture with integrity_failure. Full raw archive
+`.devenv/phase5-task13-live-asset-witness-repair1-causal-red.log` SHA2f67369e.
+Post13/frozen56 matched, allocated517a50588e6717322ee335d5 root absent and
+maintenanceab7103 EMPTY; no leaked spool. Historical noncausal FAIL remains FAIL.
+
+Production Solrepair1 changes ONLY the NEW Repository predicate from available
+to existing available/processing/ready states. All other identity, owner,
+classification, liveness, exact pointers, immutable Document pins, active-envelope
+uniqueness, size/context/budget and transaction checks remain. Current source
+17e3874a; its whole inverse exactly equals e537e0ea. Sole format3073 closed
+a7461e exit0, test76810aa3 unchanged. Immutable13 receipt
+`.devenv/phase5-task13-live-asset-state-repair1.sha256` SHA3d7de0cf.
+
+Full five-file pure83462 closede53ef7 exit0:72Core+31Spool+11Runtime=
+114actual/0,17SQL excluded; full log3fa415b1. Full two-file SQL5163 closedfd7827
+exit0:31Repository+17Runtime=48actual/0,11pure excluded; full log80b71030.
+Both ordinary states execute GREEN. Whole static77649 closedbdbe1a exit0,
+format-check/compileWAE/xref-zero; full log9a3dc757. The three full archives use
+`.devenv/phase5-task13-live-asset-state-repair1-{pure,sql,static}.log`.
+Post13 e7f967/374e17 and frozen56 23f0af/55e909 all match; registryd029 unchanged;
+allocated4b5716eb9e89c9ce3ff5d7e0 root absent01f366, maintenancee1191f EMPTY,
+seven applications80be20, diff5cac02 exit0. Source/test/support frozen throughout.
+Final actual NONAUTHOR SOURCE SPEC and distinct fresh QUALITY are pending;
+these gates alone do not authorize Task13 local acceptance or Task14.
+
+## Retained admission one-shot cleanup correction, not yet qualified
+
+The exact fixed ACL selection54005 closed31da68 exit0:15actual/0; full archive
+`.devenv/phase5-retained-acl-repair1-sql.log` SHA29bfd1f1. Source/frozen/root/
+maintenance checks passed. This does not qualify the complete16 retained gate.
+Owning70 SQL47202 closed5f1ad6 exit2:70actual/3 failures,690.1s; full archive
+`.devenv/phase5-admission-fixture-repair1-own70.log` SHA834caed5. All three fail
+the same owning-helper strict discard after genuine staged replay already
+consumed the one-shot snapshot; native close returns reason einval. No required
+assertion was weakened and no timeout or selection was changed. Postsource/
+frozen/root/maintenance checks completed normally. This historical FAIL remains.
+
+After gate closure, actual protected replay/native-close paths were inspected.
+Read-only OTP28 control30985 closed10b55d exit0 proves native open control,
+successful close and specifically closed FD result error/einval; full probe
+archivefe4706f7. Bounded lifecycle design6a5607ac/plan dc697ab0 received actual
+NONAUTHOR SOURCE SPEC then distinct fresh QUALITY PASS before implementation.
+The owning private helper alone now observes the original native callback,
+preserves its result or raised kind/reason/stack, requires exactly one same-process
+successful close with real open-before/closed-after controls, and genuinely
+discards only if no prior close event exists. Outer stage cleanup begins before
+authentication. Failed, duplicate, foreign or unqualified events still fail.
+Current Admission43b4c14; whole inverse exactly equals prior761e3bb8.
+Frozen reader/destination/shared fixtures, all case bodies, ten negative variants,
+default timeouts, grants and released migrations remain unchanged.
+
+Current immutable16 receipt8504dded matches all entries. Actual implemented
+NONAUTHOR SOURCE preparation read all three tests and four design/plan documents,
+finding no actionable source blocker. Its FINAL verdict is WITHHELD until
+unchanged full owning70/full retained16/static/source/frozen/normalcleanup gates
+and subsequent distinct fresh QUALITY. Those new complete gates are NOT RUN;
+Task9C remains NO GO. No assertion skips or frozen Vault/custody/lease semantics
+changes, E2E NOT RUN/manual-only, no publication or production-data work.
+
+## Task13 final ordinary-state SOURCE SPEC and distinct QUALITY PASS
+
+Actual NONAUTHOR SOURCE SPEC closed PASS on current3d7de0cf receipt, full current
+Repository1189/Test2433 plus unchanged5 prior complete reads/hash matches,
+complete masterTask13/governing design/amendments/actual dependencies and all
+current full114/48/static logs. Record5085bb2d is retained as
+`.devenv/phase5-task13-final-ordinary-state-source-spec.md`.
+Distinct fresh actual QUALITY then closed PASS, all7files6829lines throughEOF,
+full governing documents and actual authorization/native-permission/state/source/
+rotation/deletion paths. It independently resolved the prior ordinary-state P1
+and checked preserved active-envelope/immutable Document fixes, scope/COMMIT,
+closure/spool/budgets/privacy and genuine precommit restoration/rollback cleanup.
+No blocking finding remains. Recordaa1e48cb is retained as
+`.devenv/phase5-task13-final-ordinary-state-quality.md`.
+Both are nonauthors; no edits/gates/SQL/services/network/Git/subagents, all own
+read commands CLOSED. Historical FAIL records are preserved, not reclassified.
+
+Task13 current source is locally qualified, not Phase5 accepted. Master and
+precommit checklists now reflect implemented/verified work; localcommit remains
+unchecked while separate Legacy owning70SQL79416 is live and source frozen.
+Task14 source authoring still waits for that normal closure/localcommit. Task9C
+waits for its complete owning70/full retained16 and final independent reviews.
+No E2E/browser or real original-byte-delivery claim, publication or frozen change.
+
+## Admission one-shot repair1 whole owning70 GREEN
+
+Unchanged complete owning70SQL79416 closedda41ff exit0:70actual/0,765.3s.
+The strict real-close witness and all three formerly double-close cases pass;
+all ten negative variants/default assertions/timeouts remain intact. Full raw
+archive `.devenv/phase5-admission-one-shot-repair1-own70.log` SHA6edd4a82.
+After closure current16 matches384659, current13 matchesed41a2, frozen56
+matches24367c; allocated51a6ab1bb1c526836c4ad85e root absentb313cc,
+maintenance7996cc EMPTY exit0, diffd58ce7 exit0. Registryd029 unchanged and
+16receipt8504dded unchanged. Every source/test/support stayed frozen.
+This closes the own70 failure only; complete retained16/static/final actual
+NONAUTHOR SOURCE SPEC then distinct fresh QUALITY remain required for Task9C.
+Task13 independently qualified seven-file local commit may now proceed; no
+Stage5/real-byte/browser/publication acceptance is inferred.

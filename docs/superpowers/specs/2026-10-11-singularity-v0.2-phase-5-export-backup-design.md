@@ -302,7 +302,16 @@ may have been deleted while the live Document retains the original. Do not
 use worker/extraction identity or RestoreIntegrityLease for export. For Asset
 pins, prove the unique exact resource-version/Asset/object association before
 calling established live Asset download; reject ambiguous or changed binding.
-Use its bounded chunk-delivery path, never the eager `:all` bytes variant.
+Use its bounded chunk-delivery path; never use `:all` for nonempty originals.
+The sole canonical zero-byte Asset exception is governed by independently
+source/spec and fresh-quality reviewed
+`docs/superpowers/specs/2026-10-12-singularity-v0.2-phase-5-zero-asset-read-design.md`
+and its matching plan. A fixed knowledge caller delegates real OperationScope,
+locks Asset first then object/selected envelope/domain-version, independently
+verifies exact captured size0/format1/ciphertext134 and invokes the ORIGINAL
+existing Asset callback through actual custody, empty final authentication,
+audit and COMMIT. No nested scope, preflight-only/post-read zero proof, nonempty
+eager read, new public option, grant or frozen custody change is permitted.
 Revalidate the captured version/Asset/object/size/digest binding before lease
 creation and completion; authenticate each chunk through the existing delivery
 contract. No DownloadLease or custody implementation change is authorized.
@@ -384,7 +393,10 @@ metadata/index records including private render records, 1 GiB final manifest,
 error. Honor stricter existing per-item limits: 64 MiB Document originals,
 4,096 fragments, 64 KiB fragment text, 16 MiB extracted text, and existing
 Note/source-set limits. Page metadata at at most 500 rows; stream content in
-at most 64 KiB chunks and JSON one record at a time. Do not collect all bodies,
+at most 64 KiB chunks and JSON one record at a time. Existing bounded crypto
+may authenticate an aligned4MiB AEAD record internally; this is not an eager
+corpus read or permission to enlarge export delivery/writer chunks.
+Do not collect all bodies,
 fragments, encoded manifest or object bytes in BEAM memory. Closure indexes
 are bounded by the explicit version/record ceilings.
 
