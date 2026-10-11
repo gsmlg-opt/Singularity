@@ -2596,3 +2596,132 @@ Before Task 2, no PostgreSQL/service process or integration database had been
 started for Phase 4. Task 2's exact isolated cluster is recorded above.
 Whole-phase gates, full legacy restore,
 implementation reviews and cleanup evidence remain required before acceptance.
+
+## Task 9 clean-source gate and source-liveness fixture review
+
+The Asset lifecycle/identity repair was committed locally as
+`30697b0673c2819af82bc6408dc9495f29fdff6c` (`fix(knowledge): preserve Asset
+lifecycle and historical identity`), thirteen scoped files. No publication or
+phase advancement occurred.
+
+Complete permitted README gate `24227` subsequently completed **PASS**, exit 0,
+on that exact clean source, seed `215378`:
+
+- Dependency fetch/unused check, complete format check and warnings-as-errors
+  compilation passed.
+- Unit runs reported 3134 tests and ten properties, zero failures; 1353 SQL
+  cases were excluded. Actual pure coverage was 1781 tests and ten properties.
+- Integration runs reported 3134 tests and ten properties, zero failures;
+  1781 pure tests and all ten properties were excluded. Actual SQL coverage
+  was 1063 Storage plus 290 Runtime tests. Storage took 1198.2 seconds and
+  Runtime 1005.9 seconds. Original assertions and deadlines were retained.
+- Complete V2 and immutable V1 restore passed. V2 manifest was
+  `d3ce9d73-a57c-403c-87f6-176fd5d1fa5b`; V1 manifest was
+  `95400c1e-b6b5-49ff-8fa1-818953d73bf4`.
+- Frozen npm install/integrity verification covered 166 packages; JS format
+  and lint covered 22 files, and all 197 JS tests in nine files passed.
+  Tailwind and JS bundle builds passed.
+- Xref reported **No cycles found**; actionlint checked all five workflows;
+  whitespace, final exact HEAD and clean tracked-state checks passed.
+- E2E was **NOT RUN** by explicit user restriction, not reported as passing.
+  Existing migration-module/OID reload, expected negative SQL-error and Vite
+  future-loader warning output remained visible and unmodified.
+
+Exact invocation was
+`devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-full-gate.sh`.
+The recorded gate script SHA-256 was
+`94825a38b8abc6434892ac658bf88d0288491ac002aaa4c55c99ceef7ab355c3`.
+Owned cleanup `4327` confirmed zero nondefault databases, stopped PostgreSQL,
+absent PID/socket and all five recorded temporary roots absent. Protected
+worktree heads and the unrelated Phase2 file digest were unchanged.
+
+This clean-source execution does not establish the cause of the earlier
+short-literal failure; that cause remains **UNKNOWN**. It also does not close
+whole-source review or qualify later test changes.
+
+Whole-source SPEC v2 was incomplete with three erroneous review-input scope
+premises, independently rejected against primary governing contracts; v3 was
+incomplete on source coverage. Neither is a PASS or an implementation-repair
+failure. Complete disjoint bounded actual-source reviews then covered eleven
+partitions (86 files, 45775 source lines) with partition-only SPEC PASS.
+Separate schema/grants review `74090`, thread
+`01a128a7-3c1d-7b01-96c0-4bc3e51cd74a`, completed **SPEC FAIL**, one verified P2:
+the fresh-Note tombstone negative retained ordinal one for its only attachment.
+Its generic rejection could pass on the independent ordering failure. This is
+a test-coverage defect, not evidence of a production liveness defect.
+
+The test-only refinement preserves every old retention and no-cascade
+assertion, adds a live ready-Document single-member positive control, uses
+ordinal zero in both fresh fixtures and asserts the exact tombstone-source
+error plus zero committed Resource/version/Note/attachment/seal rows.
+Independent bounded plan diagnosis found this narrow refinement valid.
+
+Focused characterization `26569` initially passed one actual test (13 reported,
+12 excluded). Owning **RED** `92223` then reported 14 tests/two failures in
+5.5 seconds: the live ordinal-one fixture failed
+`note_attachments_source_set_check`, and the strengthened tombstone assertion
+received that same ordering constraint instead of its required source check.
+Thus the old negative was not discriminating, without any production mutation.
+
+First GREEN invocation `63357` exited zero and passed 31 tests in four real
+files, but its fifth path incorrectly named nonexistent
+`postgres/knowledge_sealing_test.exs`. Its visible unmatched-path output means
+it is **INCOMPLETE** for the planned five-file gate, not a sealing-suite PASS.
+The corrected owning run `1413` uses the actual
+`note_source_set_sealing_test.exs` and completed **GREEN**, exit 0: all 54 tests
+passed in 43.1 seconds, seed `215378`. Exact command:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs --seed 215378
+```
+
+No failed production repair or Astra escalation round is consumed by this
+test-command path error. No production code, migration, grant, fixture helper,
+Vault, custody or capability change is included in this refinement.
+
+Static run `12016` completed **PASS**, exit 0: owning formatter, complete
+format check, warnings-as-errors compilation, xref **No cycles found** and
+whitespace checks. The formatter changed only the rollback query layout,
+not its assertions or parameters. Cleanup `2721` completed exit 0 with zero
+nondefault databases; parent checked PostgreSQL PID/socket and all four new
+temporary roots absent. No test or service remains running.
+
+Fresh actual-source SPEC and separate QUALITY for the refined candidate,
+remaining complete partition coverage, cross-module overall SPEC, fresh whole
+QUALITY and the complete clean-source README gate remain pending. Phase4 is
+**NOT ACCEPTED**; Phase5 execution remains pending. E2E stays **NOT RUN**.
+
+The bounded test-only refinement subsequently completed actual-source
+**SPEC PASS** from independent reviewer
+`/root/phase4_organization_spec_review`, then separate fresh **QUALITY PASS**
+in process `24964`, thread `01a128b8-157f-7a61-922f-511b731f9c03`. Both reported
+zero actionable P0–P2 findings and no lesser concerns, read the schema test
+through line 808, active plan through line 679 and this report's pre-verdict
+snapshot through line 2692, and inspected complete three-file repair diffs and
+the cumulative schema-test diff from Phase3. Source/fixture/trigger helpers
+were inspected directly. All commands finished; no reviewer ran tests or
+changed files. QUALITY's unmatched exploratory glob was corrected without
+mutation or incomplete coverage.
+
+Before and after both reviews, HEAD stayed `30697b0`, tracked status was exactly
+the three intended modifications, all 111 manifest entries matched, and
+whitespace checks passed. Manifest SHA-256 was
+`4728b79e9820042e37ce91383b8a12c0f1b606722c4971843261136f1b9afabf`;
+the separately reviewed report snapshot was
+`abcc1271ecaa3a012fcf912d577f3465eb32b8acbfd758161b903861371e72b5`.
+This subsequent verdict-only recording does not alter any reviewed test or
+plan source. The unchanged eight other schema/grants files retain their
+complete original partition inspection; the fresh refinement closes that
+partition's sole finding, not whole-phase review.
+
+Backup-oracles partition `71620`, thread
+`01a128b5-4356-71b3-a936-81cf29e0c5f0`, also completed **SPEC partition PASS**
+with all three actual files and cumulative diffs fully covered (3714 source
+lines), unchanged frozen identity/hashes and no findings. Gate `24227` remains
+historical clean-source execution evidence only.
+
+The parent may make the narrow three-file local test/plan/evidence commit.
+Remaining diagnostic/governance/historical partition coverage, fresh overall
+cross-module SPEC, separate whole QUALITY and the complete new clean-source
+README gate still block Phase4 acceptance. No publication or Phase5 execution
+is authorized by these scoped verdicts; E2E remains **NOT RUN**.

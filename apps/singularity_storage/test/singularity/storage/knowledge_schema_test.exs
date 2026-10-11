@@ -320,6 +320,32 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
     end
   end
 
+  test "a ready Document accepts a fresh single-attachment Note source set" do
+    source = KnowledgeFixtures.source!()
+    {document, _fragment} = ready_document!(source)
+    note = KnowledgeFixtures.note_identity!(source)
+
+    owner(fn ->
+      KnowledgeFixtures.insert_note!(MigrationRepo, source, note)
+
+      insert!("note_attachments", %{
+        attachment(note, source)
+        | target_resource_id: document.resource_id,
+          target_resource_version_id: document.resource_version_id,
+          target_kind: "document"
+      })
+    end)
+
+    owner(fn ->
+      assert %{rows: [[1, 0]]} =
+               query!(
+                 MigrationRepo,
+                 "SELECT attachment_count,citation_count FROM content.note_source_set_seals WHERE note_resource_version_id=$1",
+                 [note.resource_version_id]
+               )
+    end)
+  end
+
   test "tombstoning keeps source links and organization rows and no new foreign key cascades" do
     source = KnowledgeFixtures.source!()
     note = KnowledgeFixtures.note_identity!(source)
@@ -376,17 +402,42 @@ defmodule Singularity.Storage.KnowledgeSchemaTest do
       end
     end)
 
-    rejects(fn ->
-      fresh = KnowledgeFixtures.note_identity!(source)
-      KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+    fresh = KnowledgeFixtures.note_identity!(source)
 
-      insert!("note_attachments", %{
-        attachment(fresh, source)
-        | ordinal: 1,
-          target_resource_id: document.resource_id,
-          target_resource_version_id: document.resource_version_id,
-          target_kind: "document"
-      })
+    error =
+      assert_raise Postgrex.Error, fn ->
+        owner(fn ->
+          KnowledgeFixtures.insert_note!(MigrationRepo, source, fresh)
+
+          insert!("note_attachments", %{
+            attachment(fresh, source)
+            | target_resource_id: document.resource_id,
+              target_resource_version_id: document.resource_version_id,
+              target_kind: "document"
+          })
+        end)
+      end
+
+    assert error.postgres.code == :check_violation
+    assert error.postgres.constraint == "note_attachments_source_check"
+
+    owner(fn ->
+      for {table, column, id} <- [
+            {"resources", "id", fresh.resource_id},
+            {"resource_versions", "id", fresh.resource_version_id},
+            {"note_versions", "resource_version_id", fresh.resource_version_id},
+            {"note_attachments", "note_resource_version_id", fresh.resource_version_id},
+            {"note_source_set_seals", "note_resource_version_id", fresh.resource_version_id}
+          ] do
+        assert %{rows: [[0]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT count(*) FROM content.#{table} WHERE #{column}=$1",
+                   [
+                     id
+                   ]
+                 )
+      end
     end)
   end
 

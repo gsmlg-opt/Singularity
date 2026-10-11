@@ -647,6 +647,17 @@ full five-file Storage owning GREEN and fresh independent source SPEC followed
 by separate QUALITY; previous scoped source review is not acceptance of new
 test contracts.
 
+Source-liveness fixture refinement: preserve every existing retention and
+no-cascade assertion in `knowledge_schema_test.exs`; add a live ready-Document
+single-attachment positive control. First demonstrate the old ordinal-one
+fixture fails the ordering constraint, then use the helper's ordinal zero in
+both fresh fixtures. Assert the tombstoned-source check's exact error code and
+constraint plus complete rollback of Resource/version/Note/attachment/seal
+rows. This is test-only strengthening, not a production liveness repair or
+constraint waiver. Run the owning schema/grants/RLS/privacy/sealing suites,
+actual independent SPEC followed by fresh QUALITY, then the complete permitted
+clean-source gate. Preserve the old gate and failed review as historical evidence.
+
 - [ ] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and
   every failed attempt honestly. No E2E, assertion waiver or timeout increase.
