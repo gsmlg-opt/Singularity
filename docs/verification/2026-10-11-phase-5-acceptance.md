@@ -384,3 +384,130 @@ resolved), **Astra 0**. Expected RED and formatting are not failed repairs.
 E2E remains manual-only **NOT RUN**; no Vault feature work, migration,
 database/service startup, merge, push or publication occurred. Phase5 is
 **NOT accepted**.
+
+## Task1 post-verdict closure and local commit
+
+The preceding GREEN record is the pre-verdict snapshot actually read by both
+independent source reviewers. Task1 SOURCE SPEC (`phase5_design_quality`)
+then fresh separate SOURCE QUALITY (`acceptance_document_roles_diagnosis`)
+both returned **PASS, no findings** on twelve-file manifest
+`fb4c6313c07bbe21a1f294911bce538e15b0509d6099d015ea592c0880810999`,
+plan `1bd8910d31d36774d1443eba99cc6bb84ee124e8ea342c33ca406eda7624a570`,
+and report `730ba286a0d5d37ec78620d625e022f47c9b6a0ffb29d7c2142dd7cd36bfcd6e`.
+
+Both reviewers read full V3 schema198, Codec476, Verifier741, new schema
+test303 and unchanged V1compat165 lines, complete changed owning-test deltas
+and needed context, plus the entire bounded plan/report delta. QUALITY also
+inspected defining migrations and unchanged Exporter/Restorer gates. These
+were actual source reads, not a summary-only review or a fresh full plan reread.
+They checked all12 source/all56 frozen hashes and diff cleanliness, read
+parent logs and stopped with no edits or reviewer-run tests.
+Parent transcribed their native responses into ignored
+`.devenv/phase5-task1-source-spec-native.md` and
+`.devenv/phase5-task1-source-quality-native.md`.
+
+Parent rechecked exact reviewed hashes, the empty index and no active hooks,
+explicitly staged only six Task1 Storage source/test files and the two
+reviewed plan/report deltas, then checked the staged diff. Local commit
+`b1a7965281ffef8a22b6f5192a1d10661563a6dc`,
+`feat(backup): define explicit logical v3 wire schema`, exited **0**:
+eight files,1,311 additions/16 removals. CoreTask2 changes remained uncommitted;
+no unrelated or ignored tooling was staged. No merge/push/publication occurred.
+Task1 is closed; Task3 actual-DDL and legal-history fixtures remain mandatory.
+The plan's five Task1 checks are marked only after the successful local commit;
+this post-verdict record will receive the next task's bounded documentation review.
+
+## Task2 actual SOURCE SPEC finding — not accepted
+
+The non-author `phase5_detailed_plan` read all six complete Core source/test
+files (2,465 lines), the actual bounded plan/report delta and parent logs on
+the same pre-verdict snapshot. SOURCE SPEC returned **FAIL: one P2**, no P0/P1:
+`KnowledgeExportManifest.record(:files,...)` used only the64GiB global limit,
+accepting canonical Document originals above64MiB, extracted text above16MiB
+and rendered Notes above16MiB. This contradicts design§5 and Task2's stricter
+per-item requirement. Later writer checks do not excuse impossible descriptors.
+
+Review independently confirmed unchanged original render2/private helpers
+`534f314f2ab4c752344a6c4596b414c76a86231947af64edeca2bb401834cde0` and
+all40 original test bodies/helpers
+`198891afe892e2989946eb9f522081358a4c43bf8345551ba42d06e2ef5cd678`.
+No other contract or exception-path finding was identified; Runtime's unchanged
+consumer still calls render2. Reviewer tests were **NOT RUN**; all commands
+were read-only and completed. CoreTask2 and Phase5 remain **NOT accepted**.
+
+The Core author added only six focused test cases: acceptance at the exact
+ceiling and rejection at ceiling+1 for all three Document extensions, extracted
+text, rendered Notes and Assets. No large content is allocated. Every original
+assertion is retained; source is still unchanged pending parent RED and bounded
+repair. This finding/expectedRED does not itself count as a failed repair round.
+
+## Task2 bounded path-ceiling repair — GREEN, review closure pending
+
+Parent full owning execution `91437` reproduced the review finding:
+normal exit **2**, **72 tests,5 expected failures**,13.2 seconds, seed215378,
+warnings-as-errors. Each Document extension/extracted/renderedNote accepted
+ceiling+1 incorrectly; exact-ceiling positives and Asset global-boundary case
+passed, as did all66 prior tests. No compiler failure or unrelated failure.
+Ignored actual RED log SHA
+`a14adc808a2575d6972bb6be8fbf2b06d6d035c37c2f88bb1ff7de50c573a8a4`.
+
+The Core author completed one bounded repair attempt for this distinct
+descriptor defect: only replace the files size bound with a private
+path-specific limit chosen after existing canonical-path validation, using
+existing KnowledgeExport.limits values. Originals64MiB, extracted16MiB,
+renderedNotes16MiB, Assets64GiB. No new configuration, authority, filesystem
+or writer behavior; all six new boundary cases and prior assertions unchanged.
+Parent owning GREEN `41933` exited **0**, **72/0**,14.3 seconds. Its actual
+ignored GREEN log SHA
+`7ffee865b020916f4a016795a22b709dd1557d2a75b02bfe7c25d0cd2f7e53be`.
+
+Parent formatted only that module/test (`67462`,exit0), then repeated the
+same complete owning/downstream command recorded above (`8209`,exit0):
+Core72/0,Storage51/0,Runtime26/0,Web37/0; **186 tests,0 failures**.
+Task3 writers owned only unselected new test/JSON files, no app/support source
+or Mix, so no concurrent writes overlapped those explicit targets or compilation.
+Full umbrella formatting and Task3 integration wait until both test authors stop.
+
+Parent scoped static `29998` exited0 with all twelve Task1/2 source/test files:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted apps/singularity_core/lib/singularity/core/knowledge_export.ex apps/singularity_core/lib/singularity/core/knowledge_export_manifest.ex apps/singularity_core/lib/singularity/core/note_markdown_sources.ex apps/singularity_core/test/singularity/core/knowledge_export_test.exs apps/singularity_core/test/singularity/core/knowledge_export_manifest_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v3.ex apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex apps/singularity_storage/lib/singularity/storage/backup/logical_bundle_verifier.ex apps/singularity_storage/test/singularity/storage/backup/logical_schema_v3_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_record_codec_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_bundle_verifier_test.exs, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Scoped formatting and warnings-as-errors compilation passed; xref reported
+**No cycles found**. All56 frozen baseline hashes checked OK and diffcheck
+passed. Actual final regression/static logs are ignored
+`.devenv/phase5-tasks12-final-regressions.log` and
+`.devenv/phase5-task2-final-scoped-static.log`. These are scoped task checks,
+not a complete Phase5 README gate or Task3 acceptance.
+
+Final manifest source SHA
+`562ee9e69fe9530ce8e1846db5600bda60dc1db7a37f3cfc2cf3264d6a3773b5`;
+boundary test SHA
+`f8495817f17c3c5e9abfed08528cd4ebb28e99d9de548ba26973d083c6d514a8`.
+Independent SPEC finding closure then separate fresh SOURCE QUALITY and
+Task2 local commit remain pending. Cumulative completed bounded Sol repair
+attempts2 (reserved attribute and per-file ceiling), both resolved by actual
+GREEN; failed repair GREEN attempts0; Astra implementation attempts0.
+Expected RED/review finding is not itself a failed repair round. E2E **NOT RUN**.
+
+## Task3 isolated PostgreSQL preparation — no integration result yet
+
+Parent initialized a new owned PostgreSQL17.10 cluster at
+`.devenv/phase5-pg.0LPElO`, private0700 socket
+`/tmp/singularity-phase5-socket.hzWDT0`,port5432 with TCP listening disabled.
+initdb/start both completed normally with exit0. Live SQL identity matched
+those exact data/socket paths and empty listen_addresses; only postgres and
+the two template databases existed. pg_trgm1.6 is available.
+The existing unmodified bootstrap_roles.sh completed on this isolated
+administrator connection (12244,exit0), not any production/shared cluster.
+Parent `devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.db.verify_roles`
+(`46162`,exit0) reported **PostgreSQL role contract verified**. This checks
+the existing exact least-privilege role contract, not fixture legality or SQL tests.
+Owned wrapper `.devenv/phase5-pg-command.sh` sets exact socket/port and test
+environment after entering devenv; all SQL/Mix/service operations remain
+parent-serialized. Source authors run no databases or tests.
+Task3 currently adds test-only DDL/JSON and whole-history contracts; source
+support, actual integration RED/GREEN, fixture legality and independent review
+remain pending. No E2E, frozen Vault feature, released migration, production
+data change, merge, push or publication occurred. Phase5 is **NOT accepted**.

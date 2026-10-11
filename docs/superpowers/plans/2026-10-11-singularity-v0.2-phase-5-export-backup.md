@@ -210,7 +210,7 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 their complete existing tests.
 **Depends on:** Task 0; independent of Task 2.
 
-- [ ] Add RED pure schema tests with an independent literal schema contract:
+- [x] Add RED pure schema tests with an independent literal schema contract:
 
 ```elixir
 assert LogicalSchemaV3.version() == 3
@@ -227,14 +227,14 @@ assert LogicalRecordCodec.tables() == LogicalSchemaV2.tables()
   missing/excess/reordered columns, wrong PK and nullable required values fail.
   Freeze V1 and V2 file hashes `ba0722ca85ce0a1259ce650927aa53ed728db0b28467adf308c3ada5a03036e8`
   and `992ef89fb52a91ccaa0d7cf2b3ae6607a465e7b345cca5d6c55a86c3fac9f3e6`.
-- [ ] Run the new schema file plus the codec/verifier and V1 owning files:
+- [x] Run the new schema file plus the codec/verifier and V1 owning files:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/backup/logical_schema_v3_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_record_codec_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_bundle_verifier_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs --seed 215378 --warnings-as-errors
 ```
 
   Expected RED: missing V3 registry/dispatch; existing default V2 assertions pass.
-- [ ] Implement V3 by copying no V1/V2 source: map `LogicalSchemaV2.all()` with
+- [x] Implement V3 by copying no V1/V2 source: map `LogicalSchemaV2.all()` with
   only `version: 3`, then append eight explicit definitions. Build the same
   `all/tables/count/column_count/fetch_table/fetch_ordinal` registry interface.
   Use these exact ordered definitions (`?` marks nullable, not part of name):
@@ -345,12 +345,12 @@ defp schema_for(3), do: {:ok, LogicalSchemaV3}
 
   Put clauses before existing fallback clauses. Verifier gets the same alias
   and private schema clause; its authenticated mixed-version checks stay intact.
-- [ ] Add independent explicit V3 cut/row/object literal golden cases, wrong
+- [x] Add independent explicit V3 cut/row/object literal golden cases, wrong
   count/vector/schema, malformed version 3 and mixed `3↔1`, `3↔2` row/object
   cases for both verifier entry paths. The current unknown-version fixture at
   verifier line 445 mutates to `3`; change that unknown value to `4` while
   retaining its exact rejection assertion. Assert `0`, `4` and forged terms fail.
-- [ ] Run all four full files to GREEN, verify frozen registry hashes/diff,
+- [x] Run all four full files to GREEN, verify frozen registry hashes/diff,
   SPEC then QUALITY, commit `feat(backup): define explicit logical v3 wire schema`.
   Exhaustive current-DDL comparison is Task 3's first SQL check; pure registry
   tests alone do not establish database schema agreement.

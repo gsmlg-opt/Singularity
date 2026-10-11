@@ -589,6 +589,254 @@ defmodule Singularity.Core.NoteMarkdownSourcesTest do
     assert count(output, ~r/^\[\^singularity-source-[^\]]+\]:/m) == 100
   end
 
+  describe "portable source rendering is additive to the frozen text-only contract" do
+    test "empty membership retains canonical bytes without inventing files" do
+      for body <- ["", "\uFEFFbody\r\nnext\r", "<script>literal</script>", "```open"] do
+        assert {:ok, ^body} = render_portable(body, empty(), %{})
+      end
+    end
+
+    test "live exact pins render ordinary relative links for every source kind" do
+      for kind <- [:asset, :note, :document] do
+        source = attachment(1, kind: kind, title: "Same title 界")
+        files = portable_files([source])
+        %{path: path} = Map.fetch!(files, portable_key(source))
+
+        relative =
+          if kind == :note, do: String.replace_prefix(path, "notes/", ""), else: "../" <> path
+
+        assert {:ok, output} = render_portable("Original\r\n", sources([source]), files)
+        assert String.starts_with?(output, "Original\r\n\n\n## Sources\n")
+        assert output =~ "[Same title 界](#{relative})"
+        assert output =~ source.source.resource_version_id
+        refute output =~ "no source files included"
+        refute output =~ "singularity://"
+        refute output =~ "](sources/"
+
+        assert {:ok, legacy} = render("Original\r\n", sources([source]))
+        assert legacy =~ "Text-only source inventory; no source files included."
+        assert legacy =~ "](#{source.href})"
+      end
+    end
+
+    test "two historical versions sharing one resource and title never follow a newer pin" do
+      first = citation(1, title: "Same title", locator: %{version: 1, kind: "pdf", page: 3})
+
+      second =
+        citation(2,
+          resource_id: first.source.resource_id,
+          title: "Same title",
+          locator: %{version: 1, kind: "pdf", page: 9}
+        )
+
+      files = portable_files([first, second])
+      assert {:ok, output} = render_portable("Body", sources([], [first, second]), files)
+
+      for descriptor <- [first, second] do
+        assert output =~ "](../#{files[portable_key(descriptor)].path})"
+        assert output =~ "[^#{footnote(descriptor)}]:"
+        assert output =~ descriptor.source.resource_version_id
+        assert output =~ descriptor.reference.fragment_id
+        [_before, definition] = String.split(output, "[^#{footnote(descriptor)}]:", parts: 2)
+        assert definition =~ descriptor.source.title
+      end
+
+      assert output =~ ~r/PDF page 3/
+      assert output =~ ~r/PDF page 9/
+      assert count(output, "[Same title](") == 2
+    end
+
+    test "deleted unavailable and unselected metadata show reasons and locators without file links" do
+      for {availability, deleted, reason} <- [
+            {"metadata_only_deleted", true, "Deleted source"},
+            {"metadata_only_unavailable", false, "Source unavailable"},
+            {"metadata_only_unselected", false, "Body not selected"}
+          ] do
+        source = citation(1, deleted?: deleted, locator: %{version: 1, kind: "pdf", page: 7})
+
+        files = %{
+          portable_key(source) => %{availability: availability, path: nil, reason: reason}
+        }
+
+        assert {:ok, output} = render_portable("Body", sources([], [source]), files)
+        assert output =~ reason
+        assert output =~ "Source 1"
+        assert output =~ source.source.resource_id
+        assert output =~ source.source.resource_version_id
+        assert output =~ ~r/PDF page 7/
+        assert output =~ "[^#{footnote(source)}]:"
+        [_before, definition] = String.split(output, "[^#{footnote(source)}]:", parts: 2)
+        assert definition =~ reason
+        assert definition =~ "Source 1"
+        refute output =~ "]("
+        refute output =~ "documents/originals/"
+        refute output =~ "sources/document-"
+      end
+    end
+
+    test "missing live mappings or wrong exact pin paths fail rather than becoming unavailable" do
+      source = citation()
+      key = portable_key(source)
+      files = portable_files([source])
+      value = files[key]
+
+      assert_invalid(render_portable("Body", sources([], [source]), %{}))
+
+      for path <- [
+            nil,
+            "../" <> value.path,
+            "/" <> value.path,
+            String.replace(value.path, source.source.resource_version_id, uuid(9_002)),
+            String.replace(value.path, source.source.resource_id, uuid(9_001)),
+            "assets/#{source.source.resource_id}--#{source.source.resource_version_id}.bin",
+            String.upcase(value.path),
+            "documents/originals/Title [x](bad).pdf",
+            value.path <> "?download=1",
+            value.path <> "\0",
+            %{symlink: value.path}
+          ] do
+        assert_invalid(
+          render_portable("Body", sources([], [source]), %{key => %{value | path: path}})
+        )
+      end
+
+      other_key = {:document, source.source.resource_id, uuid(9_002)}
+      assert_invalid(render_portable("Body", sources([], [source]), %{other_key => value}))
+    end
+
+    test "file availability records are exact bounded values without caller authority" do
+      source = citation(1, deleted?: true)
+      key = portable_key(source)
+      metadata = %{availability: "metadata_only_deleted", path: nil, reason: "Deleted source"}
+
+      for value <- [
+            nil,
+            %{},
+            Map.put(metadata, :__struct__, Error),
+            Map.put(metadata, :authorized?, true),
+            Map.put(metadata, :storage_ref, "private-canary"),
+            %{metadata | availability: "included"},
+            %{metadata | availability: "unknown"},
+            %{metadata | path: portable_path(source)},
+            %{metadata | reason: nil},
+            %{metadata | reason: ""},
+            %{metadata | reason: " \t"},
+            %{metadata | reason: "private-canary\0"},
+            %{metadata | reason: <<255>>},
+            %{metadata | reason: String.duplicate("x", 256)}
+          ] do
+        assert_invalid(render_portable("Body", sources([], [source]), %{key => value}))
+      end
+
+      live = citation()
+      live_files = portable_files([live])
+      included = %{live_files[portable_key(live)] | reason: "pretend unavailable"}
+
+      assert_invalid(
+        render_portable("Body", sources([], [live]), %{portable_key(live) => included})
+      )
+
+      assert_invalid(render_portable("Body", sources([], [source]), portable_files([source])))
+
+      for invalid <- [nil, [], %{__struct__: Error}] do
+        assert_invalid(render_portable("Body", sources([], [source]), invalid))
+      end
+    end
+
+    test "portable labels headings and reasons escape hostile Markdown HTML and controls" do
+      attachment = attachment(1, title: "界 [x](javascript:bad) <img>\n\t", label: "[label](x)")
+
+      citation =
+        citation(2, locator: %{version: 1, kind: "markdown", heading_path: ["<heading> [x]"]})
+
+      files = portable_files([attachment, citation])
+      assert {:ok, output} = render_portable("Body", sources([attachment], [citation]), files)
+      assert output =~ "界 \\[x\\]\\(javascript\\:bad\\) \\<img\\>\\n\\t"
+      assert output =~ "\\[label\\]\\(x\\)"
+      assert output =~ "\\<heading\\> \\[x\\]"
+      refute output =~ "<img>"
+
+      metadata = %{
+        portable_key(citation) => %{
+          availability: "metadata_only_unavailable",
+          path: nil,
+          reason: "Missing [source](javascript:bad) <b>\n"
+        }
+      }
+
+      assert {:ok, output} = render_portable("Body", sources([], [citation]), metadata)
+      assert output =~ "Missing \\[source\\]\\(javascript\\:bad\\) \\<b\\>\\n"
+      refute output =~ "](javascript:"
+    end
+
+    test "portable footnotes avoid existing labels and open fences without altering original body" do
+      source = citation()
+      label = footnote(source)
+
+      body =
+        "User [^#{String.upcase(label)}].\r\n\r\n[^#{label}-1]: existing\r\n```text\n<literal>"
+
+      files = portable_files([source])
+      assert {:ok, output} = render_portable(body, sources([], [source]), files)
+      assert String.starts_with?(output, body <> "\n```\n\n## Sources\n")
+      assert output =~ "[^#{label}-2]:"
+      assert {:ok, ^output} = render_portable(body, sources([], [source]), files)
+    end
+
+    test "portable rendering preserves typed-source and canonical body limits" do
+      source = attachment()
+      files = portable_files([source])
+
+      for body <-
+            [<<255>>, "canary\0", String.duplicate("a", @canonical_limit + 1)] ++
+              rejected_bodies() do
+        assert_invalid(render_portable(body, sources([source]), files))
+      end
+
+      body = String.duplicate("a", @canonical_limit)
+      assert {:ok, output} = render_portable(body, sources([source]), files)
+      assert String.starts_with?(output, body)
+      assert valid_rendered?(output)
+
+      forged = %{source | reference: Map.put(source.reference, :authorized?, true)}
+      assert_invalid(render_portable("Body", sources([forged]), files))
+      assert_invalid(render_portable("Body", sources([source, source]), files))
+      too_many = Enum.map(1..101, &attachment/1)
+      assert_invalid(render_portable("Body", sources(too_many), portable_files(too_many)))
+    end
+  end
+
+  defp render_portable(markdown, descriptors, files) do
+    assert Code.ensure_loaded?(@renderer), "missing Core Markdown source renderer"
+
+    assert function_exported?(@renderer, :render_portable, 3),
+           "missing render_portable/3 contract"
+
+    apply(@renderer, :render_portable, [markdown, descriptors, files])
+  end
+
+  defp portable_key(descriptor),
+    do:
+      {descriptor.source.kind, descriptor.source.resource_id,
+       descriptor.source.resource_version_id}
+
+  defp portable_path(descriptor) do
+    basename = descriptor.source.resource_id <> "--" <> descriptor.source.resource_version_id
+
+    case descriptor.source.kind do
+      :asset -> "assets/#{basename}.bin"
+      :note -> "notes/#{basename}.md"
+      :document -> "documents/originals/#{basename}.pdf"
+    end
+  end
+
+  defp portable_files(descriptors) do
+    Map.new(descriptors, fn descriptor ->
+      {portable_key(descriptor),
+       %{availability: "included", path: portable_path(descriptor), reason: nil}}
+    end)
+  end
+
   defp render(markdown, descriptors) do
     assert Code.ensure_loaded?(@renderer), "missing Core Markdown source renderer"
     assert function_exported?(@renderer, :render, 2), "missing render/2 contract"

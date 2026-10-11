@@ -2,6 +2,7 @@ defmodule Singularity.Core.NoteMarkdownSources do
   @moduledoc "Pure, bounded Markdown inventory of exact immutable Note sources."
 
   alias Singularity.Core.{Error, NoteAttachmentReference, NoteCitationReference}
+  alias Singularity.Core.KnowledgeExport
 
   @canonical_limit 1_048_576
   @rendered_limit 16_777_216
@@ -50,6 +51,196 @@ defmodule Singularity.Core.NoteMarkdownSources do
 
   @spec valid_rendered?(term()) :: boolean()
   def valid_rendered?(markdown), do: valid_text?(markdown, @rendered_limit)
+
+  @doc "Renders exact-version portable file links, without proving file existence or authority."
+  @spec render_portable(term(), term(), term()) :: {:ok, String.t()} | {:error, Error.t()}
+  def render_portable(markdown, descriptors, files) do
+    with true <- valid_text?(markdown, @canonical_limit),
+         true <- exact_map?(descriptors, [:attachments, :citations]),
+         {:ok, state} <-
+           validate_collection(descriptors.attachments, :attachment, {MapSet.new(), 0}),
+         {:ok, _state} <- validate_collection(descriptors.citations, :citation, state),
+         true <- valid_portable_files?(files),
+         true <-
+           Enum.all?(
+             descriptors.attachments ++ descriptors.citations,
+             &portable_binding?(&1, files)
+           ) do
+      if descriptors.attachments == [] and descriptors.citations == [] do
+        {:ok, markdown}
+      else
+        render_portable_sources(markdown, descriptors, files)
+      end
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp valid_portable_files?(files) when is_map(files) and not is_struct(files),
+    do:
+      map_size(files) <= KnowledgeExport.limits().selected_keys and
+        Enum.all?(files, &valid_portable_file?/1)
+
+  defp valid_portable_files?(_files), do: false
+
+  defp valid_portable_file?({{kind, resource, version}, value})
+       when kind in [:asset, :note, :document] do
+    # Validate identity even for metadata-only entries which have no file path.
+    match?({:ok, _}, KnowledgeExport.path(:note, resource, version, nil)) and
+      exact_map?(value, [:availability, :path, :reason]) and
+      case value.availability do
+        "included" ->
+          is_nil(value.reason) and portable_path?(kind, resource, version, value.path)
+
+        availability
+        when availability in [
+               "metadata_only_deleted",
+               "metadata_only_unavailable",
+               "metadata_only_unselected"
+             ] ->
+          is_nil(value.path) and valid_text?(value.reason, 255) and
+            String.trim(value.reason) != ""
+
+        _ ->
+          false
+      end
+  end
+
+  defp valid_portable_file?(_entry), do: false
+
+  defp portable_path?(:document, resource, version, path) do
+    Enum.any?(["application/pdf", "text/markdown", "text/plain"], fn media ->
+      KnowledgeExport.path(:document, resource, version, media) == {:ok, path}
+    end) or KnowledgeExport.path(:extracted, resource, version, nil) == {:ok, path}
+  end
+
+  defp portable_path?(kind, resource, version, path),
+    do: KnowledgeExport.path(kind, resource, version, nil) == {:ok, path}
+
+  defp portable_binding?(%{source: source} = descriptor, files) do
+    case Map.fetch(files, portable_key(descriptor)) do
+      {:ok, %{availability: "included"}} -> not source.deleted?
+      {:ok, %{availability: "metadata_only_deleted"}} -> source.deleted?
+      {:ok, _metadata} -> not source.deleted?
+      :error -> false
+    end
+  end
+
+  defp portable_key(%{source: source}),
+    do: {source.kind, source.resource_id, source.resource_version_id}
+
+  defp render_portable_sources(markdown, descriptors, files) do
+    with {:ok, fence} <- scan_lines(markdown, :outside) do
+      {citations, _occupied} =
+        Enum.map_reduce(descriptors.citations, occupied_labels(markdown), fn descriptor,
+                                                                             occupied ->
+          label =
+            unoccupied_label(
+              "singularity-source-" <> descriptor.reference.citation_id,
+              occupied,
+              0
+            )
+
+          {{descriptor, label}, MapSet.put(occupied, label)}
+        end)
+
+      tokens = [
+        markdown,
+        closer(markdown, fence),
+        "\n\n## Sources\n\nPortable source inventory; links identify included exact-version files.\n\n",
+        Enum.map(descriptors.attachments, &portable_attachment_line(&1, files)),
+        Enum.map(citations, fn {descriptor, label} ->
+          [
+            portable_main_link(descriptor, files),
+            " [^",
+            label,
+            "]; citation: ",
+            descriptor.reference.citation_id,
+            historical(descriptor.source),
+            "\n"
+          ]
+        end),
+        if(citations == [], do: [], else: "\n"),
+        Enum.map(citations, fn {descriptor, label} ->
+          portable_definition(descriptor, label, files)
+        end)
+      ]
+
+      escape_pattern = :binary.compile_pattern(@escape_patterns)
+
+      with {:ok, _size} <- count_tokens(tokens, 0, escape_pattern),
+           output <- tokens |> emit_tokens(escape_pattern) |> IO.iodata_to_binary(),
+           true <- valid_rendered?(output) do
+        {:ok, output}
+      else
+        _invalid -> invalid()
+      end
+    else
+      _invalid -> invalid()
+    end
+  end
+
+  defp portable_attachment_line(%{reference: reference, source: source} = descriptor, files) do
+    label =
+      if reference.label in [nil, ""], do: [], else: ["; label: ", {:escape, reference.label}]
+
+    [
+      portable_main_link(descriptor, files),
+      "; attachment: ",
+      reference.attachment_id,
+      label,
+      historical(source),
+      "\n"
+    ]
+  end
+
+  defp portable_main_link(%{source: source} = descriptor, files) do
+    file = Map.fetch!(files, portable_key(descriptor))
+
+    title =
+      case file.path do
+        nil -> [{:escape, source.title}]
+        "notes/" <> basename -> ["[", {:escape, source.title}, "](", basename, ")"]
+        path -> ["[", {:escape, source.title}, "](../", path, ")"]
+      end
+
+    [
+      "- ",
+      title,
+      " — ",
+      Atom.to_string(source.kind),
+      "; resource: ",
+      source.resource_id,
+      "; version: ",
+      source.resource_version_id,
+      portable_reason(file)
+    ]
+  end
+
+  defp portable_definition(%{reference: reference, source: source} = descriptor, label, files) do
+    [
+      "[^",
+      label,
+      "]: ",
+      {:escape, source.title},
+      "; citation: ",
+      reference.citation_id,
+      "; resource: ",
+      source.resource_id,
+      "; version: ",
+      source.resource_version_id,
+      "; fragment: ",
+      reference.fragment_id,
+      "; ",
+      locator_tokens(reference.locator),
+      portable_reason(Map.fetch!(files, portable_key(descriptor))),
+      historical(source),
+      "\n"
+    ]
+  end
+
+  defp portable_reason(%{reason: nil}), do: []
+  defp portable_reason(%{reason: reason}), do: ["; ", {:escape, reason}]
 
   defp render_sources(markdown, descriptors) do
     with {:ok, fence} <- scan_lines(markdown, :outside) do
