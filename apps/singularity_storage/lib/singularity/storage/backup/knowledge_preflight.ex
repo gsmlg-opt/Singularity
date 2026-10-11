@@ -22,6 +22,19 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
   @by_table Map.new(@schemas, &{&1.table, &1})
   @bytes 16_777_216
   @savepoint "knowledge_preflight"
+  # Immutable dependency order, deliberately separate from wire table order.
+  @native_tables ~w[
+    identity.people identity.accounts identity.credentials identity.principals
+    core.capabilities core.vaults core.vault_members core.principal_capabilities
+    identity.devices core.key_domains core.vault_key_versions core.vault_key_wrappers
+    core.domain_key_versions core.domain_dedup_key_wrappers content.resources
+    content.resource_versions content.asset_objects content.assets content.asset_key_envelopes
+    content.asset_metadata content.resource_assets content.source_references content.tombstones
+    audit.events core.outbox_events jobs.job_submissions jobs.job_progress jobs.effect_receipts
+    content.note_versions content.note_conflicts content.document_versions
+    content.document_fragments content.document_import_receipts content.tags
+    content.resource_tags content.relationships content.note_attachments content.note_citations
+  ]
   @types %{
     "uuid" => "uuid",
     "integer" => "bigint",
@@ -58,7 +71,17 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   defmodule Staged do
     @moduledoc false
-    @enforce_keys [:repo, :caller, :connection, :cut, :storage, :artifacts, :summary, :binding]
+    @enforce_keys [
+      :repo,
+      :caller,
+      :connection,
+      :cut,
+      :storage,
+      :artifacts,
+      :summary,
+      :binding,
+      :purpose
+    ]
     defstruct @enforce_keys
   end
 
@@ -67,8 +90,21 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
   end
 
   @doc false
-  def stage(repo, %Verified{replay: %Replay{}, cut: cut} = verified, cut, storage)
-      when is_map(cut) and is_map(storage) do
+  def stage(repo, verified, cut, storage),
+    do: stage_authenticated(repo, verified, cut, storage, :restore)
+
+  @doc false
+  def stage_for_verification(repo, verified, cut, storage),
+    do: stage_authenticated(repo, verified, cut, storage, :verification)
+
+  defp stage_authenticated(
+         repo,
+         %Verified{replay: %Replay{}, cut: cut} = verified,
+         cut,
+         storage,
+         purpose
+       )
+       when is_map(cut) and is_map(storage) do
     ledger = {__MODULE__, make_ref()}
 
     try do
@@ -101,6 +137,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
         accumulator = %{
           repo: repo,
           storage: storage,
+          purpose: purpose,
           ledger: ledger,
           cut: cut,
           current: nil,
@@ -137,7 +174,8 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
            storage: storage,
            artifacts: Process.get(ledger),
            summary: summary,
-           binding: authenticated_binding!(verified, storage)
+           purpose: purpose,
+           binding: authenticated_binding!(verified, storage, purpose)
          }}
       rescue
         _exception -> rollback!(repo, storage, Process.get(ledger, []))
@@ -153,7 +191,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
     end
   end
 
-  def stage(_repo, _verified, _cut, _storage), do: invalid()
+  defp stage_authenticated(_repo, _verified, _cut, _storage, _purpose), do: invalid()
 
   @doc false
   def validate(repo, %Staged{} = staged, cut) do
@@ -163,6 +201,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
       # inside it aborts the transaction, so cleanup must not first issue another
       # identity query that would prevent rollback of that error.
       try do
+        require_binding!(staged)
         require!(cut === staged.cut)
         semantics!(repo, cut)
         summary = digest!(repo)
@@ -183,7 +222,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   @doc false
   def begin_restore(repo, %Staged{} = staged) do
-    if same_connection?(repo, staged) do
+    if staged.purpose == :restore and same_connection?(repo, staged) do
       admission_savepoint(repo, "knowledge_restore_begin", fn ->
         require_binding!(staged)
         require_pending_marker!(repo, staged.binding)
@@ -222,7 +261,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   @doc false
   def validate_destination(repo, %Staged{} = staged) do
-    if same_connection?(repo, staged) do
+    if staged.purpose == :restore and same_connection?(repo, staged) do
       admission_savepoint(repo, "knowledge_restore_validate", fn ->
         require_binding!(staged)
         require_pending_marker!(repo, staged.binding)
@@ -244,13 +283,65 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   def validate_destination(_repo, _staged), do: invalid()
 
+  @doc false
+  def reduce_native_rows(repo, %Staged{} = staged, accumulator, callback)
+      when is_function(callback, 3) do
+    if same_connection?(repo, staged) do
+      # validate/3 has already released the staging savepoint. This eager
+      # iterator owns a different savepoint; no cursor can escape its binding.
+      admission_savepoint(repo, "knowledge_restore_native_rows", fn ->
+        require_binding!(staged)
+        require!(digest!(repo) == staged.summary)
+
+        result =
+          Enum.reduce(@native_tables, accumulator, fn table, acc ->
+            require!(same_connection?(repo, staged))
+            schema = Map.fetch!(@by_table, table)
+
+            projection =
+              Enum.map_join(schema.columns, ",", fn column ->
+                quote_name(column.name) <> if(column.tag == "json", do: "::text", else: "")
+              end)
+
+            ordering =
+              names(Enum.map(schema.primary_key, &Enum.fetch!(schema.columns, &1.position).name))
+
+            SafeSQL.stream(
+              repo,
+              "SELECT " <> projection <> " FROM " <> relation(table) <> " ORDER BY " <> ordering,
+              [],
+              max_rows: 1
+            )
+            |> Enum.reduce(acc, fn %{rows: rows}, state ->
+              Enum.reduce(rows, state, fn values, current ->
+                case callback.(schema, values, current) do
+                  {:ok, next} -> next
+                  {:error, %Error{} = error} -> throw({:native_callback_error, error})
+                  _invalid -> throw(:invalid)
+                end
+              end)
+            end)
+          end)
+
+        require!(same_connection?(repo, staged))
+        require!(digest!(repo) == staged.summary)
+        {:ok, result}
+      end)
+    else
+      invalid()
+    end
+  end
+
+  def reduce_native_rows(_repo, _staged, _accumulator, _callback), do: invalid()
+
   defp same_connection?(repo, staged),
     do:
       staged.repo == repo and staged.caller == self() and
         safely(fn -> connection!(repo) end) == staged.connection
 
-  defp authenticated_binding!(verified, storage) do
+  defp authenticated_binding!(verified, storage, purpose) do
     %{
+      purpose: purpose,
       manifest_id: verified.manifest.manifest_id,
       vault_id: verified.cut.vault_id,
       manifest_hash: verified.manifest_hash,
@@ -262,6 +353,8 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
   end
 
   defp require_binding!(staged) do
+    require!(staged.purpose in [:restore, :verification])
+    require!(staged.binding.purpose == staged.purpose)
     require!(staged.cut.logical_version == 3)
     require!(staged.binding.manifest_id == staged.cut.manifest_id)
     require!(staged.binding.vault_id == staged.cut.vault_id)
@@ -323,7 +416,11 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
       rescue
         _exception -> rollback_admission!(repo, name)
       catch
-        _kind, _reason -> rollback_admission!(repo, name)
+        :throw, {:native_callback_error, %Error{} = error} ->
+          rollback_admission!(repo, name, {:error, error})
+
+        _kind, _reason ->
+          rollback_admission!(repo, name)
       end
     rescue
       _exception -> invalid()
@@ -332,12 +429,12 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
     end
   end
 
-  defp rollback_admission!(repo, name) do
+  defp rollback_admission!(repo, name, error \\ invalid()) do
     rolled_back = safely(fn -> SafeSQL.query(repo, "ROLLBACK TO SAVEPOINT " <> name) end)
     released = safely(fn -> SafeSQL.query(repo, "RELEASE SAVEPOINT " <> name) end)
 
     if match?({:ok, _}, rolled_back) and match?({:ok, _}, released),
-      do: invalid(),
+      do: error,
       else: {:error, Error.new(:storage_unavailable)}
   end
 
@@ -438,18 +535,25 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
     require!(size == entry.ciphertext_byte_size)
     require!(acc.frames < 999_999)
 
-    context =
-      Map.merge(acc.storage.context, %{
-        ciphertext_hash: entry.ciphertext_hash,
-        domain_namespace: entry.key_domain_id,
-        vault_namespace: entry.vault_id,
-        lookup_digest: Base.encode16(entry.lookup_digest, case: :lower)
-      })
+    current =
+      if acc.purpose == :verification do
+        %{type: 0x8000, remaining: size, entry: entry, hash: :crypto.hash_init(:sha256)}
+      else
+        context =
+          Map.merge(acc.storage.context, %{
+            ciphertext_hash: entry.ciphertext_hash,
+            domain_namespace: entry.key_domain_id,
+            vault_namespace: entry.vault_id,
+            lookup_digest: Base.encode16(entry.lookup_digest, case: :lower)
+          })
 
-    stage_ref = adapter!(acc.storage, :stage, [context, %{stage_id: entry.asset_object_id}])
-    artifact = %{context: context, stage_ref: stage_ref, entry: entry}
-    Process.put(acc.ledger, [artifact | Process.get(acc.ledger)])
-    %{acc | frames: acc.frames + 1, current: %{type: 0x8000, remaining: size, artifact: artifact}}
+        stage_ref = adapter!(acc.storage, :stage, [context, %{stage_id: entry.asset_object_id}])
+        artifact = %{context: context, stage_ref: stage_ref, entry: entry}
+        Process.put(acc.ledger, [artifact | Process.get(acc.ledger)])
+        %{type: 0x8000, remaining: size, artifact: artifact}
+      end
+
+    %{acc | frames: acc.frames + 1, current: current}
   end
 
   defp event!({:record_chunk, chunk}, %{current: current} = acc)
@@ -458,13 +562,25 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
     current =
       if current.type == 0x8000 do
-        append!(acc.storage, current.artifact, chunk)
-        current
+        if acc.purpose == :verification do
+          %{current | hash: :crypto.hash_update(current.hash, chunk)}
+        else
+          append!(acc.storage, current.artifact, chunk)
+          current
+        end
       else
         %{current | chunks: [chunk | current.chunks]}
       end
 
     %{acc | current: %{current | remaining: current.remaining - byte_size(chunk)}}
+  end
+
+  defp event!(
+         :record_end,
+         %{purpose: :verification, current: %{remaining: 0, type: 0x8000} = current} = acc
+       ) do
+    require!(:crypto.hash_final(current.hash) == current.entry.ciphertext_hash)
+    %{acc | current: nil, objects: acc.objects + 1}
   end
 
   defp event!(:record_end, %{current: %{remaining: 0, type: 0x8000, artifact: artifact}} = acc) do

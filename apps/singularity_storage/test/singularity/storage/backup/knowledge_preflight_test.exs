@@ -135,7 +135,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     end)
   end
 
-  test "the narrow Restorer preflight wrapper stages V3 but ordinary import and mismatched binding stay closed" do
+  test "the narrow Restorer preflight wrapper stages V3, ordinary import rejects a populated destination, and mismatched binding stays denied" do
     with_fixture(fn fixture, storage ->
       before = @fixtures.canonical_rows(fixture)
 
@@ -184,7 +184,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
 
       bundle = authenticated(fixture)
 
-      assert {:error, %Error{code: :backup_invalid}} =
+      assert {:error, %Error{code: :conflict}} =
                Restorer.import(context, MigrationRepo, bundle)
 
       assert @fixtures.canonical_rows(fixture) == before
@@ -497,39 +497,68 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     end)
   end
 
-  test "Document source tuple, source identity and complete extraction state shape are enforced" do
-    with_fixture(fn fixture, storage ->
-      ready = %{"resource_version_id" => @ids.ready_old_version_id}
-      pending = %{"resource_version_id" => @ids.pending_version_id}
-      extracting = %{"resource_version_id" => @ids.extracting_version_id}
+  for {label, index} <-
+        Enum.with_index([
+          "unknown source Asset",
+          "wrong source Resource",
+          "wrong source version",
+          "unknown source Object",
+          "short source digest",
+          "false source digest",
+          "mismatched source byte size",
+          "negative source byte size",
+          "unsupported media type",
+          "empty title",
+          "unknown extraction state",
+          "missing ready text digest",
+          "false ready text digest",
+          "ready failure code",
+          "missing ready completion time",
+          "invalid extraction format",
+          "negative attempt generation",
+          "pending extraction adapter",
+          "missing extracting job",
+          "invalid extracting deadline",
+          "missing failed failure code",
+          "unsupported detected language"
+        ]) do
+    @tag document_shape_variant: index
+    test "Document source tuple, source identity and complete extraction state shape: #{label}",
+         %{document_shape_variant: index} do
+      with_fixture(fn fixture, storage ->
+        ready = %{"resource_version_id" => @ids.ready_old_version_id}
+        pending = %{"resource_version_id" => @ids.pending_version_id}
+        extracting = %{"resource_version_id" => @ids.extracting_version_id}
 
-      for {key, field, value} <- [
-            {ready, "source_asset_id", @unknown},
-            {ready, "source_resource_id", @ids.live_note_id},
-            {ready, "source_resource_version_id", fixture.sources.plain.resource_version_id},
-            {ready, "source_object_id", @unknown},
-            {ready, "source_digest", <<1>>},
-            {ready, "source_digest", <<0::256>>},
-            {ready, "source_byte_size", fixture.sources.pdf.byte_size + 1},
-            {ready, "source_byte_size", -1},
-            {ready, "media_type", "application/office"},
-            {ready, "title", ""},
-            {ready, "state", "unknown"},
-            {ready, "extracted_text_digest", nil},
-            {ready, "extracted_text_digest", <<0::256>>},
-            {ready, "failure_code", "extractor_failed"},
-            {ready, "attempt_finished_at", nil},
-            {ready, "extraction_format", 0},
-            {ready, "attempt_generation", -1},
-            {pending, "extraction_adapter", "plain_text"},
-            {extracting, "attempt_job_id", nil},
-            {extracting, "attempt_deadline_at", "2026-10-11T00:00:01.000000Z"},
-            {%{"resource_version_id" => @ids.failed_version_id}, "failure_code", nil},
-            {%{"resource_version_id" => @ids.unsupported_version_id}, "detected_language", "en"}
-          ] do
+        variants = [
+          {ready, "source_asset_id", @unknown},
+          {ready, "source_resource_id", @ids.live_note_id},
+          {ready, "source_resource_version_id", fixture.sources.plain.resource_version_id},
+          {ready, "source_object_id", @unknown},
+          {ready, "source_digest", <<1>>},
+          {ready, "source_digest", <<0::256>>},
+          {ready, "source_byte_size", fixture.sources.pdf.byte_size + 1},
+          {ready, "source_byte_size", -1},
+          {ready, "media_type", "application/office"},
+          {ready, "title", ""},
+          {ready, "state", "unknown"},
+          {ready, "extracted_text_digest", nil},
+          {ready, "extracted_text_digest", <<0::256>>},
+          {ready, "failure_code", "extractor_failed"},
+          {ready, "attempt_finished_at", nil},
+          {ready, "extraction_format", 0},
+          {ready, "attempt_generation", -1},
+          {pending, "extraction_adapter", "plain_text"},
+          {extracting, "attempt_job_id", nil},
+          {extracting, "attempt_deadline_at", "2026-10-11T00:00:01.000000Z"},
+          {%{"resource_version_id" => @ids.failed_version_id}, "failure_code", nil},
+          {%{"resource_version_id" => @ids.unsupported_version_id}, "detected_language", "en"}
+        ]
+
+        {key, field, value} = Enum.fetch!(variants, index)
         reject_change(fixture, storage, "content.document_versions", key, field, value)
-      end
-    end)
+      end)
+    end
   end
 
   test "a unique valid-length false plaintext digest remains a structural positive until Task9" do

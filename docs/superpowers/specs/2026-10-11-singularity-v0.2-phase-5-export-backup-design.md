@@ -501,6 +501,42 @@ source seals. All restore versions check the expanded destination-table union
 so a legacy restore cannot ignore existing V3 content. Excluded runtime tables
 remain empty where the established restore contract requires it.
 
+For an already imported V3 marker, freshly authenticate and privately type-stage
+the identical bundle without staging or publishing object files. Preserve the
+existing `KnowledgePreflight.stage/4` object-staging behavior; add only internal
+`stage_for_verification/4`, using fixed private object-stage/verify modes. Verify
+raw inventory lengths and incremental ciphertext hashes in the latter mode,
+with the same caller/repository/backend/full-transaction/destination binding.
+The returned staged purpose is explicit: verification-only input cannot begin
+historical write admission. Native replay stays a bounded fixed-registry
+iterator, never caller SQL or wire re-encoding. Compare every canonical table,
+exact source memberships/seals and existing published inventory; no canonical
+insert, source finalization, admission write or filesystem mutation on retry.
+V1/V2 imported retries also reject any V3-only canonical rows, not merely lock
+the expanded union. This is internal restore correctness, not a runtime API,
+new capability, observer, crypto change or activation.
+
+Retained preflight characterization still rejects malformed binding/cut without
+any canonical, temporary, staged or published side effects. Its valid ordinary
+V3 import into a populated destination now rejects with `conflict` instead of
+the earlier closed-dispatch `backup_invalid`. Only that obsolete phase-code
+expectation and descriptive test name change; all18 complete owner cases and
+their no-write assertions are retained. Native-row replay is PK ordered for
+all38 fixed tables, including outbox UUID IDs. This internal native order is
+distinct from the unchanged protected wire's required outbox sequence order.
+
+An actual complete retained gate exhausted the default60-second ExUnit budget
+of the Document-state group, which bundled22 independently authenticated
+mutations plus fixture setup/cleanup. Private checkpoint evidence and a
+content-free monotonic probe characterize cumulative work, not an independent
+60-second DROP hang. Split only that group into22 fresh independent cases,
+retaining all original mutation inputs, genuine authentication, assertions,
+helpers and default timeout; remove the temporary diagnostic output. The
+original18 semantic groups now have39 executable cases. The whole owning and
+complete retained gates must pass on a new exact source receipt; the failed
+repair1 gate and isolated diagnostic PASS do not qualify acceptance. No
+production or fixture cleanup behavior changes are part of this repair.
+
 ## 8. Staging, failure atomicity, and integrity
 
 Use the existing disposable empty destination and maintenance-mode workflow.

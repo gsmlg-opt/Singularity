@@ -845,25 +845,30 @@ private-admission/DDL/legacy regressions, static and frozen checks before commit
 ## Task 7: Ordered V3 canonical import and source-set finalization
 
 **Modify:** Storage `backup/restorer.ex`, `knowledge_preflight.ex`.
+**Necessary retained-owner contract sync:** `backup/knowledge_preflight_test.exs`,
+its obsolete ordinary-import dispatch expectation/name and the characterized
+22-variant Document-state group's independent-case split; preserve every
+binding denial, original mutation and canonical/no-temp/no-stage/no-publication
+assertion, helpers and default timeout.
 **Create:** `apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs`.
 **Retain owners:** existing `backup/restore_import_test.exs`, `logical_v1_compatibility_test.exs`.
 **Depends on:** Tasks 5 and 6.
 
-- [ ] Add RED import of the authenticated complete fixture into empty staging:
+- [x] Add RED import of the authenticated complete fixture into empty staging:
   canonical rows at the cut equal the independent oracle; source seals have
   exact membership digests/counts; no search/Oban/session/excluded receipts are
   imported. Verify V1/V2 still derive empty source sets, never Document rows.
-- [ ] Run all three full owning files before import changes. Implement explicit
+- [x] Run all three full owning files before import changes. Implement explicit
   `logical_schema(3)` and replace destination locking/emptiness with the union
   of V1/V2/V3 tables plus established exclusions, derived seals and maintenance
   admission bookkeeping handled separately. A V1/V2 restore into a destination
   containing any V3 row must reject before writes.
-- [ ] Keep the existing migration-authority check and serializable/advisory saga.
+- [x] Keep the existing migration-authority check and serializable/advisory saga.
   Authenticate/type-stage/preflight before canonical inserts; bind admission;
   insert established identities/opaque owner/key compatibility and generic
   resources/versions before Assets/envelopes/associations and typed knowledge.
   Preserve existing credential/wrapper/cleanup-principal transformations exactly.
-- [ ] Insert Document versions in their actual final state, then fragments and
+- [x] Insert Document versions in their actual final state, then fragments and
   completed receipts; tags/assignments/relationships after their endpoints;
   all Note attachments/citations only after exact versions/fragments exist.
   Do not rely on the deferred V1/V2 Note INSERT seal trigger for V3; finalize each Note only
@@ -875,19 +880,25 @@ private-admission/DDL/legacy regressions, static and frozen checks before commit
   AFTER INSERT and need loading-state authority when they actually execute;
   validating first would incorrectly enter their ordinary live branch.
   Transaction-end independent validation remains enabled after explicit checking.
-- [ ] Add failure barriers before/after canonical insert, finalization, object
+- [x] Add failure barriers before/after canonical insert, finalization, object
   publication and imported marker. Check full rollback/owned cleanup for known
   failure, identity-bound pending/imported recovery for uncertain commit and
   exact-manifest retries. Never resume a different manifest/destination or delete
   foreign objects. Imported verification also checks V3 rows and seal equality.
-- [ ] Run complete import/V1 files to GREEN:
+- [x] Run complete import/V1 files to GREEN:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs --seed 215378 --warnings-as-errors
-devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs --seed 215378 --warnings-as-errors
 ```
 
-  SPEC then QUALITY, commit `feat(restore): import complete v3 history before sealing sources`.
+  Actual owning32/0, repaired Preflight39/0, complete retained334 SQL/0,
+  pure5/0 and downstream186/0 passed on repair2. Format/compile/xref passed with
+  zero cycles and frozen56+Task6+source receipts match. Formal actual NONAUTHOR
+  SOURCE SPEC and separate fresh QUALITY passed on the final repair2 receipt.
+  Parent locally accepts the exact source; only the narrow local commit remains
+  to execute and verify. Phase5/Tasks8–19 are not accepted. Local commit
+  `feat(restore): import complete v3 history before sealing sources`.
 
 ### Task7 selected fixed constraints and bounded native-row replay
 
@@ -950,6 +961,52 @@ Imported-marker retry is read-only V3 row/digest/seal verification, not a reuse
 of pending-only admission or another transaction's historical write authority.
 It must not reinsert canonical rows or publish unintended objects. This section
 records read-only source preparation, not an executed Task7 gate or acceptance.
+
+Task7 implementation seam: keep `KnowledgePreflight.stage/4` behavior unchanged
+and add only internal `stage_for_verification/4` sharing a private fixed-mode
+authenticated implementation. Verification mode writes only temporary typed
+relations and incrementally checks raw ciphertext lengths/hashes; it invokes no
+object stage/append/seal/finalize/abort operation. Bind an explicit staged
+purpose and disallow verification-only input from `begin_restore`. The eager
+native-row reducer accepts either purpose only on its exact original caller,
+repo, backend and full transaction, with fresh staged-summary equality before
+consumption and identity rechecks. Use a new helper savepoint after the original
+preflight validation releases its own; no escaped cursor or caller relation.
+Imported verification compares all38 canonical digests, exact seal identities/
+counts with their staged membership and exact published inventory. V1/V2
+imported verification rejects extra V3 tables as well as taking the union locks.
+Full established preflight/admission owner tests remain required after changes.
+
+Actual Task7 full retained Preflight execution characterized the sole obsolete
+Task4 ordinary-import expectation: the authenticated V3 fixture is also a
+populated destination. Now that explicit V3 import is implemented, rejection
+is `conflict`, not unsupported `backup_invalid`. Synchronize only that exact
+final code and test name; malformed binding/cut still returns `backup_invalid`
+and all18 cases and side-effect denials remain required. This is a necessary
+phase contract repair under continuous authorization, not a validation waiver.
+The added23rd native-row case uses two genuine committed outbox events whose
+UUID PK order differs from identity sequence order. The protected wire remains
+sequence ordered; the native iterator must use fixed registry PK order for all
+38 tables, with no outbox exception. Execute its causal RED before correction.
+
+The complete16-owner repair1 gate then failed at the retained Document-state
+group's default60-second budget. Its22 independent authenticated mutations,
+fixture creation and cleanup shared one ExUnit case. Actual private checkpoint
+records show DROP started only about0.5 seconds before forced cancellation;
+the checkpoint itself lasted0.954 seconds, not a60-second DROP wait. A temporary
+content-free monotonic probe preserved all18 cases and22 mutation assertions:
+isolated execution ended normally0,30.9 seconds, with fixture5,757 ms,
+all22 mutations complete at27,183 ms and cleanup complete at28,842 ms.
+This isolates the repeated body from cleanup; it does not qualify the failed
+complete gate or prove the historical PID cascade. Remove the probe and split
+only these22 independent mutations into separately named, freshly authenticated
+cases, preserving every original input/assertion/helper and default60-second
+timeout. The original18 semantic groups become39 executable cases; no required
+case is excluded. Freeze a new repair2 receipt and rerun the entire39-case
+Preflight owner and complete16-owner gate (334 actual SQL/337 reported/3 pure
+excluded), then separate pure5/downstream186/static/frozen and actual final
+NONAUTHOR SPEC followed by fresh QUALITY. Repair1 failures remain historical
+FAIL evidence; neither a timeout increase nor a smaller final gate is allowed.
 
 ## Task 8: Explicit V3 writer with complete retained-original closure
 

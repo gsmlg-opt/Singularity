@@ -7,10 +7,12 @@ defmodule Singularity.Storage.Backup.Restorer do
   alias Singularity.Core.StageRef
   alias Singularity.Storage.Backup.BundleReader
   alias Singularity.Storage.Backup.KnowledgePreflight
+  alias Singularity.Storage.Backup.KnowledgeRestoreDigest
   alias Singularity.Storage.Backup.LogicalBundleVerifier
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Backup.LogicalSchemaV2
+  alias Singularity.Storage.Backup.LogicalSchemaV3
   alias Singularity.Storage.Local.PathGuard
 
   defmodule Imported do
@@ -131,6 +133,30 @@ defmodule Singularity.Storage.Backup.Restorer do
     audit.backup_manifest_objects
     jobs.oban_jobs
     jobs.oban_peers
+  ]
+  @owner_tables MapSet.new(~w[
+    identity.people identity.accounts identity.credentials identity.principals
+    core.vaults core.vault_members core.vault_key_versions core.vault_key_wrappers
+  ])
+  @owner_fields ~w[id person_id account_id object_cleanup_principal_id vault_id
+    kind revoked_at state generation vault_key_version_id principal_id]
+  @knowledge_constraints ~w[
+    resource_versions_resource_classification_fkey resources_version_head_fkey
+    note_versions_parent_fkey note_versions_merge_parent_fkey
+    note_conflicts_base_version_fkey note_conflicts_canonical_version_fkey
+    note_conflicts_competing_version_fkey note_conflicts_resolution_version_fkey
+    note_mutation_receipts_resource_fkey note_mutation_receipts_version_fkey
+    note_mutation_receipts_conflict_fkey document_versions_resource_version_fkey
+    document_import_receipts_version_fkey document_fragments_document_version_fkey
+    note_attachments_note_fkey note_attachments_target_fkey note_citations_note_fkey
+    note_citations_fragment_fkey note_source_set_seals_note_fkey
+    note_versions_aggregate_check note_mutation_receipts_resource_check
+    resources_00_typed_head_check note_versions_00_typed_head_check
+    document_versions_00_typed_head_check document_import_receipts_completed_check
+    document_versions_completion_check document_fragments_completion_check
+    note_attachments_source_set_check note_citations_source_set_check
+    note_versions_source_set_seal_check note_attachments_source_set_seal_check
+    note_citations_source_set_seal_check
   ]
 
   @spec import(map(), module(), map()) :: {:ok, Imported.t()} | {:error, Error.t()}
@@ -441,6 +467,9 @@ defmodule Singularity.Storage.Backup.Restorer do
     import_verified_streaming(context, migration_repo, verified, cut, schema_module)
   end
 
+  defp import_verified(_context, _migration_repo, _verified, _cut, LogicalSchemaV3),
+    do: backup_invalid()
+
   defp import_verified(context, migration_repo, verified, cut, schema_module) do
     with {:ok, storage} <- object_storage(context),
          {:ok, decoded} <- decode_bundle(verified, cut, schema_module),
@@ -514,6 +543,78 @@ defmodule Singularity.Storage.Backup.Restorer do
          _marker
        ),
        do: conflict()
+
+  defp stream_pending_import(repo, storage, verified, cut, LogicalSchemaV3, marker) do
+    result_key = {__MODULE__, :stream_import_result}
+    Process.delete(result_key)
+
+    result =
+      transact(
+        repo,
+        fn ->
+          with :ok <- assume_table_owner(repo),
+               :ok <- verify_migration_authority(repo),
+               :ok <- lock_restore_import_sagas(repo),
+               :ok <- lock_destination_tables(repo),
+               :ok <- defer_constraints(repo),
+               {:ok, state} <- load_import_marker(repo),
+               :pending <- require_marker(state, marker),
+               :ok <- require_empty_tables(repo),
+               :ok <- verify_seed_rows(repo),
+               {:ok, dummy} <- dummy_verifier(repo),
+               {:ok, staged} <- KnowledgePreflight.stage(repo, verified, cut, storage),
+               :ok <- retain_knowledge_artifacts(result_key, staged),
+               {:ok, _summary} <- KnowledgePreflight.validate(repo, staged, cut),
+               {:ok, expected} <- KnowledgePreflight.begin_restore(repo, staged),
+               {:ok, groups} <-
+                 KnowledgePreflight.reduce_native_rows(repo, staged, %{}, fn schema,
+                                                                             values,
+                                                                             groups ->
+                   with :ok <- insert_native_row(repo, schema, values, dummy),
+                        do: {:ok, collect_native_owner(schema, values, groups)}
+                 end),
+               {:ok, owner} <- validate_relations(groups, cut),
+               :ok <- retain_knowledge_owner(result_key, owner),
+               :ok <- restore_cleanup_principal(repo, groups, cut.vault_id),
+               :ok <- finalize_knowledge_sources(repo),
+               :ok <- force_knowledge_constraints(repo),
+               :ok <- verify_knowledge_digest(repo, expected),
+               :ok <- verify_owner_handoff(repo, owner, cut.vault_id),
+               :ok <- repair_outbox_sequence(repo, cut.outbox_high_water_mark),
+               :ok <- require_excluded_tables_empty(repo),
+               :ok <- KnowledgePreflight.validate_destination(repo, staged),
+               :ok <- publish_objects(storage, Process.get(result_key).staged),
+               :ok <- mark_imported(repo, marker) do
+            :imported
+          else
+            {:error, %Error{}} = error -> error
+            _mismatch -> conflict()
+          end
+        end,
+        isolation: :serializable
+      )
+
+    accumulator = Process.delete(result_key)
+
+    case result do
+      {:ok, :imported} when is_map(accumulator) ->
+        imported(verified, cut, accumulator.owner)
+
+      {:error, %Error{}} = error ->
+        finish_failed_stream_import(error, repo, storage, verified, cut, marker, accumulator)
+
+      _invalid ->
+        finish_failed_stream_import(
+          storage_unavailable(),
+          repo,
+          storage,
+          verified,
+          cut,
+          marker,
+          accumulator
+        )
+    end
+  end
 
   defp stream_pending_import(repo, storage, verified, cut, schema_module, marker) do
     result =
@@ -612,6 +713,54 @@ defmodule Singularity.Storage.Backup.Restorer do
     end
   end
 
+  defp stream_verify_imported(repo, storage, verified, cut, LogicalSchemaV3, marker) do
+    case transact(
+           repo,
+           fn ->
+             with :ok <- assume_table_owner(repo),
+                  :ok <- verify_migration_authority(repo),
+                  :ok <- lock_restore_import_sagas(repo),
+                  :ok <- lock_destination_tables(repo),
+                  {:ok, state} <- load_import_marker(repo),
+                  :imported <- require_marker(state, marker),
+                  :ok <- verify_seed_rows(repo),
+                  :ok <- require_excluded_tables_empty(repo),
+                  {:ok, staged} <-
+                    KnowledgePreflight.stage_for_verification(repo, verified, cut, storage),
+                  {:ok, _summary} <- KnowledgePreflight.validate(repo, staged, cut),
+                  {:ok, groups} <-
+                    KnowledgePreflight.reduce_native_rows(repo, staged, %{}, fn schema,
+                                                                                values,
+                                                                                groups ->
+                      {:ok, collect_native_owner(schema, values, groups)}
+                    end),
+                  {:ok, owner} <- validate_relations(groups, cut),
+                  {:ok, expected} <- knowledge_expected_digest(repo),
+                  :ok <- verify_knowledge_digest(repo, expected),
+                  :ok <- verify_knowledge_receipt(repo, marker, expected),
+                  :ok <- verify_knowledge_sources(repo, cut.vault_id),
+                  :ok <- verify_owner_handoff(repo, owner, cut.vault_id) do
+               owner
+             else
+               {:error, %Error{}} = error -> error
+               _mismatch -> conflict()
+             end
+           end,
+           isolation: :serializable
+         ) do
+      {:ok, owner} ->
+        with :ok <- verify_no_staged_objects(storage),
+             :ok <- verify_exact_published_inventory(storage, cut.object_inventory),
+             do: imported(verified, cut, owner)
+
+      {:error, %Error{}} = error ->
+        error
+
+      _invalid ->
+        storage_unavailable()
+    end
+  end
+
   defp stream_verify_imported(repo, storage, verified, cut, schema_module, marker) do
     case transact(
            repo,
@@ -637,6 +786,7 @@ defmodule Singularity.Storage.Backup.Restorer do
                     BundleReader.reduce_verified(verified, accumulator, &reduce_stream_event/2),
                   {:ok, accumulator} <- finish_stream_accumulator(accumulator),
                   :ok <- verify_seed_rows(repo),
+                  :ok <- require_other_version_tables_empty(repo, schema_module),
                   :ok <- verify_stream_database_digest(repo, accumulator),
                   :ok <- verify_owner_handoff(repo, accumulator.owner, cut.vault_id),
                   :ok <- require_excluded_tables_empty(repo) do
@@ -659,6 +809,232 @@ defmodule Singularity.Storage.Backup.Restorer do
 
       _invalid ->
         storage_unavailable()
+    end
+  end
+
+  defp retain_knowledge_artifacts(key, staged) do
+    artifacts =
+      Enum.map(staged.artifacts, fn artifact ->
+        {:ok, object_ref} = ObjectRef.new(object_id: artifact.entry.storage_ref)
+        Map.put(artifact, :object_ref, object_ref)
+      end)
+
+    # Retained before canonical writes/publication, including failure after the
+    # first real finalize. Recovery still requires the exact seven-part saga.
+    Process.put(key, %{staged: artifacts, owner: nil})
+    :ok
+  end
+
+  defp retain_knowledge_owner(key, owner) do
+    Process.put(key, %{Process.get(key) | owner: owner})
+    :ok
+  end
+
+  defp collect_native_owner(schema, values, groups) do
+    if MapSet.member?(@owner_tables, schema.table) do
+      # Reuse only the established owner predicate, not the wire encoder. Drop
+      # content/metadata rather than retaining it in the handoff accumulator.
+      identity_values =
+        Enum.zip(schema.columns, values)
+        |> Enum.map(fn {column, value} ->
+          cond do
+            column.name not in @owner_fields or is_nil(value) -> {"null"}
+            column.tag == "uuid" -> {"uuid", Ecto.UUID.load!(value)}
+            true -> {column.tag, value}
+          end
+        end)
+
+      row = %{schema: schema, values: identity_values}
+      Map.update(groups, schema.table, [row], &[row | &1])
+    else
+      groups
+    end
+  end
+
+  defp insert_native_row(repo, schema, values, dummy) do
+    columns = schema.columns
+
+    {columns, values} =
+      case schema.table do
+        "identity.credentials" ->
+          inserted = Enum.at(values, Enum.find_index(columns, &(&1.name == "inserted_at")))
+
+          {columns ++
+             [
+               %{name: "verifier", tag: "text"},
+               %{name: "verifier_version", tag: "integer"},
+               %{name: "updated_at", tag: "timestamp"}
+             ], values ++ [dummy, 1, inserted]}
+
+        "core.vaults" ->
+          values =
+            values
+            |> List.replace_at(Enum.find_index(columns, &(&1.name == "locked")), true)
+            |> List.replace_at(
+              Enum.find_index(columns, &(&1.name == "object_cleanup_principal_id")),
+              nil
+            )
+
+          {columns, values}
+
+        "core.vault_key_wrappers" ->
+          {columns ++
+             [
+               %{name: "kdf_version", tag: "integer"},
+               %{name: "kdf_salt", tag: "bytes"},
+               %{name: "kdf_parameters", tag: "json"},
+               %{name: "wrapper_algorithm", tag: "text"},
+               %{name: "wrapped_key", tag: "bytes"}
+             ],
+           values ++
+             [
+               1,
+               @restore_pending,
+               ~s({"state":"restore_pending","version":1}),
+               "restore_pending",
+               @restore_pending
+             ]}
+
+        _other ->
+          {columns, values}
+      end
+
+    projection = Enum.map_join(columns, ",", &quote_identifier(&1.name))
+
+    parameters =
+      columns
+      |> Enum.with_index(1)
+      |> Enum.map_join(",", fn {column, index} ->
+        if column.tag == "json", do: "($#{index}::text)::jsonb", else: "$#{index}"
+      end)
+
+    override = if schema.table == "core.outbox_events", do: " OVERRIDING SYSTEM VALUE", else: ""
+
+    case query(
+           repo,
+           "INSERT INTO #{quote_table(schema.table)} (#{projection})#{override} VALUES (#{parameters})",
+           values
+         ) do
+      {:ok, %{num_rows: 1}} -> :ok
+      {:ok, _other} -> storage_unavailable()
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp finalize_knowledge_sources(repo) do
+    SQL.stream(
+      repo,
+      "SELECT resource_version_id FROM content.note_versions ORDER BY resource_version_id",
+      [],
+      max_rows: 1
+    )
+    |> Enum.reduce_while(:ok, fn %{rows: rows}, :ok ->
+      result =
+        Enum.reduce_while(rows, :ok, fn [version], :ok ->
+          case query_ok(repo, "SELECT content.finalize_note_source_set($1)", [version]) do
+            :ok -> {:cont, :ok}
+            {:error, %Error{}} = error -> {:halt, error}
+          end
+        end)
+
+      case result do
+        :ok -> {:cont, :ok}
+        {:error, %Error{}} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp force_knowledge_constraints(repo) do
+    names = Enum.map_join(@knowledge_constraints, ",", &quote_table("content." <> &1))
+    query_ok(repo, "SET CONSTRAINTS " <> names <> " IMMEDIATE", [])
+  end
+
+  defp knowledge_expected_digest(repo) do
+    Enum.reduce_while(LogicalSchemaV3.all(), {:ok, %{counts: %{}, digests: %{}}}, fn schema,
+                                                                                     {:ok, acc} ->
+      case KnowledgeRestoreDigest.destination_table_digest(repo, schema.table) do
+        {:ok, %{count: count, digest: digest}} ->
+          {:cont,
+           {:ok,
+            %{
+              counts: Map.put(acc.counts, schema.table, count),
+              digests: Map.put(acc.digests, schema.table, digest)
+            }}}
+
+        {:error, %Error{}} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp verify_knowledge_digest(repo, expected) do
+    Enum.reduce_while(LogicalSchemaV3.all(), :ok, fn schema, :ok ->
+      count = Map.fetch!(expected.counts, schema.table)
+      digest = Map.fetch!(expected.digests, schema.table)
+
+      case query(repo, "SELECT row_count,digest FROM audit.knowledge_restore_table_digest($1)", [
+             schema.ordinal
+           ]) do
+        {:ok, %{rows: [[^count, ^digest]]}} -> {:cont, :ok}
+        {:ok, _mismatch} -> {:halt, conflict()}
+        {:error, %Error{}} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp verify_knowledge_receipt(repo, marker, expected) do
+    require_true(
+      repo,
+      """
+      SELECT EXISTS (
+        SELECT 1 FROM audit.knowledge_restore_admissions
+        WHERE singleton AND state='validated'
+          AND manifest_id=$1 AND vault_id=$2 AND manifest_hash=$3
+          AND manifest_tag=$4 AND inventory_hash=$5 AND destination_root_hash=$6
+          AND object_count=$7 AND expected_counts=$8::bigint[] AND expected_digests=$9::bytea[]
+      )
+      """,
+      marker_parameters(marker) ++
+        [
+          Enum.map(LogicalSchemaV3.all(), &Map.fetch!(expected.counts, &1.table)),
+          Enum.map(LogicalSchemaV3.all(), &Map.fetch!(expected.digests, &1.table))
+        ]
+    )
+  end
+
+  defp verify_knowledge_sources(repo, owner_id) do
+    # Canonical membership has already matched every authenticated staged row.
+    # Seals are derived, so independently compare their identities/counts to
+    # the fixed staged Note sets, and reject any extra seal.
+    with :ok <-
+           require_true(
+             repo,
+             """
+             SELECT NOT EXISTS (
+               SELECT 1 FROM pg_temp.knowledge_restore_28 n
+               LEFT JOIN content.note_source_set_seals s ON s.note_resource_version_id=n.resource_version_id
+               WHERE s.note_resource_version_id IS NULL OR
+                 (s.note_resource_id,s.vault_id,s.classification,s.attachment_count,s.citation_count)
+                 IS DISTINCT FROM (n.resource_id,n.vault_id,n.classification,
+                   (SELECT count(*) FROM pg_temp.knowledge_restore_33 a WHERE a.note_resource_version_id=n.resource_version_id),
+                   (SELECT count(*) FROM pg_temp.knowledge_restore_34 c WHERE c.note_resource_version_id=n.resource_version_id))
+             ) AND NOT EXISTS (
+               SELECT 1 FROM content.note_source_set_seals s WHERE NOT EXISTS (
+                 SELECT 1 FROM pg_temp.knowledge_restore_28 n WHERE n.resource_version_id=s.note_resource_version_id)
+             )
+             """,
+             []
+           ),
+         :ok <-
+           query_ok(repo, "SELECT audit.assert_knowledge_restore_graph($1)", [dump_uuid(owner_id)]),
+         do: :ok
+  end
+
+  defp require_true(repo, statement, parameters) do
+    case query(repo, statement, parameters) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, _mismatch} -> conflict()
+      {:error, %Error{}} = error -> error
     end
   end
 
@@ -2595,7 +2971,12 @@ defmodule Singularity.Storage.Backup.Restorer do
   defp destination_tables do
     # Note INSERT finalizers regenerate these derived seals, not wire records.
     # Lock/check them before import, but permit legitimate post-restore seals.
-    LogicalSchemaV2.tables() ++ @excluded_tables ++ ["content.note_source_set_seals"]
+    Enum.uniq(
+      LogicalSchema.tables() ++
+        LogicalSchemaV2.tables() ++
+        LogicalSchemaV3.tables() ++
+        @excluded_tables ++ ["content.note_source_set_seals"]
+    )
   end
 
   defp lock_destination_tables(repo) do
@@ -2606,7 +2987,13 @@ defmodule Singularity.Storage.Backup.Restorer do
   defp defer_constraints(repo), do: query_ok(repo, "SET CONSTRAINTS ALL DEFERRED", [])
 
   defp require_empty_tables(repo) do
-    destination_tables()
+    # Admission is maintenance bookkeeping, not a wire table or derived seal.
+    # A stale receipt must not make an otherwise empty destination importable.
+    require_tables_empty(repo, destination_tables() ++ ["audit.knowledge_restore_admissions"])
+  end
+
+  defp require_excluded_tables_empty(repo) do
+    @excluded_tables
     |> Enum.reduce_while(:ok, fn table, :ok ->
       case query(repo, "SELECT EXISTS (SELECT 1 FROM #{quote_table(table)} LIMIT 1)", []) do
         {:ok, %{rows: [[false]]}} -> {:cont, :ok}
@@ -2617,9 +3004,35 @@ defmodule Singularity.Storage.Backup.Restorer do
     end)
   end
 
-  defp require_excluded_tables_empty(repo) do
-    @excluded_tables
-    |> Enum.reduce_while(:ok, fn table, :ok ->
+  defp require_other_version_tables_empty(repo, schema_module) do
+    with :ok <-
+           require_tables_empty(
+             repo,
+             (LogicalSchemaV3.tables() -- schema_module.tables()) ++
+               ["audit.knowledge_restore_admissions"]
+           ),
+         :ok <-
+           require_true(
+             repo,
+             """
+             SELECT NOT EXISTS (
+               SELECT 1 FROM content.note_versions n LEFT JOIN content.note_source_set_seals s
+                 ON s.note_resource_version_id=n.resource_version_id
+               WHERE s.note_resource_version_id IS NULL OR
+                 (s.note_resource_id,s.vault_id,s.classification,s.attachment_count,s.citation_count)
+                 IS DISTINCT FROM (n.resource_id,n.vault_id,n.classification,0::bigint,0::bigint)
+             ) AND NOT EXISTS (
+               SELECT 1 FROM content.note_source_set_seals s WHERE NOT EXISTS (
+                 SELECT 1 FROM content.note_versions n WHERE n.resource_version_id=s.note_resource_version_id)
+             )
+             """,
+             []
+           ),
+         do: :ok
+  end
+
+  defp require_tables_empty(repo, tables) do
+    Enum.reduce_while(tables, :ok, fn table, :ok ->
       case query(repo, "SELECT EXISTS (SELECT 1 FROM #{quote_table(table)} LIMIT 1)", []) do
         {:ok, %{rows: [[false]]}} -> {:cont, :ok}
         {:ok, %{rows: [[true]]}} -> {:halt, conflict()}
@@ -2910,6 +3323,7 @@ defmodule Singularity.Storage.Backup.Restorer do
                       decoded.schema_module
                     ),
                   :ok <- verify_inserted_counts(repo, decoded.groups, decoded.schema_module),
+                  :ok <- require_other_version_tables_empty(repo, decoded.schema_module),
                   :ok <- verify_owner_handoff(repo, owner, cut.vault_id),
                   :ok <- require_excluded_tables_empty(repo) do
                :imported
@@ -3555,6 +3969,7 @@ defmodule Singularity.Storage.Backup.Restorer do
 
   defp logical_schema(1), do: {:ok, LogicalSchema}
   defp logical_schema(2), do: {:ok, LogicalSchemaV2}
+  defp logical_schema(3), do: {:ok, LogicalSchemaV3}
   defp logical_schema(_version), do: backup_invalid()
 
   defp backup_invalid, do: {:error, Error.new(:backup_invalid)}
