@@ -2,7 +2,7 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks0–7 locally qualified; Task7 local commit prepared.**
+**IN PROGRESS — Tasks0–7 locally accepted; Task8 design reviewed, test-first work next.**
 Phase5 as a whole is not accepted; Tasks8–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
@@ -2905,3 +2905,93 @@ Task8 source GO remains blocked on that local commit plus the necessary
 source-backed design/plan amendment and its independent review. Task13's
 bounded PROJECT_ARCHITECTURE draft is design-only; no repair round consumed.
 Phase5 is still IN PROGRESS. E2E NOT RUN; no publication or production action.
+
+## Task7 local commit verified; Task8 source-backed amendment
+
+The exact seven paths committed locally as
+`3b2a1a43cfb0101a6ef57ee140b05021241fe6c1`
+(`feat(restore): import complete v3 history before sealing sources`). Commit
+59db9c ended normally0; postcommit603678 confirms the exact SHA, clean worktree,
+all four tested repair2 source hashes and accepted Task6 receipt match, with
+main still clean. No merge/push/publication. Task7 is locally accepted, not
+Phase5/release acceptance.
+
+The main source-backed Task8 amendment draft85 lines SHA
+`63c376a3a3ed5350fa80d7f3f25112f1c11d9d3376c7424b04663ba354fe1dc7`
+closed bounded independent draft SOURCE SPEC preparation PASS, no actionable
+mismatch. Actual reviewer read full Exporter1003, legacy owner1380,
+V3 registry198, ScopedRepo114, WorkerScope110, original guard57, fixed identity
+helper237, Document/receipt schema375, Application207/test354 and identity
+security owner719; it also traced existing raw-cut/saga/dispatch/null contracts.
+It confirmed principal-specific receipt RLS needs the narrow owner-wide read
+helper, raw streams need repository composition without frozen saga changes,
+V3 JSON text projection preserves null semantics, and live backup cannot reuse
+restore-only graph assumptions. Explicit owner-kind validation is required:
+the live authorization function returns `principal_kind`, not an owner-only row.
+Native draft verdict `.devenv/phase5-task8-draft-source-spec-native-verdict.md`,
+SHA `926c8075e54e60696df889c7bf9c6f9e4ab0b382f245c2ce643b8240aa91519e`.
+
+Parent now applies the necessary Task8 design/plan amendment under continuing
+authority: fixed owner-wide receipt read, version-specific JSON projection,
+caller/repo/backend/full-xid/RR/owner/principal stream binding and exact
+Runtime.Application WorkerRepo context plus composition assertion. Default2,
+original guard, frozen BackupVault/cut/crypto/custody and all publication/E2E
+restrictions remain. Formal applied amendment SPEC and separate fresh QUALITY
+are required before test-first source GO; draft PASS alone is not GO.
+
+## Task8 applied amendment formal SPEC PASS; fresh design QUALITY pending
+
+Actual applied SOURCE DESIGN/PLAN SPEC closed PASS, no actionable finding.
+Reviewer directly inspected the entire three-document diff, design§6,
+complete Task8 plan and new report closure to EOF, rechecked unchanged source
+hashes/frozen56/accepted Task7 receipt and exactHEAD3b2a1a4. It explicitly
+reported amendment coverage, not a fresh whole-master-document audit. All
+read commands finished; no edits/mutations/runtime tests or delegation.
+Native `.devenv/phase5-task8-applied-design-spec-native-verdict.md`, SHA
+`912d41c81c04586717a518a5df8a9c0ffbc5c05a2b8f7455878f7873fc0aa37c`.
+
+The actual complete legacy owner has13 named plus eight generated guard cases;
+parent read the loop and synchronized this count explicitly to21, preserving
+complete-file execution. No assertion or source change. Separate fresh design
+QUALITY remains required before test-only RED; no Task8 source/migration/default
+change yet. All E2E/publication/frozen-substrate restrictions remain.
+
+## Task8 actual fresh design QUALITY PASS and unchanged legacy baseline27/0
+
+Refreshed applied SOURCE SPEC PASS is archived verbatim at
+`.devenv/phase5-task8-refreshed-design-spec-native-verdict.md`, SHA
+`b90b644e81ee81cf4d6e62505b311e94db902a31031a3f98d9bd6297377fb110`.
+Separate fresh Sol SOURCE DESIGN/PLAN QUALITY closed actual **PASS**, no
+actionable finding, on design hash1b3dcd77 and plan hash0f4d116d. Reviewer read
+the complete applied diff/affected sections/report closures and4,754 direct
+full source lines, plus codec/null/authorization/raw compatibility seams.
+It explicitly limited this to an amendment audit, not unchanged-master audit.
+Fresh source/doc hashes, frozen56/accepted Task7 receipts and apps diff all match.
+All read commands finished; no edits, runtime commands or delegation. Native
+`.devenv/phase5-task8-design-quality-native-verdict.md`, SHA
+`09de807e2ee142b04789cd569a93e06d586d74502b92b04931e6602ebc71ada0`.
+
+Parent characterized the unmodified complete legacy owners before test changes:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/task14_backup_identity_export_security_test.exs --seed 215378 --warnings-as-errors
+```
+
+Actual38930 ended normally **exit0**,20.4 seconds: **27 actual SQL/0 failures**,
+no exclusions (legacy21 plus identity security6). Full original untruncated
+returned output `.devenv/phase5-task8-legacy-baseline-green.log`, SHA
+`c7d80146622c5e45af495a21f3d7ca127acc3af57a71a2bb51bb7b22df41ccf4`.
+Exact allocated `/tmp/singularity/integration/8ed21bd092e95e765fed1312` absent;
+maintenance1ad548 ended normally0 with no allocated test database. Four-file
+unchanged source baseline receipt `.devenv/phase5-task8-baseline.sha256`, SHA
+`21ad3181091c2e60a3046756f5a9173100b3de47249c8f75602908bda48e665e`,
+records Exporter/legacy owner/Runtime.Application/composition-test exact hashes.
+No source/migration/default/Runtime/custody change occurred in this baseline.
+
+Parent accepts this necessary design/plan amendment for test-first execution
+and prepares only the three governing documents for a local design commit.
+The new V3 test owner and precise two existing test contracts come first;
+parent must observe actual RED before production-author GO. Baseline27 PASS
+is not V3 implementation acceptance; all required Task8 full gates and actual
+independent SOURCE SPEC/fresh QUALITY remain. Tasks8–19/Phase5 not accepted,
+default2/frozen substrate preserved, E2E NOT RUN and no publication/activation.

@@ -896,9 +896,10 @@ devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integrati
   pure5/0 and downstream186/0 passed on repair2. Format/compile/xref passed with
   zero cycles and frozen56+Task6+source receipts match. Formal actual NONAUTHOR
   SOURCE SPEC and separate fresh QUALITY passed on the final repair2 receipt.
-  Parent locally accepts the exact source; only the narrow local commit remains
-  to execute and verify. Phase5/Tasks8–19 are not accepted. Local commit
-  `feat(restore): import complete v3 history before sealing sources`.
+  Parent locally accepts the exact source and verified local commit
+  `3b2a1a43cfb0101a6ef57ee140b05021241fe6c1`
+  (`feat(restore): import complete v3 history before sealing sources`).
+  Phase5/Tasks8–19 are not accepted.
 
 ### Task7 selected fixed constraints and bounded native-row replay
 
@@ -1011,6 +1012,10 @@ FAIL evidence; neither a timeout increase nor a smaller final gate is allowed.
 ## Task 8: Explicit V3 writer with complete retained-original closure
 
 **Modify:** Storage `backup/exporter.ex`, complete `backup/logical_exporter_test.exs`.
+**Necessary composition compatibility:**
+`apps/singularity_runtime/lib/singularity/runtime/application.ex` only its
+WorkerRepo alias/object_storage context, and the corresponding exact
+`apps/singularity_runtime/test/singularity/runtime/application_test.exs` assertion.
 **Create:** `apps/singularity_storage/priv/repo/migrations/20261011000500_knowledge_backup_read_grants.exs`,
 `apps/singularity_storage/priv/repo/migrations/20261011000600_knowledge_backup_v3_guard.exs`,
 `apps/singularity_storage/test/singularity/storage/backup/logical_v3_exporter_test.exs`.
@@ -1115,6 +1120,83 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
   Expected GREEN preserves default legacy rejection; SPEC then QUALITY, commit
   `feat(backup): stream complete v3 history and retained originals explicitly`.
+
+### Task8 selected owner-history, JSON and transaction-binding seams
+
+Source preparation established three necessary details before source GO.
+Independent bounded draft SPEC PASS is preparation, not implementation proof.
+Apply this amendment, complete actual applied SPEC then fresh QUALITY, and
+run test-only RED before production implementation. Parent alone runs formatter,
+Mix, SQL/services and Git; disjoint test/production authors never run commands
+or change each other's files. No frozen migration, helper, V1/V2 or custody edit.
+
+- [ ] Forward00500 grants worker SELECT only on document_versions/fragments,
+  note_attachments/citations, tags/resource_tags/relationships. Preserve receipt
+  RLS and existing direct grants; add worker-only EXECUTE of fixed eight-column
+  `content.export_document_import_receipts_for_backup(uuid)` instead. It checks
+  live exact owner, principal_kind owner, unrevoked principal/membership and
+  backup.create, with STABLE SECURITY DEFINER/table-owner/pinned search_path/
+  fixed qualified columns. PUBLIC/web/pre_auth/dispatcher cannot execute it.
+  Return owner receipts without a completed-only filter; guard rejects pending.
+  Prove two principals' same-owner receipts both exported, foreign/no-cap/
+  revoked/system-principal denied, while original principal-specific RLS remains.
+  A disposable test-only SELECT grant may probe actual policy filtering but
+  must not replace production ACL assertions or change the policy definition.
+- [ ] Preserve the original one-argument guard body/ACL/owner/config. The new
+  overload authenticates exact live owner before branching;1/unknown remain
+  unsupported,2 delegates unchanged legacy,3 validates supported complete live
+  history. Do not call audit.assert_knowledge_restore_graph or grant its private
+  helpers to worker: restore-only dummy credentials/locked owner/restored wrapper
+  assumptions are invalid live-backup rules. Keep advanced wrapper2/key1 valid
+  and unsupported Document state representable. Test incomplete source/pin/
+  attempt/fragment/citation/seal/receipt/format/object closure fails closed.
+- [ ] Use fixed explicit V3 JSON text projections in ordinary table queries and
+  the identity helper's24-column projection (metadata positions2/8/21). Decode
+  binary JSON text before tagging; distinguish nullable SQLNULL from JSONnull.
+  Do not mutate frozen identity function or defaultV2 projections. Independent
+  oracle compares literal all38 columns/counts/PKs, versioned codec and preserved
+  wire outbox sequence/id, including native SQL JSONnull and nullable SQLNULL.
+- [ ] Bind lazy logical records and repository-aware raw entries/payloads to
+  their construction caller/repo/backend/full-xid/RR/current owner/principal.
+  Reject wrong caller and inactive repo before SQL; recheck full binding before
+  header/each logical record, raw entry, open and every raw chunk. Same snapshot
+  text is not full transaction identity. No process dictionary/cache/registry/
+  cut authority fields. The historical cut remains plain data; actual frozen
+  saga constructs/consumes/acknowledges inside its one owned transaction.
+- [ ] Implement the narrow composition without frozen BackupVault edits:
+
+```elixir
+def stream_inventory(%{repo: repo, storage: storage}, capture_cut),
+  do: stream_inventory(repo, storage, capture_cut)
+
+# Runtime.Application job_dependencies only; trusted WorkerRepo composition.
+object_storage: {Exporter, %{repo: WorkerRepo, storage: storage}}
+```
+
+  New repository-aware `/3` validates the existing five-key capture cut and
+  binds raw framing independently of logical wire version. Existing bare-storage
+  `/2` behavior remains for compatibility; logical `/3` keeps six-key cut with
+  manifest_id. Test closure, same-backend/new-full-xid, other PID/repo/scope and
+  mid-raw-chunk closure deny before further storage calls; success V2 and runtime
+  composition stay intact. Recompute explicitV3 required object inventory inside
+  its scoped snapshot, preserve fabricated-cut legacyV2 contracts.
+- [ ] Synchronize only both legacy owner worker-SELECT assertions to the precise
+  seven-table grant/receipt exception; retain original legacy guard denial,
+  other-role/mutation/private identity/body/error assertions, all13 named tests
+  and all eight generated guard cases (21 actual legacy cases).
+  Run complete required Storage owners plus narrow composition/custody-free
+  frozen-saga pure regressions:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_exporter_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs apps/singularity_storage/test/singularity/storage/task14_backup_identity_export_security_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/application_test.exs apps/singularity_runtime/test/singularity/runtime/backup_vault_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+  Final gates use complete files/default timeout, no narrowed acceptance.
+  Verify frozen56 plus accepted Task7 receipt, actual formal SOURCE SPEC then
+  fresh QUALITY, and local commit. DefaultV3/complete live saga/portable export
+  remain later tasks; E2E NOT RUN.
 
 ## Task 9: Verify original plaintext evidence before rebuild/completion
 

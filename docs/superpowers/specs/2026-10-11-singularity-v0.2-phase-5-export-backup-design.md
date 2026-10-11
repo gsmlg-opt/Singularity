@@ -368,6 +368,55 @@ custody, identity, key or capability authority. The cut, row counts, lazy row
 streams, object streams and acknowledgement stay inside the established
 scoped repeatable-read backup transaction.
 
+### Task8 necessary live-history and stream-composition detail
+
+Explicit writer selections2/3 remain internal; default2 and the original
+one-argument guard stay unchanged until Task12. Version1/unknown requests deny
+before repository/object calls, including Note-only histories without V3 rows.
+Choose the registry explicitly through all header/row/evidence eager and lazy
+encoders; protected outbox wire order remains sequence/id, not native staged PK.
+
+Completed Document import receipts are whole-owner history, including receipts
+created by another principal of that same authenticated owner. Existing receipt
+RLS is principal-specific; preserve it and existing direct grants. Forward00500
+adds only SELECT on the other seven V3 tables and the fixed-eight-column
+`content.export_document_import_receipts_for_backup(uuid)` read function.
+Require existing live authorization with `principal_kind='owner'`, exact owner,
+unrevoked principal/membership and `backup.create`. Use STABLE SECURITY DEFINER,
+fully qualified fixed relations, pinned search_path and table-owner ownership;
+revoke PUBLIC/other runtime EXECUTE, grant worker EXECUTE only. Return all owner
+receipts for fail-closed validation; do not silently filter pending rows. No
+new mutation, identity, key, custody or capability authority.
+
+V3 uses fixed JSON text projections, including identity-helper metadata slots
+2/8/21. SQL NULL remains the nullable absent tag; JSON text `null` decodes to
+tagged JSON nil. Frozen codec/helper DDL and V2 projection behavior remain.
+The new versioned guard authenticates before branching, rejects1/unknown,
+delegates2 to the unchanged legacy guard, and validates complete supported V3
+histories/source/object/seal/receipt closure. All permitted persisted Document
+states remain representable, including unsupported extraction state. Do not
+reuse restore-only locked-owner/dummy-wrapper validation; legitimate advanced
+wrapper generation2 with active key generation1 remains allowed. Required
+retained objects must survive exact owner/classification/size/available object/
+envelope joins; missing required rows cannot disappear through an inner join.
+
+Logical and repository-aware raw streams bind at construction to the caller,
+repo, backend PID, full transaction ID, repeatable-read and actual owner/
+principal. Check caller and repo.in_transaction? before SQL, then full binding
+before every logical record, raw entry, object open and ciphertext chunk.
+The frozen saga constructs, consumes and acknowledges in one owned transaction.
+Snapshot text alone is not transaction identity and the plain five-key capture
+cut is not an authenticated transaction handle. Add no cut fields/version,
+global cache/registry/process-dictionary authority or frozen saga changes.
+
+Add internal `Exporter.stream_inventory(repo, storage_tuple, cut)/3` and trusted
+`stream_inventory(%{repo: repo, storage: storage_tuple}, cut)/2` delegation,
+preserving bare-storage `/2` compatibility. Runtime.Application changes only
+object_storage composition to `{Exporter, %{repo: WorkerRepo, storage: storage}}`
+and the corresponding exact test/alias. Raw capture validation retains five
+keys; logical records retain six including manifest_id. This necessary
+composition compatibility change does not redesign custody or BackupVault.
+
 ## 7. Semantic preflight and historical admission
 
 Wire order is not insertion order. First authenticate the immutable bundle
