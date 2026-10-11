@@ -620,6 +620,13 @@ scoped trusted numeric observer measures real batches/metadata/object appends;
 it makes no VM-memory or disabled Ecto-telemetry claim. Source plaintext SHA
 equality remains Task9; Notes have no invented SHA column. E2E stays NOT RUN.
 
+Task4 accepted locally at `854fad69915c937fe7dcdec0a12a6d487fffb7f6`
+after owning27/0, post-repair static gate and actual independent full SOURCE
+SPEC→bounded finding closure→fresh full SOURCE QUALITY. Exact reviewed source,
+test and document receipts/coverage are recorded in the acceptance report.
+This post-verdict checkpoint is not retroactively part of those reviews.
+Canonical V3 import/default activation remain closed. E2E is NOT RUN.
+
 ## Task 5: Migration-only transaction-bound admission and deferred finalizer
 
 **Create:** `apps/singularity_storage/priv/repo/migrations/20261011000300_knowledge_restore_admission.exs`,
@@ -628,19 +635,19 @@ equality remains Task9; Notes have no invented SHA column. E2E stays NOT RUN.
   explicit staged-to-destination verification call, not runtime authorization.
 **Depends on:** Task 4.
 
-- [ ] Write RED SQL counterproofs for actual `session_user` web/worker/
+- [x] Write RED SQL counterproofs for actual `session_user` web/worker/
   dispatcher/pre-auth connections, spoofed GUCs, table-owner SECURITY DEFINER
   nesting, absent advisory lock, wrong pending saga/owner/manifest/hash,
   nonempty destination, wrong backend/transaction, stale records, missing
   finalizer and post-validation equal-count mutation. Every failure must occur
   at admission, write or commit with no partial canonical visibility.
-- [ ] Run the admission integration file; expected RED: no admission relation/
+- [x] Run the admission integration file; expected RED: no admission relation/
   helpers. Create only `audit.knowledge_restore_admissions`, owned by
   `singularity_table_owner`, columns for manifest/owner/authenticated hash,
   full transaction `xid8`, backend PID, expected counts/per-table digests and
   loading/validated state. Exclude it from wire/export/destination canonical
   digests; no PUBLIC/runtime relation/helper grants. Pin helper search paths.
-- [ ] Implement admission functions `audit.begin_knowledge_restore`,
+- [x] Implement admission functions `audit.begin_knowledge_restore`,
   `audit.validate_knowledge_restore`, `audit.knowledge_restore_is_bound` and
   `audit.enforce_knowledge_restore_final` with migration-only exact authority:
 
@@ -656,7 +663,7 @@ END IF;
   lock `hashtextextended('singularity:restore-import:v1',0)`. Verify owned lock
   through exact `pg_locks` identity; acquiring a caller-specified lock is not
   proof. Helpers recheck binding, not a caller Boolean or GUC.
-- [ ] Add an initially deferred constraint trigger on admission insert/update:
+- [x] Add an initially deferred constraint trigger on admission insert/update:
 
 ```sql
 CREATE CONSTRAINT TRIGGER knowledge_restore_final_check
@@ -672,13 +679,97 @@ EXECUTE FUNCTION audit.enforce_knowledge_restore_final();
   Keep established V2 identity transformations separately verified, never
   exempt knowledge rows. Migration teardown is forward-only, not rollback of
   a released migration. Never alter role membership/attributes or Vault policy.
-- [ ] Run the full admission file and existing RLS/grant/schema files to GREEN:
+- [x] Run the full admission file and existing RLS/grant/schema files to GREEN:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs --seed 215378 --warnings-as-errors
 ```
 
   SPEC then QUALITY, commit `feat(restore): bind historical admission to maintenance transaction`.
+
+### Task5 selected admission, SQL oracle and commit-proof details
+
+These choices implement approved design §7, not an expansion of runtime or
+Vault authority. The singleton admission has boolean PK/CHECK, manifest/vault
+UUIDs, 32-byte authenticated manifest hash, full `xid8`, backend PID, exactly
+38 expected counts/digests and loading/validated state. Arrays must be
+one-dimensional/lower-bound1, nonnull, counts nonnegative and each digest32
+bytes. Store immutable full pending-saga snapshot: manifest tag16, inventory
+hash32, destination-root hash32 and object count. Derive this snapshot from
+the locked existing saga, not caller-supplied GUCs. Entry APIs are:
+
+```sql
+audit.begin_knowledge_restore(uuid,uuid,bytea,bigint[],bytea[]) RETURNS void
+audit.validate_knowledge_restore(uuid,uuid,bytea) RETURNS void
+audit.knowledge_restore_is_bound(uuid) RETURNS boolean
+audit.enforce_knowledge_restore_final() RETURNS trigger
+```
+
+All relations/functions are table-owner owned, pinned to `pg_catalog`, fully
+qualified, and revoke PUBLIC/runtime access. Check exact migration session and
+existing table-owner SET authority. Check the current backend's granted
+exclusive bigint advisory lock, using exact database/classid/objid/objsubid
+identity for `hashtextextended('singularity:restore-import:v1',0)`; a different
+lock or another backend's lock is not proof. Admission checks the full empty
+destination union, including derived seals/excluded runtime tables. Immutable
+binding/count/digest values cannot be rewritten; only defined validated-state
+transition is permitted. Loading historical-write authorization requires the
+same pending saga/current backend/full transaction. Validated rows never grant
+historical writes. At final COMMIT allow only the same bound saga still pending
+or legitimately imported: existing Restorer marks it imported before COMMIT.
+Later saga states and stale admission rows do not authorize another transaction.
+
+Private fixed SQL seams `audit.knowledge_restore_json_bytes(jsonb)` and
+`audit.knowledge_restore_table_digest(integer)` implement Task4's exact framed
+protocol independently; the latter returns `row_count bigint,digest bytea`
+for a closed ordinal0..37. Inline frozen projections/types/PK positions and
+ordered one-row cursors; no caller relation/SQL, destination-selected projection,
+pg_temp encoder or whole-table aggregation. Legal typed row expansion does
+not impose a new16 MiB framed-row cap. Private
+`audit.assert_knowledge_restore_graph(uuid)` checks canonical structural history,
+scope/typed heads/parents/source pins/fragments/source sets/organization/work
+and exact derived seals independently. Existing FK/CHECK/immutability stays on.
+Core Unicode Tag normalization remains genuine preflight plus exact all-field
+digest equality; PostgreSQL lower() is not substituted for Core NFC/casefold.
+
+Preserve authenticated manifest/hash/tag/inventory and private destination
+binding in the typed Staged handle; never detach a caller-provided summary as
+authorization. Expected destination digests derive before canonical insertion
+from authenticated staging. The only established V2 wire-value transformation
+is `core.vaults.locked=true`; retain raw staged digests and separately qualify
+this transformed expectation. Omitted credential verifier/version/updated-at
+and pending wrapper compatibility values remain separately checked; no knowledge
+field is exempted or substituted. SQL does not itself authenticate the bundle.
+
+Use genuine sequential source/different fresh destination databases. Reduce the
+disposable authenticated fixture to live-compatible pending Document/original,
+initial Note with Asset attachment, tag/assignment/pinned relationship and
+completed receipt; keep real crypto/Reader/Replay and normal guards. Preserve
+encrypted bytes in a test-owned private path and freshly authenticate them after
+the source environment closes, rather than carrying a discarded Replay.
+Historical deleted-source/ready-fragment insertion belongs to Task6, not a
+disabled-trigger Task5 positive. Stage all38 expectations before admission.
+
+Commit counterproofs let callbacks return normally and observe actual COMMIT,
+then independently verify no canonical visibility. Cover omitted validation,
+equal-count valid row mutation after validation, missing/inconsistent seals,
+wrong full marker/backend/fullxid8, stale records and actual runtime sessions,
+GUC spoof and table-owner SECURITY DEFINER nesting. Keep the admission constraint
+trigger deferred while forcing only the fixed ordinary deferrable constraints:
+`SET CONSTRAINTS ALL IMMEDIATE` would drain its queued COMMIT check. Later Task7
+must preserve this queue and test its exact prepublication sequence. No V3 import
+or historical guard branch is enabled by Task5. SPEC then fresh QUALITY remain
+required; E2E stays NOT RUN.
+
+Task5 qualification: actual first causal RED, initial two test-probe failures,
+bounded assertion-preserving test correction, complete owning50/0,
+Stage/Digest/genuine-fixture40/0, legacy/DDL15 actual SQL/0, pure186/0 and
+full static/no-cycle gate completed. Fresh non-author full SOURCE SPEC followed
+by separate fresh full SOURCE QUALITY returned PASS with no findings, reading
+all four source files,5,044 lines. Exact receipts, native verdicts, original
+failures, commands, cleanup and counters are in the acceptance report. The
+parent now prepares only the seven-path local commit; Phase5 remains incomplete,
+Task6 historical guards and canonical V3 import/default remain closed.
 
 ## Task 6: Narrow historical guard branches with live constraints intact
 
@@ -743,10 +834,14 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 - [ ] Insert Document versions in their actual final state, then fragments and
   completed receipts; tags/assignments/relationships after their endpoints;
   all Note attachments/citations only after exact versions/fragments exist.
-  Avoid the V1/V2 immediate empty-seal shortcut for V3; finalize each Note only
+  Do not rely on the deferred V1/V2 Note INSERT seal trigger for V3; finalize each Note only
   after its entire set is present, including legitimately empty historical sets.
-  Compare staged/canonical equality and graph/count/digests, mark validated,
-  force deferred constraints, then publish owned objects and mark imported.
+  Force the fixed ordinary/source/completion constraints while admission is
+  still loading, keeping the admission final-check queue deferred. Then compare
+  staged/canonical equality and graph/count/digests, mark validated, publish
+  owned objects and mark imported. Historical Note source checks are deferred
+  AFTER INSERT and need loading-state authority when they actually execute;
+  validating first would incorrectly enter their ordinary live branch.
   Transaction-end independent validation remains enabled after explicit checking.
 - [ ] Add failure barriers before/after canonical insert, finalization, object
   publication and imported marker. Check full rollback/owned cleanup for known
@@ -761,6 +856,68 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 ```
 
   SPEC then QUALITY, commit `feat(restore): import complete v3 history before sealing sources`.
+
+### Task7 selected fixed constraints and bounded native-row replay
+
+Source-derived prepublication forcing covers the32 surviving ordinary
+deferrable content constraints below (19 FKs,13 constraint triggers). Confirm
+this exact set against the isolated current catalog during Task7 testing;
+never select caller SQL or dynamically include the admission final check.
+Every literal is qualified with `content.` in the actual SET statement:
+
+```text
+resource_versions_resource_classification_fkey
+resources_version_head_fkey
+note_versions_parent_fkey
+note_versions_merge_parent_fkey
+note_conflicts_base_version_fkey
+note_conflicts_canonical_version_fkey
+note_conflicts_competing_version_fkey
+note_conflicts_resolution_version_fkey
+note_mutation_receipts_resource_fkey
+note_mutation_receipts_version_fkey
+note_mutation_receipts_conflict_fkey
+document_versions_resource_version_fkey
+document_import_receipts_version_fkey
+document_fragments_document_version_fkey
+note_attachments_note_fkey
+note_attachments_target_fkey
+note_citations_note_fkey
+note_citations_fragment_fkey
+note_source_set_seals_note_fkey
+note_versions_aggregate_check
+note_mutation_receipts_resource_check
+resources_00_typed_head_check
+note_versions_00_typed_head_check
+document_versions_00_typed_head_check
+document_import_receipts_completed_check
+document_versions_completion_check
+document_fragments_completion_check
+note_attachments_source_set_check
+note_citations_source_set_check
+note_versions_source_set_seal_check
+note_attachments_source_set_seal_check
+note_citations_source_set_seal_check
+```
+
+The obsolete `resources_note_version_head_fkey` was dropped by the Document
+aggregate migration; it is not in this set. Keep
+`audit.knowledge_restore_final_check` deferred through publication and actual
+COMMIT. Existing Restorer has only ALL DEFERRED, not an existing ALL IMMEDIATE
+path; current per-Note automatic sealing is also deferred, not immediate.
+
+The V3 importer uses a narrow original-caller/repo/backend/full-xid bound
+iterator over fixed native staged columns and PK order, one row per SQL fetch.
+Its table order is explicit and dependency-safe; no caller relation/projection/
+ordering/SQL. Do not re-encode temporary native rows through the wire codec:
+legal JSON framing expansion can exceed the16 MiB wire-record bound. Retain
+outbox `OVERRIDING SYSTEM VALUE`, all established credential/wrapper/cleanup
+pointer transforms, one-use Replay disposal and owned artifact ledgers.
+
+Imported-marker retry is read-only V3 row/digest/seal verification, not a reuse
+of pending-only admission or another transaction's historical write authority.
+It must not reinsert canonical rows or publish unintended objects. This section
+records read-only source preparation, not an executed Task7 gate or acceptance.
 
 ## Task 8: Explicit V3 writer with complete retained-original closure
 

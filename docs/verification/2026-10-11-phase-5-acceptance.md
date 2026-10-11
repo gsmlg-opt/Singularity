@@ -2,7 +2,8 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks 1/2 pure contracts, NOT accepted.** Phase5 has its own
+**IN PROGRESS — Tasks0–4 locally accepted; Task5 qualified for local commit.**
+Phase5 as a whole is not accepted; Tasks6–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
 `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Phase4's exact tested implementation
@@ -1377,3 +1378,327 @@ its narrow local commit under continuous authority after owning27/0, post-repair
 static gate and actual independent SPEC→QUALITY. This is not Phase5 acceptance,
 canonical V3 import/default activation or runtime/browser qualification.
 No Vault feature work occurred. E2E **NOT RUN**; no push/merge/release/deployment.
+
+## Task4 qualified local commit; Task5 starts without production activation
+
+Parent staged exactly seven reviewed source owners plus the scoped plan/report,
+rechecked current source receipt and staged diff. Local commit ended normally,
+exit0: `854fad69915c937fe7dcdec0a12a6d487fffb7f6`,
+`feat(restore): stage and preflight canonical v3 graph`,9 files/4143 insertions/
+60 deletions. Immediate actual HEAD and clean status were verified. No ignored
+logs/native reviews/private cluster or unrelated user file was staged. This
+checkpoint and Task5 selected detail are subsequent document deltas, not part
+of the prior frozen review hashes. Task4 alone is accepted locally; Phase5 and
+browser/release qualification remain incomplete. E2E **NOT RUN**.
+
+Task5 read-only contract planning selected the existing genuine authenticated
+fixture reduced to a live-compatible graph in a separate fresh destination;
+no Task6 historical guard bypass. All38 staged expectations precede admission.
+The plan records exact private SQL entry/oracle seams, complete saga/backend/
+fullxid8/owned-lock binding, immutable vectors, independent owned SQL digests,
+seals and actual deferred COMMIT counterproofs. SQL finalization must allow the
+same saga's established pending→imported transition but reject stale authority.
+The admission trigger queue must survive prepublication ordinary-constraint
+forcing. No Task5 implementation, RED/GREEN or acceptance is claimed yet.
+Canonical V3 import/default activation remain closed; frozen Vault/custody/key/
+capability/crypto/policy and all released migrations remain unchanged.
+
+## Task5 actual first causal RED and implementation start
+
+The test-only author stopped after adding21 groups,1009 unformatted lines;
+source SHA `ac981848cb792a3f7eb2c6ea5015fe91204a1422871da2c0b0d3707c27eee4fc`.
+Parent alone formatted that file, session91331, normal exit0. Formatted SHA
+`6abe36d9790e5fa35ccefb14b7a3e79e11da2a36d571340ef52b1daec16d0c2c`.
+No production/migration edit preceded first execution:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs --only fixture_characterization --seed 215378 --warnings-as-errors
+```
+
+Session49024 ended normally with exit2,164.4 seconds, **21 executed,20 FAIL**,
+no excluded tests. The integration task adds `--only integration`, so the
+extra `--only fixture_characterization` did **not** restrict this run to one
+group. All20 failures were the explicit missing-admission-relation assertion;
+no negative admission/runtime/commit behavior is claimed to have executed.
+The only existing-behavior group **PASS** actually committed the independently
+counted30-row live graph through normal guards into distinct fresh databases,
+for both locked and unlocked authenticated source bundles. The source captures
+all38 expectations before admission, retaining raw unlocked evidence and a
+separate locked-on-restore expectation. Source preparation used genuine
+Reader/Replay and preserved encrypted bytes for fresh destination authentication.
+
+Full six collected output chunks,37154 characters, are archived in
+`.devenv/phase5-task5-first-red.log`, SHA
+`f892ae82809c9676f8e0777288e92fdefd01aa2511deff39a0a45bec48d5755b`.
+Parent reconfirmed unchanged formatted test hash, all56 frozen entries and
+diffcheck; normal allocated root
+`/tmp/singularity/integration/bcf360a55ac1ba2c2cb7bb7c` was absent and the
+private-cluster maintenance query returned no `singularity_test_%` databases.
+
+Only after this actual causal RED did the migration author receive GO for new
+`20261011000300_knowledge_restore_admission.exs`; parent independently owns
+the two existing Stage/Digest seams. Authenticated marker/owner/inventory/root
+binding stays in Staged; raw rows remain unchanged, with only the fixed
+V2 locked-on-restore expectation transformation. Destination validation uses
+owned SQL without reinstalling a poisoned temporary JSON encoder. This is
+implementation in progress, **not GREEN or Task5 acceptance**. All required
+owning/regression gates and non-author SPEC then fresh QUALITY still remain.
+No failed Sol repair round/Astra escalation has occurred. Canonical V3 import,
+production activation and publication remain closed; E2E **NOT RUN**.
+
+Read-only Task6 preparation found a future Task7 ordering dependency:
+`enforce_note_source_set` is executed by initially deferred AFTER INSERT
+constraints, whereas restore binding is intentionally loading-only. The
+design/Task7 plan now force fixed ordinary/source/completion checks while
+loading, then validate/mark validated, then publish/mark imported, leaving the
+admission final queue deferred for actual COMMIT. This is a source-backed
+plan correction, not Task6 implementation or executed historical acceptance.
+Task5 live-only tests retain their original sequence and assertions.
+
+## Task5 actual first implementation run FAIL and bounded test-contract diagnosis
+
+Parent formatted only the stopped author's migration, session80354 normal0,
+from unformatted1406-line SHA
+`bec29a19e348b0959eee8fd36c5d5c16fd4d578b3c8e88f14f34ae19771a720e`
+to formatted1499-line SHA
+`4ae1672c4c263ed3869a0fe3a00e09969b46e7b4a507db782d12bc6bae13a92f`.
+Parent's Stage1453-line SHA
+`4189860bf61b5e51dad892486a9db7f69abca41194ee0d4c19a90ff6cd8d8839`
+and Digest305-line SHA
+`cce735d4062ff75f800f58291a7c3cd8127a222964b116acdea4e77ef0759a3b`
+compiled with warnings-as-errors, session43158 normal0. Complete two-chunk
+compile output is `.devenv/phase5-task5-root-compile.log`, SHA
+`b3dabca1c0099b7c6e7e2c2607ec333bd0c82e68b65901841e708fa767b54b27`;
+this is not the final static gate. The four-source initial receipt is retained
+as `.devenv/phase5-task5-initial-implementation.sha256`, not overwritten.
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs --seed 215378 --warnings-as-errors
+```
+
+Session71873 ended normally with **exit2,21 executed/2 FAIL**,228.9 seconds,
+no excluded groups. This is not GREEN. Full six collected chunks,7033 characters,
+are `.devenv/phase5-task5-initial-implementation-fail.log`, SHA
+`f02f67ecc07f2da2a59b8aaa0478e3bae9a989769bafe8c034e3928f798372f8`.
+Expected negative-COMMIT protocol-error logs remain in the full artifact;
+they are not additional ExUnit failures. The19 passing groups include direct
+pending/imported commits, all38 owned comparisons, independent literal/expanded
+digests, wrong lock/binding/vector/marker counterproofs, omitted legacy fields,
+and actual omitted-validation/equal-count-change COMMIT refusal. The failed
+adapter group reached only the locked-source path before its poison setup
+error; unlocked adapter success is **NOT proved**. The failed runtime group
+did not reach PreAuth and did not prove a strengthened nested error location.
+
+Source-backed diagnosis identified two test-probe defects before their intended
+assertions, not an authorization to broaden production grants:
+
+- Released `20260718000600:399` grants audit schema USAGE only to Web/Worker;
+  `to_regprocedure` on actual Dispatcher/PreAuth connections fails name
+  resolution before `has_function_privilege`. Resolve OIDs with owner authority,
+  preserve baseline private-function checks, temporarily grant only test-owned
+  missing schema USAGE to reach the nested wrapper, assert the exact inner
+  authority rejection and restore the exact schema ACL/baseline in `finally`.
+- Replacing the installed temporary JSON encoder without its existing argument
+  name `value` raises42P13. Preserve that argument name in the poison function;
+  retain proof that destination validation neither trusts nor replaces it.
+
+After normal completion parent verified all four initial source hashes unchanged,
+allocated root `/tmp/singularity/integration/e110ff8fd2fe90e95596671e` absent,
+and no allocated test databases. The original test author received a narrow
+test-only correction request; all21 groups/literals/negative assertions remain
+required. Production files remain unchanged after first implementation. This
+is the first test-contract correction attempt, no failed production Sol repair
+round or Astra escalation. Required full GREEN, RLS/grants/schema/Task4/static
+regressions and independent non-author SPEC then QUALITY remain outstanding.
+Task5/Phase5 are not accepted; E2E **NOT RUN**, no publication or activation.
+
+## Task5 stopped test-only correction and pending complete owning gate
+
+The original author corrected only the two test-probe contracts, stopped all
+writes, and retained all21 groups/independent literals. Source-only handoff is
+1787 lines, SHA
+`665d1119034b453d8a05ba5540a3911f180223ce7870446f31016a47b479c9ff`.
+Parent's single-file formatter session13436 ended normally0 and retained that
+same SHA. All three production hashes remain exactly first-implementation
+values. Preserve separate `.devenv/phase5-task5-test-repair1.sha256`; do not
+overwrite the original implementation receipt or failure log.
+
+The runtime probe now resolves seven OIDs as table owner, checks actual
+session/current-role identity, baseline audit USAGE and no helper EXECUTE before
+temporary grants. Only Dispatcher/PreAuth temporarily gain schema USAGE, not
+helper/admission privileges. The nested wrapper must fail42501 with the exact
+generic authority message and PostgreSQL context naming both inner admission
+and outer owned test wrapper. `after` drops that wrapper, revokes only temporary
+schema grants, and asserts exact nspacl text/effective USAGE restoration.
+The poison encoder preserves its existing named `(value jsonb)` parameter;
+the post-validation sentinel assertion remains intact.
+
+Parent started the complete required admission/RLS/grant/schema file set in
+session68520; runtime outcome is pending, not claimed GREEN here. No required
+assertion was removed, weakened or excluded by this correction. This is
+test-contract correction attempt1, not a failed production repair round;
+Astra0. No production activation, publication or Vault feature work; E2E NOT RUN.
+
+## Task5 actual complete owning GREEN; remaining regressions and review pending
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs --seed 215378 --warnings-as-errors
+```
+
+Session68520 ended normally0: **50 executed tests,0 failures**,178.8 seconds,
+no excluded groups. Complete four collected chunks,8824 characters, are
+`.devenv/phase5-task5-owner-gate-green.log`, SHA
+`be8df4781e21fc28e53b5ae16c85c176dbd2fa14583b9e6258d8ed3557df807b`.
+All21 admission groups now ran successfully, including both locked/unlocked
+adapter cases, retained poisoned-temp sentinel, all four actual runtime
+sessions/GUC probes, exact nested authority/context rejection and exact schema
+ACL restoration. Genuine sources/different destinations and all38 digest
+expectations precede insertion; actual COMMIT counterproofs returned normally
+before rejection and left no canonical visibility. Private owned SQL retains
+frozen independent empty/two-row/expanded-JSON vectors and closed ordinals.
+
+The three production source hashes remained unchanged; only the named test
+contract corrections were needed after the initial FAIL. Test correction
+attempt1 succeeded; failed production Sol repair rounds0, Astra0.
+Parent reconfirmed allocated root
+`/tmp/singularity/integration/70c7e1e70fadeb4ea7d415af` absent and private
+maintenance query empty. Source/fixture/digest, legacy and static regressions
+are still pending, as are actual independent non-author SPEC then fresh QUALITY.
+This is owning GREEN only, **not Task5 or Phase5 acceptance**. E2E NOT RUN;
+no canonical V3 import/default activation, Vault feature work or publication.
+
+## Task5 actual full Stage/Digest/genuine-fixture regression GREEN
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_preflight_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_digest_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_backup_fixtures_test.exs --seed 215378 --warnings-as-errors
+```
+
+Session83544 ended normally0: **40 executed tests,0 failures**,251.0 seconds,
+no excluded groups: complete Stage18, Digest9 and genuine-fixture13 owners.
+All collected output,515 characters, is
+`.devenv/phase5-task5-stage-regressions-green.log`, SHA
+`c7fe2b5e745667725a555414110b33b2a1fa6b281185d1cec8b9f282146e031b`.
+This reruns the whole Task4 Stage/Digest suite against the changed source,
+including the accepted generation-bound regression, legal expanded framing,
+actual original evidence, real persisted-wrapper consumers and frozen
+generation-zero envelope producer/consumer contract. No assertions changed.
+Current four-source receipt remains unchanged. Parent independently verified
+allocated root `/tmp/singularity/integration/c2e36dc69298088e342af1c4` absent
+and no allocated test databases. Legacy/DDL, pure/downstream and full static
+regressions plus non-author SPEC→fresh QUALITY are still pending. Task5/Phase5
+not accepted; no activation, publication or Vault feature work; E2E NOT RUN.
+
+## Task5 actual V3-DDL and legacy SQL regression GREEN
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_schema_ddl_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs --seed 215378 --warnings-as-errors
+```
+
+Session20985 ended normally0,10.7 seconds: **20 reported/0 failures/5 excluded**,
+15 actual SQL cases (V3-DDL6 plus legacy restore9). The five non-SQL V1 cases
+remain required in the subsequent pure run; they are not claimed executed here.
+Complete collected output is `.devenv/phase5-task5-legacy-ddl-green.log`, SHA
+`841eaff901ead329eee444c941cade188262965cf4bfd0c6c289a5e05f11e216`.
+Parent verified allocated root
+`/tmp/singularity/integration/89866b1c358e5d0f59cd8c0d` absent and no allocated
+test databases. No decoder/legacy import source, released migration or required
+assertion changed. Pure/downstream/static and actual non-author SPEC→QUALITY
+remain pending; Task5/Phase5 not accepted. E2E NOT RUN, no publication/activation.
+
+## Task5 actual pure/downstream and full static GREEN; source frozen for review
+
+The complete ten-file pure/downstream command recorded above under Task3 ran
+unchanged in session71140, normal0: Core72/0,Storage51/0,Runtime26/0,Web37/0,
+**186 tests/0 failures**, no excluded cases in selected files. This includes
+the five non-SQL V1 cases excluded by the integration wrapper. Full output is
+`.devenv/phase5-task5-pure-regressions-green.log`, SHA
+`ebee6b27695d3cb627f72e4091f7d6b93d5ab9a5eb2329d8fd5741fc1f410ad3`.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Session90978 ended normally0 with **No cycles found**. Full output is
+`.devenv/phase5-task5-static-green.log`, SHA
+`bc1055ee4b5706e6a8404bede1ca7133aa8304850f2c3046bab4256f6fcb199a`.
+Parent reconfirmed all56 frozen entries,
+current four-source receipt and diffcheck normal0. Seven applications remain
+unchanged. All owning50/0, Stage/Digest/fixture40/0, DDL/legacy15 actual SQL
+cases/0 and pure186/0 are now GREEN; required independent non-author full
+SOURCE SPEC then separate fresh SOURCE QUALITY remain pending. Freeze current
+source for those reviews, not a substitute advisory summary. Task5/Phase5
+remain unaccepted; no Vault feature work, production activation, canonical V3
+import/default activation, merge/push/release/deployment. E2E NOT RUN.
+
+## Task5 actual independent full SOURCE SPEC PASS; fresh QUALITY pending
+
+Fresh non-author `phase5_task5_source_spec` returned **DONE — PASS**, no
+actionable findings. It fully read all four current source files,5,044 lines,
+design §7/8, the selected Task5 plan and complete Task5 report delta. It fully
+read V2/V3 registries and the saga migration, and selectively inspected existing
+Restorer/Reader/Document/Note/Core seams; it did not claim a whole-repository or
+full Restorer audit. It inspected actual first RED, original FAIL and all final
+owning/regression/static artifacts without rerunning tests.
+
+The actual native verdict is retained as
+`.devenv/phase5-task5-source-spec-native-verdict.md`, SHA
+`26208066e6ef4c0865be9afc6254612d415bd1455b6803974601a701f75d34e5`.
+Its reviewed source receipt is
+`.devenv/phase5-task5-test-repair1.sha256`, SHA
+`0638d13e1ba19c9833ac2ad2776f6faae37f428464a45edc9fa9f8802e016f82`.
+Reviewed design/plan/report SHAs were respectively `31d74e16…acfa7`,
+`6321c2c8…56fdd1`, and `bd73d56d…f35b5`; this subsequent verdict-recording
+append is not retroactively claimed to have been reviewed by SPEC.
+
+The reviewer independently confirmed exact session/current-role authority,
+owned bigint lock and complete xid8/PID/saga binding, fixed projections and
+independent framing, immutable admissions, loading-only authority and deferred
+actual-COMMIT rechecks. Separate omitted legacy fields, genuine raw/locked source
+expectations, retained poisoned temporary encoder and restored test-only ACLs
+match the contract. Future Task7 loading-time constraint-order correction is
+source-backed; no historical guard/import/default/grant expansion is enabled.
+All four source and56 frozen hashes, document receipts, unchanged HEAD, empty
+index and diffcheck passed before/after its read-only review. No writes or
+execution/service process remain from that reviewer.
+
+Parent reconfirmed the protected Phase2 user plan in the actual
+`v0.2-phase-2-import-extraction` worktree remains SHA
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+An earlier read-only lookup used a nonexistent abbreviated worktree path;
+that path typo is not an implementation failure or repair/escalation event.
+Failed production Sol rounds0, successful test-contract correction1, Astra0.
+Separate fresh full SOURCE QUALITY and parent acceptance/local commit remain
+required. Task5/Phase5 are not yet accepted; E2E NOT RUN, no publication,
+activation or Vault feature work.
+
+## Task5 actual fresh full SOURCE QUALITY PASS and local-commit readiness
+
+Fresh separate non-author `phase5_task5_source_quality` returned
+**DONE — PASS**, no actionable findings. It read all four complete current
+source files,5,044 lines (including both untracked files), design §7/8,
+Task5/corrected Task7 plan, the entire Task5 report delta and actual SPEC verdict.
+It fully read both registries, saga migration and SafeSQL and explicitly
+limited its other seam inspection; no full Restorer/repository audit is claimed.
+It inspected and hash-verified all seven complete execution artifacts, not
+rerun tests. Before/after source/frozen56/document/HEAD/index/status/diffcheck
+were unchanged and passing. The reviewer wrote no files or ran execution,
+services or Git mutations; all commands finished normally.
+
+Its native complete verdict is
+`.devenv/phase5-task5-source-quality-native-verdict.md`, SHA
+`7be9bd793d42c2fb0e0636d022259744536fa51cbc7c6106f51648f2b4b7078d`.
+Reviewed report SHA was `172fbaa5381b851ea01b8d4257af3b5745f11d23112f6ec49b4407ac947132df`;
+subsequent current-status/checklist/verdict-recording updates are not
+retroactively claimed reviewed. All four reviewed/tested source hashes remain
+the same receipt `0638d13e…16f82`. Exact migration and source authority, bounded
+independent framing, actual-COMMIT failure proofs, poison retention, raw/locked
+expectations and separate compatibility fields passed independent quality review.
+
+Task5 now has all required focused owning/regression/static gates and actual
+independent SPEC→fresh QUALITY; prepare its seven-path local conventional
+commit. This is task-local qualification, not Phase5/portable/V3-runtime
+acceptance. Parent reconfirmed unchanged source receipts, frozen56, empty index,
+clean main/Phase4 and protected Phase2 user-plan bytes. Ignored evidence/private
+cluster is not staged. Failed production Sol repair rounds0; test correction1
+succeeded; Astra0. Task6 starts only after the local Task5 commit. No Vault
+feature work, publication or activation; E2E NOT RUN.

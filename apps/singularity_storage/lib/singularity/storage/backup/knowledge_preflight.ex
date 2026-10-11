@@ -58,7 +58,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   defmodule Staged do
     @moduledoc false
-    @enforce_keys [:repo, :caller, :connection, :cut, :storage, :artifacts, :summary]
+    @enforce_keys [:repo, :caller, :connection, :cut, :storage, :artifacts, :summary, :binding]
     defstruct @enforce_keys
   end
 
@@ -136,7 +136,8 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
            cut: cut,
            storage: storage,
            artifacts: Process.get(ledger),
-           summary: summary
+           summary: summary,
+           binding: authenticated_binding!(verified, storage)
          }}
       rescue
         _exception -> rollback!(repo, storage, Process.get(ledger, []))
@@ -179,6 +180,166 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
   end
 
   def validate(_repo, _staged, _cut), do: invalid()
+
+  @doc false
+  def begin_restore(repo, %Staged{} = staged) do
+    if same_connection?(repo, staged) do
+      admission_savepoint(repo, "knowledge_restore_begin", fn ->
+        require_binding!(staged)
+        require_pending_marker!(repo, staged.binding)
+        semantics!(repo, staged.cut)
+        require!(digest!(repo) == staged.summary)
+
+        expected =
+          Enum.reduce(@schemas, %{counts: %{}, digests: %{}}, fn schema, acc ->
+            {:ok, %{count: count, digest: digest}} =
+              KnowledgeRestoreDigest.destination_table_digest(repo, schema.table)
+
+            %{
+              counts: Map.put(acc.counts, schema.table, count),
+              digests: Map.put(acc.digests, schema.table, digest)
+            }
+          end)
+
+        query!(
+          repo,
+          "SELECT audit.begin_knowledge_restore($1,$2,$3,$4::bigint[],$5::bytea[])",
+          binding_parameters(staged.binding) ++
+            [
+              Enum.map(@schemas, &Map.fetch!(expected.counts, &1.table)),
+              Enum.map(@schemas, &Map.fetch!(expected.digests, &1.table))
+            ]
+        )
+
+        {:ok, expected}
+      end)
+    else
+      invalid()
+    end
+  end
+
+  def begin_restore(_repo, _staged), do: invalid()
+
+  @doc false
+  def validate_destination(repo, %Staged{} = staged) do
+    if same_connection?(repo, staged) do
+      admission_savepoint(repo, "knowledge_restore_validate", fn ->
+        require_binding!(staged)
+        require_pending_marker!(repo, staged.binding)
+        # Expected values are already immutable in the admission. The owned SQL
+        # validator rechecks canonical rows independently, without installing or
+        # consulting a caller-replaceable temporary JSON encoder.
+        query!(
+          repo,
+          "SELECT audit.validate_knowledge_restore($1,$2,$3)",
+          binding_parameters(staged.binding)
+        )
+
+        :ok
+      end)
+    else
+      invalid()
+    end
+  end
+
+  def validate_destination(_repo, _staged), do: invalid()
+
+  defp same_connection?(repo, staged),
+    do:
+      staged.repo == repo and staged.caller == self() and
+        safely(fn -> connection!(repo) end) == staged.connection
+
+  defp authenticated_binding!(verified, storage) do
+    %{
+      manifest_id: verified.manifest.manifest_id,
+      vault_id: verified.cut.vault_id,
+      manifest_hash: verified.manifest_hash,
+      manifest_tag: verified.manifest_tag,
+      inventory_hash: inventory_hash(verified.cut),
+      destination_root_hash: destination_root_hash!(storage),
+      object_count: length(verified.cut.object_inventory)
+    }
+  end
+
+  defp require_binding!(staged) do
+    require!(staged.cut.logical_version == 3)
+    require!(staged.binding.manifest_id == staged.cut.manifest_id)
+    require!(staged.binding.vault_id == staged.cut.vault_id)
+    require!(byte_size(staged.binding.manifest_hash) == 32)
+    require!(byte_size(staged.binding.manifest_tag) == 16)
+    require!(staged.binding.inventory_hash == inventory_hash(staged.cut))
+    require!(staged.binding.destination_root_hash == destination_root_hash!(staged.storage))
+    require!(staged.binding.object_count == length(staged.cut.object_inventory))
+  end
+
+  defp inventory_hash(cut),
+    do: :crypto.hash(:sha256, :erlang.term_to_binary(cut.object_inventory, [:deterministic]))
+
+  defp destination_root_hash!(storage) do
+    root = Map.fetch!(storage.context, :root)
+    require!(is_binary(root) and root != "")
+    :crypto.hash(:sha256, Path.expand(root))
+  end
+
+  defp binding_parameters(binding),
+    do: [
+      Ecto.UUID.dump!(binding.manifest_id),
+      Ecto.UUID.dump!(binding.vault_id),
+      binding.manifest_hash
+    ]
+
+  defp require_pending_marker!(repo, binding) do
+    [[true]] =
+      query!(
+        repo,
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM audit.restore_import_sagas
+          WHERE singleton AND state='pending'
+            AND manifest_id=$1 AND vault_id=$2 AND manifest_hash=$3
+            AND manifest_tag=$4 AND inventory_hash=$5 AND destination_root_hash=$6
+            AND object_count=$7
+          FOR UPDATE
+        )
+        """,
+        binding_parameters(binding) ++
+          [
+            binding.manifest_tag,
+            binding.inventory_hash,
+            binding.destination_root_hash,
+            binding.object_count
+          ]
+      ).rows
+  end
+
+  defp admission_savepoint(repo, name, fun) do
+    try do
+      query!(repo, "SAVEPOINT " <> name)
+
+      try do
+        result = fun.()
+        query!(repo, "RELEASE SAVEPOINT " <> name)
+        result
+      rescue
+        _exception -> rollback_admission!(repo, name)
+      catch
+        _kind, _reason -> rollback_admission!(repo, name)
+      end
+    rescue
+      _exception -> invalid()
+    catch
+      _kind, _reason -> invalid()
+    end
+  end
+
+  defp rollback_admission!(repo, name) do
+    rolled_back = safely(fn -> SafeSQL.query(repo, "ROLLBACK TO SAVEPOINT " <> name) end)
+    released = safely(fn -> SafeSQL.query(repo, "RELEASE SAVEPOINT " <> name) end)
+
+    if match?({:ok, _}, rolled_back) and match?({:ok, _}, released),
+      do: invalid(),
+      else: {:error, Error.new(:storage_unavailable)}
+  end
 
   defp connection!(repo) do
     require!(

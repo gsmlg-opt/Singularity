@@ -475,10 +475,14 @@ Import stages inside one canonical transaction are:
    attachments/citations only after all typed versions/fragments are present.
 4. Finalize each Note source set after all its members; do not let the generic
    V1/V2 per-Note insertion shortcut seal an empty V3 set prematurely.
-5. Run final staged-versus-canonical equality/counts and structural/digest
-   verification; mark admission validated; force deferred constraints before
-   object publication and `mark_imported`. The transaction-end check still
-   verifies the final state. A mismatch rolls back all canonical rows.
+5. Force the fixed ordinary/source/completion deferred constraints while the
+   bound admission is still loading. In particular, deferred AFTER INSERT Note
+   source checks require historical loading-state authority when they execute.
+   Keep the admission final-check queue deferred; do not use `SET CONSTRAINTS
+   ALL IMMEDIATE`. Then run final staged-versus-canonical equality/counts and
+   structural/digest verification, mark admission validated, publish objects
+   and `mark_imported`. The transaction-end check still verifies the final
+   state. A mismatch rolls back all canonical rows.
 
 V1/V2 keep their decoder definitions and import semantics, generating empty
 source seals. All restore versions check the expanded destination-table union

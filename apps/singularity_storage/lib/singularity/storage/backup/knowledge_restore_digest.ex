@@ -107,21 +107,7 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreDigest do
   @spec row_chunks_sql(term(), :staged | :canonical) :: {:ok, binary()} | :error
   def row_chunks_sql(table, selection) when selection in [:staged, :canonical] do
     with {:ok, schema} <- projection(table) do
-      # OFFSET 0 keeps one row encoder below the lateral chunk expansion. Only
-      # fixed registry identifiers enter this query; payloads are not collected.
-      {:ok,
-       "SELECT pg_catalog.octet_length(encoded_row.value)::bigint,slices.byte_offset," <>
-         "pg_catalog.substring(encoded_row.value,slices.byte_offset+1," <>
-         Integer.to_string(@chunk_bytes) <>
-         ") FROM " <>
-         relation(schema, selection) <>
-         " AS source CROSS JOIN LATERAL (SELECT " <>
-         row_sql(schema, "source.") <>
-         " AS value OFFSET 0) AS encoded_row CROSS JOIN LATERAL " <>
-         "pg_catalog.generate_series(0,pg_catalog.octet_length(encoded_row.value)-1," <>
-         Integer.to_string(@chunk_bytes) <>
-         ") AS slices(byte_offset) ORDER BY " <>
-         order_sql(schema, "source.") <> ",slices.byte_offset"}
+      {:ok, chunks_sql(schema, selection, false)}
     end
   end
 
@@ -133,27 +119,7 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreDigest do
     with {:ok, schema} <- projection(table),
          {:ok, statement} <- row_chunks_sql(table, selection),
          :ok <- install(repo) do
-      seed =
-        :crypto.hash(
-          :sha256,
-          [
-            <<0>>,
-            frame(@domain),
-            <<3::unsigned-big-64>>,
-            frame(schema.table),
-            frame(projection_bytes(schema))
-          ]
-        )
-
-      {digest, count, nil} =
-        repo
-        |> SafeSQL.stream(statement, [], max_rows: 1)
-        |> Enum.reduce({seed, 0, nil}, fn %{rows: rows}, state ->
-          Enum.reduce(rows, state, &digest_chunk/2)
-        end)
-
-      {:ok,
-       %{count: count, digest: :crypto.hash(:sha256, [<<2>>, digest, <<count::unsigned-big-64>>])}}
+      {:ok, hash_rows(repo, schema, statement)}
     else
       _invalid -> invalid()
     end
@@ -164,6 +130,63 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreDigest do
   end
 
   def table_digest(_repo, _table, _selection), do: invalid()
+
+  @doc false
+  def destination_table_digest(repo, table) do
+    with {:ok, schema} <- projection(table),
+         :ok <- install(repo) do
+      # Preserve the authenticated temporary rows. Only the established V2
+      # locked-on-restore transformation changes a wire field in the destination.
+      statement = chunks_sql(schema, :staged, schema.table == "core.vaults")
+      {:ok, hash_rows(repo, schema, statement)}
+    else
+      _invalid -> invalid()
+    end
+  rescue
+    _exception -> invalid()
+  catch
+    _kind, _reason -> invalid()
+  end
+
+  defp chunks_sql(schema, selection, locked?) do
+    # OFFSET 0 keeps one row encoder below the lateral chunk expansion. Only
+    # fixed registry identifiers enter this query; payloads are not collected.
+    "SELECT pg_catalog.octet_length(encoded_row.value)::bigint,slices.byte_offset," <>
+      "pg_catalog.substring(encoded_row.value,slices.byte_offset+1," <>
+      Integer.to_string(@chunk_bytes) <>
+      ") FROM " <>
+      relation(schema, selection) <>
+      " AS source CROSS JOIN LATERAL (SELECT " <>
+      row_sql(schema, "source.", locked?) <>
+      " AS value OFFSET 0) AS encoded_row CROSS JOIN LATERAL " <>
+      "pg_catalog.generate_series(0,pg_catalog.octet_length(encoded_row.value)-1," <>
+      Integer.to_string(@chunk_bytes) <>
+      ") AS slices(byte_offset) ORDER BY " <>
+      order_sql(schema, "source.") <> ",slices.byte_offset"
+  end
+
+  defp hash_rows(repo, schema, statement) do
+    seed =
+      :crypto.hash(
+        :sha256,
+        [
+          <<0>>,
+          frame(@domain),
+          <<3::unsigned-big-64>>,
+          frame(schema.table),
+          frame(projection_bytes(schema))
+        ]
+      )
+
+    {digest, count, nil} =
+      repo
+      |> SafeSQL.stream(statement, [], max_rows: 1)
+      |> Enum.reduce({seed, 0, nil}, fn %{rows: rows}, state ->
+        Enum.reduce(rows, state, &digest_chunk/2)
+      end)
+
+    %{count: count, digest: :crypto.hash(:sha256, [<<2>>, digest, <<count::unsigned-big-64>>])}
+  end
 
   defp digest_chunk([length, offset, bytes], {previous, count, pending})
        when is_integer(length) and length > 0 and is_integer(offset) and offset >= 0 and
@@ -220,11 +243,16 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreDigest do
     ])
   end
 
-  defp row_sql(schema, qualifier) do
+  defp row_sql(schema, qualifier, locked?) do
     prefix = "pg_catalog.int8send(" <> Integer.to_string(length(schema.columns)) <> "::bigint)"
 
     Enum.reduce(schema.columns, prefix, fn column, sql ->
-      sql <> " || " <> cell_sql(column.tag, qualifier <> quote_identifier(column.name))
+      identifier =
+        if locked? and schema.table == "core.vaults" and column.name == "locked",
+          do: "TRUE",
+          else: qualifier <> quote_identifier(column.name)
+
+      sql <> " || " <> cell_sql(column.tag, identifier)
     end)
   end
 
