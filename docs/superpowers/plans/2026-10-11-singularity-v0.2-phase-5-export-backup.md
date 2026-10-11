@@ -364,7 +364,7 @@ defp schema_for(3), do: {:ok, LogicalSchemaV3}
 **Modify:** Core `note_markdown_sources.ex`, `note_markdown_sources_test.exs`.
 **Depends on:** Task 0; independent of Task 1.
 
-- [ ] Write focused RED tests for strict options, manifest fields, UUID/version
+- [x] Write focused RED tests for strict options, manifest fields, UUID/version
   paths, deleted-source metadata and relative Markdown source links. Examples:
 
 ```elixir
@@ -380,21 +380,21 @@ assert {:error, %Error{code: :invalid}} = KnowledgeExport.path(:note, "../x", ve
   boolean `include_tombstones`; reject unknown/string-duplicate keys, forged
   structs, caller scope/adapters/paths and unsafe IDs. Media mapping is exactly
   PDF→pdf, Markdown→md, text/plain→txt; Asset pins use `.bin`.
-- [ ] Run new Core files and the full existing Markdown sources file. Expected
+- [x] Run new Core files and the full existing Markdown sources file. Expected
   RED: constructors/portable renderer missing; existing text-only renderer passes.
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_core/test/singularity/core/knowledge_export_test.exs apps/singularity_core/test/singularity/core/knowledge_export_manifest_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs --seed 215378 --warnings-as-errors
 ```
 
-- [ ] Define pure `KnowledgeExport.options/1`, `path/4`, `relative_source_path/2`
+- [x] Define pure `KnowledgeExport.options/1`, `path/4`, `relative_source_path/2`
   and `limits/0`. Define `KnowledgeExportManifest.record/2` and `header/1`:
   reconstruct only the exact allowed record keys in design §5; validate canonical
   UUIDs, kind/state/availability, UTC microseconds, lowercase SHA-256, integer
   ordinals and nullable field shapes. All version fields are always present;
   no owner/principal/key/storage/session/receipt/job fields can be carried through.
   Files omit manifest.json; its descriptor is delivered separately.
-- [ ] Add `NoteMarkdownSources.render_portable/3` accepting canonical body,
+- [x] Add `NoteMarkdownSources.render_portable/3` accepting canonical body,
   existing typed attachment/citation descriptors and a validated exact-version
   file map. Reuse escaping/fence/footnote logic while preserving `render/2`
   output bytes and its text-only header. Portable header declares included
@@ -402,13 +402,13 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   file link. Compute relative paths from the containing Note directory; never
   use a proprietary URI. Preserve user body, existing footnote labels and
   separately record canonical-body and rendered-file digests.
-- [ ] Require tests for duplicate titles, hostile labels, brackets/parentheses,
+- [x] Require tests for duplicate titles, hostile labels, brackets/parentheses,
   control characters, existing footnotes/open fences, URL escaping, absolute/
   traversal/NUL/symlink/case-fold collisions and two historical versions of one
   Document. Fixed global limits are 100,000 keys, 1,000,000 metadata records,
   1 GiB metadata, 64 GiB file bytes, 15 minutes, 500 rows/page, 64 KiB chunks;
   retain stricter Note/Document/fragment limits. No SQL/filesystem imports in Core.
-- [ ] Run complete owning files to GREEN, format/compile/xref/diff, SPEC then
+- [x] Run complete owning files to GREEN, format/compile/xref/diff, SPEC then
   QUALITY; commit `feat(export): define portable knowledge values and markdown`.
 
 ## Task 3: Freeze current DDL agreement and build independent whole-graph fixtures
@@ -421,12 +421,12 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 `knowledge_fixtures.ex`, `migration_test_environment.ex`, `backup/restore_import_test.exs`.
 **Depends on:** Task 1.
 
-- [ ] Add the first scoped SQL RED contract: query `pg_attribute`, `pg_type`,
+- [x] Add the first scoped SQL RED contract: query `pg_attribute`, `pg_type`,
   `pg_index`, `pg_constraint` for all 87 appended columns and exact ordered PK
   positions. Match `uuid/text/bytea/bigint/integer/jsonb/timestamptz`, effective
   required/nullability and wire order. V2 uses historical wire projection order,
   not arbitrary `SELECT *`. Verify exactly eight appended tables/87 columns.
-- [ ] Run the schema-DDL and fixture contracts through the isolated integration
+- [x] Run the schema-DDL and fixture contracts through the isolated integration
   task; missing fixture support is RED. Confirm an intentionally wrong type,
   missing column or swapped PK makes the contract fail, then remove only that
   test-local perturbation. Do not mutate actual DDL to test the test.
@@ -435,7 +435,7 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_schema_ddl_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_backup_fixtures_test.exs --seed 215378 --warnings-as-errors
 ```
 
-- [ ] Implement `KnowledgeBackupFixtures.seed!/1`, `canonical_rows/1`,
+- [x] Implement `KnowledgeBackupFixtures.seed!/1`, `canonical_rows/1`,
   `source_bytes/1`, `search_rows/1`, `verified_bundle/2`, `malformed_bundle/2`
   and `with_destination/2`. These are test helpers, not production interfaces.
   `seed!` returns owner/session IDs, stable logical row/byte oracles and all
@@ -443,7 +443,7 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   and random object root and restores process-global configuration in `after`.
   Canonical comparisons use the explicit typed column projections and sorted
   PKs, excluding only established V2 identity transformations and derived state.
-- [ ] Seed live/deleted Notes, history, unresolved and resolved conflicts,
+- [x] Seed live/deleted Notes, history, unresolved and resolved conflicts,
   merge ancestry and every Document state through established lifecycle SQL/
   runtime test seams; ready fragments come from real canonical constructors.
   Seed old/current Document versions, same-object deduplication, binary PDF,
@@ -452,7 +452,7 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   Asset and release its association/clear its current object pointer while
   retaining a live and tombstoned historical Document original. Capture the
   unchanged `source_object_id/digest/byte_size` as the independent oracle.
-- [ ] Build fixed malformed logical records by changing one literal field and
+- [x] Build fixed malformed logical records by changing one literal field and
   authenticating the fixture using the existing test crypto seam. A writer
   round trip is not the malformed/golden oracle. Store only sanitized synthetic
   fixture content; no real credentials/user content. Immutable V1 fixture stays

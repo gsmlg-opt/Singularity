@@ -511,3 +511,299 @@ Task3 currently adds test-only DDL/JSON and whole-history contracts; source
 support, actual integration RED/GREEN, fixture legality and independent review
 remain pending. No E2E, frozen Vault feature, released migration, production
 data change, merge, push or publication occurred. Phase5 is **NOT accepted**.
+
+## Task2 actual source review closure and local commit
+
+The previous pending-review records are the actual pre-verdict snapshots.
+Non-author `phase5_detailed_plan` returned SOURCE SPEC closure **PASS**:
+its prior complete six-file coverage was carried and the full bounded ceiling
+repair and post-Task1 plan/report delta were freshly read. This was not a fresh
+complete six-file reread. It confirmed the former P2 is resolved, every accepted
+canonical path has the correct limit, all six literal boundary assertions remain,
+and reversing only the additive repair reproduces the prior source/test hashes.
+No new finding; reviewer tests **NOT RUN**.
+
+Only after that closure, separate non-author `phase5_design_quality` performed
+fresh SOURCE QUALITY and returned **PASS**, no findings. It read all six complete
+actual Core files,2,512 lines (sources95/261/608;tests151/436/961), complete
+renderer/test deltas, design§3/§5, the full Task2 plan section, complete bounded
+plan/report delta, supporting locator/validation code and all four actual parent
+logs. This was not a fresh full design/plan/report reread. Exact allowlists,
+canonical paths, content-free errors, historical pins, output escaping and bounds,
+no false links for unavailable/deleted sources, old render2/test preservation
+and Core purity were independently confirmed. Reviewer tests **NOT RUN**.
+Both reviewers verified all six source and56 frozen hashes, performed no edits
+or Mix/formatter/DB/service/Git mutations and stopped. Concurrent Task3 files
+were explicitly excluded; pure source review is not live authority/I/O acceptance.
+
+Reviewed source receipt SHA
+`8808ce8870b3adc8c57952a9e0a2582bbe18f03136c17df1fc50b70879b09701`;
+reviewed plan/report SHAs respectively
+`baf358867c06aa23e1c3962bb9d4291c168f5266331fef5dd5187af9ee965107` and
+`67fcce7876c4b01a3d2daf79fb56f1b547aa7c3667c1922cfa3b02fbd515ab81`.
+Ignored faithful native-response transcripts are
+`.devenv/phase5-task2-source-spec-closure-native.md` and
+`.devenv/phase5-task2-source-quality-native.md`, SHA respectively
+`a31f7c88285654c1e4e139fea4b5ffdb7d980bcf865411584accf58d88c843d6` and
+`bc42a86884210ee2becf185ab901c932619f10cf27e5d934653494ce60577e59`.
+
+Parent checked the unchanged reviewed hashes, empty index, no active hooks,
+exact eight staged Core/plan/report paths and staged diff, then committed locally:
+`900813f715f52f374d37260d2d02f47495b7d473`,
+`feat(export): define portable knowledge values and markdown`, normal exit0,
+eight files,1,514 additions/5 removals. No Task3 file, ignored tool, unrelated
+change or secret was staged. Task2 is closed; its six plan checks are marked
+after this successful commit. This post-verdict record receives the next task's
+bounded documentation review. No merge, push, publication or deployment.
+
+## Task3 actual isolated SQL RED and DDL agreement
+
+Both new test authors stopped before parent formatted just the two new SQL tests
+(`48539`,exit0). Parent ran the actual isolated SQL command:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_schema_ddl_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_backup_fixtures_test.exs --seed 215378 --warnings-as-errors
+```
+
+Execution `1633` exited normally2: **17 tests,11 expected failures**,2.3 seconds.
+All six independent DDL contracts passed: eight appended tables/87 columns,
+physical types/effective nullability, exact PK constraint/index order and literal
+V3 agreement. Wrong SQL type, missing column and swapped composite PK each
+produce an assertion failure inside the sensitivity test without DDL mutation.
+There was no genuine DDL defect to manufacture. Every failing history contract
+reports missing independent KnowledgeBackupFixtures support; implementation
+was authorized only after this actual RED. No compiler or unrelated failure.
+Actual ignored RED log SHA
+`a705f834ca3c1a4b713cde767dbca555483df64d02f7911b46ad60d890ce40dd`.
+
+Allocated database `singularity_test_5adfe3c4ebc49dbb34ac536a` and root
+`/tmp/singularity/integration/5adfe3c4ebc49dbb34ac536a` were cleaned after RED.
+Parent live maintenance query returned no singularity_test databases; exact
+owned root absence also passed. The private Phase5 cluster remains running for
+subsequent serialized scoped SQL, not a shared/production cluster.
+
+Helper-author characterization exposed two literal test-key mistakes in the
+new durable-work oracle: frozen V2 registry and released DDL use
+`jobs.job_progress.submission_id/state` and
+`jobs.effect_receipts.submission_id/result`, not job_submission_id or a receipt
+state. Parent independently checked both actual sources and authorized only
+the test author's bounded literal-key correction. Exact pinned submission
+identity and waiting_for_unlock/applied assertions remain required; no fabricated
+alias or weakened assertion is permitted. This static finding is not a failed
+executed repair round. Full helper GREEN, fixture legality and independent source
+reviews remain pending. Phase5 is **NOT accepted**, E2E **NOT RUN**.
+
+The original test author completed only those two assertion-line key corrections;
+reversing them reproduced the previous full-file hash. Corrected992-line test SHA
+`377a81586cce87c476783eed50e5b6647ac95934fe64ff942e345286edb1dece`.
+Separate non-author `phase5_design_quality` then read that full test, full V2/V3
+registries, Task3 requirements and targeted actual DDL/Note ancestry/conflicts,
+seals, Document lifecycle/retention and replay constraints. TEST-CONTRACT
+characterization returned **PASS**, no genuine contradictions; before/after
+source and HEAD hashes matched. No unfinished helper inspection or review of
+its own DDL files was claimed. Reviewer tests **NOT RUN**, no edits or execution
+beyond read-only checks, and stopped. This is not final Task3 SOURCE SPEC/QUALITY
+or helper legality acceptance; no actual helper GREEN exists yet.
+
+## Task3 helper implementation and actual diagnostic repair runs
+
+The support author changed only the new test-support module and stopped before
+parent formatting/compilation/SQL. Parent read the complete429-line pre-format
+implementation, then its formatted1,147-line representation. It uses legal owner
+SQL with real constraints enabled, typed fragment constructors, committed sealed
+Note/Document history before a separate Asset-release/tombstone transaction,
+explicit PK-sorted independent projections and real ChunkedAEAD authentication.
+No production source, released migration, frozen reader/crypto/custody or existing
+test was changed.
+
+Parent formatted only the three Task3 Elixir files (`66005`,exit0) and ran the
+same full owning SQL command. Initial implementation run `92508` exited2:
+**17 tests,9 failures**,44.1 seconds. Helper compilation passed; all nine failures
+were PostgreSQL42P08 inconsistent inferred types for the same timestamp parameter
+in started_at/deadline arithmetic. DDL6, helper API and explicit V2/genuine V1
+compatibility passed. Ignored actual log SHA
+`aec1713ad8730887135476fe01f30a914576fa4120b9e10dfcfc6d4bae4aa6bd`.
+Parent live maintenance query found no temporary databases and the exact allocated
+root `/tmp/singularity/integration/b2ccbd9b5388038f26179209` was absent afterward.
+
+The first bounded Sol repair for that specific defect changed only the two
+parameter uses to `$3::timestamptz`; the existing UTC parameter, exact180-second
+deadline, schema/lifecycle and every test assertion remained unchanged.
+Parent same full rerun `34248` exited2: **17 tests,1 failure**,53.7 seconds.
+All nine original SQL failures disappeared; every owner/history/source/seal,
+canonical/malformed and legacy contract passed. The distinct remaining Replay
+failure returned backup_invalid at the reducer handoff. This is not a repeated
+failure of the resolved timestamp repair. Ignored actual log SHA
+`7beb81f3ce4e028aa3a1c64b3c15c6998e9ec96b36d236a810638aedc61de9fd`.
+Again no temporary database remained and allocated root
+`/tmp/singularity/integration/270c625cf2cba43e29cec184` was absent.
+
+Parent traced the separate failure through the unchanged BundleReader contract:
+authentication must issue a replay capability; the second authenticated pass must
+return exactly `:replayed`. The fixture adapter had returned its initial context
+on both passes. The first bounded Sol repair for this separate defect changes
+only nested FixtureCrypto: pass one retains authenticated evidence in the replay
+capability; pass two returns `:replayed` only after complete recomputed evidence
+equality. Existing real final-tag, chunk-count, size and plaintext-hash checks stay
+intact. No forged Verified struct, production-reader edit or weakened assertion.
+The author stopped; parent reviewed the full bounded change and formatted only
+the helper (`13240`,exit0). Complete owning rerun is pending; Task3 is **NOT
+accepted**. Neither distinct defect has two failed same-defect repair rounds;
+Astra implementation attempts0. E2E **NOT RUN**.
+
+## Task3 complete owning GREEN and scoped regression evidence
+
+The complete owning SQL rerun `84801` exited normally0: **17 tests,0 failures**,
+82.1 seconds. All six DDL contracts and eleven legal-history, independent row/
+byte oracle, authenticated replay, malformed-record isolation, environment and
+owned-destination cleanup contracts passed. Actual ignored GREEN log
+`.devenv/phase5-task3-green.log` SHA
+`25668cdaf73e0f4df9ffdd9b67c4bc1dc84e423557395d050fd1f9b22b78174b`.
+Database `singularity_test_b0a695e5600a6fdeea431548` and its allocated integration
+root were removed. The timestamp and Replay repairs each passed their first
+verification for that specific defect; neither has a failed same-defect repair
+round. Cumulative bounded Sol repair attempts4 including Task2, all resolved;
+Astra implementation attempts0. Expected RED and review findings are not failed
+executed repair rounds.
+
+Parent ran the full umbrella static command, not a narrowed formatter substitute:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Execution `74998` exited0, **No cycles found**. Actual ignored static log SHA
+`9ee13df33862fcb0d6fe3657e36cd1c9291e3e0a37893f4c000140c79c89279b`.
+All56 immutable Phase5 baseline entries still passed; `git diff --check` passed.
+
+Unchanged legacy restore/compatibility SQL regression:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs --seed 215378 --warnings-as-errors
+```
+
+Execution `22337` exited0: **14 reported tests,0 failures,5 excluded**,
+8.8 seconds; nine SQL cases actually ran. The five excluded non-SQL cases are
+covered by the following ordinary unit run, not claimed as executed SQL tests.
+Actual ignored legacy SQL log SHA
+`5a9faaf03c854173f6925d3f5b5612fa0d1d5b9b4dbe641e2eb096eea55d54f5`.
+Database `singularity_test_61f116c87bdf1a422735c28f` and its allocated root were
+removed. The final live maintenance query returned no singularity_test databases.
+
+Complete owning pure and downstream regressions:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/backup/logical_schema_v3_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_record_codec_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_bundle_verifier_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v1_compatibility_test.exs apps/singularity_core/test/singularity/core/knowledge_export_test.exs apps/singularity_core/test/singularity/core/knowledge_export_manifest_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
+```
+
+Execution `8713` exited normally0: Core72/0, Storage51/0, Runtime26/0,
+Web37/0 — **186 tests,0 failures**, with no exclusions in these selected files.
+Actual ignored log `.devenv/phase5-task3-cross-regressions.log` SHA
+`dc664d9784f1da1aa6dbf54a9b809166748837660962a69e0edf5375833d8ab8`.
+
+Task3 source is now frozen for actual non-author SOURCE SPEC, followed only
+after its closure by a fresh separate non-author SOURCE QUALITY. These reviews
+and the scoped local commit are pending; **Task3 and Phase5 are NOT accepted**.
+All executions were parent-serialized against the owned socket-only Phase5
+cluster. No canonical V3 import, default-version activation, migration, frozen
+production-reader/crypto/custody change, Vault feature work, production data,
+merge, push, publication or deployment occurred. E2E **NOT RUN**.
+
+## Task3 actual independent SOURCE SPEC finding — fixture wrapper context
+
+New non-author `phase5_task3_source_spec` completed actual SOURCE SPEC with one
+**P2 finding**, no others. It read all four complete Task3 files,2,521 lines,
+the full worktree instructions, V2/V3 registries and MigrationTestEnvironment;
+relevant complete Task3/Task11 requirements and design context; the complete
+current plan/report delta; supporting frozen consumer/constraint definitions
+and all seven actual Task3 logs. This was not a full design/plan/report review.
+Four source and56 frozen hash checks remained unchanged. Reviewer tests **NOT
+RUN**, no edits/Mix/formatter/DB/service/Git mutation, and stopped.
+The actual immutable baseline receipt SHA is
+`d0296d241c66e382baa09a0a092fe8add6df66364d5f2d5644f4f4ea1963a050`.
+
+The new support helper uses literal `knowledge-backup-fixture` AAD for every
+persisted wrapper. Existing unchanged consumers instead authenticate vault key
+with owner ID, domain key with ownerID:domainID, dedup key with domainID, and
+object DEK with object:objectID. Although the graph is SQL-legal and its original
+ciphertext is real, the current ciphertext-length/hash assertions do not prove
+that the persisted wrapping hierarchy can decrypt it through those established
+contexts. The fixture would fail later real plaintext verification. This is a
+test-fixture compatibility defect, not permission to modify frozen consumers.
+Faithful ignored native review transcript
+`.devenv/phase5-task3-source-spec-initial-native.md` SHA
+`12b0ef3fd4d989da748a862f2c0c3874dbbddb8492497e25c6d0d42ff2823d41`.
+
+Parent independently traced the actual metadata/wrapper checks. A bounded new
+test contract is authorized first: unwrap the persisted four-purpose hierarchy
+using exact existing contexts, decrypt all five actual objects, compare literal
+original bytes, SHA/size/dedup identity, and reject wrong AAD. Only afterward may
+the support author change test-only wrapper helper/calls to the same contexts.
+Every existing assertion and production/frozen file stays intact. The original
+17/0 result remains scoped evidence, not SOURCE SPEC acceptance or live custody
+proof. New contract RED, bounded repair and full reruns remain pending. No failed
+executed same-defect repair round is inferred from this review. Task3 and Phase5
+remain **NOT accepted**, E2E **NOT RUN**.
+
+## Task3 wrapper-context contract RED, bounded repair and complete GREEN
+
+The new test author changed only two crypto aliases and one independent
+persisted-wrapper/decryption contract (fixture test272–426,1,150 total lines)
+and stopped. Parent read the whole addition and formatted only that test
+(`66018`,exit0); its hash did not change. A non-mutating parent reversal of just
+the additions reproduced prior test SHA
+`377a81586cce87c476783eed50e5b6647ac95934fe64ff942e345286edb1dece`.
+Every earlier assertion/helper remains byte-identical. The contract starts only
+with the fixture password key, reads the persisted vault wrapper separately
+because frozen V2 wire omits that ciphertext, unwraps all four purpose/owner/
+generation contexts, decrypts all five real objects and compares the independent
+literal originals, sizes, SHA/HMAC identities and unchanged canonical rows.
+Wrong wrapper AAD at every hierarchy level and wrong object owner must fail.
+No helper raw hierarchy-key substitution or crypto test double is used here.
+
+Parent repeated the full owning SQL command. Execution `4224` exited2:
+**18 tests,1 expected failure**,56.9 seconds, at the first actual vault unwrap
+with `integrity_failure`; every prior17 contract passed. Ignored actual RED log
+`.devenv/phase5-task3-aad-red.log` SHA
+`781ea4322273b717012b85d8023848406fe5f3d353871eb789ceb73a6b4577f7`.
+Allocated database/root suffix `ff9ef1a39a99e3d9686e43a5` was removed; live
+maintenance query found no temporary databases. This genuinely reproduces the
+SOURCE SPEC finding without changing any production behavior.
+
+First bounded Sol repair for this new distinct defect changed only test helper
+wrap3 to wrap4 with explicit AAD and its four call sites: owner ID, owner/domain,
+domain ID and object:objectID. Keys, generations, cipher context, independent
+row/byte projections, lifecycle, Replay and cleanup remain unchanged. The author
+stopped; parent read the bounded repair and formatted only the helper
+(`49031`,exit0). Complete same owning rerun `13147` exited0:
+**18 tests,0 failures**,83.7 seconds, including all actual plaintext and negative
+context checks. Ignored GREEN log SHA
+`05148c86ac4de07fd1ae6c5a3fe4e12d16251bee966a8ad9f09d59b447b9614f`.
+Allocated database/root suffix `6c0a4d8babd88ec872ae44e5` was removed.
+
+Parent reran the same complete umbrella static command (`53915`,exit0): format,
+warnings-as-errors compile and xref **No cycles found**. Actual static log SHA
+`ef72cf7d6bd7946a0925fd92148f9c9524039ed15bbff6825f5a3fcf77f98c6b`.
+Same unchanged legacy SQL command (`97440`,exit0) reported
+**14 tests,0 failures,5 excluded**,8.7 seconds, nine actual SQL cases. Actual
+legacy log SHA
+`8dd9970653d91a3dc4787eb0ce39f2b5bfcb20b58c48de289ea941a5acd99fb4`.
+Allocated database/root suffix `a01410c7f1715b84ccb7954d` was removed; the final
+live maintenance query again returned no singularity_test databases.
+The same complete pure/downstream command (`14360`,exit0) covered all five
+excluded non-SQL cases: Core72/0,Storage51/0,Runtime26/0,Web37/0 — **186/0**.
+Actual cross-regression log SHA
+`0f6d37d27fb712fd2adcb9ee24e2f771b4413dea6ad36a806db5e4e785e2f1a5`.
+
+All three distinct Task3 defects passed their first bounded repair verification;
+cumulative bounded Sol repair attempts5 including Task2, all resolved, failed
+same-defect repair rounds0, Astra implementation attempts0. New source receipt
+`.devenv/phase5-task3-source-review-v2.sha256` SHA
+`c9b34138c16a1fe84e0d0cb77ca02548a18fcf1ff6d574a4673241c51923246d`;
+the original receipt/logs/review finding remain historical and were not replaced.
+Actual SOURCE SPEC closure followed by fresh separate SOURCE QUALITY and scoped
+local commit are still pending. Task3 and Phase5 remain **NOT accepted**.
+Actual crypto composition in this isolated fixture is not live runtime authority
+or final restore/export acceptance. No frozen consumer, Vault feature, migration,
+production data, activation, merge, push, publication or deployment change.
+E2E **NOT RUN**.

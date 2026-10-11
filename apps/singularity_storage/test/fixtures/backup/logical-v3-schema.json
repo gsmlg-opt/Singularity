@@ -1,0 +1,150 @@
+{
+  "version": 3,
+  "appended_table_count": 8,
+  "appended_column_count": 87,
+  "tables": [
+    {
+      "ordinal": 30,
+      "table": "content.document_versions",
+      "primary_key": ["resource_version_id"],
+      "columns": [
+        {"name": "resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "resource_id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "source_asset_id", "type": "uuid", "nullable": false},
+        {"name": "source_resource_id", "type": "uuid", "nullable": false},
+        {"name": "source_resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "source_object_id", "type": "uuid", "nullable": false},
+        {"name": "source_digest", "type": "bytea", "nullable": false},
+        {"name": "source_byte_size", "type": "bigint", "nullable": false},
+        {"name": "media_type", "type": "text", "nullable": false},
+        {"name": "title", "type": "text", "nullable": false},
+        {"name": "created_by_principal_id", "type": "uuid", "nullable": false},
+        {"name": "state", "type": "text", "nullable": false},
+        {"name": "attempt_generation", "type": "bigint", "nullable": false},
+        {"name": "extraction_adapter", "type": "text", "nullable": true},
+        {"name": "extraction_format", "type": "integer", "nullable": true},
+        {"name": "extracted_text_digest", "type": "bytea", "nullable": true},
+        {"name": "detected_language", "type": "text", "nullable": true},
+        {"name": "failure_code", "type": "text", "nullable": true},
+        {"name": "attempt_finished_at", "type": "timestamptz", "nullable": true},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false},
+        {"name": "attempt_job_id", "type": "uuid", "nullable": true},
+        {"name": "attempt_started_at", "type": "timestamptz", "nullable": true},
+        {"name": "attempt_deadline_at", "type": "timestamptz", "nullable": true}
+      ]
+    },
+    {
+      "ordinal": 31,
+      "table": "content.document_fragments",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "text", "nullable": false},
+        {"name": "resource_id", "type": "uuid", "nullable": false},
+        {"name": "resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "ordinal", "type": "bigint", "nullable": false},
+        {"name": "text", "type": "text", "nullable": false},
+        {"name": "digest", "type": "bytea", "nullable": false},
+        {"name": "locator", "type": "jsonb", "nullable": false},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 32,
+      "table": "content.document_import_receipts",
+      "primary_key": ["vault_id", "principal_id", "mutation_id"],
+      "columns": [
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "principal_id", "type": "uuid", "nullable": false},
+        {"name": "mutation_id", "type": "uuid", "nullable": false},
+        {"name": "request_fingerprint", "type": "bytea", "nullable": false},
+        {"name": "state", "type": "text", "nullable": false},
+        {"name": "resource_id", "type": "uuid", "nullable": true},
+        {"name": "version_id", "type": "uuid", "nullable": true},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 33,
+      "table": "content.note_attachments",
+      "primary_key": ["note_resource_version_id", "id"],
+      "columns": [
+        {"name": "note_resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "id", "type": "uuid", "nullable": false},
+        {"name": "note_resource_id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "target_resource_id", "type": "uuid", "nullable": false},
+        {"name": "target_resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "target_kind", "type": "text", "nullable": false},
+        {"name": "ordinal", "type": "bigint", "nullable": false},
+        {"name": "role", "type": "text", "nullable": false},
+        {"name": "label", "type": "text", "nullable": true},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 34,
+      "table": "content.note_citations",
+      "primary_key": ["note_resource_version_id", "id"],
+      "columns": [
+        {"name": "note_resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "id", "type": "uuid", "nullable": false},
+        {"name": "note_resource_id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "source_resource_id", "type": "uuid", "nullable": false},
+        {"name": "source_resource_version_id", "type": "uuid", "nullable": false},
+        {"name": "fragment_id", "type": "text", "nullable": false},
+        {"name": "locator", "type": "jsonb", "nullable": false},
+        {"name": "ordinal", "type": "bigint", "nullable": false},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 35,
+      "table": "content.tags",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "display_value", "type": "text", "nullable": false},
+        {"name": "normalized_key", "type": "text", "nullable": false},
+        {"name": "created_by_principal_id", "type": "uuid", "nullable": false},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 36,
+      "table": "content.resource_tags",
+      "primary_key": ["resource_id", "tag_id", "vault_id"],
+      "columns": [
+        {"name": "resource_id", "type": "uuid", "nullable": false},
+        {"name": "tag_id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    },
+    {
+      "ordinal": 37,
+      "table": "content.relationships",
+      "primary_key": ["id"],
+      "columns": [
+        {"name": "id", "type": "uuid", "nullable": false},
+        {"name": "vault_id", "type": "uuid", "nullable": false},
+        {"name": "classification", "type": "text", "nullable": false},
+        {"name": "source_resource_id", "type": "uuid", "nullable": false},
+        {"name": "target_resource_id", "type": "uuid", "nullable": false},
+        {"name": "target_resource_version_id", "type": "uuid", "nullable": true},
+        {"name": "type", "type": "text", "nullable": false},
+        {"name": "created_by_principal_id", "type": "uuid", "nullable": false},
+        {"name": "inserted_at", "type": "timestamptz", "nullable": false}
+      ]
+    }
+  ]
+}
