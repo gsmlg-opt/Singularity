@@ -159,7 +159,7 @@ parent/merge IDs are historical provenance, not source-file links: include
 their recursively deduplicated metadata-only version descriptors without
 selecting ancestor bodies or their source sets. Apply the same total bounds.
 An exact
-deleted/unavailable source already referenced by a live Note receives the
+positively resolved deleted source already referenced by a live Note receives the
 existing authorized resolver's metadata and, for a citation, its permitted
 selected-fragment description. Its `availability` explains why no file is
 present. Metadata access never authorizes an original/body download.
@@ -174,9 +174,12 @@ conflict branches and otherwise unreferenced history belong to complete V3.
 Missing bytes for a selected live Document or otherwise admitted live source,
 bad digests, ambiguous Asset/version bindings, authorization denial/expiry,
 or a resource becoming unavailable during execution fail the whole operation.
-Only sources already classified as metadata-only by the authorized selection
-contract may have unavailable descriptors. An I/O or authorization error must
-never be converted into a successful metadata-only export.
+Only positively resolved deleted sources and authorized unselected ancestry/
+endpoints receive metadata-only descriptors. The pure schema reserves
+`metadata_only_unavailable`, but current source resolvers have no positive
+unavailable witness, so this release never emits that status. Live not_found,
+missing bytes, unsupported storage, corruption, I/O and authorization errors
+abort rather than becoming a successful metadata-only export.
 
 Capture metadata and head choices in one authenticated repeatable-read
 transaction, streaming a private spool. Consume the snapshot before returning
@@ -185,6 +188,75 @@ authorization. Selected live bytes must still be authorized at transfer and
 completion. Changes after the cut cannot alter the selected version, tags, or
 source sets; deletion/revocation that prevents access aborts the artifact.
 Do not hold a metadata transaction open through client delivery.
+
+### Task13 necessary authenticated snapshot and bounded text capture
+
+Add a fixed Runtime.Knowledge.ExportSnapshot entry using a private per-call
+runtime copy with scoped_repo `{ExportSnapshot, existing_trusted_scoped_repo}`.
+Its transact callback delegates to existing ScopedRepo.transact/4 with fixed
+repeatable-read **before** context/auth SQL; upgrading inside Repository.capture
+is too late. Invoke unchanged OperationScope.with_shared_request and Authorize,
+preserving locks and denial auditing; do not set READ ONLY. Reject nested active
+transactions. Fixed existing private unlocked asset.read/note.read requirements
+do not change separate single-Note note.export policy or add a capability.
+
+Repository.capture/4 receives a trusted lexical arity-one authorization closure,
+not an owner/session map, GUC proof or authenticated Boolean. Runtime creates
+it inside the successful scope, binding original caller/repo/resolved session/
+fixed requirement and repeating Authorize.check. Before content selection,
+Repository invokes it, requires active repeatable-read and validates current
+GUC principal/owner agreement. Owner derives only from that result. This is a
+trusted internal composition seam, not protection from hostile BEAM code
+replacing adapters. Fakes prove wiring only; real Runtime SQL proves session
+identity/epoch/revocation/expiry/read-capability/unlock denials.
+
+Capture consumes all SQL inside the owned transaction, returning no SQL cursor
+or stream. ExportSnapshot returns its sealed spool descriptor only after actual
+COMMIT; callback or COMMIT failure aborts even sealed output. Binary transfer/
+materialization starts after closure and fresh authorization.
+
+Maintain separate bounded metadata-discovery, body-demand and body-traversal
+indexes. Discovering ancestry/endpoint metadata cannot suppress later legitimate
+body promotion/traversal. Mark body traversal before expansion, queue each
+promotion once and terminate cycles. Compute selected body/source resources
+before organization edges; other endpoints do not expand edge/body selection.
+Resolve every head/source/pinned/parent/merge reference without retargeting pins.
+Project one final descriptor per identity after promotions settle, avoiding
+duplicates/stale metadata-only fragments. Resource reason precedence is head,
+source, tombstone, relationship_endpoint; version body admission is separate.
+
+Use existing exact source resolvers and sealed
+Storage.Postgres.KnowledgeLinkRepository.read_membership/3,
+plus the combined100 distinct-source-target bound. Private render descriptions
+retain exact-version titles, never substituted heads. Deleted citations expose
+only permitted fragment metadata/locator with null file/offset/size, no hidden
+plaintext. Tombstone membership is metadata-only, never deleted body authority.
+
+Create concrete Storage.KnowledgeExport.Spool with fixed private metadata,
+canonical Note Markdown and canonical Document fragment-text channels. Capture
+fixed metadata projections in keyset pages<=500; read one canonical Note<=1MiB
+or one fragment<=64KiB at a time, not500 TEXT values. Compute Note body_digest
+from captured Markdown (no persisted Note digest column). Validate fragment
+identity/digest/locator/contiguous ordinals,<=4096 fragments/16MiB aggregate,
+no-delimiter incremental SHA-256 and UTF-8 byte offsets. Seal exact identity/
+offset/length/digest text refs; empty bytes have their actual empty hash.
+
+Spool open/append/seal/read_page/read_chunk/abort use a trusted dedicated root,
+fixed selectors, capture-bound cursors and exact sealed refs, with no arbitrary
+table/field/path/term/atom deserialization. Metadata indexes contain bounded
+identity/flags/offsets/lengths/hashes, not corpus payload. Sort bounded indexes,
+handle metadata one record at a time, and never expose private text/render refs
+through public entries. Task14 revalidates originally included exact immutable
+bindings/liveness after the cut and at completion; new heads/tags or pending-to-
+ready transitions cannot change selection. Deletion/revocation aborts rather
+than downgrading included bytes. Originals retain unchanged request custody;
+canonical Note/fragment text gets no invented lease.
+
+Task15 rehashes captured text, reassembles only one<=1MiB Note and<=100 sources,
+uses unchanged Core.render_portable/3, and writes its<=16MiB rendered binary in
+<=64KiB chunks. This bounded per-Note allocation is allowed; no corpus buffering
+or Core streaming redesign. Canonical body and rendered-file hashes differ.
+Fragments stream from sealed text refs with per-fragment/aggregate checks.
 
 For exact Document originals, add a knowledge read adapter that selects the
 specified version and reuses the existing request `document_source` custody
@@ -270,7 +342,8 @@ contains user content and is private, despite the schema being non-secret.
 handle supplies the final manifest's size/digest separately.
 
 Fixed initial limits: 100,000 selected version/endpoint keys, 1,000,000 total
-metadata records, 1 GiB manifest/spool metadata, 64 GiB total file bytes and
+metadata/index records including private render records, 1 GiB final manifest,
+1 GiB all capture-spool bytes and 64 GiB all final files including manifest, and
 15 minutes execution. Exceeding any limit fails with a bounded content-free
 error. Honor stricter existing per-item limits: 64 MiB Document originals,
 4,096 fragments, 64 KiB fragment text, 16 MiB extracted text, and existing
@@ -279,6 +352,14 @@ at most 64 KiB chunks and JSON one record at a time. Do not collect all bodies,
 fragments, encoded manifest or object bytes in BEAM memory. Closure indexes
 are bounded by the explicit version/record ceilings.
 
+All spool payload/framing/on-disk indexes/superseded records/plaintext consume
+the1GiB spool ceiling; no plaintext exemption. Reserve known original sizes
+early but verify actual bytes/digests. Temporary duplicate text copies count
+against spool separately from completed-file bytes. A valid escaped metadata
+record may exceed64KiB; that is a chunk ceiling, not a new record limit. Handle
+one bounded record at a time and return smaller pages if a byte target requires.
+No public or test-selectable quota override, silent truncation or partial success.
+
 Directories are mode 0700; files are exclusive-created mode 0600. Write under
 a random, application-owned staging directory, finalize the manifest last,
 verify every listed size/digest and reference, and atomically rename within
@@ -286,6 +367,16 @@ that root to completed state. Return no handle on error. On cancel, disk-full,
 timeout, process death, denied chunk or checksum mismatch, revoke outstanding
 leases and remove only this operation's owned staging; startup scavenging
 handles leftovers. No partial file is advertised as a completed artifact.
+
+The application-configured dedicated `knowledge_export_root` is separate from
+and not nested with ciphertext storage_root or backup_root. Trusted config,
+never request arguments, selects it; validate absolute directory ownership,
+0700 mode, no symlink/root alias and exact operation identity before writes or
+cleanup. Task16 adds only this ephemeral-artifact setting in dev/test/runtime
+configuration, with optional `SINGULARITY_EXPORT_ROOT` and an isolated sibling
+default beside backup_root; the test default is separately run-scoped. Reject
+overlap rather than reuse a ciphertext/backup directory. It changes no custody
+root, existing environment requirement, key path or production activation.
 
 ## 6. Logical V3 wire schema and inventory
 

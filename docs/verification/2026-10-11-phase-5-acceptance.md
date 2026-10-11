@@ -2,7 +2,7 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks0–7 locally accepted; Task8 design reviewed, test-first work next.**
+**IN PROGRESS — Tasks0–7 locally accepted; Task8 test-first RED validated, Task13 corrected design SPEC/QUALITY PASS.**
 Phase5 as a whole is not accepted; Tasks8–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
@@ -2995,3 +2995,177 @@ parent must observe actual RED before production-author GO. Baseline27 PASS
 is not V3 implementation acceptance; all required Task8 full gates and actual
 independent SOURCE SPEC/fresh QUALITY remain. Tasks8–19/Phase5 not accepted,
 default2/frozen substrate preserved, E2E NOT RUN and no publication/activation.
+
+## Task8 reviewed design commit; Task13 necessary source-backed amendment
+
+The reviewed three-document Task8 amendment committed locally as
+`eb3180af5bb0df3959e0609d79b22a60e3d11351`
+(`docs(backup): specify complete v3 export and stream binding`), normal98f709
+exit0. Postcommit82699b confirms exact SHA, clean checkout and all four unchanged
+Task8 source-baseline hashes. A fresh Sol test author now owns only the new V3
+export test and precise legacy SELECT/composition assertions. The three-path
+test-only draft is NOT RUN; no production-author GO or Task8 acceptance yet.
+
+Task13 bounded PROJECT_ARCHITECTURE397-line proposal and parent156-line
+amendment draft were independently SOURCE SPEC prepared, actual PASS with no
+actionable mismatch. Reviewer fully covered the listed Runtime authorization/
+transaction/source/renderer/PathGuard seams and both drafts to EOF; hashes
+`cfa2da72c18de8b250e7eaf0999b9a297040edb5e96175887057b517d89ec7cf`
+and `06ec65cb33617865fdde1b50dc32c45c250295e02e8c252494ba37228066f7f5`
+match. Native final archived verbatim at
+`.devenv/phase5-task13-draft-source-spec-native-verdict.md`, SHA
+`e833493a7b9fc04eefbaf0e5bb179dd80cc4ad2cc0b6ecdc43d45f235c151af0`.
+This is proposal preparation only, not formal applied-master acceptance or GO.
+
+Parent applies the necessary source-backed amendment to design§§4–5 and
+Tasks13–17: fixed existing authorization before content reads, RR before any
+context/auth SQL, lexical authorization binding and actual COMMIT before
+descriptor delivery; independent metadata discovery/body promotion/traversal;
+positive deleted-source resolution without fabricated unavailable status;
+concrete bounded canonical-text/private-metadata Spool and exact captured
+rehashing. All plaintext/framing/index/superseded capture bytes count toward
+1GiB; one bounded Note render is allowed, not corpus buffering. Task16 owns
+only the additional dedicated ephemeral root setting in dev/test/runtime
+configuration and its exact Runtime composition test. No new required existing
+environment, storage/backup/key root, custody/capability/policy, production
+canonical-write activation or public caller path. Parent directly inspected
+the existing configurations before selecting an optional isolated sibling root.
+
+Formal applied SOURCE DESIGN/PLAN SPEC and separate fresh QUALITY remain
+required before Task13 test-first GO. No Task13 code/configuration/test or
+schema implementation yet. Task8's test-only author is not alone and does not
+own these documents. All formatter/Mix/SQL/service/Git mutations stay serialized
+under the parent. Architecture/design advice consumes no implemented repair
+round; frozen files remain protected. E2E NOT RUN, Phase5 IN PROGRESS, no merge/
+push/version/tag/release/deploy/production action.
+
+## Task13 actual design findings and corrections; Task8 first complete RED
+
+Formal applied Task13 SPEC originally closed **FAIL** on a nonexistent
+`NoteBodyDigest` helper name. Parent corrected only the plan clause to SHA-256
+of captured canonical Markdown bytes, no new digest module/persisted column;
+actual bounded refreshed SPEC closed **PASS**. Both native verdicts remain:
+`.devenv/phase5-task13-applied-design-spec-fail-native-verdict.md` SHA
+`8902fe87c5796d2a04c7b28647f77d2a7e44e8fe3a20da7523f7d14196c7c61d`,
+and `.devenv/phase5-task13-refreshed-design-spec-native-verdict.md` SHA
+`72885667970d913820325038daf3bc814d9c8cccbd24966f6ffe6fa12c8a766e`.
+
+Separate fresh nonauthor Sol QUALITY closed actual **FAIL** on a second
+source-interface name: `NoteSources.read_membership` does not exist. Parent
+corrected both affected design/plan clauses to the actual
+`Storage.Postgres.KnowledgeLinkRepository.read_membership/3`, retaining all
+seal/count/ordinal checks and combined100-target limit, with no source edit.
+Reviewer freshly read23 required source/configuration files5,431 lines plus
+full additional custody/session/storage/cleanup and concrete SQL seams,
+complete amendment/affected tasks/report and both preparation drafts to EOF.
+Its before/after hashes, frozen56 and accepted Task7 all match, diff--check0;
+all read commands finished. This was an amendment audit, not a whole-master
+reread. Native original QUALITY FAIL
+`.devenv/phase5-task13-design-quality-fail-native-verdict.md`, SHA
+`0aad5dfd5a940b2f0213de7bf0e0d72611510f3446e98ad116174b373dedae2d`.
+Final applied SPEC refresh then QUALITY refresh remain before Task13 test GO.
+These planning corrections consumed no implemented repair round.
+
+The fresh Task8 test author completed45 new cases and exactly the two legacy
+SELECT/one Runtime composition assertion updates; no production edit. Parent
+formatted only those three owned tests,36357 normalexit0. The source receipt
+`.devenv/phase5-task8-test-first-red.sha256`, SHA
+`571496d27e4e47b7b11046dbae01f37e0a59fb501ddc1eb87f875f5b6f76b618`,
+records three tests and unchanged Exporter/Application/protected fixture helper.
+Outbox native/encoded PK remains id; wire row ordering is sequence,id. Parent
+withdrew a conflated PK suggestion after direct frozen-schema/exporter/codec/
+legacy-source verification; those independent assertions were not changed.
+
+Parent ran the complete three SQL owning files with the exact Task8 private-PG
+command above, seed215378/warnings-as-errors/default timeouts. Actual50209
+finished normally **exit2**,277.6seconds: **72 actual SQL,47 failures,25 PASS**,
+no exclusions. All45 new cases and two precise legacy SELECT assertions failed.
+Original full untruncated returned output
+`.devenv/phase5-task8-owning-first-red.log`, SHA
+`296028d7dfee70e7179772867fdf6a07b214cf409f559d6439a605edd67f4333`.
+Failure classification: missing Exporter overload19, missing SQL overload13,
+new read-grant assertions3; unexpected fixture OID parameter encoding6,
+illegal worker role switch5 and unsupported ACL-result type1. The35 missing
+feature failures are RED, not success; the12 fixture failures are not product
+behavior proof. Exact allocated root6c5cee45 absent; maintenance54a242 exited0
+with no allocated test database. Original first failure remains FAIL.
+
+The first bounded test-only Sol fixture repair owns only the new SQL test:
+correct text-to-catalog casts and exact ACL text representation; preserve
+five deferred corruption probes in the existing table-owner transaction with
+real authenticated fixture GUCs, without adding role membership or bypassing
+constraints. Those probes test actual precommit definer/source validation, not
+worker ACL qualification; separate committed genuine WorkerRepo authorization/
+RLS/ACL/positive-history tests stay required. All45 cases/default60/assertions
+remain. No fixture repair validation or production-author GO yet. Parent's
+disjoint composition/golden/frozen-saga pure command50207 finished normally
+exit2: Storage2/0 and Runtime48/1, **50 actual,1 expected composition failure**;
+original full `.devenv/phase5-task8-composition-red.log` SHA
+`5eb95ea2a01bf3b01050e7ec3aea6b4db1c34503c0bd7da3956a4147bd35f61f`.
+No unrelated failure. E2E NOT RUN; no Task8/13/Phase5 acceptance, default2 and
+frozen substrate preserved, no publication/production action.
+
+## Task13 applied design review closure; Task8 fixture repair validation
+
+The corrected applied Task13 design/plan closed actual nonauthor SOURCE SPEC
+**PASS**, followed by separate refreshed QUALITY **PASS**, with no remaining
+actionable finding. Exact reviewed design SHA
+`5a7f319a01c9f59a0e37db32e8b0f9e41359083aa08d9e702ae0b3f2ca9a7914`,
+plan `0615e89a28b661120d1ae939c7762ec00247e9a5cbfc5752b8c77ca7a2e17db9`,
+and reviewed report `a43ce9e633ba9b9860db3b7f24c3d07ce4e875ba0b2df44dc6586fe514c0be81`.
+Both bounded refreshes directly inspected the corrected actual membership
+implementation/caller and complete current three-document diff/new report
+closure. QUALITY reused its original full23-file/5,431-line source coverage
+only after all23 hashes matched; ten additional custody/session/storage/SQL
+seams remained equal to HEAD. This is amendment acceptance, not a whole-master
+reread or Task13 implementation acceptance. Original SPEC/QUALITY FAIL verdicts
+remain above and are not reclassified.
+
+Native final SPEC `.devenv/phase5-task13-final-applied-design-spec-native-verdict.md`,
+SHA `45d1075acd4a1cf4bfe83fe3ade78a48e4310d3e46df3924c8354681ecd60eb9`;
+native final QUALITY
+`.devenv/phase5-task13-final-applied-design-quality-native-verdict.md`, SHA
+`268058b1f2392e3c6af19e681dd5dcaef4d79d971dcad3a2cd51e133f11dccbe`.
+Both reviewer tasks are DONE; all their commands finished normally, with no
+edits, delegation, runtime/test/SQL/service/formatter/Git mutations. No advisory
+review or design correction is counted as an implemented repair attempt.
+
+The Sol fixture-only repair1 finished with native verdict
+`.devenv/phase5-task8-fixture-repair1-author-native-verdict.md`, SHA
+`e3eada0d9bdf0496a2900e6d3ef18fcaf9d07aed64f577e431ed9d19a0a04382`.
+Only the new V3 test changed: two text-to-regclass/four text-to-regprocedure
+parameters, both old guard ACL text projections, and the five explicitly
+table-owner precommit probes. Exact source/test receipt
+`.devenv/phase5-task8-fixture-repair1-red.sha256`, SHA
+`9f1fdc0c374dc089e7b339696279ab14246720f6f20d53836a46c2dd2db51b98`,
+records the new test SHA
+`3d88dfa049687e7747b7d157da08e345f7ba58fa339c066182c12344dad0f859`
+and unchanged other tests, Exporter, Runtime.Application and protected fixture.
+Parent formatter5690 finished exit0 before execution; no source/test edit
+occurred during the command.
+
+The exact complete three-SQL-file command was rerun, unchanged seed215378,
+warnings-as-errors, all45 new cases and default60 timeouts. Actual20861 finished
+normally **exit2**,285.6seconds: **72 actual SQL,47 failures,25 PASS**, no
+exclusions. Parent classified all47 failure blocks: missing Exporter overload24,
+missing SQL overload20, expected new ACL assertions3. None of the original12
+fixture encoding/illegal role-switch/ACL-type errors remained. This validates
+the fixture repair and the test-first feature RED; it is not a green gate or
+proof that the unimplemented guards/streaming behavior work. The first complete
+RED remains FAIL, including its original unexpected fixture failures.
+
+All three returned output chunks were retained untruncated (107,895 characters)
+in `.devenv/phase5-task8-fixture-repair1-red.log`, SHA
+`230322d679931f92cebd2d86ded3eab28f7f256c16583f2a96bf0a64cd7ba3b2`.
+The exact allocated root `/tmp/singularity/integration/66ffa290123720b387127e5a`
+was absent after normal closure (b2059d exit0). Isolated maintenance165948
+finished normally exit0 with no allocated test database. The fixture-repair
+source receipt6/6, frozen56/56 and accepted Task7 receipt4/4 all freshly match.
+No failed implemented Sol fixture repair round; no Astra repair attempt.
+
+These closed receipts permit a local three-document Task13 amendment commit,
+then parallel disjoint Task8 four-path production implementation and Task13
+three-new-test-only work. The parent alone runs serialized formatter/Mix/SQL/
+services/Git mutations. No Task8 or Task13 implementation/Phase5 acceptance;
+default V2 remains until Task12; E2E NOT RUN, frozen substrate unchanged, no
+merge/push/version/tag/release/deploy/production-data action.

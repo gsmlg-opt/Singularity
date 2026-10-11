@@ -83,8 +83,8 @@ permitted while either integrity or projection verification remains incomplete.
 | Historical admission and independent finalizer | New forward migrations after `20261011000200`; no edit to released migrations |
 | Original evidence, search and work | Existing Storage `backup/integrity_audit.ex`, `backup/reconciler.ex`; narrow Runtime integrity call |
 | Portable pure contract | New Core `knowledge_export.ex`, `knowledge_export_manifest.ex`; additive `note_markdown_sources.ex` entry point |
-| Portable snapshot/read/write | New Storage `knowledge_export/repository.ex`, `knowledge_export/writer.ex`; new Runtime `knowledge/export.ex`, `knowledge/export_read.ex`, `knowledge/export_artifact.ex` |
-| Public composition | Existing Runtime `api.ex`, `application.ex`; preserve existing production seams and architecture byte contracts |
+| Portable snapshot/read/write | New Storage `knowledge_export/repository.ex`, `knowledge_export/spool.ex`, `knowledge_export/writer.ex`; new Runtime `knowledge/export_snapshot.ex`, `knowledge/export.ex`, `knowledge/export_read.ex`, `knowledge/export_artifact.ex` |
+| Public composition | Existing Runtime `api.ex`, `application.ex`; Task16 dedicated export-root setting in `config/dev.exs`, `config/test.exs`, `config/runtime.exs`; preserve existing production seams and architecture byte contracts |
 | Deterministic fixtures and qualification | New support fixtures/tests listed in tasks; existing integration/restore tasks |
 | Governance/operator evidence | `AGENTS.md`, `README.md`, `docs/guide.md`, master plan, Phase 5 design/plan/report and new portable-format documentation |
 
@@ -1373,43 +1373,109 @@ end
 - [ ] SPEC then QUALITY, commit `feat(backup): select qualified logical v3 for new backups`.
   This changes backup output only; production canonical write guards remain closed.
 
-## Task 13: Capture portable live-head closure and bounded metadata spool
+## Task 13: Authenticated snapshot, promoted source closure and bounded text spool
 
 **Create:** `apps/singularity_storage/lib/singularity/storage/knowledge_export/repository.ex`,
-`apps/singularity_storage/test/singularity/storage/knowledge_export/repository_test.exs`.
+`apps/singularity_storage/test/singularity/storage/knowledge_export/repository_test.exs`,
+`apps/singularity_storage/lib/singularity/storage/knowledge_export/spool.ex`,
+`apps/singularity_storage/test/singularity/storage/knowledge_export/spool_test.exs`,
+`apps/singularity_runtime/lib/singularity/runtime/knowledge/export_snapshot.ex`,
+`apps/singularity_runtime/test/singularity/runtime/knowledge_export_snapshot_test.exs`.
 **Depends on:** Tasks 2 and 6; can precede Task 12 once file ownership is disjoint.
+No existing OperationScope, Authorize, ScopedRepo, resolver, custody, Core
+renderer, application/configuration or policy modification in this task.
+Task16 owns production composition and the dedicated-root configuration.
 
-- [ ] Add RED authenticated repeatable-read `Repository.capture/4` and
-  `Repository.next_page/3` tests. `capture(repo, authenticated_scope, options,
-  spool)` streams metadata into the operation-owned spool, returns bounded
-  selection indexes/descriptors and closes the snapshot before binary delivery.
-  Repository never receives keys/leases or caller owner scope.
+- [ ] Add RED tests for the fixed Runtime ExportSnapshot entry, authenticated
+  `Repository.capture/4`, sealed `Repository.next_page/3` and concrete Spool
+  open/append/seal/read_page/read_chunk/abort. Characterize unchanged request
+  scope/auth/resolver behavior and existing Core rendering before implementation.
+  Missing-module RED is not implementation acceptance. Complete applied design
+  SPEC and separate fresh QUALITY precede test-first GO.
+- [ ] ExportSnapshot uses only a private per-call runtime copy with scoped_repo
+  `{ExportSnapshot, existing_trusted_scoped_repo}`. Its fixed transact callback
+  delegates to unchanged ScopedRepo.transact/4 with repeatable-read before
+  context/auth SQL. Invoke unchanged OperationScope.with_shared_request and
+  Authorize with existing private unlocked asset.read/note.read requirements;
+  preserve advisory locks and denial audit, reject nested active transactions,
+  never set READ ONLY. Separate single-Note note.export policy stays unchanged.
+- [ ] `capture(repo, authorize_snapshot, options, spool)` receives the trusted
+  lexical arity-one closure created inside the successful Runtime scope, bound
+  to original caller/repo/resolved session/fixed requirements. It repeats actual
+  Authorize.check before selection; Repository requires active repeatable-read
+  and matching current GUC principal/owner, deriving owner solely from the
+  result. Reject maps/Booleans/GUC-only proof and wrong caller/context. This
+  internal seam assumes trusted BEAM adapters, not hostile replacement code.
+  Consume every SQL page inside the scope, return no SQL cursor/stream, expose
+  sealed spool descriptor only after real COMMIT. Callback/COMMIT failure cleans
+  even sealed output; binary transfer starts afterward with fresh authorization.
 - [ ] Select all live Note/Document heads; closure follows each selected Note's
   sealed attachments/citations to exact live Note versions recursively and exact
-  live Document/Asset version bindings. Mark visited before traversal; frontier
-  sorts `(kind, resource_id, version_id)`; two historical pins remain separate.
-  Enforce all total/per-item limits without successful truncation.
+  live Document/Asset version bindings. Maintain separate bounded metadata
+  discovery, body demand and body traversal indexes: an ancestry/endpoint
+  discovery cannot suppress a later legitimate body promotion. Mark body
+  traversal before expansion, queue a promotion once, sort frontier by
+  `(kind, resource_id, version_id)`, terminate cycles and retain distinct pins.
+  Validate existing sealed Storage.Postgres.KnowledgeLinkRepository.read_membership/3
+  plus the combined100
+  distinct-source-target limit. No successful truncation.
 - [ ] Include tags/assignments and relationships with at least one selected
-  endpoint. Authorized other endpoint/pinned-version descriptors remain metadata
-  only and do not expand edge traversal or bodies. Note parent/merge ancestry
-  recursively contributes metadata-only descriptors, no ancestor bodies/source
-  traversal. Every declared source/endpoint/version must resolve in manifest.
-- [ ] Existing authorized deleted/unavailable Note source resolution yields
-  readable metadata/allowed selected-fragment locator with null files/offsets.
-  Optional tombstones add owner metadata/version/source/edge descriptors only;
-  no deleted body/original authority. Live missing bytes/ambiguity/denial is a
-  hard whole-export failure, never converted to metadata-only success.
-- [ ] Capture a barrier, move heads/change tags after snapshot, and prove spool
-  metadata/pins stay from the cut. Wrong-owner RLS/current context, forged scope,
-  unsealed sets, corrupt fragment/source closure and bounds reject. Cursor is
-  internally bounded; page max 500, no full content collection.
-- [ ] Run full repository integration file:
+  body/source-selected endpoint, after body closure settles. Authorized other
+  endpoint/pinned-version descriptors remain metadata-only and do not expand
+  edge traversal or bodies. Note parent/merge ancestry recursively contributes
+  metadata-only descriptors, no ancestor bodies/source traversal. Produce one
+  final descriptor per identity after promotions settle; resource reason
+  precedence is head/source/tombstone/relationship_endpoint, separate from body
+  admission. Every declared head/pin/parent/merge/source/endpoint must resolve.
+- [ ] Only positively resolved deleted Note sources receive existing authorized
+  metadata/selected citation locator with null file/offset/size and no hidden
+  plaintext. Optional tombstones add metadata-only versions/membership/edges,
+  never deleted bytes. Private render descriptions use exact-version titles,
+  not substituted heads. `metadata_only_unavailable` remains reserved but is
+  never emitted: current resolver has no positive unavailable witness. Live
+  not_found/missing bytes/unsupported storage/corruption/I/O/authorization errors
+  abort the entire operation, never downgrade included content.
+- [ ] Spool fixed metadata, private render descriptions, canonical Note Markdown
+  and canonical fragment text. Metadata keyset pages<=500; select at most one
+  Note<=1MiB or fragment<=64KiB at a time, not500 TEXT values. Compute captured
+  Note body_digest as SHA-256 of canonical Markdown bytes (no persisted Note
+  digest column or new digest module).
+  Validate fragment ID/hash/locator/contiguous ordinals,<=4096/16MiB aggregate,
+  no-delimiter incremental SHA-256 and UTF-8 byte offsets, including empty hash.
+  Seal exact capture-bound text identity/offset/length/digest refs, never expose
+  private host paths/render refs in public descriptors.
+- [ ] Use the trusted dedicated root, exclusive0600 files/0700 owned directory,
+  no symlink/overwrite, fixed selectors and capture-bound cursors/exact sealed
+  refs; no caller paths, arbitrary SQL/fields, term or atom deserialization.
+  Metadata indexes contain bounded flags/identities/offsets/lengths/hashes, not
+  corpus payload; sort those indexes and consume one bounded record at a time.
+  Enforce100k identities,1M all metadata/index records,1GiB all spool bytes
+  including plaintext/framing/on-disk indexes/superseded records, fixed15min
+  deadline and existing per-item limits. Temporary duplicate text copies count
+  against spool; originals reserve known sizes toward64GiB final files including
+  manifest but still require actual digest/byte validation. A valid escaped
+  metadata record may exceed64KiB, which limits chunks, not record length;
+  smaller pages are permitted. No quota override or successful partial export.
+- [ ] Real Runtime SQL proves current session identity/epochs/expiry/revocation,
+  existing read capabilities/unlock and owner denial, not a fabricated auth
+  callback. Pure fakes prove only wiring/isolation-before-context. Genuine SQL
+  proves RR before first query, no nested snapshot, source seals/promotion/
+  historical-pin cycles/ancestry/edge/tombstone closure and exact independent
+  output oracles. Barrier moves heads/tags and pending-to-ready after cut:
+  captured metadata/text/pins remain unchanged. Verify source corruption/bounds,
+  callback/COMMIT failure, no precommit descriptor, transaction closed before
+  transfer, no escaped SQL stream and operation-only cleanup with neighbor
+  sentinels. No arbitrary sleeps or default-timeout/required-assertion weakening.
+- [ ] Run complete pure spool/wiring/Core owners and real SQL owners, with SQL
+  tags/exclusions reported separately rather than counted as pure coverage:
 
 ```sh
-devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_export/repository_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/knowledge_export/spool_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_export_snapshot_test.exs apps/singularity_core/test/singularity/core/knowledge_export_test.exs apps/singularity_core/test/singularity/core/knowledge_export_manifest_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/knowledge_export/repository_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_export_snapshot_test.exs --seed 215378 --warnings-as-errors
 ```
 
-  SPEC then QUALITY, commit `feat(export): capture exact live source closure in private spool`.
+  Run static/frozen/source checks; actual NONAUTHOR SOURCE SPEC then separate
+  fresh QUALITY, commit `feat(export): capture exact live source closure in private spool`.
 
 ## Task 14: Exact immutable source reads using unchanged request custody
 
@@ -1438,6 +1504,13 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   historical pin must not follow current head. Fake tests prove callback order/
   bounds/revoke; live test uses real existing custody and source SQL binding.
   A fake lease cannot establish live correctness.
+- [ ] Revalidate originally included Note/fragment exact immutable binding and
+  resource liveness after snapshot and at completion, without following a new
+  head, tags or pending-to-ready extraction. Consume sealed captured canonical
+  text with its exact digest; no invented text lease. Deleted/revoked selected
+  source fails the whole export rather than metadata-only downgrade. Keep
+  original binary custody/DownloadLease unchanged and distinguish these checks
+  from authenticated original chunk delivery.
 - [ ] Run pure and isolated live owners:
 
 ```sh
@@ -1473,6 +1546,15 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   Non-ready Documents have original/state and no fabricated extracted file.
   Asset source pins use assets/<resource>--<version>.bin. Verify each canonical
   original/body/text digest separately from rendered-file hashes.
+- [ ] Consume only Task13 sealed capture refs. Rehash canonical Note Markdown,
+  reassemble at most one<=1MiB Note and<=100 exact source descriptions, invoke
+  unchanged Core.render_portable/3 and split its bounded<=16MiB rendered binary
+  into<=64KiB chunks. This allowed per-Note allocation is not corpus buffering
+  or a new Core streaming API. Rehash each canonical fragment and the complete
+  no-delimiter stream; fixed captured UTF-8 offsets must match actual output.
+  Count all temporary plaintext copies/framing/index bytes toward1GiB spool;
+  all finalized files including manifest toward64GiB, with separate1GiB manifest
+  ceiling. Fixed limits have no test/public override or plaintext exemption.
 - [ ] Assemble manifest last with exactly `format/version/selection/resources/
   versions/fragments/tags/tag_assignments/relationships/attachments/citations/files`
   as design §5 specifies. Stable arrays/keys/UTC timestamps/no export-clock
@@ -1502,7 +1584,9 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 `apps/singularity_runtime/lib/singularity/runtime/knowledge/export_artifact.ex`,
 `apps/singularity_runtime/test/singularity/runtime/knowledge_export_api_test.exs`,
 `apps/singularity_runtime/test/singularity/runtime/knowledge_export_artifact_test.exs`.
-**Modify:** Runtime `api.ex`, `application.ex`; Web architecture contracts for
+**Modify:** Runtime `api.ex`, `application.ex`,
+`apps/singularity_runtime/test/singularity/runtime/application_test.exs`,
+`config/dev.exs`, `config/test.exs`, `config/runtime.exs`; Web architecture contracts for
   exact reviewed additive blocks only; no web feature/controller/UI.
 **Depends on:** Tasks 13–15.
 
@@ -1526,6 +1610,17 @@ close_knowledge_export(session, handle)
   reauthorizing completion. Keep metadata transaction closed for transfer/client
   delivery. No new capability or Vault grant. Errors are content-free atoms/
   existing sanitized Error values; canary content never reaches logs/telemetry.
+- [ ] Compose the Task13 ExportSnapshot/Spool and trusted application-configured
+  `knowledge_export_root`, separate and not nested under storage_root/backup_root
+  or their aliases. Dev/test/prod supply only this ephemeral plaintext root;
+  optional SINGULARITY_EXPORT_ROOT defaults to an isolated sibling beside the
+  backup root, with a separate run-scoped test root. Existing required environment,
+  storage/backup/key/custody roots and production-write activation stay unchanged.
+  Validate absolute ownership/modes and reject root overlap/nesting/symlinks;
+  never accept request-selected roots or silently reuse ciphertext/backup roots.
+  Composition tests assert exact trusted root/adapters and existing contracts.
+  Revalidate captured immutable text/original bindings after cut and at completion;
+  starts no binary materialization before snapshot COMMIT.
 - [ ] Implement temporary `ExportArtifact` under existing supervisor/task seams,
   bound to original session/principal/owner/authorization epochs, with maximum
   15 minutes from creation. Monitor the requester only during generation:
@@ -1559,7 +1654,7 @@ close_knowledge_export(session, handle)
 - [ ] Run full API/artifact and architecture owners:
 
 ```sh
-devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_export_api_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_export_artifact_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_export_api_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_export_artifact_test.exs apps/singularity_runtime/test/singularity/runtime/application_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
 ```
 
   SPEC then QUALITY, commit `feat(export): deliver verified artifacts through authenticated runtime api`.
@@ -1579,7 +1674,8 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 - [ ] Cover duplicate titles, malicious labels/paths, version cycles, two pins
   to historical versions, relationship metadata endpoints, parent/merge metadata,
   source Asset deletion with live Document retention, optional tombstones and
-  already-unavailable authorized source metadata. No deleted body/original file
+  positively resolved deleted-source metadata; reserved unavailable status is
+  never emitted without a positive witness. No deleted body/original file
   or unselected conflict/history body appears. Live missing/denied source fails.
 - [ ] Use barriers to move heads/change tags after capture (unchanged captured
   output), delete/revoke selected live source before transfer/completion (whole
