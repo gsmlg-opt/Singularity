@@ -877,18 +877,24 @@ feat(retrieval): unify version-pinned lexical search
 
 ## Phase 4 — Attachments, citations, tags, relationships, and backlinks
 
+Qualified local acceptance is recorded on clean tested source
+`42c01a5c99b1df3d1e4284d277c6ea48046875cb` in the
+[Phase 4 report](../../verification/2026-10-11-phase-4-acceptance.md).
+The complete permitted non-E2E gate and independent SOURCE SPEC then QUALITY
+passed. E2E remains NOT RUN; final browser/release acceptance is unresolved.
+
 ### Deliverables
 
-- [ ] Extend Note snapshots/save commands with immutable attachment and citation sets.
-- [ ] Keep old call sites compatible through explicit defaults.
-- [ ] Include attachments and citations in mutation fingerprints.
-- [ ] Persist the sets atomically with the new Note version.
-- [ ] Add tag attach/detach/browse use cases.
-- [ ] Add typed relate/unrelate/outgoing/backlink use cases.
-- [ ] Add citation resolution and deleted-source behavior.
-- [ ] Add standard Markdown citation rendering for export.
-- [ ] Add tests for stale saves, merge behavior, citation pinning, attachment pinning, duplicate tags, duplicate relationships, backlinks, tombstoned sources, and restored sources.
-- [ ] Ensure conflicts preserve the submitted attachment/citation set just as they preserve submitted Markdown.
+- [x] Extend Note snapshots/save commands with immutable attachment and citation sets.
+- [x] Keep old call sites compatible through explicit defaults.
+- [x] Include attachments and citations in mutation fingerprints.
+- [x] Persist the sets atomically with the new Note version.
+- [x] Add tag attach/detach/browse use cases.
+- [x] Add typed relate/unrelate/outgoing/backlink use cases.
+- [x] Add citation resolution and deleted-source behavior.
+- [x] Add standard Markdown citation rendering for export.
+- [x] Add tests for stale saves, merge behavior, citation pinning, attachment pinning, duplicate tags, duplicate relationships, backlinks, tombstoned sources, and restored sources.
+- [x] Ensure conflicts preserve the submitted attachment/citation set just as they preserve submitted Markdown.
 
 ### Acceptance
 

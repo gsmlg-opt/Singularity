@@ -20,6 +20,8 @@ Phase 2 has [qualified local acceptance](docs/verification/2026-10-09-phase-2-ac
 on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`.
 Phase 3 has [qualified local acceptance](docs/verification/2026-10-09-phase-3-acceptance.md)
 on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`.
+Phase 4 has [qualified local acceptance](docs/verification/2026-10-11-phase-4-acceptance.md)
+on tested source `42c01a5c99b1df3d1e4284d277c6ea48046875cb`; E2E remains NOT RUN.
 The active implementation slice is Phase 4 under the
 [versioned-source design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)
 and [detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md).

@@ -18,6 +18,10 @@ worktree and branch. Phase 3 has qualified local acceptance on tested source
 `docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md`
 and
 `docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md`.
+Phase 4 has qualified local acceptance on tested source
+`42c01a5c99b1df3d1e4284d277c6ea48046875cb`, recorded in
+`docs/verification/2026-10-11-phase-4-acceptance.md`. This worktree retains its
+Phase 4 contracts; prepare Phase 5 in a separate worktree after the local handoff.
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.
 Advance automatically only after the preceding phase's required gates pass.

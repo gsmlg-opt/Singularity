@@ -2,6 +2,22 @@
 
 ## Current status
 
+**QUALIFIED LOCAL ACCEPTANCE — permitted non-E2E gate PASS.** Exact clean tested
+source: `42c01a5c99b1df3d1e4284d277c6ea48046875cb`. Complete gate `47784`
+finished exit 0, SOURCE SPEC/rebinding and fresh whole SOURCE QUALITY passed,
+and owned-environment cleanup passed. E2E is **NOT RUN**, not a browser/release
+PASS. The documentation-only handoff also passed its scoped checks and actual
+independent SPEC then fresh QUALITY review. Its enclosing local commit records
+that qualification, not a rerun of the complete execution gate. Phase5 follows
+in a separate worktree; it is not part of this Phase4 acceptance.
+
+No merge, push, bump, tag, release, deployment, production activation or backfill
+occurred. No Vault feature work occurred. The first failure in `85871` retains
+its UNKNOWN initial cause; the bounded ACL test repair does not prove a production
+UploadReconciler startup fix. See the final qualification section below.
+
+## Historical pre-acceptance progression
+
 **IN PROGRESS — NOT ACCEPTED.** E2E is deferred and NOT RUN, not a passing
 browser/release gate. Tasks 1, 2, 3 and the early Task 8 restore compatibility
 slice are qualified locally after their owning checks and independent SPEC then
@@ -2914,3 +2930,407 @@ and the entire permitted README gate on that exact clean candidate still
 block Phase4 acceptance. The first UploadReconciler cause stays UNKNOWN; the
 containment repair does not establish a production startup fix. No failed Sol
 repair or Astra round is consumed. Phase5 remains pending; E2E **NOT RUN**.
+
+## Final Phase 4 qualified local acceptance on clean source 42c01a5c
+
+The complete permitted non-E2E README gate and the independent whole-source
+reviews now qualify the implementation on
+`42c01a5c99b1df3d1e4284d277c6ea48046875cb`. This section supersedes earlier
+pending status, not the historical failures themselves. The following handoff
+changes documentation only; no application, test, migration, workflow or
+dependency source changes. Its own review/checks/local commit are pending.
+
+### Actual complete SOURCE SPEC then fresh SOURCE QUALITY
+
+The prior 16-partition cumulative SOURCE SPEC receipt was independently rebound
+by fresh actual-source `60351` inspection of the changed Organization test
+(954 lines), active plan (708) and evidence snapshot (2870), including their
+complete repair/cumulative diffs. Exactly 109 of 111 old primary hashes remain
+equal. The native independent one-literal digest metadata closure completed PASS;
+the lesser concern is closed. The old full-source result remains source evidence
+only, not an execution PASS on this candidate.
+
+Fresh QUALITY audited eight disjoint actual source/diff partitions. Four bind
+the unchanged `b1517dc4` sources through exact hashes; the changed Organization
+test has complete fresh three-file QUALITY closure `13108` and final direct
+inspection. Four later partitions bind exact clean `42c01a5c`, including the
+complete current 2916-line evidence file. Current source/diff census:
+
+| Partition | Files | Current source lines | Current cumulative diff lines | Actual result SHA-256 |
+|---|---:|---:|---:|---|
+| identity_organization | 12 | 8933 | 7663 | `789b84a0ea1391014c209f95ccdb4a7c87dd674a924423e3a68653875988b699` |
+| canonical_writes | 35 | 8531 | 5442 | `b70ff3f8aa98f0cce1b399d3a0f1ae8914832c91c52894adc1d7853c78696749` |
+| notes_read_sources | 16 | 10652 | 7153 | `61542aa0db09c866df35c8252291fc66944cef44dbb355a75cb88863b038d15c` |
+| runtime_organization_export | 17 | 7347 | 7348 | `5351090cf262bf478c583ea94da00ad1d0d5fb4b78df274cf6adf56b5e47ab81` |
+| schema_facade | 13 | 10805 | 2078 | `59af1a434b204b134c039681b1785919cecc6b943aa78c71d7ed84d0eaba97f5` |
+| backup | 5 | 9478 | 308 | `564c38faeed4bca62e8036c46a2b4fbbb4c2d05d008c99e3fc0480c5311d2059` |
+| diagnostics_governance | 9 | 7125 | 3200 | `c7b3df464ed6b4e45af70796fcce7ce49d4bceca0ad9e1a639cfb09182919f0b` |
+| historical_guidance | 4 | 6949 | 255 | `c7fca2d00a6511afe0e81777c5ebe0a3c3ffc5755246bada5d393d39052abcee` |
+
+The current identity/organization source census includes the strengthened
+954-line test; its old receipt covered 8879 source lines and 7609 diff lines.
+Its current totals are 8933/7663, closed by actual fresh inspection—not an
+invented old review range. The other old partition files are unchanged.
+
+New independent cross-module Sol/high `20999`, thread
+`01a12909-f5e3-7fd1-af50-e1da03d7a842`, completed **WHOLE-CANDIDATE integration
+SOURCE QUALITY PASS**, zero actionable P0–P2 findings and no lesser concerns.
+It read all eight actual receipts, the full coverage bundle, all three SOURCE
+SPEC dependency artifacts and fresh repair QUALITY artifact through EOF and
+verified their hashes. The assembled union is exactly **111 source files /
+69820 lines**, plus the separately complete 2916-line report: **112 cumulative
+changed files**, no omissions, duplicates or extras. It additionally inspected
+15 actual primary files through EOF with all cumulative diffs (**6861 source
+lines / 4743 diff lines**), plus necessary authorization/DTO/Domain/Web/backup/
+cleanup/Markdown interactions. This is not a claimed personal reread of 111 files.
+
+The direct review found no inconsistent source-set sealing, stored-parent
+retention, clear/missing semantics, receipt replay/rollback, current authorization,
+exact four-field cursors, historical Asset identity, held-witness locking,
+selected-edge visibility, audit privacy, export or native cleanup interactions.
+Before and after: exact clean HEAD42, all111 hashes and all15 direct primary
+hashes, separate evidence hash and cumulative whitespace passed. All commands
+finished and recovered output gaps left no missing coverage. No reviewer tests,
+services, mutations, network or additional agents occurred.
+
+Overall actual QUALITY result SHA-256:
+`72f81d5bdcebe707f641558c372c13b161450076ca2fe6b7fc12803389d1aa8c`.
+Coverage bundle SHA-256:
+`abf7868c902968a8ced9905a73e75cb1f759bc01cb0228a000a783f564b69c28`.
+Frozen source manifest SHA-256:
+`933a3f173f0ff6fabbf1b83b942765bee6e9c1e5e83cfb124d5e1da25690de10`.
+Frozen report SHA-256 before this documentation handoff:
+`be5bfb10d9a726a262eac70f21c4a5d33d73291612a2b7cef03ff4765240d2b7`.
+
+Some parent outer CLI JSON trace polls were capped; full raw CLI trace preservation
+is not claimed. Actual final receipts independently establish complete source/
+diff EOF inspection and recovery of inner truncations.
+
+### Complete permitted clean-source execution gate
+
+`47784` started at **2026-10-11 03:21:11 UTC** and finished **04:02:45 UTC**,
+**PASS**, normal exit 0. No termination signal or stage interruption occurred.
+The fixed seed was `215378`; exact clean source42 and all111 source hashes were
+checked both before and after. The isolated owned PostgreSQL 17 wrapper replaces
+only the shared development-process launcher; all permitted README verification
+commands are preserved. E2E alone is explicitly deferred by the user and never
+executed or counted as passing.
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-full-gate-v4.sh 42c01a5c99b1df3d1e4284d277c6ea48046875cb
+```
+
+The ignored script executes, fail-fast and in order:
+
+```sh
+bash apps/singularity_storage/priv/repo/bootstrap_roles.sh
+mix deps.get
+mix deps.unlock --check-unused
+mix format --check-formatted
+mix compile --warnings-as-errors
+mix test --seed 215378
+mix singularity.test.integration --seed 215378
+mix singularity.test.restore
+env NPM_EX_LINK_STRATEGY=copy mix npm.install --frozen
+mix npm.verify
+mix duskmoon_bundler.js.check
+mix npm.run test:js
+mix duskmoon_bundler.build singularity_web --tailwind
+mix xref graph --format cycles --fail-above 0
+nix run nixpkgs#actionlint -- .github/workflows/ci.yml .github/workflows/test.yml .github/workflows/e2e.yml .github/workflows/release.yml .github/workflows/docker-image.yml
+git diff --check
+```
+
+| Executed check | Actual result |
+|---|---|
+| Bootstrap, locked deps and unused-deps check | PASS; no dependency source/lock changes |
+| Complete format and warnings-as-errors compile | PASS |
+| Pure ExUnit/property | PASS, actual **1781 tests + 10 properties**; 3137 reported / 1356 SQL excluded / 0 failures |
+| Storage SQL | PASS, actual **1066 tests**; 1368 reported / 302 pure excluded / 0 failures; **1224.9s** |
+| Runtime SQL | PASS, actual **290 tests**; 1206 reported / 916 pure excluded / 0 failures; **988.6s** |
+| Entire SQL integration | PASS, actual **1356 tests**, 0 failures |
+| Independent V1/V2 restore integrity task | PASS; V2 manifest `a3b26c76-c66e-48c6-9bf3-a6d478e36ec1`, V1 `95400c1e-b6b5-49ff-8fa1-818953d73bf4`; fresh Note search rows **3 = expected 3** |
+| Frozen NPM install and verification | PASS, **166 packages** |
+| JavaScript formatting/lint | PASS, **22 files** |
+| JavaScript tests | PASS, **9 files / 197 tests**, **5.78s** |
+| Tailwind and all application bundles | PASS |
+| Seven-app xref | PASS, **No cycles found** |
+| Exact five workflow files, actionlint | PASS, exit 0, no output |
+| Final whitespace, all111 hashes, exact HEAD and clean tracked tree | PASS |
+| E2E/browser/release acceptance | **NOT RUN**, not PASS |
+
+Whole gate script SHA-256:
+`3b20842c9c2f67b28169fee5258bd4f4dca51cfb2c2f12e91dbc5e368be302f4`.
+Owned-cluster wrapper SHA-256:
+`c5fc33a95072a3f684ff24e8658e90533295b771ae91d0f6932de7902c59fb6e`.
+Complete recovered gate log:
+`.devenv/phase4-task9-full-gate-v5-passed.log`, mode **600**, **147673 bytes**,
+SHA-256 `9a659a1a25ea8dafdf0d2c4fc47d81d71d9808863befb94212eaf7aaaafc68fd`.
+This ignored artifact is not a repository source file or production-data backup.
+
+Existing historical migration/fake-module redefinition warnings, expected
+negative connection/check-violation logs, the unchanged future Vite native-loader
+warning and tool update notices remain visible. No frozen Vault test, assertion,
+deadline or required verification was weakened, waived or reclassified. No
+dependency update/cache repair was undertaken to suppress a notice.
+
+### Owned cleanup and protected state
+
+The gate's EXIT trap stopped only its owned PostgreSQL. A separate fail-fast
+catalog/OS check temporarily restarted that same verified socket-only cluster,
+checked **zero nondefault databases**, all five exact generated roots absent,
+clean source42/all111 hashes/whitespace, then stopped PostgreSQL again:
+
+```sh
+set -euo pipefail
+test ! -e .devenv/phase4-pg.2P68Dm/postmaster.pid
+test ! -e /tmp/singularity-phase4-socket.GufHo0/.s.PGSQL.5432
+devenv shell -- bash .devenv/phase4-pg-command.sh bash .devenv/phase4-task9-cleanup-check-v5.sh
+test ! -e .devenv/phase4-pg.2P68Dm/postmaster.pid
+test ! -e /tmp/singularity-phase4-socket.GufHo0/.s.PGSQL.5432
+```
+
+Cleanup finished exit 0 with closed results `phase4_owned_nondefault_databases=0`,
+`phase4_exact_generated_roots_absent=5` and
+`phase4_clean_frozen_source_and_all111hashes=PASS`; server stopped and PID/socket
+remained absent. Cleanup script SHA-256:
+`37d49373aa4ac5ef0d31861d6132e478e77fb4e9b41d8092dab2c000a5b054f6`.
+Exact roots under `/tmp/singularity/integration/`:
+
+- `736c2d2cf459632669396671` (whole integration)
+- `5e1eef494225bfb003263f6a` (historical schema fixture)
+- `f759d248d03ad3090c288a7b` (restore source)
+- `23d43b09b170da2ec99cd74c` (V2 destination)
+- `29c8e55624bb4e676d3a5771` (V1 destination)
+
+Normal test cleanup removed these disposable fixtures; no manual material
+deletion or production-data access occurred in this final cleanup. Owned process
+inspection found no remaining Beam, PostgreSQL, Codex CLI or Node/Bun background
+process in this worktree. All independent source-review CLI sessions completed.
+
+Protected refs remained: main `e866990fc0ee8682d139d70da9cbf5aff9b2ae2b`;
+Phase2 import `ff703bd710074738b0391bb2f29d585dc6166d5c`;
+Phase2 verification `c34935a112a2b4b807ed741e8e67e44d4e63eafe`;
+Phase3 `617f0b986a3ecffba14c952988e39e3afe022cea`.
+Main remains clean. The preserved untracked Phase2 plan still hashes to
+`350a655703264603c4af8cea7fbbdba96126b22e2ee52f4e23bef6c561234281`.
+
+An initial read-only OS probe omitted fail-fast and is not qualification
+evidence; the explicit fail-fast recheck above supersedes it. One bookkeeping
+attempt to store an undefined marker was rejected before any cleanup ran, then
+corrected. Neither is a failed implementation repair or a substituted test PASS.
+
+### Exact cumulative source and compatibility inventory
+
+From base `617f0b986a3ecffba14c952988e39e3afe022cea` through clean tested source42,
+the exact 112-file inventory is:
+
+```text
+AGENTS.md
+README.md
+apps/singularity_core/lib/singularity/core/note_attachment_reference.ex
+apps/singularity_core/lib/singularity/core/note_citation_reference.ex
+apps/singularity_core/lib/singularity/core/note_markdown_sources.ex
+apps/singularity_core/lib/singularity/core/note_snapshot.ex
+apps/singularity_core/lib/singularity/core/organization_page.ex
+apps/singularity_core/lib/singularity/core/organization_page_query.ex
+apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs
+apps/singularity_core/test/singularity/core/note_source_references_test.exs
+apps/singularity_core/test/singularity/core/note_values_test.exs
+apps/singularity_core/test/singularity/core/organization_page_query_test.exs
+apps/singularity_core/test/singularity/core/organization_page_test.exs
+apps/singularity_domains/lib/singularity/domains/knowledge_links/repository.ex
+apps/singularity_domains/lib/singularity/domains/notes.ex
+apps/singularity_domains/lib/singularity/domains/notes/command.ex
+apps/singularity_domains/lib/singularity/domains/organization.ex
+apps/singularity_domains/lib/singularity/domains/organization/repository.ex
+apps/singularity_domains/lib/singularity/domains/relationships/repository.ex
+apps/singularity_domains/lib/singularity/domains/tags/repository.ex
+apps/singularity_domains/test/singularity/domains/knowledge_ports_test.exs
+apps/singularity_domains/test/singularity/domains/notes_test.exs
+apps/singularity_domains/test/singularity/domains/organization_test.exs
+apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex
+apps/singularity_runtime/lib/singularity/runtime/api.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note_attachment.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note_citation.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note_summary.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/note_version.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/organization_page.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/organization_relationship.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/organization_resource.ex
+apps/singularity_runtime/lib/singularity/runtime/dto/organization_tag.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/create.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/dto.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/export.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/get.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/mutation_fingerprint.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/resolve_source.ex
+apps/singularity_runtime/lib/singularity/runtime/notes/source_collections.ex
+apps/singularity_runtime/lib/singularity/runtime/organization/authorizer.ex
+apps/singularity_runtime/lib/singularity/runtime/organization/dto.ex
+apps/singularity_runtime/lib/singularity/runtime/organization/operations.ex
+apps/singularity_runtime/test/singularity/runtime/note_api_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_mutation_fingerprint_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_mutations_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_observability_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_reads_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs
+apps/singularity_runtime/test/singularity/runtime/note_sources_test.exs
+apps/singularity_runtime/test/singularity/runtime/organization_api_test.exs
+apps/singularity_runtime/test/singularity/runtime/organization_authorizer_test.exs
+apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs
+apps/singularity_runtime/test/singularity/runtime/organization_operations_test.exs
+apps/singularity_storage/lib/singularity/storage/backup/restorer.ex
+apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex
+apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex
+apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex
+apps/singularity_storage/lib/singularity/storage/postgres/note_sources.ex
+apps/singularity_storage/lib/singularity/storage/postgres/organization_cursor.ex
+apps/singularity_storage/lib/singularity/storage/postgres/organization_repository.ex
+apps/singularity_storage/lib/singularity/storage/postgres/relationship_repository.ex
+apps/singularity_storage/lib/singularity/storage/postgres/tag_repository.ex
+apps/singularity_storage/priv/repo/migrations/20261011000000_seal_note_source_sets.exs
+apps/singularity_storage/priv/repo/migrations/20261011000100_knowledge_runtime_grants.exs
+apps/singularity_storage/priv/repo/migrations/20261011000200_knowledge_asset_lifecycle_guards.exs
+apps/singularity_storage/test/singularity/storage/backup/logical_exporter_test.exs
+apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs
+apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs
+apps/singularity_storage/test/singularity/storage/document_schema_test.exs
+apps/singularity_storage/test/singularity/storage/knowledge_grants_test.exs
+apps/singularity_storage/test/singularity/storage/knowledge_privacy_test.exs
+apps/singularity_storage/test/singularity/storage/knowledge_rls_test.exs
+apps/singularity_storage/test/singularity/storage/knowledge_schema_test.exs
+apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_observer_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/knowledge_search_plan_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/note_mutation_receipts_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/organization_cursor_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/search_candidate_ids_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/search_candidate_migration_test.exs
+apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs
+apps/singularity_storage/test/singularity/storage/search_projection_schema_test.exs
+apps/singularity_storage/test/support/knowledge_fixtures.ex
+apps/singularity_storage/test/support/knowledge_search_plan_observer.ex
+apps/singularity_storage/test/support/knowledge_test_grants.ex
+apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs
+apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+apps/singularity_web/test/singularity/web/notes_live_test.exs
+docs/guide.md
+docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md
+docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md
+docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md
+docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md
+docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md
+docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md
+docs/verification/2026-10-09-phase-3-acceptance.md
+docs/verification/2026-10-11-phase-4-acceptance.md
+```
+
+Only three new forward migrations were added:
+
+- `20261011000000_seal_note_source_sets.exs`
+- `20261011000100_knowledge_runtime_grants.exs`
+- `20261011000200_knowledge_asset_lifecycle_guards.exs`
+
+No released migration was edited. The explicitly reported backup compatibility
+patch only adds derived Note source seals to Restorer destination locking and
+pre-import emptiness checks. Legacy V1/V2 crypto/wire, exporter and the fail-closed
+unsupported-canonical guard remain unchanged. No custody, key, capability,
+policy, Vault feature/test/UX or production activation change occurred.
+
+Historical `85871` remains FAIL with its initial UploadReconciler cause UNKNOWN;
+`52451` remains INTERRUPTED/INCOMPLETE and `24227` qualifies only clean306.
+A current green gate does not retrospectively prove the initial cause or turn
+these old failures into passes. The ACL regressions cover failure before a
+downstream grant commits, not Runtime loss after grant. Test doubles are not
+live custody proof. Failed Sol repair rounds **0**, Astra repair rounds **0** for
+these bounded closures; architecture advice and diagnostic/RED/metadata errors
+are distinct.
+
+Local acceptance permits the documentation handoff and separate Phase5
+design/plan/worktree under the continuous authorization. E2E remains manual-only
+NOT RUN and required for final browser/release acceptance. V3, browser features,
+publication, deployment, activation and production backfill remain unqualified.
+
+### Documentation-only handoff owning verification
+
+The parent changed only AGENTS, README, active guide notices, the master Phase4
+checklist, the detailed Phase4 Task9 status and this report. Application/test/
+schema/workflow/dependency sources remain byte-identical to clean tested source42.
+No new test behavior requires a production RED; this is factual documentation,
+not an implemented behavioral change.
+
+Both complete owning Web governance files passed in `79006`, exit 0:
+**36 tests / 0 failures**, **2.0 seconds**, seed `215378`, warnings-as-errors:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
+```
+
+Handoff static check `22147` passed, exit 0:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash .devenv/phase4-task9-handoff-static-v1.sh
+```
+
+This executes complete format checking, warnings-as-errors compile, xref
+**No cycles found**, **44 local Markdown file targets** resolved from the six
+documents, explicit empty application/test/migration/workflow/dependency diff,
+and whitespace. The link check resolves local file targets, not external URLs
+or fragment anchors; existing governance contracts cover the active document
+markers and links. One stray patch marker was removed during self-review before
+these final static checks. No Vault content or historical result was rewritten.
+
+These are scoped documentation checks, not a rerun of the complete SQL/frontend
+gate on a later handoff commit. The actual independent handoff reviews completed
+subsequently, as recorded below.
+
+### Completed documentation-handoff independent review
+
+Actual native documentation SOURCE SPEC by
+`/root/acceptance_document_roles_diagnosis` completed PASS, zero actionable
+P0–P2 findings. The reviewer personally read all six current documents through
+EOF, **7,753 lines**, and complete six-file differences; inspected the original
+SPEC, source rebinding, metadata closure, overall SOURCE QUALITY and actual
+execution receipts/log; verified the exact cumulative 112-file inventory, three
+forward migrations and derived-seal-only Restorer compatibility patch.
+
+The parent transcribed that actual verdict, not a new or invented review, into
+`.devenv/phase4-task9-handoff-spec-native-v1.md`, SHA-256
+`d64c0361ebaf37857a1485f5fa59a95aae23a348ff2976d9df7c6e1ed3791658`.
+Fresh independent Sol/high documentation SOURCE QUALITY `96585` exited 0:
+thread `01a1292f-f2bb-7f03-90fd-1556f533ba14`, actual final result
+`.devenv/phase4-task9-handoff-quality-v1-result.md`, SHA-256
+`099c28146ed2a0a546eb12b1f5a4d586eecbf7bf854a5b4e45f6dbf9ebd57b0f`.
+Its verdict is PASS, zero actionable P0–P2 findings, after personally reading
+all six documents through EOF and **520 complete diff lines**, auditing the
+completed SPEC and execution evidence, and before/after checks of exact HEAD42,
+all six hashes, all **106 unchanged implementation-source** hashes, empty
+application/test/migration/workflow/dependency diff, whitespace and **44 local
+Markdown file targets**. A read-only Node subprocess permission error was
+recovered through shell piping; no coverage/truncation gap remained. It is not
+an implementation repair round.
+
+Both reviews found the same lesser bookkeeping issue: two old unchecked Task5
+bullets, fulfilled by the previously qualified Task6 resource-tag API and Task4
+temporary-grant cleanup. The parent verified their existing evidence and
+synchronized those two checkboxes only. Final handoff status/verdict metadata
+does not alter historical evidence, source tests, production code or migrations.
+The enclosing local commit records the qualified documentation handoff; separate
+Phase5 design/plan preparation follows under continuous authority. No complete
+SQL/frontend execution PASS is attributed to the documentation commit.
+E2E remains NOT RUN; no browser/release/deployment/activation acceptance follows.

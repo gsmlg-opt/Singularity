@@ -2037,6 +2037,8 @@ handoff `ff703bd710074738b0391bb2f29d585dc6166d5c`.
 Phase 3 has [qualified local acceptance](verification/2026-10-09-phase-3-acceptance.md)
 on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`, recorded by documentation
 handoff `617f0b986a3ecffba14c952988e39e3afe022cea`.
+Phase 4 has [qualified local acceptance](verification/2026-10-11-phase-4-acceptance.md)
+on tested source `42c01a5c99b1df3d1e4284d277c6ea48046875cb`; E2E remains NOT RUN.
 The active implementation slice is Phase 4 under the
 [versioned-source design](superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)
 and [detailed implementation plan](superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md).

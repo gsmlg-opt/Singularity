@@ -359,7 +359,7 @@ owning pure/adapter tests.
 - [x] Add tag browse port and limit+1 UUID keyset browse; edge outgoing/incoming
   use relationship UUID keysets, selector visibility and live endpoints.
   Preserve legacy calls; avoid hidden max100 truncation on the public seam.
-- [ ] Add `list_resource_tags(session, resource_id, params \\ %{})` with the
+- [x] Add `list_resource_tags(session, resource_id, params \\ %{})` with the
   same bounded page contract, tag UUID keyset and resource-selector cursor
   domain. Retain the legacy internal list call; prove a >100-tag resource is
   completely traversable without an unbounded query or silent truncation.
@@ -377,7 +377,7 @@ owning pure/adapter tests.
   existing standalone adapter behaviors. No Save/organization atomic coupling.
 - [x] Preserve tag normalization/first spelling, natural edge identity/pin
   conflicts, directed semantics and audit-only-on-change.
-- [ ] Correct temporary grant helper cleanup to restore existing privileges,
+- [x] Correct temporary grant helper cleanup to restore existing privileges,
   not revoke permanent ones.
 - [x] Run full tag/edge/cursor/query suites and negative RLS tests; SPEC then
   QUALITY review; commit `feat(storage): page knowledge organization queries`.
@@ -687,22 +687,39 @@ owner ACL restoration, leaving grant options behind. Repair only
    is PASS. Run the entire permitted README gate on the new clean candidate and
    finish whole-source review before acceptance. E2E remains NOT RUN.
 
-- [ ] Run all changed owning suites plus deterministic source/organization
+- [x] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and
   every failed attempt honestly. No E2E, assertion waiver or timeout increase.
-- [ ] Independently review the complete clean candidate for SPEC coverage of
+- [x] Independently review the complete clean candidate for SPEC coverage of
   every master Phase4 deliverable; then separate QUALITY/privacy/lock/grant
   source review. Resolve findings, rerun required tests and re-review.
-- [ ] Run the complete permitted README dependency/build/static/format/compile/
+- [x] Run the complete permitted README dependency/build/static/format/compile/
   zero-cycle/unit/property/integration/restore/frontend/workflow gate from one
   recorded clean source. E2E stays NOT RUN and is not counted as passing.
-- [ ] Verify owned PG shutdown, zero generated databases and recorded temporary
+- [x] Verify owned PG shutdown, zero generated databases and recorded temporary
   roots absent, unchanged protected worktree heads/untracked hash, no background
   test/service process, and clean scoped commit state.
-- [ ] Record tested source versus documentation-only handoff, new migration
+- [x] Record tested source versus documentation-only handoff, new migration
   inventory, exact review/verdicts, compatibility patch, remaining final E2E and
   activation/publication limits. Mark only proven Phase4 checkboxes complete.
-- [ ] Local qualified acceptance requires all executed gates PASS and review
-  PASS. Commit `docs: record phase four local acceptance`; automatically prepare
-  separately reviewed Phase5 design/plan in its own `.trees` worktree. Do not
-  merge/push/release/deploy or claim the final browser/release gate passed.
+- [x] Qualify the documentation-only handoff after its scoped checks and actual
+  independent SPEC then fresh QUALITY PASS; retain the exact tested source
+  separately from the documentation commit and final browser/release acceptance.
+
+After the narrow local `docs: record phase four local acceptance` commit,
+automatically prepare separately reviewed Phase5 design/plan in its own
+`.trees` worktree. This instruction does not claim Phase5 work is part of the
+Phase4 handoff or authorize merge/push/release/deploy.
+
+The implementation is qualified locally on clean tested source
+`42c01a5c99b1df3d1e4284d277c6ea48046875cb`: complete permitted gate `47784`
+finished exit 0, independent overall SOURCE SPEC/rebinding and fresh overall
+SOURCE QUALITY passed, and fail-fast cleanup verified zero databases, five
+absent generated roots and stopped owned PostgreSQL. The
+[acceptance report](../../verification/2026-10-11-phase-4-acceptance.md) records
+the exact source, commands, reviews, migrations and preserved historical failures.
+The documentation-only handoff passed its scoped checks and actual independent
+SPEC then fresh QUALITY review. The enclosing local documentation commit
+records that qualification; it is not claimed to have rerun the complete SQL
+gate. The two Task5 checklist entries completed under Tasks6/4 are synchronized
+from their existing verified evidence. E2E is NOT RUN.
