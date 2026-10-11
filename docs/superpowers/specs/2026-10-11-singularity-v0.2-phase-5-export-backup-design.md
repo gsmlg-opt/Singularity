@@ -241,6 +241,21 @@ identity/digest/locator/contiguous ordinals,<=4096 fragments/16MiB aggregate,
 no-delimiter incremental SHA-256 and UTF-8 byte offsets. Seal exact identity/
 offset/length/digest text refs; empty bytes have their actual empty hash.
 
+Ready Document capture additionally preserves the existing lower bounds:
+1–4096 fragments and1–16777216 aggregate UTF-8 bytes. A zero-fragment/zero-byte
+ready Document is not valid committed canonical state; existing completion,
+deferred completion and restore admission reject it. Pure Spool empty Note/
+fragment refs retain exact empty SHA256/zero-size/read-boundary assertions but
+are not live ready-Document witnesses. The newly authored Task13 ready-zero
+SQL fixture was invalid before capture, not a reason to weaken those guards.
+Correct that one authored assumption to valid terminal unsupported/
+no_extractable_text metadata capture with retained actual original binding and
+no fabricated extracted fields. Add explicit zero-ready input and precommit/
+actual-deferred-commit rejection coverage; preserve all existing valid positive,
+empty-hash, original-byte/digest, source-pin and denial assertions. These SQL
+shape cases are not authenticated-empty-original extraction proof; existing
+real extraction coverage remains unchanged and later exact-byte gates remain.
+
 Spool open/append/seal/read_page/read_chunk/abort use a trusted dedicated root,
 fixed selectors, capture-bound cursors and exact sealed refs, with no arbitrary
 table/field/path/term/atom deserialization. Metadata indexes contain bounded
@@ -257,6 +272,27 @@ uses unchanged Core.render_portable/3, and writes its<=16MiB rendered binary in
 <=64KiB chunks. This bounded per-Note allocation is allowed; no corpus buffering
 or Core streaming redesign. Canonical body and rendered-file hashes differ.
 Fragments stream from sealed text refs with per-fragment/aggregate checks.
+
+Included Assets have no persisted canonical plaintext SHA-256: lookup_digest
+is keyed lookup evidence and ciphertext_hash covers different bytes. Task13
+captures a fixed private pending-original binding, exact immutable source/object/
+owner/classification/storage evidence and known plaintext size. A private Asset
+version draft may have null original_digest; it is not a valid Core public
+version record or completed artifact. A fixed private binary_bindings spool
+channel is allowed and counts against all metadata/index/byte ceilings. Task14
+obtains authenticated actual original bytes; Task15 supplies their verified
+SHA-256/size before unchanged Core manifest validation. Documents retain their
+captured source_digest and still verify actual bytes. No invented digest, new
+column, unavailable downgrade or private binding/path in the public manifest.
+
+Spool's trusted internal context may supply only a write(device,binary)/2
+callback, defaulting to real IO.binwrite, to inject a deterministic ENOSPC error
+at the bounded write boundary. It is not a request/configuration/quota option
+or a general filesystem adapter; actual root/path/mode/ref/cleanup checks remain.
+Synthetic write-error and used-counter arithmetic probes are labeled as such,
+not actual filesystem/large-volume exhaustion. Normal real-filesystem byte/
+record/index accounting and integrity remain required, with fixed limits and
+operation-only cleanup/no sealed descriptor after failure.
 
 For exact Document originals, add a knowledge read adapter that selects the
 specified version and reuses the existing request `document_source` custody
@@ -491,6 +527,22 @@ wrapper generation2 with active key generation1 remains allowed. Required
 retained objects must survive exact owner/classification/size/available object/
 envelope joins; missing required rows cannot disappear through an inner join.
 
+Source review found that normal Asset publication stores the object's own UUID
+as storage_ref and preserves it when making the object available. The physical
+HMAC path is derived separately by the established local adapter. V3 must admit
+exactly that UUID or the exact canonical relative path derived from the object's
+owner/domain/lookup digest, preserving the persisted reference bytes. A different
+object UUID, foreign or malformed path, normalized alias or arbitrary opaque
+string remains unsupported. The writer guard's path-only predicate is a defect,
+not a reason to change Asset persistence, custody or immutable source pins.
+Add independent UUID/mixed-reference guard/evidence regressions without removing
+canonical-path positives. These SQL-shape cases do not prove actual upload or
+authenticated-original/saga qualification; Task11 must provide that live proof.
+Correct the unaccepted00600 predicate only after genuine RED and amendment review.
+Related accepted preflight/admission and frozen-lease representation constraints
+require a separately reviewed additive compatibility design before Task9 work;
+this writer correction does not qualify that restore composition.
+
 Logical and repository-aware raw streams bind at construction to the caller,
 repo, backend PID, full transaction ID, repeatable-read and actual owner/
 principal. Check caller and repo.in_transaction? before SQL, then full binding
@@ -700,6 +752,22 @@ owned-object cleanup, preserving its identity-bound pending saga. Publication
 failure or uncertain commit is recovered through the existing pending/imported
 marker and exact inventory checks; never delete objects belonging to another
 manifest or treat an uncertain commit as success.
+
+Task9's source-reviewed
+[storage-reference compatibility design](2026-10-12-singularity-v0.2-phase-5-storage-reference-compatibility-design.md)
+and [detailed plan](../plans/2026-10-12-singularity-v0.2-phase-5-storage-reference-compatibility.md)
+preserve original authenticated/persisted inventory I and its existing saga
+commitment. Only explicit authenticated V3 derives UUID lease view N(I), after
+exact own-UUID/canonical-path and actual-local-adapter physical-equivalence
+validation. Bind saga/root/manifest/count/original fields on the same SQL
+snapshot before delegating one projected entry to the unchanged material loader.
+Validate actual ciphertext/plaintext summaries over N(I), never rewrite summary
+hashes or change the frozen V1 digest/lease/reader. Document validation below
+receives original I plus the actual complete authenticated object/hash pairs.
+The corresponding accepted preflight/admission predicate correction is additive
+00700 only, preserving00300 with function/security/ACL equivalence proof.
+Architecture review does not replace causal owner gates or Task11 actual
+normal-publication/real-lease qualification; default V3 remains closed.
 
 Plaintext source digest checking necessarily follows the frozen rewrap/custody
 handoff. `Runtime.IntegrityAudit.verify_final` already receives authenticated

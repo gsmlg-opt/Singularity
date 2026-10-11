@@ -1121,6 +1121,25 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   Expected GREEN preserves default legacy rejection; SPEC then QUALITY, commit
   `feat(backup): stream complete v3 history and retained originals explicitly`.
 
+### Task8 source-review storage-reference compatibility
+
+Actual full SOURCE SPEC found the path-only guard rejects normal available
+Asset objects whose stored reference remains their UUID after publication.
+Preserve both exact supported forms: storage_ref equals object.id::text, or
+equals the canonical owner/domain/HMAC lookup path. Never normalize or rewrite
+stored/wire references; reject another object's UUID and foreign/malformed paths.
+Add six in-file cases: two UUID/mixed-reference positives with full history,
+inventory/evidence/immutable-pin oracles, and wrong UUID/owner/domain/lookup
+negatives. Preserve all45 original V3 cases,21 legacy and6 privacy cases.
+These owner-SQL fixtures are persisted-shape guard regressions, not actual upload
+or authenticated-byte proof; Task11 must exercise that complete live composition.
+Review this amendment, run all78 SQL cases to genuine RED, then correct only
+unaccepted00600's reference predicate. Repeat all78, pure50, static/frozen and
+actual SOURCE SPEC followed by separate fresh QUALITY before local acceptance.
+Accepted preflight/admission and frozen-lease representation differences require
+their own reviewed additive Task9 compatibility design; no old migration edit,
+frozen lease change or restore-qualification claim belongs to this correction.
+
 ### Task8 selected owner-history, JSON and transaction-binding seams
 
 Source preparation established three necessary details before source GO.
@@ -1204,6 +1223,19 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 both complete integrity owning tests.
 **Create:** `apps/singularity_storage/test/singularity/storage/backup/document_restore_integrity_test.exs`.
 **Depends on:** Tasks 7 and 8.
+
+Necessary original-reference compatibility is governed by the separately
+SOURCE SPEC/fresh QUALITY-reviewed
+[compatibility design](../specs/2026-10-12-singularity-v0.2-phase-5-storage-reference-compatibility-design.md)
+and [detailed plan](2026-10-12-singularity-v0.2-phase-5-storage-reference-compatibility.md).
+They add the internal Storage KnowledgeIntegrityInventory adapter, additive
+00700 admission-predicate replacement, narrowly corresponding accepted
+preflight/Restorer composition and their complete owning tests. Original I stays
+unchanged; only explicit authenticated V3 derives the UUID lease view N(I).
+Preserve accepted00300, frozen lease/digest/reader and all legacy assertions;
+no default V3 before Task11 real normal-publication/lease qualification.
+Follow detailed Tasks B–F after preceding Task8 acceptance; the checks below
+remain required, not replaced by architecture approval.
 
 - [ ] Add RED verifying every Document immutable `source_digest/byte_size`
   against the full inventory/material and authenticated plaintext hashes,
@@ -1380,11 +1412,20 @@ end
 `apps/singularity_storage/lib/singularity/storage/knowledge_export/spool.ex`,
 `apps/singularity_storage/test/singularity/storage/knowledge_export/spool_test.exs`,
 `apps/singularity_runtime/lib/singularity/runtime/knowledge/export_snapshot.ex`,
-`apps/singularity_runtime/test/singularity/runtime/knowledge_export_snapshot_test.exs`.
+`apps/singularity_runtime/test/singularity/runtime/knowledge_export_snapshot_test.exs`,
+`apps/singularity_runtime/test/support/knowledge_export_snapshot_fixture.ex`.
 **Depends on:** Tasks 2 and 6; can precede Task 12 once file ownership is disjoint.
 No existing OperationScope, Authorize, ScopedRepo, resolver, custody, Core
 renderer, application/configuration or policy modification in this task.
 Task16 owns production composition and the dedicated-root configuration.
+
+The plain new test/support fixture is compiled before umbrella suites run.
+Mix executes Storage before Runtime, so a Storage test cannot depend on a fixture
+defined only in Runtime's selected case file. Extract the unchanged live fixture
+and observation/barrier adapter into this module; add no cases, startup side
+effects, fabricated authority or existing-helper/configuration changes. All
+existing assertions and genuine Runtime/SQL authorization contracts remain.
+This necessary test-layout amendment does not expand the product contract.
 
 - [ ] Add RED tests for the fixed Runtime ExportSnapshot entry, authenticated
   `Repository.capture/4`, sealed `Repository.next_page/3` and concrete Spool
@@ -1444,6 +1485,29 @@ Task16 owns production composition and the dedicated-root configuration.
   no-delimiter incremental SHA-256 and UTF-8 byte offsets, including empty hash.
   Seal exact capture-bound text identity/offset/length/digest refs, never expose
   private host paths/render refs in public descriptors.
+- [ ] Preserve ready-Document1–4096-fragment/1–16777216-byte lower bounds,
+  characterized in current completion, original deferred completion and accepted
+  restore admission. Correct only the newly authored invalid ready-zero SQL
+  fixture to a legitimate terminal unsupported/no_extractable_text capture:
+  unchanged actual original binding/digest/size/path, no extracted path/digest,
+  no fragments/text refs. Do not fabricate authenticated empty bytes by changing
+  SQL size/digest. Add explicit real SQL rejection of zero-ready completion,
+  precommit Repository denial and actual deferred-COMMIT denial; clearly separate
+  owner-role precommit probes from real Runtime/committed proofs. Leave pure
+  Spool's existing exact empty Note/fragment SHA256, zero-size, read-boundary and
+  all other valid assertions unchanged. The first invalid-fixture failure stays
+  recorded; repeat complete Task13 SQL/pure gates after actual independent
+  amendment SPEC/fresh QUALITY, before production GO. No trigger/schema/old
+  migration/normal extraction behavior change or successful empty-ready export.
+- [ ] Asset plaintext SHA-256 is absent from canonical storage. Capture exact
+  private pending-original binary bindings/known size, never substitute keyed
+  lookup_digest or ciphertext_hash. A fixed private binary_bindings collection
+  and null-digest Asset version drafts are internal only, not Core-valid public
+  records/artifacts. Task14 verifies authenticated actual original bytes and
+  Task15 fills their real SHA-256/size before unchanged manifest validation.
+  Retain Document source_digest plus later actual-byte verification. Charge all
+  private bindings toward existing budgets; no new digest column/unavailable
+  status or private path/binding fields in public output.
 - [ ] Use the trusted dedicated root, exclusive0600 files/0700 owned directory,
   no symlink/overwrite, fixed selectors and capture-bound cursors/exact sealed
   refs; no caller paths, arbitrary SQL/fields, term or atom deserialization.
@@ -1456,6 +1520,13 @@ Task16 owns production composition and the dedicated-root configuration.
   manifest but still require actual digest/byte validation. A valid escaped
   metadata record may exceed64KiB, which limits chunks, not record length;
   smaller pages are permitted. No quota override or successful partial export.
+- [ ] Trusted internal Spool context may inject only write(device,binary)/2,
+  default real IO.binwrite, for deterministic bounded-write ENOSPC failure.
+  No request/config/quota option/general filesystem abstraction; preserve all
+  real root/path/mode/ref/cleanup checks. Label synthetic write-error and used-
+  counter threshold arithmetic separately from actual filesystem/volume proof.
+  Require normal real-filesystem byte/record/index accounting, owned cleanup and
+  no sealed descriptor after failure; fixed limits/default timeouts unchanged.
 - [ ] Real Runtime SQL proves current session identity/epochs/expiry/revocation,
   existing read capabilities/unlock and owner denial, not a fabricated auth
   callback. Pure fakes prove only wiring/isolation-before-context. Genuine SQL
@@ -1511,6 +1582,9 @@ devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integrati
   source fails the whole export rather than metadata-only downgrade. Keep
   original binary custody/DownloadLease unchanged and distinguish these checks
   from authenticated original chunk delivery.
+- [ ] Resolve Task13's private included-Asset pending digest only from authenticated
+  actual original bytes and exact captured binding/size. Do not substitute keyed
+  lookup/ciphertext evidence or invent a persisted digest/lease authority.
 - [ ] Run pure and isolated live owners:
 
 ```sh
@@ -1555,6 +1629,9 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   Count all temporary plaintext copies/framing/index bytes toward1GiB spool;
   all finalized files including manifest toward64GiB, with separate1GiB manifest
   ceiling. Fixed limits have no test/public override or plaintext exemption.
+- [ ] Finalize private Asset version drafts with Task14 verified original SHA-256
+  and byte size before unchanged Core manifest validation. No pending digest or
+  private binary binding/path can appear in a completed public manifest.
 - [ ] Assemble manifest last with exactly `format/version/selection/resources/
   versions/fragments/tags/tag_assignments/relationships/attachments/citations/files`
   as design §5 specifies. Stable arrays/keys/UTC timestamps/no export-clock
