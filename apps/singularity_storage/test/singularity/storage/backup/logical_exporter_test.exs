@@ -116,7 +116,9 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                [isolation: :repeatable_read],
                fn repo ->
                  for table <- @unsupported_tables do
-                   assert %{rows: [[false]]} =
+                   readable? = table != "document_import_receipts"
+
+                   assert %{rows: [[^readable?]]} =
                             SafeSQL.query!(
                               repo,
                               "SELECT has_table_privilege(current_user,$1,'SELECT')",
@@ -240,7 +242,9 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                    assert body =~
                             "EXISTS (SELECT 1 FROM content.#{table} WHERE vault_id = requested_vault_id)"
 
-                   assert %{rows: [[false]]} =
+                   readable? = table != "document_import_receipts"
+
+                   assert %{rows: [[^readable?]]} =
                             SafeSQL.query!(
                               repo,
                               "SELECT has_table_privilege(current_user,$1,'SELECT')",

@@ -230,7 +230,9 @@ defmodule Singularity.Runtime.ApplicationTest do
              note_projection: NoteProjectionReconciler,
              note_repository: NoteRepository,
              object_lock: ObjectLock,
-             object_storage: {Exporter, {LocalFilesystemAdapter, %{root: storage_root}}},
+             object_storage:
+               {Exporter,
+                %{repo: WorkerRepo, storage: {LocalFilesystemAdapter, %{root: storage_root}}}},
              storage: {LocalFilesystemAdapter, %{root: storage_root}}
            } = JobDispatcher.dependencies()
 

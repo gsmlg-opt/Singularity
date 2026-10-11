@@ -8,7 +8,8 @@ defmodule Singularity.Storage.Backup.Exporter do
   alias Singularity.Core.Error
   alias Singularity.Core.ObjectRef
   alias Singularity.Storage.Backup.LogicalRecordCodec
-  alias Singularity.Storage.Backup.LogicalSchemaV2, as: LogicalSchema
+  alias Singularity.Storage.Backup.LogicalSchemaV2
+  alias Singularity.Storage.Backup.LogicalSchemaV3
 
   @cut_record_type 0x0001
   @row_record_type 0x0002
@@ -20,6 +21,7 @@ defmodule Singularity.Storage.Backup.Exporter do
   @logical_cut_keys ~w[
     database_snapshot manifest_id object_inventory outbox_high_water_mark snapshot_id vault_id
   ]a
+  @capture_cut_keys @logical_cut_keys -- [:manifest_id]
   @object_inventory_keys ~w[
     asset_object_id ciphertext_byte_size ciphertext_hash classification inventory_position
     key_domain_id lookup_digest storage_ref vault_id
@@ -36,13 +38,18 @@ defmodule Singularity.Storage.Backup.Exporter do
   @logical_stream_rows 500
 
   @spec snapshot_cut(module(), Ecto.UUID.t()) :: {:ok, map()} | {:error, Error.t()}
-  def snapshot_cut(repo, vault_id) when is_atom(repo) and not is_nil(repo) do
+  def snapshot_cut(repo, vault_id), do: snapshot_cut(repo, vault_id, 2)
+
+  def snapshot_cut(_repo, _vault_id, version) when version not in [2, 3],
+    do: {:error, Error.new(:backup_unsupported)}
+
+  def snapshot_cut(repo, vault_id, version) when is_atom(repo) and not is_nil(repo) do
     with {:ok, vault_id} <- canonical_uuid(vault_id),
          :ok <- require_repeatable_read(repo),
          {:ok, database_snapshot} <- database_snapshot(repo),
          {:ok, outbox_high_water_mark} <- outbox_high_water_mark(repo, vault_id),
-         :ok <- reject_unsupported_canonical_rows(repo, vault_id),
-         {:ok, object_inventory} <- object_inventory(repo, vault_id) do
+         :ok <- reject_unsupported_canonical_rows(repo, vault_id, version),
+         {:ok, object_inventory} <- object_inventory(repo, vault_id, version) do
       {:ok,
        %{
          database_snapshot: database_snapshot,
@@ -58,32 +65,42 @@ defmodule Singularity.Storage.Backup.Exporter do
     _kind, _reason -> storage_unavailable()
   end
 
-  def snapshot_cut(_repo, _vault_id), do: invalid()
+  def snapshot_cut(_repo, _vault_id, _version), do: invalid()
 
   @spec records(module(), map()) ::
           {:ok, %{records: Enumerable.t(), inventory: [map()]}} | {:error, Error.t()}
-  def records(repo, cut) when is_atom(repo) and not is_nil(repo) and is_map(cut) do
+  def records(repo, cut), do: records(repo, cut, 2)
+
+  def records(_repo, _cut, version) when version not in [2, 3],
+    do: {:error, Error.new(:backup_unsupported)}
+
+  def records(repo, cut, version) when is_atom(repo) and not is_nil(repo) and is_map(cut) do
     with :ok <- require_repeatable_read(repo),
          {:ok, cut} <- validate_logical_cut(cut),
          :ok <- require_database_snapshot(repo, cut.database_snapshot),
-         :ok <- reject_unsupported_canonical_rows(repo, cut.vault_id),
-         {:ok, identity} <- identity_rows(repo, cut.vault_id),
+         :ok <- reject_unsupported_canonical_rows(repo, cut.vault_id, version),
+         :ok <- require_inventory(repo, cut, version),
+         {:ok, binding} <- transaction_binding(repo, cut.vault_id),
+         {:ok, identity} <- identity_rows(repo, cut.vault_id, version),
          {:ok, table_inventory, table_counts} <-
-           describe_tables(repo, cut, identity),
-         {:ok, object_inventory} <- describe_object_evidence(cut.object_inventory),
+           describe_tables(repo, cut, identity, version),
+         {:ok, object_inventory} <- describe_object_evidence(cut.object_inventory, version),
          {:ok, header} <-
-           LogicalRecordCodec.encode_cut(%{
-             database_snapshot: cut.database_snapshot,
-             manifest_id: cut.manifest_id,
-             object_count: length(cut.object_inventory),
-             outbox_high_water_mark: cut.outbox_high_water_mark,
-             snapshot_id: cut.snapshot_id,
-             table_count_vector: table_counts,
-             vault_id: cut.vault_id
-           }),
+           LogicalRecordCodec.encode_cut(
+             %{
+               database_snapshot: cut.database_snapshot,
+               manifest_id: cut.manifest_id,
+               object_count: length(cut.object_inventory),
+               outbox_high_water_mark: cut.outbox_high_water_mark,
+               snapshot_id: cut.snapshot_id,
+               table_count_vector: table_counts,
+               vault_id: cut.vault_id
+             },
+             version
+           ),
          {:ok, header_descriptor} <- logical_descriptor(header) do
       stream_identity = Map.take(identity, [:account_id, :principal_ids])
-      records = logical_record_stream(repo, cut, stream_identity, header)
+      records = logical_record_stream(repo, cut, stream_identity, header, version, binding)
 
       {:ok,
        %{
@@ -101,7 +118,10 @@ defmodule Singularity.Storage.Backup.Exporter do
     _kind, _reason -> storage_unavailable()
   end
 
-  def records(_repo, _cut), do: invalid()
+  def records(_repo, _cut, _version), do: invalid()
+
+  def stream_inventory(%{repo: repo, storage: storage}, cut),
+    do: stream_inventory(repo, storage, cut)
 
   @spec stream_inventory({module(), map()}, map()) ::
           {:ok, %{records: Enumerable.t(), inventory: [map()]}} | {:error, Error.t()}
@@ -135,6 +155,39 @@ defmodule Singularity.Storage.Backup.Exporter do
 
   def stream_inventory(_storage, _cut), do: invalid()
 
+  def stream_inventory(repo, {storage_module, storage_context}, cut)
+      when is_atom(repo) and not is_nil(repo) and is_atom(storage_module) and
+             not is_nil(storage_module) and is_map(storage_context) and is_map(cut) do
+    with true <- storage_adapter?(storage_module),
+         true <- exact_keys?(cut, @capture_cut_keys),
+         {:ok, logical_cut} <- validate_logical_cut(Map.put(cut, :manifest_id, cut.snapshot_id)),
+         :ok <- require_repeatable_read(repo),
+         :ok <- require_database_snapshot(repo, logical_cut.database_snapshot),
+         {:ok, binding} <- transaction_binding(repo, logical_cut.vault_id) do
+      records =
+        logical_cut.object_inventory
+        |> Stream.map(fn entry ->
+          Map.merge(entry, %{
+            payload: object_payload(storage_module, storage_context, entry, binding),
+            payload_length: entry.ciphertext_byte_size,
+            type: @object_record_type
+          })
+        end)
+        |> guard_logical_stream(binding)
+
+      {:ok, %{records: records, inventory: Enum.map(logical_cut.object_inventory, &descriptor/1)}}
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> invalid()
+    end
+  rescue
+    _exception -> storage_unavailable()
+  catch
+    _kind, _reason -> storage_unavailable()
+  end
+
+  def stream_inventory(_repo, _storage, _cut), do: invalid()
+
   defp validate_logical_cut(cut) do
     with true <- exact_keys?(cut, @logical_cut_keys),
          {:ok, manifest_id} <- canonical_uuid(cut.manifest_id),
@@ -160,9 +213,21 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp identity_rows(repo, vault_id) do
+  defp identity_rows(repo, vault_id, version) do
+    projection =
+      if version == 3 do
+        "person_id, person_display_name, person_metadata::text, person_inserted_at, " <>
+          "person_updated_at, account_id, account_person_id, account_status, account_metadata::text, " <>
+          "account_inserted_at, account_updated_at, credential_id, credential_account_id, " <>
+          "credential_normalized_login, credential_revoked_at, credential_inserted_at, " <>
+          "principal_id, principal_account_id, principal_kind, principal_authorization_epoch, " <>
+          "principal_revoked_at, principal_metadata::text, principal_inserted_at, principal_updated_at"
+      else
+        "*"
+      end
+
     statement = """
-    SELECT *
+    SELECT #{projection}
     FROM identity.export_current_vault_owner($1)
     ORDER BY principal_id, credential_id
     """
@@ -170,7 +235,7 @@ defmodule Singularity.Storage.Backup.Exporter do
     repo
     |> logical_query_stream(statement, [Ecto.UUID.dump!(vault_id)])
     |> Enum.reduce_while({:ok, empty_identity_rows()}, fn raw_row, {:ok, rows} ->
-      case add_identity_projection(rows, raw_row) do
+      case add_identity_projection(rows, raw_row, version) do
         {:ok, projected} -> {:cont, {:ok, projected}}
         {:error, %Error{}} = error -> {:halt, error}
       end
@@ -185,12 +250,13 @@ defmodule Singularity.Storage.Backup.Exporter do
     Map.new(@identity_tables, &{&1, %{}})
   end
 
-  defp add_identity_projection(rows, raw_row) when is_list(raw_row) and length(raw_row) == 24 do
+  defp add_identity_projection(rows, raw_row, version)
+       when is_list(raw_row) and length(raw_row) == 24 do
     Enum.reduce_while(@identity_tables, {:ok, rows}, fn table, {:ok, projected} ->
-      {:ok, schema} = LogicalSchema.fetch_table(table)
+      {:ok, schema} = schema_registry(version).fetch_table(table)
       values = Enum.map(@identity_projection[table], &Enum.at(raw_row, &1))
 
-      with {:ok, logical_row} <- tagged_row(schema, values),
+      with {:ok, logical_row} <- tagged_row(schema, values, version),
            {:ok, table_rows} <-
              put_unique_row(projected[table], logical_row.primary_key_values, logical_row) do
         {:cont, {:ok, Map.put(projected, table, table_rows)}}
@@ -200,7 +266,7 @@ defmodule Singularity.Storage.Backup.Exporter do
     end)
   end
 
-  defp add_identity_projection(_rows, _raw_row), do: invalid()
+  defp add_identity_projection(_rows, _raw_row, _version), do: invalid()
 
   defp put_unique_row(rows, primary_key, row) do
     case Map.fetch(rows, primary_key) do
@@ -248,14 +314,14 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp describe_tables(repo, cut, identity) do
-    LogicalSchema.all()
+  defp describe_tables(repo, cut, identity, version) do
+    schema_registry(version).all()
     |> Enum.reduce_while({:ok, [], []}, fn schema, {:ok, inventory, counts} ->
       result =
         if schema.table in @identity_tables do
           describe_tagged_rows(identity.groups[schema.table])
         else
-          describe_database_table(repo, schema, cut, identity)
+          describe_database_table(repo, schema, cut, identity, version)
         end
 
       case result do
@@ -290,13 +356,13 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp describe_database_table(repo, schema, cut, identity) do
-    {statement, parameters} = table_query(schema, cut, identity.account_id)
+  defp describe_database_table(repo, schema, cut, identity, version) do
+    {statement, parameters} = table_query(schema, cut, identity.account_id, version)
 
     repo
     |> logical_query_stream(statement, parameters)
     |> Enum.reduce_while({:ok, []}, fn raw_row, {:ok, descriptors} ->
-      with {:ok, row} <- tagged_row(schema, raw_row),
+      with {:ok, row} <- tagged_row(schema, raw_row, version),
            :ok <- validate_identity_references(row, identity.principal_ids),
            {:ok, record} <- encode_tagged_row(row),
            {:ok, descriptor} <- logical_descriptor(record) do
@@ -320,9 +386,9 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp describe_object_evidence(entries) do
+  defp describe_object_evidence(entries, version) do
     Enum.reduce_while(entries, {:ok, []}, fn entry, {:ok, descriptors} ->
-      with {:ok, record} <- encode_object_evidence(entry),
+      with {:ok, record} <- encode_object_evidence(entry, version),
            {:ok, descriptor} <- logical_descriptor(record) do
         {:cont, {:ok, [descriptor | descriptors]}}
       else
@@ -335,10 +401,10 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp logical_record_stream(repo, cut, identity, header) do
+  defp logical_record_stream(repo, cut, identity, header, version, binding) do
     identity_stream =
       Stream.flat_map([:identity], fn :identity ->
-        case identity_rows(repo, cut.vault_id) do
+        case identity_rows(repo, cut.vault_id, version) do
           {:ok, repeated_identity}
           when repeated_identity.account_id == identity.account_id and
                  repeated_identity.principal_ids == identity.principal_ids ->
@@ -352,24 +418,27 @@ defmodule Singularity.Storage.Backup.Exporter do
       end)
 
     table_stream =
-      LogicalSchema.all()
+      schema_registry(version).all()
       |> Stream.reject(&(&1.table in @identity_tables))
       |> Stream.flat_map(fn schema ->
-        database_table_record_stream(repo, schema, cut, identity)
+        database_table_record_stream(repo, schema, cut, identity, version)
       end)
 
-    object_stream = Stream.map(cut.object_inventory, &encode_object_evidence!/1)
+    object_stream = Stream.map(cut.object_inventory, &encode_object_evidence!(&1, version))
 
-    guard_logical_stream(Stream.concat([[header], identity_stream, table_stream, object_stream]))
+    guard_logical_stream(
+      Stream.concat([[header], identity_stream, table_stream, object_stream]),
+      binding
+    )
   end
 
-  defp database_table_record_stream(repo, schema, cut, identity) do
-    {statement, parameters} = table_query(schema, cut, identity.account_id)
+  defp database_table_record_stream(repo, schema, cut, identity, version) do
+    {statement, parameters} = table_query(schema, cut, identity.account_id, version)
 
     repo
     |> logical_query_stream(statement, parameters)
     |> Stream.map(fn raw_row ->
-      with {:ok, row} <- tagged_row(schema, raw_row),
+      with {:ok, row} <- tagged_row(schema, raw_row, version),
            :ok <- validate_identity_references(row, identity.principal_ids) do
         encode_tagged_row!(row)
       else
@@ -378,10 +447,13 @@ defmodule Singularity.Storage.Backup.Exporter do
     end)
   end
 
-  defp guard_logical_stream(enumerable) do
+  defp guard_logical_stream(enumerable, binding) do
     Stream.resource(
       fn -> {:initial, enumerable} end,
-      &guarded_stream_next/1,
+      fn state ->
+        require_stream_binding!(binding)
+        guarded_stream_next(state)
+      end,
       &halt_guarded_stream/1
     )
   end
@@ -426,6 +498,7 @@ defmodule Singularity.Storage.Backup.Exporter do
 
   defp logical_query_stream(repo, statement, parameters) do
     repo
+    |> sql_repo()
     |> SQL.stream(statement, parameters, max_rows: @logical_stream_rows, log: false)
     |> Stream.flat_map(fn
       %{rows: rows} when is_list(rows) -> rows
@@ -433,10 +506,11 @@ defmodule Singularity.Storage.Backup.Exporter do
     end)
   end
 
-  defp table_query(schema, cut, account_id) do
+  defp table_query(schema, cut, account_id, version) do
     projection =
       Enum.map_join(schema.columns, ", ", fn column ->
-        "source.#{quote_identifier(column.name)}"
+        suffix = if version == 3 and column.tag == "json", do: "::text", else: ""
+        "source.#{quote_identifier(column.name)}#{suffix}"
       end)
 
     order =
@@ -499,6 +573,16 @@ defmodule Singularity.Storage.Backup.Exporter do
           [vault_id]
         }
 
+      "content.document_import_receipts" ->
+        {
+          """
+          SELECT #{projection}
+          FROM content.export_document_import_receipts_for_backup($1) AS source
+          ORDER BY #{order}
+          """,
+          [vault_id]
+        }
+
       "core.outbox_events" ->
         {
           standard_table_query(
@@ -532,12 +616,12 @@ defmodule Singularity.Storage.Backup.Exporter do
 
   defp quote_identifier(identifier), do: ~s("#{identifier}")
 
-  defp tagged_row(schema, raw_values)
+  defp tagged_row(schema, raw_values, version)
        when is_list(raw_values) and length(raw_values) == length(schema.columns) do
     schema.columns
     |> Enum.zip(raw_values)
     |> Enum.reduce_while({:ok, []}, fn {column, value}, {:ok, values} ->
-      case tagged_value(column, value) do
+      case projected_value(column, value, version) do
         {:ok, tagged} -> {:cont, {:ok, [tagged | values]}}
         {:error, %Error{}} = error -> {:halt, error}
       end
@@ -551,7 +635,8 @@ defmodule Singularity.Storage.Backup.Exporter do
            ordered_column_values: ordered_column_values,
            primary_key_values:
              Enum.map(schema.primary_key, &Enum.at(ordered_column_values, &1.position)),
-           schema: schema
+           schema: schema,
+           version: version
          }}
 
       {:error, %Error{}} = error ->
@@ -559,7 +644,16 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp tagged_row(_schema, _raw_values), do: invalid()
+  defp tagged_row(_schema, _raw_values, _version), do: invalid()
+
+  defp projected_value(%{tag: "json"}, value, 3) when is_binary(value) do
+    case JSON.decode(value) do
+      {:ok, decoded} -> {:ok, {"json", decoded}}
+      _invalid -> invalid()
+    end
+  end
+
+  defp projected_value(column, value, _version), do: tagged_value(column, value)
 
   defp tagged_value(%{nullable?: true}, nil), do: {:ok, {"null"}}
   defp tagged_value(%{nullable?: false}, nil), do: invalid()
@@ -599,7 +693,8 @@ defmodule Singularity.Storage.Backup.Exporter do
     LogicalRecordCodec.encode_row(
       row.schema.table,
       row.primary_key_values,
-      row.ordered_column_values
+      row.ordered_column_values,
+      row.version
     )
   end
 
@@ -610,22 +705,25 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp encode_object_evidence(entry) do
-    LogicalRecordCodec.encode_object(%{
-      asset_object_id: entry.asset_object_id,
-      ciphertext_byte_size: entry.ciphertext_byte_size,
-      ciphertext_hash: entry.ciphertext_hash,
-      classification: Atom.to_string(entry.classification),
-      key_domain_id: entry.key_domain_id,
-      lookup_digest: entry.lookup_digest,
-      object_index: entry.inventory_position,
-      storage_ref: entry.storage_ref,
-      vault_id: entry.vault_id
-    })
+  defp encode_object_evidence(entry, version) do
+    LogicalRecordCodec.encode_object(
+      %{
+        asset_object_id: entry.asset_object_id,
+        ciphertext_byte_size: entry.ciphertext_byte_size,
+        ciphertext_hash: entry.ciphertext_hash,
+        classification: Atom.to_string(entry.classification),
+        key_domain_id: entry.key_domain_id,
+        lookup_digest: entry.lookup_digest,
+        object_index: entry.inventory_position,
+        storage_ref: entry.storage_ref,
+        vault_id: entry.vault_id
+      },
+      version
+    )
   end
 
-  defp encode_object_evidence!(entry) do
-    case encode_object_evidence(entry) do
+  defp encode_object_evidence!(entry, version) do
+    case encode_object_evidence(entry, version) do
       {:ok, %{type: @object_evidence_record_type} = record} -> record
       _invalid -> throw_logical_backup_invalid()
     end
@@ -662,7 +760,11 @@ defmodule Singularity.Storage.Backup.Exporter do
     "content.tombstones" => [3],
     "content.note_versions" => [6],
     "audit.events" => [3],
-    "core.outbox_events" => [5]
+    "core.outbox_events" => [5],
+    "content.document_versions" => [12],
+    "content.document_import_receipts" => [1],
+    "content.tags" => [5],
+    "content.relationships" => [7]
   }
 
   defp validate_identity_references(row, principal_ids) do
@@ -684,6 +786,10 @@ defmodule Singularity.Storage.Backup.Exporter do
   defp exact_keys?(_value, _keys), do: false
 
   defp require_repeatable_read(repo) do
+    if repo.in_transaction?(), do: check_repeatable_read(repo), else: invalid()
+  end
+
+  defp check_repeatable_read(repo) do
     case query(repo, "SHOW transaction_isolation", []) do
       {:ok, %{rows: [["repeatable read"]]}} -> :ok
       {:ok, _other} -> invalid()
@@ -728,11 +834,19 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp reject_unsupported_canonical_rows(repo, vault_id) do
+  defp reject_unsupported_canonical_rows(repo, vault_id, version) do
+    {statement, parameters} =
+      if version == 3 do
+        {"SELECT content.backup_has_unsupported_canonical_rows($1,$2)",
+         [Ecto.UUID.dump!(vault_id), version]}
+      else
+        {"SELECT content.backup_has_unsupported_canonical_rows($1)", [Ecto.UUID.dump!(vault_id)]}
+      end
+
     case query(
            repo,
-           "SELECT content.backup_has_unsupported_canonical_rows($1)",
-           [Ecto.UUID.dump!(vault_id)]
+           statement,
+           parameters
          ) do
       {:ok, %{rows: [[false]]}} -> :ok
       {:ok, %{rows: [[true]]}} -> {:error, Error.new(:backup_unsupported)}
@@ -741,7 +855,35 @@ defmodule Singularity.Storage.Backup.Exporter do
     end
   end
 
-  defp object_inventory(repo, vault_id) do
+  defp object_inventory(repo, vault_id, 3) do
+    case query(
+           repo,
+           """
+           WITH required AS (
+             SELECT object.id
+             FROM content.asset_objects AS object
+             WHERE object.vault_id = $1 AND object.lifecycle = 'available'
+               AND EXISTS (SELECT 1 FROM content.assets AS asset
+                 WHERE asset.asset_object_id = object.id AND asset.vault_id = object.vault_id
+                   AND asset.state NOT IN ('pending_delete', 'deleted'))
+             UNION
+             SELECT source_object_id FROM content.document_versions WHERE vault_id = $1
+           )
+           SELECT object.id, object.vault_id, object.key_domain_id, object.classification,
+             object.lookup_digest, object.storage_ref, object.ciphertext_byte_size, object.ciphertext_hash
+           FROM required LEFT JOIN content.asset_objects AS object
+             ON object.id = required.id AND object.vault_id = $1 AND object.lifecycle = 'available'
+           ORDER BY required.id
+           """,
+           [Ecto.UUID.dump!(vault_id)]
+         ) do
+      {:ok, %{rows: rows}} when is_list(rows) -> rows_to_inventory(rows, vault_id)
+      {:ok, _other} -> storage_unavailable()
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  defp object_inventory(repo, vault_id, 2) do
     case query(
            repo,
            """
@@ -772,6 +914,66 @@ defmodule Singularity.Storage.Backup.Exporter do
       {:ok, _other} -> storage_unavailable()
       {:error, %Error{}} = error -> error
     end
+  end
+
+  defp require_inventory(_repo, _cut, 2), do: :ok
+
+  defp require_inventory(repo, cut, 3) do
+    with {:ok, entries} <- object_inventory(repo, cut.vault_id, 3),
+         true <- entries == cut.object_inventory do
+      :ok
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> invalid()
+    end
+  end
+
+  defp schema_registry(2), do: LogicalSchemaV2
+  defp schema_registry(3), do: LogicalSchemaV3
+
+  defp transaction_binding(repo, vault_id) do
+    with true <- repo.in_transaction?(),
+         {:ok, %{rows: [[backend, xid, "repeatable read", owner, principal]]}} <-
+           query(
+             repo,
+             """
+             SELECT pg_backend_pid(), pg_current_xact_id()::text,
+               current_setting('transaction_isolation'),
+               NULLIF(current_setting('singularity.vault_id', true), '')::uuid,
+               NULLIF(current_setting('singularity.principal_id', true), '')::uuid
+             """,
+             []
+           ),
+         true <- is_integer(backend) and is_binary(xid) and xid != "",
+         {:ok, ^vault_id} <- loaded_uuid(owner),
+         {:ok, principal_id} <- loaded_uuid(principal) do
+      {:ok,
+       %{
+         caller: self(),
+         repo: repo,
+         backend: backend,
+         xid: xid,
+         vault_id: vault_id,
+         principal_id: principal_id
+       }}
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> invalid()
+    end
+  end
+
+  defp require_stream_binding!(nil), do: :ok
+
+  defp require_stream_binding!(%{caller: caller, repo: repo} = binding) do
+    with true <- self() == caller,
+         true <- repo.in_transaction?(),
+         {:ok, ^binding} <- transaction_binding(repo, binding.vault_id) do
+      :ok
+    else
+      _invalid -> throw_object_stream_error(storage_unavailable_error())
+    end
+  rescue
+    _exception -> throw_object_stream_error(storage_unavailable_error())
   end
 
   defp rows_to_inventory(rows, expected_vault_id) do
@@ -892,7 +1094,7 @@ defmodule Singularity.Storage.Backup.Exporter do
     }
   end
 
-  defp object_payload(storage_module, storage_context, entry) do
+  defp object_payload(storage_module, storage_context, entry, binding \\ nil) do
     context =
       Map.merge(storage_context, %{
         ciphertext_hash: entry.ciphertext_hash,
@@ -902,28 +1104,50 @@ defmodule Singularity.Storage.Backup.Exporter do
       })
 
     Stream.resource(
-      fn -> open_object(storage_module, context, entry.storage_ref) end,
-      fn state -> read_object(state, storage_module, context, entry.ciphertext_byte_size) end,
+      fn ->
+        require_stream_binding!(binding)
+        open_object(storage_module, context, entry.storage_ref)
+      end,
+      fn state ->
+        require_stream_binding!(binding)
+        read_object(state, storage_module, context, entry, binding)
+      end,
       fn _state -> :ok end
     )
   end
 
   defp open_object(storage_module, context, storage_ref) do
     case storage_call(storage_module, :open, [context, %ObjectRef{object_id: storage_ref}]) do
-      {:ok, handle} -> {:open, handle, 0}
+      {:ok, handle} -> {:open, handle, 0, :crypto.hash_init(:sha256)}
       {:error, %Error{} = error} -> {:failed, error}
     end
   end
 
-  defp read_object({:failed, %Error{} = error}, _storage_module, _context, _expected_bytes),
+  defp read_object({:failed, %Error{} = error}, _storage_module, _context, _entry, _binding),
     do: throw_object_stream_error(error)
 
-  defp read_object({:open, _handle, offset}, _storage_module, _context, expected_bytes)
-       when offset >= expected_bytes,
+  defp read_object({:open, _handle, offset, _hash}, _storage_module, _context, entry, nil)
+       when offset >= entry.ciphertext_byte_size,
        do: {:halt, :done}
 
-  defp read_object({:open, handle, offset}, storage_module, context, expected_bytes) do
-    requested = min(@object_chunk_bytes, expected_bytes - offset)
+  defp read_object({:open, handle, offset, hash}, storage_module, context, entry, _binding)
+       when offset == entry.ciphertext_byte_size do
+    case storage_call(storage_module, :read_range, [context, handle, offset..offset]) do
+      {:ok, ""} ->
+        if :crypto.hash_final(hash) == entry.ciphertext_hash,
+          do: {:halt, :done},
+          else: throw_object_stream_error(Error.new(:integrity_failure))
+
+      {:ok, _bytes} ->
+        throw_object_stream_error(Error.new(:integrity_failure))
+
+      {:error, %Error{} = error} ->
+        throw_object_stream_error(error)
+    end
+  end
+
+  defp read_object({:open, handle, offset, hash}, storage_module, context, entry, _binding) do
+    requested = min(@object_chunk_bytes, entry.ciphertext_byte_size - offset)
     range = offset..(offset + requested - 1)
 
     case storage_call(storage_module, :read_range, [context, handle, range]) do
@@ -931,7 +1155,7 @@ defmodule Singularity.Storage.Backup.Exporter do
         throw_object_stream_error(Error.new(:integrity_failure))
 
       {:ok, bytes} when is_binary(bytes) and byte_size(bytes) <= requested ->
-        {[bytes], {:open, handle, offset + byte_size(bytes)}}
+        {[bytes], {:open, handle, offset + byte_size(bytes), :crypto.hash_update(hash, bytes)}}
 
       {:ok, _unexpected} ->
         throw_object_stream_error(storage_unavailable_error())
@@ -975,10 +1199,16 @@ defmodule Singularity.Storage.Backup.Exporter do
   defp digest?(value), do: is_binary(value) and byte_size(value) == 32
 
   defp query(repo, statement, parameters) do
-    case SQL.query(repo, statement, parameters, log: false) do
+    case SQL.query(sql_repo(repo), statement, parameters, log: false) do
       {:ok, result} -> {:ok, result}
       {:error, _reason} -> storage_unavailable()
     end
+  end
+
+  defp sql_repo(repo) do
+    if function_exported?(repo, :get_dynamic_repo, 0),
+      do: repo.get_dynamic_repo(),
+      else: repo
   end
 
   defp storage_call(module, function, arguments) do

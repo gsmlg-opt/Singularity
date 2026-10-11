@@ -28,6 +28,7 @@ defmodule Singularity.Runtime.Application do
   alias Singularity.Storage.Postgres.NoteProjectionReconciler
   alias Singularity.Storage.Postgres.NoteRepository
   alias Singularity.Storage.Postgres.SearchProjectionReconciler
+  alias Singularity.Storage.WorkerRepo
 
   @impl true
   def start(_type, _args) do
@@ -128,7 +129,7 @@ defmodule Singularity.Runtime.Application do
       note_projection: NoteProjectionReconciler,
       note_repository: NoteRepository,
       object_lock: ObjectLock,
-      object_storage: {Exporter, storage},
+      object_storage: {Exporter, %{repo: WorkerRepo, storage: storage}},
       storage: storage
     }
   end
