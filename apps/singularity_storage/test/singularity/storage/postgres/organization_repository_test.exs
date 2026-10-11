@@ -515,6 +515,58 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
         assert owned_typed_acl_inventory() == baseline
       end)
     end
+
+    @tag :fixture_cleanup_setup_failure
+    test "web-issued #{@grant_scope} SELECT fixture restores ACLs when its native repo setup fails",
+         c do
+      repos = [RequestRepo, PreAuthRepo, DispatcherRepo, WorkerRepo]
+      assert Enum.any?(Application.started_applications(), &(elem(&1, 0) == :singularity_runtime))
+      assert Enum.all?(repos, &is_pid(Process.whereis(&1)))
+
+      baseline = owned_typed_acl_inventory()
+      configs = Map.new(Application.get_all_env(:singularity_storage))
+      database = query!(RequestRepo, "SELECT current_database()", []).rows
+      marker = make_ref()
+
+      try do
+        assert Application.stop(:singularity_runtime) == :ok
+        assert Process.whereis(RequestRepo) == nil
+
+        assert_raise RuntimeError,
+                     "could not lookup Ecto repo Singularity.Storage.RequestRepo because it was not started or it does not exist",
+                     fn ->
+                       with_web_issued_select(c, @grant_scope, fn ->
+                         send(self(), {:fixture_callback_ran, marker})
+                       end)
+                     end
+
+        refute_received {:fixture_callback_ran, ^marker}
+        assert owned_typed_acl_inventory() == baseline
+        assert Map.new(Application.get_all_env(:singularity_storage)) == configs
+      after
+        try do
+          Fixtures.with_owner(fn ->
+            assert_isolated_acl_database!(MigrationRepo)
+            restore_web_selects!(baseline)
+            assert typed_acl_inventory() == baseline
+            assert query!(MigrationRepo, "SELECT current_database()", []).rows == database
+          end)
+
+          assert Map.new(Application.get_all_env(:singularity_storage)) == configs
+        after
+          assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+
+          assert Enum.any?(
+                   Application.started_applications(),
+                   &(elem(&1, 0) == :singularity_runtime)
+                 )
+
+          assert Enum.all?(repos, &is_pid(Process.whereis(&1)))
+          assert Map.new(Application.get_all_env(:singularity_storage)) == configs
+          assert query!(RequestRepo, "SELECT current_database()", []).rows == database
+        end
+      end
+    end
   end
 
   test "metadata still resolves with typed payload SELECT removed and only Asset lifecycle columns allowed",
@@ -798,21 +850,23 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
 
       fun.()
     after
-      scoped(c, fn context ->
-        assert_isolated_acl_database!(context.repo)
+      try do
+        scoped(c, fn context ->
+          assert_isolated_acl_database!(context.repo)
 
-        query!(
-          context.repo,
-          "REVOKE " <> permission <> " ON content.assets FROM singularity_worker",
-          []
-        )
-      end)
-
-      Fixtures.with_owner(fn ->
-        assert_isolated_acl_database!(MigrationRepo)
-        restore_web_selects!(previous)
-        assert typed_acl_inventory() == previous
-      end)
+          query!(
+            context.repo,
+            "REVOKE " <> permission <> " ON content.assets FROM singularity_worker",
+            []
+          )
+        end)
+      after
+        Fixtures.with_owner(fn ->
+          assert_isolated_acl_database!(MigrationRepo)
+          restore_web_selects!(previous)
+          assert typed_acl_inventory() == previous
+        end)
+      end
     end
   end
 

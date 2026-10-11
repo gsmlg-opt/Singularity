@@ -2725,3 +2725,192 @@ Remaining diagnostic/governance/historical partition coverage, fresh overall
 cross-module SPEC, separate whole QUALITY and the complete new clean-source
 README gate still block Phase4 acceptance. No publication or Phase5 execution
 is authorized by these scoped verdicts; E2E remains **NOT RUN**.
+
+## Task 9 complete-gate failure and bounded ACL fixture containment
+
+The schema refinement was committed as tested source
+`b1517dc4d8a2599f667bbdeb5e06f5028f1c74d7`. Fresh whole-candidate cross-module
+SPEC `86254`, thread `01a128c3-c8e3-7ef0-8268-8110f70b5d9d`, subsequently
+reported **SOURCE SPEC PASS**, with zero actionable findings. It audited all
+16 actual EOF/diff partition receipts: the exact 111-file, 69737-source-line
+manifest union, plus this separate 2727-line evidence snapshot. It personally
+read 11 interacting production files, all three migrations and governing
+documents, the refined schema test and relevant contracts. All recorded source
+hashes and clean HEAD checks matched. Result SHA-256:
+`ac97332aa77f2a6c30e61a7d25bec335bedf96d8a9ca78d7908d1d69a9b7024b`.
+This was source review, not execution acceptance.
+
+Complete permitted README gate `85871` then **FAILED** on that clean source.
+Unit execution passed 3135 reported tests plus 10 properties, with zero
+failures; 1354 SQL cases were excluded from unit execution, leaving 1781 pure
+tests plus the properties. The first actual SQL failure was the unchanged
+`SearchProjectionSchemaTest` migration-support-function contract at line 752:
+historical database restoration restarted Runtime, whose UploadReconciler
+startup returned sanitized `storage_unavailable`. Supervisor rollback stopped
+runtime repositories; subsequent repository/worker/Oban failures cascaded.
+Initial cause remains **UNKNOWN**. No user content or SQL operands are used
+in this diagnosis record.
+
+The parent stopped that failed run's exact owned process group. Partial Storage
+output reported 1095 tests, 395 failures and 302 excluded in 924.8 seconds; it
+was not a normally completed whole SQL gate. The wrapper exited 143. Later
+restore output after termination does not turn the required gate into PASS,
+and later frontend/static steps were incomplete or unrun. All raw output was
+preserved in ignored, mode-600
+`.devenv/phase4-task9-full-gate-v3-failed.log`, SHA-256
+`f35498efd2b3aaf4bccbc5f2c23c51ecfa603e9e8bc4eebb8da6634d767f7121`.
+
+Read-only SQL/physical-stage diagnostics found no remaining open recovery rows
+in that retained test database. Initial ignored diagnostic probe `63842` failed
+compilation on a map-access expression in a match; only the ignored probe was
+corrected to pin the captured database value. This was not a production repair
+or TDD RED. Sanitized opt-in MFA/count tracing and one
+unchanged focused replay completed successfully: probe `77314` restored the
+historical database and Runtime; replay `64048` passed all four generated
+contracts at `search_projection_schema_test.exs:752`, seed `215378`, 31
+reported/27 excluded in 38.7 seconds. These observations do **not** reproduce
+or explain the complete-run startup failure and do not prove a production fix.
+The retained database was exported to an ignored custom-format snapshot before
+its exact database/root cleanup. Snapshot SHA-256:
+`65a970654e1d832641f835f94fa24f3d8527127e0ef40609b9587e36d07e86af`.
+
+Same-source rerun `52451` used the identical gate script and source. It was
+deliberately **INTERRUPTED / INCOMPLETE**, exit 143, before tracked repair edits
+and without a confirmed pre-signal failing test. Unit execution again passed
+the same counts. Partial Storage output reported 892 tests, one failure and
+302 excluded in 566.5 seconds: the sole reported failure was extension-fixture
+SQL receiving `FATAL 57P01 admin_shutdown` during the owned PostgreSQL shutdown
+at `2026-10-11T02:56:16Z`, not a newly evidenced code defect. Preserved ignored
+log SHA-256: `d3e3c2e4dca6307859d568a20c15ab4a9c198b1348ce98b425ee854b9c1f7743`.
+No incomplete gate is reclassified as PASS.
+
+Cleanup `56397` removed only the resolved generated integration database
+`singularity_test_d8d0d38f96ac1035bd8b6f09`, its generated root and the isolated
+extension database `singularity_search_109e44f80b782ae055979340`, after exact
+catalog checks and zero active connections. The integration database has a
+validated ignored custom-format recovery snapshot, SHA-256
+`56a2c85cfd9780442c4117d0cc7c27a2fdcdd42c2d22d362eb19f4143cd8cec3`.
+The extension database had already entered invalid deletion state
+(`datconnlimit=-2`) during interruption: its attempted export failed and produced
+only an empty artifact. That temporary extension fixture is **not backed up**
+and can only be regenerated. The initial cleanup failure `98914` is retained;
+the corrected cleanup completed exit 0, verified zero nondefault databases,
+absent integration root and stopped owned PostgreSQL. Production data was not
+accessed or removed.
+
+Separately, failed gate `85871` exposed actual ACL residue in the Organization
+test fixture. Its `with_web_issued_select` helper first grants web SELECT with
+grant option through the owner. When RequestRepo is absent before native-web
+setup, both the setup and first cleanup calls fail; that cleanup exception
+previously prevented owner restoration. This is a proven test-only containment
+defect, not the initial UploadReconciler cause.
+
+Independent bounded design review found nested cleanup appropriate. The
+parent owns only the Organization SQL test, active plan and this report. Two
+new actual PostgreSQL contracts separately cover table and column setup failure,
+capture exact complete ACL inventory/configs/database identity and initially
+running Runtime/repositories, stop Runtime inside an armed teardown, require
+the existing repository-not-started error and prove the callback was uncalled.
+The test's protected teardown restores the known owner baseline **before**
+restarting Runtime, with another `after` so either failure cannot prevent the
+other cleanup. Fresh PIDs are not compared.
+
+**RED** `90718`, exit 2, proved both expected inventory mismatches: table SELECT
+retained grant option, or `asset_object_id` column SELECT retained grant option.
+All prior checks reached the exact inventory assertion, and protected teardown
+restored original state. It reported 23 tests/two failures/21 excluded in
+2.7 seconds, seed `215378`. The minimum helper repair nests only the existing
+native-web revoke in `try/after`, retaining the unchanged owner restoration and
+complete-inventory assertion. **GREEN** `41297`, exit 0, passed both actual
+contracts: 23 reported/zero failures/21 excluded in 2.5 seconds. Exact focused
+command, used before and after the helper repair:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs:520 --seed 215378
+```
+
+Existing native grant/revoke, isolated-database checks, unsupported-grant
+preflight, complete table/column grantor/PUBLIC/grant-option inventories and
+all earlier assertions remain unchanged. There is no CASCADE, rescue,
+production change, migration, new privilege, Vault/custody change or timeout
+increase. This covers setup failure **before** a downstream web-issued grant
+commits, not Runtime loss after such a grant. Actual failed Sol repair rounds
+and Astra repair attempts for this distinct defect remain zero.
+
+Full five-file owning Storage run `19301` completed **PASS**, exit 0: all
+142 tests passed in 104.7 seconds, seed `215378`, with warnings-as-errors.
+All five paths are actual owning files; there was no unmatched-path warning:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs --seed 215378 --warnings-as-errors
+```
+
+Static/cleanup `73691` completed **PASS**, exit 0: owning formatter, complete
+format check, warnings-as-errors compile, xref **No cycles found**, whitespace,
+zero nondefault databases and all four generated integration roots absent.
+The formatter normalized only two equivalent capture-parenthesis expressions
+in the new tests. Complete post-format Organization run `53958` passed all
+23 tests in 8.4 seconds, exit 0, seed `215378`, with warnings-as-errors:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs --seed 215378 --warnings-as-errors
+```
+
+Parent verified owned PostgreSQL PID/socket absent and unchanged protected
+main/Phase2/Phase3 heads, plus the
+preserved untracked Phase2 plan's original SHA-256. No service/test remains.
+
+Actual-source independent SPEC followed by fresh QUALITY, narrow local commit,
+re-bound whole-source reviews and complete new clean-source README gate remain
+pending. Existing four
+QUALITY partition receipts on `b1517dc4` provide only historical source evidence:
+unchanged files may carry by exact hash equality, while this changed
+Organization test requires fresh closure. Phase4 remains **NOT ACCEPTED**;
+Phase5 execution is pending; E2E stays **NOT RUN**. Nothing here authorizes
+publication or production activation.
+
+The bounded containment subsequently completed fresh independent actual-source
+**SOURCE SPEC PASS**, plus **whole-source SPEC rebinding PASS**, in `60351`,
+thread `01a128eb-fb37-7ae2-b1af-a17a80e6cdbd`, with zero actionable P0–P2
+findings. The reviewer read all three files through EOF (954/708/2870 lines),
+all repair diffs (292 lines) and complete cumulative diffs (4550 lines), and
+audited the old 16-partition/111-file coverage. Exactly 109 prior source hashes
+are unchanged; only this test and active plan differ, for 111 source files and
+69820 lines, plus the separately covered evidence report. No execution PASS
+was carried from an older candidate.
+
+SPEC found one lesser snapshot-digest transcription error in this report.
+The parent corrected only that literal to the actual retained artifact's full
+SHA-256. Independent native actual SOURCE metadata closure from
+`/root/acceptance_document_roles_diagnosis` verified the exact one-literal diff,
+actual artifact digest, unchanged test/plan/all111 hashes and final identity;
+the lesser concern is closed. SPEC result SHA-256:
+`f570e182ef0b7372ad079628bab9e98734496892d1c0baacd361115b4a05b83d`.
+The actual native closure receipt SHA-256:
+`cf5e4cd12c5065b330f4368f0209a74c352484c15c356f6e66f90e6e0a1aac3e`.
+
+Separate fresh **QUALITY PASS** `13108`, thread
+`01a128f3-42e3-7710-a91b-bc727e696b99`, completed the same three full actual
+files and repair/cumulative diffs, independently traced owner/scoped callers
+and Runtime lifecycle, verified SPEC and the metadata closure, and reported
+zero actionable P0–P2 findings and no remaining lesser concern. All commands
+finished; recovered exploratory lookup/output errors left no coverage gap.
+QUALITY result SHA-256:
+`33bc4088e4d359f6f4fe9b299d1dfd7ffe550e9b7d99d1c85be61dd6488c0510`.
+
+Before and after both actual-source rounds, HEAD stayed `b1517dc4`, tracked
+status contained exactly these three changes, all111 v4 checks and both
+whitespace checks passed. Manifest SHA-256:
+`933a3f173f0ff6fabbf1b83b942765bee6e9c1e5e83cfb124d5e1da25690de10`.
+The corrected report snapshot reviewed by fresh QUALITY was
+`b476d271d234acf16de070d5677aeb8ce6dab0c6ad9e4b5ab3129770e0b948b4`;
+this subsequent verdict-only recording changes no reviewed test/plan source.
+Remaining whole-source diagnostics/governance QUALITY will inspect the full
+current evidence file, not a stale snapshot.
+
+The parent may make the narrow three-file local containment commit. Four
+remaining complete QUALITY partitions, a fresh cross-module overall QUALITY,
+and the entire permitted README gate on that exact clean candidate still
+block Phase4 acceptance. The first UploadReconciler cause stays UNKNOWN; the
+containment repair does not establish a production startup fix. No failed Sol
+repair or Astra round is consumed. Phase5 remains pending; E2E **NOT RUN**.

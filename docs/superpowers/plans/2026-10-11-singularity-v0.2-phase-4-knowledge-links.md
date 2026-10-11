@@ -658,6 +658,35 @@ constraint waiver. Run the owning schema/grants/RLS/privacy/sealing suites,
 actual independent SPEC followed by fresh QUALITY, then the complete permitted
 clean-source gate. Preserve the old gate and failed review as historical evidence.
 
+ACL fixture setup-failure containment: complete-gate `85871` first failed while
+restarting Runtime's UploadReconciler and then cascaded through unavailable
+repositories. Its initial `storage_unavailable` cause remains UNKNOWN; an
+unchanged focused replay is not a production repair. Separately, the
+Organization fixture's first native-web cleanup call could fail before its
+owner ACL restoration, leaving grant options behind. Repair only
+`postgres/organization_repository_test.exs`, this plan and the acceptance report:
+
+1. Add real PostgreSQL table and column setup-failure contracts before repair.
+   Capture complete ACL inventory, repository configs, database identity and
+   initially running Runtime/repositories. Stop Runtime inside an armed teardown,
+   require the existing RequestRepo-not-started error and an uncalled callback,
+   then compare the entire inventory. Restore the known owner baseline before
+   restarting Runtime, with nested teardown so either failure cannot skip the
+   other cleanup. Do not compare restarted PIDs.
+2. Nest the existing native-web revoke in `try/after` so the unchanged owner
+   restoration and complete-inventory assertion always execute. Preserve error
+   propagation, isolated-database checks, native grant/revoke, unsupported-grant
+   preflight and every existing assertion; no CASCADE, rescue, production change,
+   new privilege, migration, Vault work or timeout increase. This contract covers
+   setup failure before a downstream grant commits, not subsequent Runtime loss.
+3. Record deterministic RED and GREEN, run all five owning Storage files and
+   static checks, then actual-source independent SPEC followed by fresh QUALITY
+   before a narrow local commit. Rebind prior source receipts only by unchanged
+   hashes and explicitly close the changed Organization test's coverage. Retain
+   the original full-gate FAIL and interrupted rerun as separate evidence; neither
+   is PASS. Run the entire permitted README gate on the new clean candidate and
+   finish whole-source review before acceptance. E2E remains NOT RUN.
+
 - [ ] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and
   every failed attempt honestly. No E2E, assertion waiver or timeout increase.
