@@ -461,6 +461,18 @@ Sealed-set insertion, immutable identity, lifecycle, FK, CHECK and completion
 constraints stay enabled. In particular no rewriting deleted rows as live,
 inventing extraction attempts, or temporary replacement of canonical digests.
 
+Task6 necessary work-validator correction: an actual authenticated complete
+history restore reached the private extraction payload validator and raised
+SQLSTATE42702 because its local `resource_id` conflicts with table columns.
+Add only forward migration `20261011000410_knowledge_restore_work_validation.exs`
+to replace `audit.knowledge_restore_payload_is_valid(core.outbox_events)` with
+an unambiguous local name. Preserve its complete existing value predicates,
+signature, private owner/ACL, SECURITY INVOKER and pinned search path. Do not
+change accepted00300, generic outbox behavior, runtime grants, admission
+authority or any Vault/custody substrate. The genuine complete-history
+payload, graph, all38 digests/seals, explicit validation and actual COMMIT
+remain required; independent review includes this additive compatibility fix.
+
 Import stages inside one canonical transaction are:
 
 1. Lock/check the union of V1/V2/V3 canonical tables plus excluded/derived

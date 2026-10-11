@@ -2,8 +2,8 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks0–4 locally accepted; Task5 qualified for local commit.**
-Phase5 as a whole is not accepted; Tasks6–19 remain required. Phase5 has its own
+**IN PROGRESS — Tasks0–6 locally accepted; Task7 canonical import is next.**
+Phase5 as a whole is not accepted; Tasks7–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
 `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Phase4's exact tested implementation
@@ -1702,3 +1702,498 @@ clean main/Phase4 and protected Phase2 user-plan bytes. Ignored evidence/private
 cluster is not staged. Failed production Sol repair rounds0; test correction1
 succeeded; Astra0. Task6 starts only after the local Task5 commit. No Vault
 feature work, publication or activation; E2E NOT RUN.
+
+## Task5 qualified local commit; Task6 causal test preparation starts
+
+Parent staged exactly the four reviewed source paths and three owning
+design/plan/report paths. Cached name/stat and diffcheck verified seven paths,
+4,014 additions/53 deletions; no ignored execution artifacts, cluster or
+unrelated files were staged. Local conventional commit ended normally0:
+`4f9cf6a91a80e1cdb7213d0cd942be96d69d982a`,
+`feat(restore): bind historical admission to maintenance transaction`.
+Immediate HEAD/status verification confirmed that exact commit and clean
+worktree. Main/Phase4 and the protected Phase2 plan remain unchanged. The owned
+PostgreSQL maintenance query ended normally0 with no allocated test databases;
+the isolated cluster remains available for serial later task checks.
+
+Task6's new test author completed read-only preparation: all six plan-required
+released migrations,2,159 lines; full existing admission test,1,787; full
+unchanged fixture helper,1,193; complete design §7/8 and Task6 checklist.
+After Task5 dependency qualification the parent authorized only the new
+historical-admission test. The new00400 migration author remains read-only
+until actual causal RED completes. Source-backed isolated cases distinguish
+deleted Document/Asset/released association, ready-fragment seal, deferred
+deleted Note source and tombstoned organization guards; full history follows.
+Each captures genuine authenticated source expectations before a different
+fresh destination, with literal independent count vectors and retained private
+encrypted bytes/fresh Replay. No test, historical guard or Task6 acceptance has
+executed yet. Runtime/unbound writes, sealed sets and all immutable/FK/CHECK/
+completion constraints remain closed/on. Parent execution is serialized.
+Task6/Phase5 remain incomplete; no Vault feature work, publication or activation;
+E2E NOT RUN.
+
+## Task6 stopped test-author handoff and first execution start — outcome pending
+
+The author stopped all writes after adding only
+`knowledge_historical_admission_test.exs`,923 unformatted lines/15 groups,
+SHA `4c2de5d4b46389675a58bc01e4121c1858d00005a422bd320fc72ffadedefbbe`.
+Pre-execution source self-review preserved exact finalizer messages, web-only
+sealed-set visibility (Worker has no seal SELECT policy), exact temporary ACL
+restoration, literal outbox `OVERRIDING SYSTEM VALUE` and fresh authentication
+for every bound rollback attempt rather than reusing a consumed Replay. Parent
+removed only the newly added unused Digest alias; no contract assertion changed.
+Single-file formatter11856 ended normally0, leaving1,782 lines, SHA
+`c96b674f45249f58d79e6120b04cc8cc4fef99a8c2e1a01e8d9f87fc55102b8f`.
+
+The five genuine groups have literal38-entry count vectors totaling29 deleted
+Document,29 ready-fragment,24 Note-source,26 organization and114 complete
+history rows. They capture all38 expectations in authenticated source staging
+before a different fresh destination; retained encrypted artifacts are private
+0700/0600 and reauthenticated through fresh Reader/Replay. Normal source seed,
+claim/completion, member sealing and organization commit precede tombstoning.
+Negative probes track exact intended statements/constraint names; selected
+Note-source checks execute separately before the complete fixed32 ordinary
+constraints, whose final loading-state forcing never includes the admission
+final queue. Actual-COMMIT tests require the callback to return normally first.
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_historical_admission_test.exs --seed 215378 --warnings-as-errors
+```
+
+Parent started session38732 against accepted Task5 source with new00400 absent.
+The outcome is pending, not RED/GREEN or historical acceptance. Migration author
+has completed read-only full-six-migration preparation and remains stopped
+until this actual causal execution completes. No production implementation or
+failed repair round exists yet; source-only self-checks are not failed executed
+repairs. Task6/Phase5 incomplete, no Vault changes, publication or activation;
+E2E NOT RUN.
+
+## Task6 actual first run FAIL — test assembly, not historical guard RED
+
+Session38732 ended normally **exit2**,128.6 seconds, **15 executed/15 FAIL**,
+no excluded groups. All five source groups completed authenticated preparation
+and independent count expectations, but no historical destination acceptance
+is proved. Fourteen groups failed at the early cleanup-membership FK or their
+causal/callback assertions correctly detected that early fixture failure; the
+runtime group failed on an already-started repository before runtime probes.
+These failures are not the required four causal historical-guard REDs, and no
+actual-COMMIT rejection is claimed. New00400 remains absent, not authorized
+for implementation by this run.
+
+Complete five collected chunks,28,660 characters, are retained in
+`.devenv/phase5-task6-first-setup-fail.log`, SHA
+`bf67e1593e538152b335c2be846061c6119c1775910b4627847a06daa82020eb`.
+Parent verified unchanged formattedtestSHA `c96b674f…102b8f`, normal allocated
+root `/tmp/singularity/integration/69de1f9f90c35b329c641498` absent and private
+cluster maintenance query empty. Original failure evidence is not overwritten.
+
+Source-backed diagnosis isolates two test-only assembly defects:
+
+- `insert_graph` inserts original `core.vaults.object_cleanup_principal_id`
+  before its required membership. Existing Restorer2699–2706 temporarily inserts
+  NULL and2781–2804 restores the exact source pointer after canonical groups.
+  Mirror only this established compatibility ordering, retain final original
+  pointer and all38 expected digests; no Vault semantics or source bytes change.
+- Nested `KnowledgeFixtures.source!` invokes `Fixtures.with_owner` and starts
+  MigrationRepo again while `KnowledgeBackupFixtures.with_destination` already
+  owns it. Seed a complete actual foreign-owner typed Note with normal SQL in
+  the same allocated database, using the existing active owner repository;
+  preserve both actual runtime cross-owner rejections, no fake/nonexistent
+  target, new repository, session/custody or production policy change.
+
+After normal completion/cleanup the original test author received bounded
+test-only correction1 GO. Keep all15 groups, literal counts, authenticated
+source expectations, exact named errors, callback-return/actual-COMMIT proof,
+fresh Replay and exact ACL restoration. Parent reruns the whole corrected
+file before any migration GO. Initial new-test FAIL is recorded separately;
+there is no executed repair validation or failed Sol repair round yet, Astra0.
+Task6/Phase5 remain incomplete, no Vault feature work/publication/activation;
+E2E NOT RUN.
+
+## Task6 stopped assembly correction1; complete causal rerun started
+
+Original author stopped writes after changing only the new test,1,876 lines,
+15 groups, SHA
+`268012c2ea80ca81a929456e5cf9355180d866ef533956ca6406218b6028df32`.
+Parent's single-file formatter92205 ended normally0 and retained that same
+hash. `core.vaults` initially receives only NULL cleanup pointer; all native
+groups are then inserted, the exact original source pointer restored with
+one-row/exact-value assertions, and source seals/ordinary forcing follow.
+No raw source, literal counts or38-digest expectation was rewritten.
+
+The runtime counterproof now commits a complete foreign owner/person/account/
+principal/member and typed live Note/head/empty seal in the same active owner
+repository/database. It independently asserts joined owner/member/head/seal
+identity after commit and retains both actual Web/Worker foreign-source and
+organization rejections with correct Note target kind. No nested repository,
+fake/missing target, synthetic session, helper or production policy change.
+All fifteen groups and named/callback/ACL assertions remain intact.
+
+Parent rechecked new00400 absent and started the unchanged complete command
+in session97009. Outcome is pending: neither a corrected causal RED nor
+successful repair validation is claimed yet. Original setup-failure artifact
+remains retained. Test assembly correction1 awaits validation; unsuccessful
+repair rounds0/Astra0. Historical migration still waits for actual causal RED;
+no Vault feature work, publication, activation or E2E execution.
+
+## Task6 complete corrected causal RED and bounded source handoffs
+
+Session97009 ended normally **exit2**,93.2 seconds, **15 executed/15 FAIL**,
+no excluded groups, using the complete unchanged historical-admission command
+above with new00400 still absent. Assembly correction1 resolved the original
+cleanup-membership ordering and duplicate repository failures. The four
+isolated historical cases now fail causally at their exact creation-time
+guards: deleted Document `document_versions_source_check`, ready fragments
+`document_fragments_insert_state_check`, deleted Note attachment
+`note_attachments_source_check`, and tombstoned organization
+`resource_tags_resource_check`; each is SQLSTATE23514. The ready-fragment case
+passed the ordinary live-Asset Document INSERT first. Complete history fails
+at the same Document source guard. This qualifies the four required RED
+preconditions, not any historical acceptance or actual-COMMIT negative proof.
+
+Complete three collected chunks,30,100 characters, are retained in
+`.devenv/phase5-task6-corrected-guard-red.log`, SHA
+`7a25ed1b63ea90947f3ca5c85e3c4581a54646c501bd420e98b489ce127d57d0`.
+Parent confirmed the test hash unchanged, allocated root
+`/tmp/singularity/integration/b8ec7f2940ab269bbbf8f373` absent and no allocated
+test databases remaining. Original setup-failure evidence remains preserved.
+
+Two additional new-test probe defects remain separately unqualified: an
+unconditional exclusion query addresses optional absent
+`content.knowledge_mutation_receipts` (42P01), and a runtime source probe
+encounters42501 before its required named23514 guard. Neither is treated as
+historical guard proof. The test author received bounded diagnostic correction2
+while a separate author implemented only new00400 after the actual four REDs.
+There is no failed production repair round or same-defect failed test repair
+round; Astra0.
+
+Both authors stopped all writes. New00400 is364 lines, SHA
+`f2bbc8c80504512c00346835130bcd3e7148990497b861f2a7740a9d7c8f94bf`:
+exactly four CREATE OR REPLACE guard functions, no added SQL helpers, ACLs,
+triggers or policies. The test diagnostic handoff is1,900 unformatted lines,
+SHA `31677e805f6257c3a05cdb5d8810057dcd3b1163cdde6f8b38803adb077b0b21`.
+It retains all12 real excluded relations with exact cardinality, uniqueness,
+catalog existence and empty-count assertions; the optional relation is proved
+absent or, if present, empty. It adds only safe role/phase/error metadata to
+the unchanged runtime error assertion; no query, parameters or user content.
+All15 groups, literal count vectors, authenticated38-digest oracle, exact
+errors, callback proof and exact temporary ACL restoration remain intact.
+
+Parent explicit two-file formatter50451 ended normally0. New00400 hash is
+unchanged; formatted test hash is
+`ee38d3a44818f1d4e7db5369cc28a0fe9d665a77e626d754380cc47f3d986b81`.
+Parent started only the actual runtime group at `file:717` for diagnosis after
+both source authors stopped. Its result is pending and cannot substitute for
+the full15-group owning gate. Complete Note sealing/source owners were added
+to the planned gate because their normal guard branch is replaced. No source
+acceptance, Vault change, publication, production activation or E2E run.
+
+## Task6 causal runtime permission diagnosis — test-only prerequisite
+
+Isolated runtime session64546 ended normally **exit2**,30.6 seconds,
+**one executed FAIL/14 excluded**. Safe diagnostics causally identify the
+Worker role, `content.note_attachments` INSERT phase, SQLSTATE42501 and
+`permission denied for table note_source_set_seals` inside the unchanged
+SECURITY INVOKER `reject_sealed_note_source_insert()` BEFORE trigger. This
+does not prove the required deferred source guard. The four-function
+migration applied without reported migration failure, but no production
+contract or complete-file GREEN is claimed by this diagnostic run.
+
+Complete three chunks,2,918 characters, are retained in
+`.devenv/phase5-task6-runtime-permission-diagnosis.log`, SHA
+`a08d9f3cc8205cfaa5cc5160166462538f3c42dca7cc2f9dd3340daa04f40724`.
+Both formatted source hashes remained unchanged. The allocated
+`436f7f606e2e79e07f7929fc` root is absent; the serial maintenance query ended
+normally0 with no allocated databases. No parallel SQL/service execution.
+
+Released seal migration185–199 performs the invoker SELECT before the
+deferred source validator;323–327 permits SELECT only for Web. The test's
+temporary guard-exposure ACL matrix had omitted that read prerequisite.
+Bounded correction2 now adds only the explicit Worker seal SELECT permission
+to its exact before/after ACL capture and restoration. Worker forced-RLS
+default denial is unchanged; no seal write grant, policy, role membership or
+production privilege is added. Actual Web sealed-empty/nonempty proofs and
+both genuine runtime roles' historical source23514 assertions remain exact.
+The author owns only the new test, with no execution allowed. Full15 groups
+and complete established owners still require execution after stopped source
+handoff. This causal diagnostic is not a failed implemented repair round;
+same-defect failed Sol repair rounds0/Astra0. Task6/Phase5 remain incomplete;
+E2E NOT RUN, no Vault feature, publication or production activation.
+
+## Task6 stopped correction2; complete implementation run pending
+
+The test author stopped after adding exactly the separate permission tuple
+`{singularity_worker, content.note_source_set_seals, SELECT}` to the established
+temporary ACL capture/grant/revoke/final-equality matrix. No other permission,
+policy or role changed. Handoff is1,908 lines, SHA
+`c6a8b2dafc12248c26a334258db62ea581a28e2910cc0450d5d268d923722fea`.
+Parent formatter13967 ended normally0; formatted test SHA is
+`39c282eeb90cd45954fab7f574f6f1ea120574d2dd7cfa2a432cdd3847dc601b`.
+New00400 remains `f2bbc8c8…94bf`. Both exact hashes are retained in
+`.devenv/phase5-task6-initial-implementation.sha256`, without overwriting prior
+RED/diagnostic evidence. Parent started the **complete15-group** original
+command in session76369; result pending. Read-only preparation of future
+Task7 tests may proceed, but no Task7 implementation or Task6 acceptance
+precedes required owning gates and independent reviews. No Vault feature,
+production activation, publication or E2E execution.
+
+## Task6 initial complete implementation FAIL — two bounded diagnoses
+
+Session76369 ended normally **exit2**,354.1 seconds, **15 executed/2 FAIL**
+(13 PASS), no excluded groups. Complete output is retained in
+`.devenv/phase5-task6-initial-implementation-fail.log`, SHA
+`438be15c48d29b216f73adb571689ae193e02c2f9800fc00008688f334de4e13`.
+The two-source initial-implementation receipt still matches exactly. This
+executed gate is FAIL; Task6 and Phase5 are not accepted.
+
+The whole-history positive now passes historical INSERTs, fixed32 ordinary
+constraints while loading, all38 independent canonical count/digest assertions
+and complete seal identity/count assertions. Its final
+`KnowledgePreflight.validate_destination` returns generic `backup_invalid`,
+so graph/inventory/final acceptance is not proved. The adapter deliberately
+swallows SQL exceptions. Read-only source diagnosis identifies a concrete
+hypothesis: Task5's private payload validator declares local `resource_id`
+and uses that unqualified name against tables containing the same column at
+00300:892,901,913. Default PL/pgSQL ambiguity handling may raise42702. The
+complete fixture exercises actual `document.extraction_requested` work;
+isolated historical subsets omit work. A fresh genuine whole-history probe
+must confirm the exact SQL error before any forward correction. Accepted
+00300 is unchanged; no speculative production patch or workaround exists.
+
+The ten-case bound immutability group exceeded the default60-second timeout
+while repeatedly authenticating fresh Replay and validating all38 summaries
+in separate fresh destinations. This is not proved to be a database deadlock.
+Bounded test correction3 separates these same ten independent cases into ten
+ExUnit tests, preserving all15 semantic groups (24 executable tests), default
+timeout, fresh owner-bound source/destination/replay, exact guard/phase and
+rollback assertions. It removes no assertion or operation and does not raise
+the timeout. Content-free SQL diagnostic metadata will identify the hidden
+whole-history rejection using actual prepared rows, not fabricated input.
+
+Normal main allocated root `aa2662e0847fb0ea54b73a67` is absent. Timeout left
+one privately allocated database `singularity_test_57fe07c4863c62453a880c10`;
+parent verified migration ownership, zero sessions and zero canonical
+resources. Its exact private0700 filesystem root was moved recoverably to
+`.devenv/phase5-task6-timeout-retained-57fe07c4863c62453a880c10`. Only that
+empty test database was dropped, normal0; subsequent serial maintenance query
+returned no test databases. No production/shared database or unrelated file
+was touched. Initial execution is baseline failure, not a failed implemented
+repair round; same-defect failed Sol repair rounds0/Astra0. Author owns only
+the new test and executes nothing. Production correction, complete GREEN and
+non-author reviews remain pending. E2E NOT RUN; no Vault feature/publication/
+activation.
+
+## Task6 actual whole-history SQL ambiguity RED; additive repair authorized
+
+Test author correction3 stopped with1,971 lines, SHA
+`a0a3bf72342ba8ffec7b13e92a87f8707823baf06c595aed4ad293bcdd743783`;
+parent formatter5571 ended normally0 and retained that hash. All ten exact
+bound mutation cases are now independently generated tests, with the two
+sealed-empty/nonempty append probes preserved in separate fresh destinations.
+The complete file compiles24 tests; no timeout override. Preconditions were
+strengthened with literal114/all38 digest/seal checks before each mutation.
+The whole-history positive retains actual loading-bound fixed32 constraints,
+all38 summaries/seals, then safe savepoint-protected actual payload/graph SQL,
+followed by the unchanged adapter validation and actual COMMIT contract.
+
+Parent isolated diagnostic94926 ended normally **exit2**,17.4 seconds,
+**one executed FAIL/23 excluded**, exactfile:362. It causally reports the
+actual genuine prepared extraction row's private SQL validator:
+`ambiguous_column`, SQLSTATE42702, generic message
+`column reference "resource_id" is ambiguous`. This confirms the source-backed
+hypothesis without fabricated rows or content/parameters in diagnostics.
+Complete output is retained in `.devenv/phase5-task6-payload-ambiguous-red.log`,
+SHA `8b48c8b4c430453837c1a52be9d4bef157a5d6d6f49c955330e85426f95401cd`.
+Allocated root721f58e8764f97ba073a278d is absent; serial maintenance query
+ended normally0 with no allocated databases. Test and new00400 hashes stayed
+unchanged. The other23 cases were excluded by this diagnostic selector, not
+claimed passing; full24 execution remains required.
+
+Design §7 and Task6 plan now record the necessary additive forward repair
+00410, replacing only the private payload helper's ambiguous local resource
+variable. Full value predicates, signature, ownership/ACL, SECURITY INVOKER
+and pinned search path stay intact. Accepted00300 and all frozen sources
+remain unchanged; no generic outbox, runtime grant, admission authority or
+Vault/custody change. Production author receives this one-file GO after actual
+causal confirmation. No implemented repair validation has failed; same-defect
+failed Sol rounds0/Astra0. Complete owning/regression/static/frozen gates and
+actual independent SOURCE SPEC then fresh separate QUALITY remain pending.
+Task6/Phase5 not accepted; E2E NOT RUN, no publication or activation.
+
+## Task6 stopped forward repair1; complete seven-file owning gate pending
+
+Production author stopped all writes after adding only new00410,106 lines,
+SHA `fc9bdad8e04398c0f3b2d4471dfbddb5a247f24d215208d0f5288de5c5e3e2a5`.
+Exactly one private payload function is replaced. Its complete body normalized
+by reversing only the local-variable rename and CREATE OR REPLACE prefix has
+zero differences from accepted00300. Owner/ACL, signature, STABLE SECURITY
+INVOKER, pg_catalog search path and all exact predicates are retained. No
+helpers, grants, policies, triggers, settings or trusted substitutes added.
+The author ran no Mix/formatter/tests/SQL/services/Git mutations and self-read
+all106 lines. Task5 four-file and all56 frozen receipts remained unchanged.
+
+Parent explicit three-file formatter82004 ended normally0, retaining all
+three hashes in `.devenv/phase5-task6-repair1.sha256`: new00400 `f2bbc8c8…94bf`,
+new00410 `fc9bdad8…e3e2a5`, complete24-case test `a0a3bf72…743783`.
+The original initial-implementation receipt/FAIL/RED logs remain unmodified.
+The planned full owning gate now includes the complete private-admission owner
+as the sixth established file because the necessary repair replaces its
+payload helper. Together with the new historical file, all seven files run:
+
+```sh
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_historical_admission_test.exs apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs --seed 215378 --warnings-as-errors
+```
+
+Session87296 is in progress against the serial owned socket-only cluster;
+outcome pending. This is bounded production repair1, not yet validated or
+failed; same-defect failed Sol rounds0/Astra0. DDL/legacy, static, frozen
+verification and actual independent full SOURCE SPEC→fresh QUALITY also
+remain required. No source acceptance, Vault feature work, publication,
+production activation or E2E run.
+
+## Task6 actual complete seven-file owning GREEN
+
+Session87296 ended normally **exit0**,745.0 seconds, **206 executed/0 failures**,
+no excluded cases. This executed the complete24-case historical file and all
+six established owning files in the exact command above, including private
+admission. All four isolated historical positives and complete history now
+commit; whole history passes actual extraction payload/graph validation,
+all38 independent digests, exact seals, explicit validation and actual COMMIT.
+The ten split mutation cases and both sealed append probes pass under the
+unchanged default timeout. Actual Web/Worker, wrong/unbound/malformed source,
+ordinary lifecycle/retained-source/organization, native completion/immutability/
+seal/uniqueness/FK, missing validation and equal-count post-validation actual
+COMMIT rejections all remain enforced. This is bounded test/SQL-contract
+evidence, not live runtime custody or final V3 import/default activation.
+
+Complete collected output,13,417 characters, is retained in
+`.devenv/phase5-task6-repair1-owner-green.log`, SHA
+`d44f2a9b76bb5f14f6711fd3d9be61cab59e4fefe8fa72e5d5de81cda9d9a622`.
+All three repair1 source hashes remained unchanged. Allocated main root
+`95a2117164a27d2d96723c8c` is absent; serial private maintenance query ended
+normally0 with no allocated databases. The earlier timeout's retained files
+remain recoverable; no further leaked database is present.
+
+The actual private payload repair1 and split-case test correction both pass
+their full owning verification; failed same-defect Sol rounds0/Astra0.
+Remaining DDL/legacy/pure/static/frozen checks and formal independent SOURCE
+SPEC→fresh separate QUALITY still gate Task6 acceptance and local commit.
+Parent started the unchanged complete V3-DDL/legacy SQL command in24203;
+result pending, and its selected non-SQL exclusions remain required later.
+Task6/Phase5 not yet accepted. E2E NOT RUN; no Vault feature, publication,
+merge/push, default activation or production activation.
+
+## Task6 actual V3-DDL and legacy SQL regression GREEN
+
+Unchanged complete V3-DDL/legacy command24203 ended normally **exit0**,
+9.6 seconds: **20 reported/0 failures/5 excluded**,15 actual SQL cases
+(V3-DDL6 and legacy restore9). The five selected non-SQL V1 cases are not
+claimed executed here and remain required in the following pure run.
+Complete output is `.devenv/phase5-task6-legacy-ddl-green.log`, SHA
+`853d8331c6d90bdb66b42ce229ed51404ded92617fa4ec2d465421a30327275b`.
+Allocated root4d2d23cdcf8381234f426c58 is absent; serial maintenance query
+ended normally0, no allocated databases. No legacy decoder/import source or
+released migration changed. Parent started the unchanged complete ten-file
+pure/downstream command in38534; result pending. Formal source SPEC, separate
+fresh QUALITY and local acceptance remain pending; E2E NOT RUN.
+
+## Task6 actual pure/static GREEN and frozen source for formal review
+
+Complete unchanged ten-file pure/downstream command38534 ended normally
+**exit0**: Core72/0, Storage51/0, Runtime26/0, Web37/0 — **186 tests/0 failures**.
+No selected cases were excluded; all five non-SQL V1 cases omitted by the SQL
+runner executed here. Full output is `.devenv/phase5-task6-pure-green.log`,
+SHA `41493f91aaba8ba6b368b2303fde678e47c2db6c6e37054c5dbc26754a227e2d`.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix do format --check-formatted, compile --warnings-as-errors, xref graph --format cycles --fail-above 0
+```
+
+Static11925 ended normally **exit0**, format check and warning-as-error compile
+passed, xref **No cycles found**. Full output is
+`.devenv/phase5-task6-static-green.log`, SHA
+`9a3dc75733d125ec6bcaf065db2d08ac31e68d2bdad931fe05703e4bd4ba9e02`.
+All56 frozen baseline entries and diffcheck pass. All three exact source hashes
+match `.devenv/phase5-task6-repair1.sha256`, SHA
+`6b7a5be644454ea448f1e51c48de24041b740cc52cd23699449d418ddf0131ef`.
+No source changed after its owning GREEN; seven-application graph unchanged.
+
+The actual seven-file owning206/0, legacy/DDL15 SQL/0 plus all five pure
+exclusions covered, pure/downstream186/0 and full static checks are now GREEN.
+Actual non-author SOURCE SPEC has independently read all three2,441 source
+lines, six original2,159 lines and full unchanged Task5 admission1,499 lines,
+and original failure/RED artifacts; its formal verdict awaits these final
+execution artifacts and this doc snapshot. It found no deviation so far,
+not yet formal PASS. A fresh separate non-author SOURCE QUALITY follows only
+after SPEC closure. No Task6 commit or acceptance is claimed yet; Phase5 and
+canonical V3 import/default activation remain incomplete/closed. E2E NOT RUN;
+no Vault feature work, merge/push, publication or production activation.
+
+## Task6 actual independent SOURCE SPEC PASS; separate QUALITY pending
+
+The independent non-author SOURCE SPEC reviewer returned DONE — SPEC PASS,
+no findings, after directly reading all three new source files (2,441 lines),
+all six prerequisite released migrations (2,159 lines), the unchanged Task5
+admission migration (1,499 lines), governing Task6 design/plan and all nine
+complete execution artifacts. The review independently normalized the entire
+00410 definition against accepted00300, confirming only the local-variable
+rename and CREATE OR REPLACE prefix differ. Native constraints, ordinary live
+and retained-source behavior, authenticated source-before-destination oracles,
+fresh Replay/destination ownership, actual statement/COMMIT failure phases,
+test-only restored permissions and all required exclusions were reviewed.
+
+Actual native verdict is retained in
+`.devenv/phase5-task6-source-spec-native-verdict.md`, SHA
+`792f8e494423ff67cb05fda56f571fa2a6c9f0308fdd7018e743dfaba7604f35`.
+Its reviewed documentation snapshot was design `6006569f…b878b`, plan
+`c2918f7b…1c8c9b` and report `4459a725…64d9e4` through line2,130. This appended
+receipt is a later documentation-only change, not retrospectively claimed
+read by that reviewer. All three tested source hashes remain unchanged.
+
+The formal SPEC verdict inspected owning206/0 without exclusions, legacy/DDL
+15 actual SQL/0, pure/downstream186/0 including all five non-SQL V1 cases,
+normal-exit static checks with zero xref cycles, frozen56 and Task5/Task6
+receipts. It performed no source mutation, tests, SQL, service, formatter,
+commit or publication. Failed same-defect Sol rounds0/Astra0. A fresh separate
+non-author SOURCE QUALITY reviewer is required next; Task6 acceptance and local
+commit remain pending. No Task7 implementation or phase acceptance yet.
+E2E NOT RUN; no Vault feature work, V3 default/production activation or
+merge/push/publication.
+
+## Task6 actual separate SOURCE QUALITY PASS and local acceptance
+
+The fresh independent non-author SOURCE QUALITY reviewer returned DONE —
+QUALITY PASS, no findings. It directly read all2,441 new source lines,
+all2,159 released prerequisite lines, all1,499 Task5 admission lines, governing
+Task6 docs, report through line2,161, actual SPEC verdict and all nine complete
+execution logs. It independently compared the complete normalized00410/00300
+definitions (6,510-byte extracted definitions, identical SHA
+`57ee10f7d8fa1b7eee2239622e0906bed70e9d44c679cd48e8ac8e1bb8581084`).
+It found the private authority, lock ordering, historical provenance checks,
+ordinary live behavior, all native constraints, exact failure phases, source
+oracles, authenticated Replay and restored test permissions intact.
+
+Actual native QUALITY verdict is retained in
+`.devenv/phase5-task6-source-quality-native-verdict.md`, SHA
+`542d476716a1e28231ffcbd7a3307a9c1d235aa3f04259f018b79eaf8e67cd31`.
+Its final reviewed design/plan hashes match SPEC's; report snapshot is
+`e5b6dc5ad47f67c5bb83cfda3fe1ca8162bdd6bf3a9abe10efcf89d6f6dd0b6a`.
+Subsequent status/checklist/review-receipt edits are documentation only;
+all three tested production/test sources remain frozen at repair1 hashes.
+The conventional commit subject is shortened from the planned74 characters
+to fit the existing under72-character guideline, without changing scope.
+
+Both reviewers inspected actual owning206/0 without exclusions, legacy/DDL
+15 SQL/0, pure/downstream186/0 including all five omitted non-SQL cases and
+normal static format/compile/xref0 evidence. Parent reread evidence and verified
+Task6/Task5/frozen56 hashes, empty index, exact six-path scope and diffcheck.
+Private maintenance22d551 ended normally0 with no allocated test databases;
+protected main/earlier-worktree identities and the unrelated Phase2 plan hash
+remain unchanged. Reviewers ran no tests/SQL/services/mutations/publication.
+
+Task6 is locally accepted and ready for its scoped local commit; Task7 may
+start only after that commit is verified. Failed same-defect Sol rounds0,
+Astra0; no escalation required. Phase5 overall and V3 canonical import/default
+remain incomplete/closed. E2E NOT RUN and still required for final browser/
+release acceptance. No Vault feature work, production activation, merge, push,
+version bump, tag, release, deployment or production-data change.

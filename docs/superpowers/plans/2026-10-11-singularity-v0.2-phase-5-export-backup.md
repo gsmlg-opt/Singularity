@@ -768,7 +768,8 @@ full static/no-cycle gate completed. Fresh non-author full SOURCE SPEC followed
 by separate fresh full SOURCE QUALITY returned PASS with no findings, reading
 all four source files,5,044 lines. Exact receipts, native verdicts, original
 failures, commands, cleanup and counters are in the acceptance report. The
-parent now prepares only the seven-path local commit; Phase5 remains incomplete,
+parent committed exactly seven paths locally at
+`4f9cf6a91a80e1cdb7213d0cd942be96d69d982a`; Phase5 remains incomplete,
 Task6 historical guards and canonical V3 import/default remain closed.
 
 ## Task 6: Narrow historical guard branches with live constraints intact
@@ -779,18 +780,18 @@ Task6 historical guards and canonical V3 import/default remain closed.
 `20260922000100`, `20261011000000`, `20261011000200` migrations in full.
 **Depends on:** Task 5.
 
-- [ ] Add RED real SQL insertion cases restoring a deleted Document whose source
+- [x] Add RED real SQL insertion cases restoring a deleted Document whose source
   Asset is deleted, association released and Asset object pointer null; exact
   ready version/fragments; historical deleted Note targets; tags/edges on
   tombstoned endpoints. Add identical attempted live-runtime cases that fail.
-- [ ] Run the historical-admission file before the forward migration; expected
+- [x] Run the historical-admission file before the forward migration; expected
   RED is the current creation-time live/ready seal guard, not a failed FK ignored
   by the test. Implement explicit restore validators within these four functions:
   `content.enforce_document_source`, `content.enforce_document_fragment`,
   `content.enforce_note_source_set`, `content.enforce_knowledge_organization_resource`.
   Preserve normal branch behavior and all immutable/FK/CHECK/completion guards.
   There is no broad early `RETURN NEW`, trigger-disable or live-row rewriting.
-- [ ] Historical Document admission checks source Asset/version/association
+- [x] Historical Document admission checks source Asset/version/association
   identity and owner/type agreement independently of current release/liveness;
   compare retained object/size/classification to immutable pin. Historical ready
   fragment INSERT requires exact admitted version and canonical digest/locator;
@@ -798,17 +799,48 @@ Task6 historical guards and canonical V3 import/default remain closed.
   source/fragment/locator/owner/kind/ordinals and seal binding, never substitutes
   a current head. Organization history checks exact typed endpoints and pinned
   versions with all natural uniqueness retained.
-- [ ] Assert actual runtime SQL still cannot append to ready fragments, sealed
+- [x] Assert actual runtime SQL still cannot append to ready fragments, sealed
   empty/nonempty sets, link deleted sources, change immutable pins or create
   organization edges on deleted endpoints. Wrong object, wrong source identity,
   cross-owner, missing fragments or unbound migration transaction also fail.
-- [ ] Run the new full file plus complete lifecycle/source/organization owners:
+- [x] Run the new full file plus complete lifecycle/source/organization owners:
 
 ```sh
-devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_historical_admission_test.exs apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs --seed 215378 --warnings-as-errors
+devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/knowledge_historical_admission_test.exs apps/singularity_storage/test/singularity/storage/document_lifecycle_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_storage/test/singularity/storage/note_source_set_sealing_test.exs apps/singularity_storage/test/singularity/storage/postgres/note_sources_test.exs apps/singularity_storage/test/singularity/storage/backup/knowledge_restore_admission_test.exs --seed 215378 --warnings-as-errors
 ```
 
-  SPEC then QUALITY, commit `feat(restore): validate historical knowledge without weakening live guards`.
+  SPEC then QUALITY, commit `feat(restore): validate history without weakening live guards`.
+
+The Task6 owning gate includes the complete established Note source-set sealing
+and Note source repository files, not selected cases. Replacing their source
+guard requires direct retained-source/merge/order/seal regression coverage as
+well as the original Document/organization owners. This is a verification-only
+amendment; no established assertion or source file is changed. The isolated
+private PostgreSQL wrapper serializes parent-owned execution. E2E is NOT RUN.
+
+The first complete implementation run executed15 tests, with13 passing and
+two failures. The new test's ten independent bound-immutability cases are
+split into ten ExUnit tests under the unchanged default timeout, retaining
+all15 semantic groups, both sealed-append cases, all native mutation/error/
+phase/rollback assertions and fresh authenticated source/destination for
+every operation. The full file will therefore execute24 tests. A content-free
+owned SQL diagnostic must expose the complete-history adapter rejection before
+any production correction; matched38 digests and seals alone are not acceptance.
+If the source-backed private payload-variable ambiguity is confirmed, use a
+new forward migration rather than editing accepted00300. The intended change
+is only unambiguous local-variable binding, with its existing private ownership,
+ACL, security, search path and value predicates preserved. Record actual RED,
+the necessary repair amendment and full subsequent regressions/reviews.
+
+The actual whole-history diagnostic94926 confirmed SQLSTATE42702 on the
+private extraction payload validator. Create only additive forward
+`20261011000410_knowledge_restore_work_validation.exs`: replace the existing
+private `audit.knowledge_restore_payload_is_valid(core.outbox_events)` with
+an unambiguous local resource variable while preserving all value predicates,
+signature, ownership/ACL/security and pinned search path. Accepted00300 stays
+unchanged. Include new00410 in full source SPEC and fresh separate QUALITY;
+rerun the complete24-case historical file and all six established owning files,
+private-admission/DDL/legacy regressions, static and frozen checks before commit.
 
 ## Task 7: Ordered V3 canonical import and source-set finalization
 
