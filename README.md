@@ -20,11 +20,25 @@ Phase 2 has [qualified local acceptance](docs/verification/2026-10-09-phase-2-ac
 on tested source `c34935a112a2b4b807ed741e8e67e44d4e63eafe`.
 Phase 3 has [qualified local acceptance](docs/verification/2026-10-09-phase-3-acceptance.md)
 on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`.
+Its historical [Phase 3 design](docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md)
+and [Phase 3 implementation plan](docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md)
+remain provenance for the accepted search slice.
 Phase 4 has [qualified local acceptance](docs/verification/2026-10-11-phase-4-acceptance.md)
 on tested source `42c01a5c99b1df3d1e4284d277c6ea48046875cb`; E2E remains NOT RUN.
-The active implementation slice is Phase 4 under the
+Its documentation handoff is `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`.
+The historical Phase 4 source-link scope remains documented by the
 [versioned-source design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)
 and [detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md).
+The active implementation slice is Phase 5 under the
+[portable-export and logical-backup design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-5-export-backup-design.md)
+and [detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-5-export-backup.md).
+Phase 5 prepares portable Markdown, retained originals, extracted text and a
+non-secret manifest, complete V3 backups, V1/V2/V3 restore with source integrity
+and search reconstruction, and a historical `0.1.0` upgrade. Its implementation
+and acceptance remain unqualified; no browser features or production activation
+are enabled.
+Logical V3 preparation keeps default V2 and the current unsupported-canonical
+guard closed until writer and restore qualify together.
 Under the [continuous development authorization](AGENTS.md#continuous-development-authorization--2026-10-10):
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.

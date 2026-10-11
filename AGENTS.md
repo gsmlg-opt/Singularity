@@ -14,14 +14,22 @@ single-user personal knowledge base. Its governing documents are:
 Work proceeds one accepted phase at a time in a separate project-local
 worktree and branch. Phase 3 has qualified local acceptance on tested source
 `35c1f8360dd22b129832a1618b3723032a1983bd`, recorded by documentation handoff
-`617f0b986a3ecffba14c952988e39e3afe022cea`. The active implementation slice is Phase 4 under
+`617f0b986a3ecffba14c952988e39e3afe022cea`. Its historical design and plan remain
+`docs/superpowers/specs/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search-design.md`
+and
+`docs/superpowers/plans/2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md`.
+Phase 4 has qualified local acceptance on tested source
+`42c01a5c99b1df3d1e4284d277c6ea48046875cb`, recorded in
+`docs/verification/2026-10-11-phase-4-acceptance.md`, with documentation handoff
+`5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Its historical design and plan remain
 `docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md`
 and
 `docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md`.
-Phase 4 has qualified local acceptance on tested source
-`42c01a5c99b1df3d1e4284d277c6ea48046875cb`, recorded in
-`docs/verification/2026-10-11-phase-4-acceptance.md`. This worktree retains its
-Phase 4 contracts; prepare Phase 5 in a separate worktree after the local handoff.
+The active implementation slice is Phase 5 under
+`docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-5-export-backup-design.md`
+and
+`docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-5-export-backup.md`.
+Phase 5 implementation and acceptance remain unqualified.
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.
 Advance automatically only after the preceding phase's required gates pass.
@@ -33,6 +41,13 @@ ordinary Markdown citation rendering, narrow runtime grants, and necessary
 derived-seal V1/V2 restore compatibility. Necessary repairs follow the continuous
 development authorization below rather than an obsolete per-file permission
 list. It does not enable V3 backup, new browser features or production activation.
+
+Phase 5 covers portable Markdown, retained originals, extracted text and a
+non-secret manifest, complete logical V3 history, V1/V2/V3 restore with source
+integrity and search reconstruction, and a reproducible historical `0.1.0`
+upgrade. It adds no browser features or production activation.
+Logical V3 preparation keeps default V2 and the current unsupported-canonical
+guard closed until writer and restore qualify together.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
 database `pg_trgm` provisioning/hardening through the existing external

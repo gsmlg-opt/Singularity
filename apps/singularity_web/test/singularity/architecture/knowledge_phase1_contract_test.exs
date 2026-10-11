@@ -6,6 +6,10 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   @plan "2026-10-09-singularity-v0.2-phase-3-unified-lexical-search.md"
   @phase4_design "2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md"
   @phase4_plan "2026-10-11-singularity-v0.2-phase-4-knowledge-links.md"
+  @phase5_design "2026-10-11-singularity-v0.2-phase-5-export-backup-design.md"
+  @phase5_plan "2026-10-11-singularity-v0.2-phase-5-export-backup.md"
+  @phase4 "42c01a5c99b1df3d1e4284d277c6ea48046875cb"
+  @phase4_handoff "5f7e6363be534dbfb4dfa1475538fddcbd29cf32"
   @phase3 "35c1f8360dd22b129832a1618b3723032a1983bd"
   @phase3_handoff "617f0b986a3ecffba14c952988e39e3afe022cea"
   @phase2 "c34935a112a2b4b807ed741e8e67e44d4e63eafe"
@@ -62,7 +66,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     "config/config.exs" => [:document_projection]
   }
 
-  test "active guidance retains Phase 4 sequencing under continuous development authority" do
+  test "active guidance retains Phase 5 sequencing under continuous development authority" do
     for {path, start, finish} <- [
           {"AGENTS.md", "## Active release", "## Vault freeze"},
           {"README.md", "## Active `0.2.0` scope", "## Development"},
@@ -71,24 +75,89 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
         ] do
       section = active_section!(path, start, finish)
 
-      assert section =~ ~r/active implementation slice is Phase 4/,
-             "#{path} does not identify Phase 4 as the active slice"
+      assert section =~ ~r/active implementation slice is Phase 5/,
+             "#{path} does not identify Phase 5 as the active slice"
 
       for marker <- [
             "qualified local acceptance",
             @phase3,
+            @phase4,
+            @phase4_handoff,
             "superpowers/specs/#{@phase4_design}",
             "superpowers/plans/#{@phase4_plan}",
+            "superpowers/specs/#{@phase5_design}",
+            "superpowers/plans/#{@phase5_plan}",
             "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval.",
             "Advance automatically only after the preceding phase's required gates pass.",
             "New canonical writes remain unavailable to production runtime roles.",
+            "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together.",
             "Public import, extraction workers, search, Note Save integration, backup V3, and browser behavior remain in their designated later phases.",
+            "E2E",
+            "NOT RUN",
+            "final browser/release acceptance",
             "Version bumps, tags, releases, pushes, and deployments remain separately gated."
           ] do
-        assert section =~ marker, "#{path} is missing active Phase 4 governance: #{marker}"
+        assert section =~ marker, "#{path} is missing active Phase 5 governance: #{marker}"
       end
 
       if path == "AGENTS.md", do: assert(section =~ @phase3_handoff)
+    end
+  end
+
+  test "Phase 5 authority keeps production writes closed and V3 preparation on default V2" do
+    plan_authority =
+      active_section!(
+        "docs/superpowers/plans/#{@phase5_plan}",
+        "## Draft status, evidence and execution boundary",
+        "## Source map and parent-owned execution discipline"
+      )
+
+    design_authority =
+      active_section!(
+        "docs/superpowers/specs/#{@phase5_design}",
+        "## 1. Baseline, scope, and fixed boundaries",
+        "## 2. Evidence and selected approach"
+      )
+
+    for section <- [plan_authority, design_authority] do
+      for marker <- [
+            @phase4,
+            @phase4_handoff,
+            "New canonical writes remain unavailable to production runtime roles.",
+            "E2E",
+            "manual-only",
+            "NOT RUN",
+            "final browser/release acceptance"
+          ] do
+        assert section =~ marker
+      end
+    end
+
+    assert plan_authority =~
+             "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together in Tasks 11 and 12."
+
+    assert plan_authority =~
+             "It does not permit Vault feature work, custody/key/capability/policy/crypto semantic changes, merge, push, version bump, tag, release, deployment, production activation or production backfill."
+
+    assert design_authority =~
+             "Vault, cryptography, key lifecycle, custody, capabilities, policy semantics, and their tests/UX remain frozen."
+
+    assert design_authority =~
+             "browser features, production activation/backfill, merge, push, version bump, tag, release, or deployment."
+
+    wire_contract =
+      active_section!(
+        "docs/superpowers/specs/#{@phase5_design}",
+        "## 6. Logical V3 wire schema and inventory",
+        "## 7. Semantic preflight and historical admission"
+      )
+
+    for marker <- [
+          "During implementation, introduce explicit V3 support behind explicit version selection while the default remains V2 and its unsupported-content guard continues to fail closed.",
+          "Switch new-backup default to V3 only after its writer, full restore/validation/integrity boundary, compatibility fixtures and focused round trips qualify together.",
+          "Documentation/selector preparation must not introduce a production guard exception."
+        ] do
+      assert wire_contract =~ marker
     end
   end
 
@@ -163,14 +232,16 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     assert header =~ "[Phase 3 implementation plan](superpowers/plans/#{@plan})"
     assert header =~ "[Phase 4 design](superpowers/specs/#{@phase4_design})"
     assert header =~ "[Phase 4 implementation plan](superpowers/plans/#{@phase4_plan})"
+    assert header =~ "[Phase 5 design](superpowers/specs/#{@phase5_design})"
+    assert header =~ "[Phase 5 implementation plan](superpowers/plans/#{@phase5_plan})"
 
     [_, gate] = String.split(guide, "# 24. Current implementation gate\n", parts: 2)
     gate = String.replace(gate, ~r/\s+/, " ")
 
     for marker <- [
-          "Phase 4 is the current target.",
-          "versioned-source design and detailed implementation plan",
-          "Phase 4 must finish with recorded scoped evidence, a clean worktree, the complete permitted verification gate passing, and independent review.",
+          "Phase 5 is the current target.",
+          "portable-export and logical-backup design and detailed implementation plan",
+          "Phase 5 must finish with recorded scoped evidence, a clean worktree, the complete permitted verification gate passing, and independent review.",
           "Production canonical writes remain disabled.",
           "After the required gate and independent review pass, automatically prepare the next phase's design and plan under the continuous authorization.",
           "Vault changes, merge, version bumps, tags, publication, pushes, deployment, and production activation remain outside that authority.",

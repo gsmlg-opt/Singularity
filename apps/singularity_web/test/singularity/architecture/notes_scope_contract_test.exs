@@ -21,6 +21,10 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
   @release_plan_path "docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md"
   @phase1_design_path "docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md"
   @phase1_plan_path "docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md"
+  @phase5_design_path "docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-5-export-backup-design.md"
+  @phase5_plan_path "docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-5-export-backup.md"
+  @phase4 "42c01a5c99b1df3d1e4284d277c6ea48046875cb"
+  @phase4_handoff "5f7e6363be534dbfb4dfa1475538fddcbd29cf32"
   @classification_repair_scope "The only classification repair makes `resource_versions_resource_classification_fkey` deferrable and initially deferred through a new forward migration."
   @wake_repair_scope "The only wake repair moves application-owned wake generation counters from Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to 2.24."
   @historical_repair_scope "At that historical boundary, no other Phase 0 production-code, production-behavior, or schema change was authorized, and Phase 1 had not yet been authorized. Current local development follows the authorization above; publication and deployment restrictions remain in force."
@@ -405,13 +409,25 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
     assert normalize_markdown(readme_scope) =~
              "Phase 3 has [qualified local acceptance](docs/verification/2026-10-09-phase-3-acceptance.md) on tested source `35c1f8360dd22b129832a1618b3723032a1983bd`."
 
-    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 4"
+    assert normalize_markdown(readme_scope) =~
+             "Phase 4 has [qualified local acceptance](docs/verification/2026-10-11-phase-4-acceptance.md) on tested source `#{@phase4}`"
+
+    assert normalize_markdown(readme_scope) =~ "The active implementation slice is Phase 5"
 
     assert readme_scope =~
-             "[versioned-source design](docs/superpowers/specs/2026-10-11-singularity-v0.2-phase-4-knowledge-links-design.md)"
+             "[portable-export and logical-backup design](#{@phase5_design_path})"
 
     assert readme_scope =~
-             "[detailed implementation plan](docs/superpowers/plans/2026-10-11-singularity-v0.2-phase-4-knowledge-links.md)"
+             "[detailed implementation plan](#{@phase5_plan_path})"
+
+    for section <- [readme_scope, roadmap] do
+      source = normalize_markdown(section)
+      assert source =~ @phase4
+      assert source =~ @phase4_handoff
+
+      assert source =~
+               "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together."
+    end
 
     assert normalize_markdown(readme_scope) =~
              "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval."
@@ -432,7 +448,16 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
 
     assert normalize_markdown(roadmap) =~ @scope_lock
     assert roadmap =~ "Conflicting roadmap guidance is superseded by ADR 0003."
-    assert normalize_markdown(roadmap) =~ "The active implementation slice is Phase 4"
+    assert normalize_markdown(roadmap) =~ "The active implementation slice is Phase 5"
+
+    assert normalize_markdown(roadmap) =~
+             "Phase 4 has [qualified local acceptance](verification/2026-10-11-phase-4-acceptance.md) on tested source `#{@phase4}`"
+
+    assert roadmap =~
+             "[portable-export and logical-backup design](#{String.replace_prefix(@phase5_design_path, "docs/", "")})"
+
+    assert roadmap =~
+             "[detailed implementation plan](#{String.replace_prefix(@phase5_plan_path, "docs/", "")})"
 
     assert normalize_markdown(invariants) =~ @owner_scope_invariant
     refute invariants =~ "Every user-owned object belongs to a vault."
