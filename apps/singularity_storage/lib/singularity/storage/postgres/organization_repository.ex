@@ -18,9 +18,9 @@ defmodule Singularity.Storage.Postgres.OrganizationRepository do
             where:
               r.id in ^ids and r.vault_id == ^context.owner_scope_id and
                 r.classification == :private and is_nil(r.deleted_at) and
-                r.kind in [:asset, :note, :document],
+                r.kind in [:asset, :note, :document] and
+                fragment("content.knowledge_resource_is_live(?,?)", r.vault_id, r.id),
             order_by: [asc: r.id],
-            lock: "FOR SHARE",
             select: %{resource_id: r.id, kind: r.kind}
           ),
           log: false

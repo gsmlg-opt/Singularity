@@ -595,7 +595,17 @@ part of the governing design; preserve the failed gate and every old assertion.
    predicates/witnessed guard, KnowledgeLink/Organization/Tag/Relationship
    repositories and owning SQL tests. Parent owns Runtime tests and evidence.
    Historical metadata must retain the exact Resource/version/Asset/Metadata/
-   association identity after deletion/cleanup. Organization SQL filters live
+   association identity after deletion/cleanup. Before metadata selection, count
+   distinct Asset IDs across Asset, metadata and association evidence for the
+   pinned version/owner without filtering classification or lifecycle markers;
+   require exactly one identity and retain every exact private join. Admission
+   and exact selection must share one SQL statement/snapshot; retain
+   the entire population in SQL with bounded scalar/metadata output, not a BEAM
+   candidate list. State that this relies on retained lifecycle evidence and
+   cannot reconstruct identity after all original evidence is lost. Native-web
+   reclassified-A-plus-B and reassigned-A-plus-B regressions must prove fail-closed
+   resolution without new identity fields, update restrictions or privileges.
+   Organization SQL filters live
    bindings before LIMIT; one INSERT-trigger guard locks Assets before Resources,
    retaining and revalidating only actually held witnesses. No nested/late
    Asset locks, newly inserted rescue binding, invented binding cap or retry.
@@ -616,6 +626,26 @@ part of the governing design; preserve the failed gate and every old assertion.
    needs a new whole-candidate frozen SPEC then fresh QUALITY and the entire
    permitted README gate on one clean source. Phase4 stays unaccepted and
    Phase5 execution remains pending until all required checks pass.
+
+Broader owning-suite refinement (133 tests / nine failures): independently review
+the added fixture/payload-privacy design detail before test edits. Sol owns only
+`postgres/tag_repository_test.exs` and `postgres/organization_repository_test.exs`
+for this refinement; parent applies separate RED and repair artifacts and runs
+all SQL checks. Preserve every original assertion and keep production source
+unchanged. Locally add the two exact ResourceAsset bindings while preserving
+the original staging fixtures. Refine only the isolated Organization ACL helper:
+retain table SELECT denials and exact metadata results, allow the five enumerated
+Asset lifecycle columns, deny every other typed column with actual-role probes,
+prove RLS/nonlive/fail-closed behavior, and restore complete table/column
+privilege-entry inventories and original web SELECT ACLs in `after`, including
+callback failure. Fail unsupported grantors before mutation and preflight/reject
+all web-issued table/column SELECT grants before the first
+mutation, with no CASCADE and a native-web dependent-grant unchanged-inventory
+counterproof. No shared fixture,
+Vault, production privilege/definer change or assertion waiver. Record RED then
+full five-file Storage owning GREEN and fresh independent source SPEC followed
+by separate QUALITY; previous scoped source review is not acceptance of new
+test contracts.
 
 - [ ] Run all changed owning suites plus deterministic source/organization
   canary/deadline/race regressions; record exact commands, seeds, counts and

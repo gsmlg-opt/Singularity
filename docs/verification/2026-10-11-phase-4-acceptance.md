@@ -21,8 +21,28 @@ The clean complete rerun failed with five Storage integration failures;
 separate whole-candidate QUALITY found two Asset lifecycle defects. The historical
 contract repair is now locally qualified and locally committed at `ee37cfa`.
 Observer diagnostics have actual RED and owning SQL/unit/static GREEN, with
-independent implementation SPEC then fresh QUALITY PASS. Real Asset deletion has two semantic
-RED failures; the reviewed lifecycle repair is in preparation. Prior failures remain
+independent implementation SPEC then fresh QUALITY PASS. Real Asset deletion's two
+semantic RED cases now pass their corrected focused invocation after the reviewed
+lifecycle repair was applied. The first full Asset owning suite still failed one
+new migration-head fixture; its minimal authorized-reader repair now passes the
+complete 33-case owning suite. The first broader Storage owning run failed nine
+tests (eight missing-binding Tag fixtures and one payload-privacy ACL contract);
+the reviewed local two-test repair now passes the complete five-file owning
+SQL suite, **139 tests / zero failures**.
+Full affected Runtime integration is PASS, 180 reported tests / zero failures /
+123 excluded. Necessary fixture/privacy refinements passed design SPEC then
+fresh separate QUALITY; six additive semantic RED cases now reproduce the
+required behavior after the ACL inventory fixture was corrected. The minimal
+two-test repair is applied and its complete owning SQL suite is PASS. Fresh
+ten-file actual-source SPEC found one P2: ambiguous historical metadata rows
+are not bounded before entering BEAM. A focused real-SQL result-cardinality
+regression and minimal ambiguity-sentinel repair now pass the complete
+five-file owning SQL suite, **140 tests / zero failures**. Fresh v2 source
+SPEC and affected Runtime/restore requalification are now PASS. Fresh separate
+Asset implementation QUALITY also completed PASS with no actionable or lesser
+concerns. The bounded Asset/fixture/privacy repair is locally qualified; no
+new complete clean-source gate or whole-Phase4 acceptance is yet qualified.
+Prior failures remain
 FAIL; Phase4 acceptance and Phase5 execution
 remain pending.
 The active worktree is `.trees/v0.2-phase-4-knowledge-links`, branch
@@ -2108,6 +2128,452 @@ Any changed candidate requires a new frozen whole-candidate SPEC then fresh
 QUALITY review and entire permitted README gate on one clean source. Phase4
 remains NOT ACCEPTED; Phase5 execution, E2E, final browser/release acceptance,
 merge/publication/deployment and production activation remain unperformed.
+
+The exact four-file diagnostic slice was committed locally as `e9ed6c1` after
+unchanged reviewed hashes, whitespace checks and owned PostgreSQL shutdown were
+reconfirmed. Its two pending Runtime lifecycle test files were not staged.
+
+Asset preparation uncovered a further provenance boundary by read-only source
+investigation: existing Asset DDL binds version/owner but does not make Asset
+classification/version immutable, and existing owner-scoped web UPDATE permits
+reclassification or version reassignment. Supported lifecycle changesets do not
+perform those mutations, but the historical reader must not use that convention
+as its security proof. The ignored preparation artifact's private-Asset-only
+count could omit original A and silently resolve later B. No native SQL reproduction
+has yet run and no Asset production patch/migration has been applied.
+
+The design/plan now clarify a reader-only distinct-ID population across existing
+Asset/metadata/association evidence, by pinned version/owner regardless of
+classification/lifecycle state, before retaining all exact private joins.
+Two native-web RED regressions are being prepared; independent SPEC then fresh
+QUALITY of this clarification is required before production repair. No new
+privilege, RLS, immutable-identity writer rule, field, Vault change or backfill
+is proposed. Asset validated repair rounds remain Sol **zero**, Astra **zero**.
+
+The two new identity tests are now applied, preserving all 31 prior owning
+lifecycle/race cases. First actual process `57865` exited 2: **33 tests / 21
+failures**, 21.3 seconds, seed `215378`. The integration task combines its
+`:integration` inclusion with `--only asset_identity_closed`, so this invocation
+unexpectedly ran all owning cases, not just the intended two. The two identity
+tests both reached the genuine substitution failure after proving native web
+mutations, surviving original metadata/association and a valid B from the
+supported upload path. Absent new functions/lifecycle behavior also fail before
+production implementation. Four finalization cases additionally expose one
+new fixture SQL type-ambiguity (`42P08`), not a production or dependency defect.
+No failed case is reclassified as passing.
+
+Corrected location-only process `54341` exited 2: **33 reported tests / two
+genuine semantic failures / 31 excluded**, 2.6 seconds, same seed and warnings
+as errors. Both require `:invalid` but receive successful metadata titled
+`substitute.txt`, independently reproducing reclassified-A and reassigned-A
+substitution. The other 31 cases are excluded by locations, not counted as
+executed. No Asset production patch/migration has been applied. A minimal
+fixture-only artifact (`810fd2d8412cf9e609986cde234f37048cbe78b6ded0ac46a2b461276d170e93`)
+makes the stage parameter explicitly UUID before converting it to text; all
+assertions and real interleavings remain unchanged. Its validation is pending.
+
+Fresh read-only identity-design SPEC process `79936`, thread
+`01a12832-35df-7b13-8f9a-574b844d681a`, completed **SPEC PASS**, zero actionable
+P0–P2 findings. HEAD `e9ed6c1` and both supplied design/plan hashes matched
+before/after; all commands completed without mutation/tests/SQL. It confirms
+the aggregate can use existing owner-visible rows and preserve exact private
+joins in one statement/snapshot, with no unbounded BEAM population or authority
+change. The boundary is retained evidence, not reconstruction after every
+original evidence row has been irrecoverably removed or rewritten; supported
+lifecycle writers retain those rows. Fresh separate identity-design QUALITY by
+`phase4_organization_spec_review` completed **FAIL**, one P2: the written rule
+did not explicitly forbid separate population and metadata-selection statements,
+allowing a READ COMMITTED substitution gap. Both original frozen hashes/HEAD and
+scoped whitespace checks remained stable; all commands completed read-only.
+Parent adds the required one-statement/snapshot, SQL-only bounded-result rule
+and explicit retained-evidence/custody limitation. Independent amended-design
+SPEC then separate QUALITY are required; this design revision consumes no
+production repair attempt. These are design/RED evidence only, not implementation acceptance or
+a passing whole-phase gate.
+
+Exact identity RED commands:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs --only asset_identity_closed --warnings-as-errors --seed 215378'
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs:536 apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs:575 --warnings-as-errors --seed 215378
+```
+
+Parent applied the one-line new-fixture UUID cast patch. Actual process `29906`
+exited 0: **33 reported tests / zero failures / 31 excluded**, 3.3 seconds,
+seed `215378`, warnings as errors. Both retained Note Save / real finalization
+reservation orderings execute and pass with unchanged source assertions and
+deadlines on the existing production source. This qualifies the first fixture
+repair for those two owning cases, not the two organization/finalization
+orderings or complete lifecycle suite. Fixture repair: first Sol round PASS,
+failed validated Sol rounds zero, Astra zero; Asset production repair rounds
+remain zero. Owned shutdown completed and root
+`2a0976ad4b073e52d60c4950` is absent. Separate owned database cleanup command
+`0a7cd6` reports zero generated test/migration databases and clean shutdown;
+both earlier RED roots are absent.
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs:1090 --warnings-as-errors --seed 215378'
+```
+
+Updated complete Asset production artifact SHA-256
+`4ef35a164e2b410af49344d3b7b206ea5bcc3732b026166da69d991cf1986625`
+preserves the original migration/organization/lock code and replaces only the
+flawed private-Asset count with the scalar same-statement UNION-distinct
+population. The original preparation artifact stays unchanged. It remains
+UNAPPLIED pending the amended-design SPEC then separate QUALITY results.
+Fresh read-only v2 SPEC process `26359`, thread
+`01a12838-5abc-78a3-a90f-ad3546ef30e7`, completed **SPEC PASS**, zero actionable
+P0–P2 findings, on frozen amended design
+`a6349df7fc1afcf0d9dd337493d3111240e770dd08029b857983f956acb03847`
+and plan `cf9f9388df889b884842f879c9a3379bb18a8c7a22c65289ee2d401b892c0249`.
+Subsequent separate `phase4_organization_spec_review` v2 QUALITY is **PASS**,
+zero actionable P0–P2 and no additional lesser concerns. Both before/after
+hashes/HEAD and scoped whitespace checks remain exact, all commands finished
+read-only. The v1 QUALITY P2 remains a historical failed design review.
+
+Parent applied the reviewed revised Asset production artifact and formatted
+the new forward migration, four repositories and three owning test files.
+Warnings-as-errors compilation passes. First complete new owning SQL process
+`84319` exited 2: **33 tests / one failure**, 11.6 seconds, seed `215378`.
+All other 32 cases pass, including the two historical substitution regressions,
+six states, role/ACL/kind checks, metadata lifecycle and all eleven actual-writer
+race cases. The sole failure occurs before historical migration execution:
+the new fixture uses restricted `RequestRepo` to read `schema_migrations` and
+receives `42501`. This full owning run remains **FAIL**, not a passing suite or
+phase. Asset candidate Sol round 1 fails its gate; failed validated candidate
+rounds **one**, Astra **zero**. No runtime privilege is widened.
+
+Real Runtime delete/cleanup process `71907` is **PASS**, exit 0:
+**46 reported tests / zero failures / 44 excluded**, 9.0 seconds, same seed,
+warnings as errors. Both original semantic RED regressions now execute all
+post-deletion assertions. Export also performs normal logical cleanup, proves
+the cleared object pointer and preserved exact title/pins/deleted marker, permits
+retained Save with sealed memberships, rejects new source members and proves
+zero rejected-write effects. Organization proves one-item pages/backlinks/
+selectors/attach/relate behavior and unchanged canonical rows. The authorization
+module is loaded solely for its existing fixture; its cases remain excluded by
+locations. This is real composed SQL/API behavior with the documented lease
+fixture limitations, not live custody/bytes, E2E or full owning-suite acceptance.
+
+The first head-reader fixture repair artifact SHA-256
+`9177b9f92644d99bc37e5dc595f70431d42d387253ab1f00fd7c7472edb64e8f`
+changes only three exact unchanged head-query sites to the existing MigrationRepo,
+explicitly starting/stopping its owned supervisor in `after`, without SET ROLE,
+new grants or weakened oracles. This matches the already qualified historical
+search migration tests. Parent applied/formatted it; complete Asset candidate
+Sol round 2 process `36825` completed **PASS**, exit 0: **33 tests / zero
+failures**, 21.5 seconds, seed `215378`. Historical migration/head/security/
+config/row restoration now executes and passes with the original exact oracles.
+Owned shutdown completed; recorded root `8d4f2f9d819d4383d84681e1` is absent.
+This is narrow owning qualification, not a complete gate or phase acceptance.
+
+Fresh read-only actual-source SPEC process `37072`, thread
+`01a12842-32eb-7ad2-a41b-facb7eb88a8f`, completed **SPEC PASS**, zero actionable
+P0–P2 findings on all eight frozen implementation/test files. HEAD and all ten
+source/design/plan hashes remained exact; every review command finished. One
+nonblocking suggestion is a two-distinct-Asset relationship race exercising the
+two-witness sorted-order branch. Source QUALITY is not yet run. This review
+does not qualify later test-contract amendments or the broader owning gate.
+
+The broader five-file Storage owning process `46267` exited 2: **133 tests /
+nine failures**, 79.8 seconds, seed `215378`. Eight Tag cases use the established
+private staging Asset fixture without its exact ResourceAsset association, so
+the hardened predicate returns `not_found`. The Organization isolated privacy
+case revokes every Asset SELECT authority, so the invoker lifecycle predicate
+returns `forbidden`. This run remains **FAIL**; no assertion is waived and no
+production grant or fallback is proposed. Its recorded root/database is
+`b69e39b52a2a1706883af871`; owned shutdown completed.
+
+The broader eight-file Runtime integration process `38304` completed **PASS**,
+exit 0: **180 reported tests / zero failures / 123 excluded**, 75.4 seconds,
+same seed. Existing source-collection/resolution and authorization cases execute
+alongside the two real deletion/export owning modules. Owned shutdown completed;
+recorded root/database is `4a0d4e3eae26d9459ff1600c`. This is scoped Runtime
+evidence, not E2E, live custody or whole-phase acceptance.
+
+Bounded read-only Sol diagnosis confirmed the missing local binding and precise
+five lifecycle columns. Astra `PROJECT_ARCHITECTURE` separately recommended a
+documented payload-privacy refinement, explicitly not the stronger zero-Asset-read
+claim. Complete table/column ACL restoration, actual forbidden-read/RLS probes
+and removal-of-lifecycle-authority counterproofs are required. Both advisers
+finished without mutations/tests/services. These two newly exposed compatibility
+defects have no failed repair rounds yet; Astra recovery consumed **zero**.
+
+Parent-owned complete legacy restore process `92587` completed **PASS**, exit 0,
+on the unchanged eight-file Asset source hashes above. The required
+`mix singularity.test.restore` runs complete current V2 backup/restore equality,
+Note seals/history/conflicts/search/export and the immutable V1 fixture restore
+plus post-restore Note API checks. No assertion or frozen Vault source/test is
+changed. Established migration-module redefinition warnings remain visible.
+Owned shutdown completed; all three recorded roots are absent:
+`b899bdb25d7626c9bfc7dc3a`, `d4eccc33b591528b4f7a906b`,
+`5d3de039679674c1a359a2cc`. Broader Storage and Runtime roots above were also
+confirmed absent. This is complete restore evidence on the current dirty
+candidate, not the required final clean-source whole gate.
+
+Owned cleanup process `99406` also completed exit 0: zero generated integration
+or historical migration databases, followed by clean PostgreSQL shutdown.
+The fixture/privacy design refinement received fresh SPEC **PASS**, zero
+actionable P0–P2 findings, process `18192`, thread
+`01a1284a-8d23-7201-a9ab-54ec9cd43620`. Frozen design
+`96f214a48537413863dbb14b31419817dfc9ddc4b5101b6a3f5f0820b76bbdaf`
+and plan `8fbd7b3dc434b4d38a791032db20a0770afc8968c6891e15773187bded7c85cb`
+and HEAD remained exact before/after; every read command completed. The reviewer
+notes implementation must retain PUBLIC/default ACL entries and assert actual
+permission-denial errors, not just empty result sets. Subsequent separate
+`phase4_organization_spec_review` v1 QUALITY completed **FAIL**, one P2, no
+P0/P1 or lesser concerns: reject downstream SELECT grants issued by web before
+the first mutation, prohibit CASCADE and prove unchanged inventory on rejection.
+The v2 design/plan now explicitly require this; new fresh SPEC then subsequent
+separate QUALITY are required. The two owning test files still have no edits;
+broad Storage remains FAIL. This is a design review failure, not an Asset
+production repair or consumed Astra recovery attempt.
+
+Fresh v2 SPEC process `95916`, thread
+`01a12850-27d9-73d0-aed1-79a91e68fc0f`, completed **SPEC PASS**, zero actionable
+P0–P2 findings on design
+`67a264d32e42ffd37fdfb8e268f4a3a22f4a5db65703ab8346d8009f679fc239`
+and plan `fdf2d4283ec8b6f60dec158df69556229f0f34be5e8b22274b1383ea3b8a23f4`.
+All hashes/HEAD remained exact, scoped whitespace checks passed and commands
+finished read-only. Subsequent fresh independent v2 QUALITY process `24084`,
+thread `01a12852-94e7-7dd2-aabb-ca4a9c016848`, completed **QUALITY PASS**, zero
+actionable P0–P2 findings and no lesser concerns. Exact HEAD/doc hashes and its
+15-file manifest remained unchanged before/after, scoped whitespace checks
+passed, all read commands finished. This is design acceptance only. Sol now
+owns separate ignored additive RED and minimal repair artifacts for the two
+test files; parent will apply/run RED before the setup/ACL-helper repair.
+
+Separate bounded read-only fixture/inventory investigation by
+`phase4_organization_spec_review` found no additional missing-association sites
+outside the owned candidates: other ResourceTag writes use Notes/Documents,
+Asset relationship endpoints use the bound KnowledgeFixtures source, and named
+security catalogs filter established signatures or `search_extensions`. This
+is source evidence, not a SQL pass or waiver. No repair/DB command was consumed.
+
+Parent-owned static/unit process `77904` completed **PASS**, exit 0, seed
+`215378`: eight-file format checks, warnings-as-errors compilation, xref **No
+cycles found** and whitespace checks pass. The same eight Runtime files report
+**180 tests / zero failures / 57 integration cases excluded**, 3.7 seconds;
+all 123 pure cases execute, complementing the unchanged-source SQL run above.
+The five Storage files report **133 tests / zero failures / all 133 excluded**,
+3.0 seconds; this is explicitly NOT Storage SQL qualification. Broad Storage
+remains FAIL pending the two-file fixture/privacy repair. No DB/service process
+was started by this static/unit check.
+
+Additive fixture/privacy RED artifact SHA-256
+`2d8f89b387a4a095942a9d67e8796e1f1442e6571afbfdbdeeeb19c1b16a605c`
+adds six cases to the two owning test files while leaving original Tag setup,
+ACL helper and assertions intact. Parent applied/formatted it after the v2
+design reviews passed. A relative-path tool attempt failed verification before
+mutation; root `main` status/diff remained empty, and the corrected application
+used explicit absolute worktree targets. This was a routing failure, not a test
+or implementation repair result.
+
+Actual focused RED process `14721` exited 2: **41 reported tests / six failures /
+35 excluded**, 3.4 seconds, seed `215378`. Three failures are genuine missing
+association/five-column-authority/live-metadata assertions. Three new ACL cases
+fail earlier with PostgreSQL `22023`, because the inventory query passes a
+zero-dimensional empty ACL array to `aclexplode`; their grant/callback/preflight
+assertions remain NOT RUN beyond that fixture failure. No mixed run is called
+PASS and no main setup/ACL-helper repair has been applied yet.
+
+Bounded owned SQL probe `86356` confirms `aclexplode` is strict, NULL produces
+zero rows, guarded empty produces zero rows, and the default table ACL contains
+eight entries; raw empty ACL reproduces `22023`. Its expected diagnostic-error
+exit is 1, followed by clean owned shutdown, not a required-gate PASS. Sol's
+two-line inventory-only fixture artifact SHA-256
+`501ec80628cf217b86b06af590636089485c0decd0738214d382b736181390f8`
+uses NULLIF without row filters: NULL table ACL retains its default inventory,
+empty table/NULL-or-empty column ACLs give zero privilege entries, and nonempty
+entries remain intact. Parent applied it; corrected focused RED `58823` exited
+2: **41 reported tests / six semantic failures / 35 excluded**, 5.2 seconds,
+seed `215378`. No `22023` remains. Native web-issued table and column grants
+both execute and are proved in the catalog before the old helper produces
+`2BP01` instead of the required preflight assertion. The other four failures
+prove missing exact Tag bindings, missing lifecycle-only authority and failed
+live metadata callbacks. Original setup/ACL helper and all assertions were
+unchanged for this RED. The first inventory fixture repair resolves its defect;
+failed repair rounds zero, Astra recovery zero. The semantic suite remains
+**FAIL**, not a passing gate. Recorded root/database
+`737fa007fdb50b8470cf1c95` was followed by clean owned PostgreSQL shutdown.
+
+Parent then applied the reviewed minimal main repair artifact SHA-256
+`89334451d2f3e83afa05e79ae2ae4cd226850304103d1d721083bd26c53b5edf`
+to only the two owning test files and formatted them. The original private
+staging/null-object fixture now receives two exact local ResourceAsset
+associations. The privacy helper inventories and preflights complete ACL entries
+before mutations, grants only the five lifecycle columns without grant option,
+preserves the original five table-denial assertions, and restores exact original
+table/column grants and grantability even when its callback raises. No CASCADE,
+production privilege or shared fixture change is made. Parent-owned full
+five-file Storage SQL process `68707` completed **PASS**, exit 0: **139 tests /
+zero failures**, 85.2 seconds, seed `215378`, warnings as errors. All original
+Tag/Organization/KnowledgeLink/Relationship cases and all 33 Asset cases run,
+along with the six additive native fixture/privacy cases. The first main repair
+resolves both owning-suite defects; each has zero failed repair rounds, Astra
+recovery zero. Its generated database/root is `85898feb5c4ce9b3ec9cacde`; clean
+owned PostgreSQL shutdown completed. This is owning SQL qualification, not
+the final clean-source complete gate or Phase4 acceptance.
+
+Fresh independent `phase4_organization_spec_review` now owns actual-source
+SPEC for all ten frozen code/test files, including the two new owning test
+refinements, followed by a fresh separate QUALITY reviewer. Earlier eight-file
+SPEC does not cover these later refinements. Phase4 remains NOT ACCEPTED and
+the final clean-source complete permitted README gate is still pending.
+
+This ten-file actual-source SPEC completed **FAIL**, one P2, zero P0/P1 and
+no lesser concerns. KnowledgeLinkRepository's Asset identity count controls
+the projected title, but the exact joins still return one row per complete
+binding. N ambiguous bindings materialize N null-title rows before rejection,
+violating the existing bounded scalar/metadata-output design at lines 792–793.
+Parent confirmed the defect in actual source; the reviewer recommends final
+query LIMIT 2 as an ambiguity sentinel, not an identity-population cap. Keep
+the complete unfiltered SQL-only UNION count and exact joins in the same
+statement/snapshot; zero matches remains not_found and ambiguity remains
+invalid. A new native multi-binding regression must observe the actual
+production query's result cardinality, not merely its unchanged error value.
+All ten actual files/diffs were fully read, HEAD and all twelve frozen hashes
+matched before/after, whitespace checks passed and all commands completed.
+No implementation repair has yet been attempted for this new defect; failed
+repair rounds zero, Astra recovery zero. The 139-case owning SQL PASS remains
+valid scoped evidence, but does not qualify this bound or phase acceptance.
+Sol now owns ignored additive RED and minimal source-repair artifacts only;
+parent controls their eventual application and SQL execution. Subsequent
+fresh implementation SPEC then fresh separate QUALITY remains required.
+
+Parent fully read and applied the additive bounded-output RED artifact SHA-256
+`5b60c41e7be6b04b96187337a5546fde1c9f39c9fea45c941136fe5f6e4037b9`
+to only the new lifecycle owning test. It proves eight native exact private
+bindings, unchanged owner/security state, and the actual adapter's invalid
+result. A narrow test-only SafeSQL call/return trace retains only closed query
+count/row-count fields, restores trace state and stops its owned collector in
+after; no production logging/telemetry or replay is added. Focused location
+process `58300` exited 2: **34 reported tests / one semantic failure / 33
+excluded**, 3.0 seconds, seed `215378`. The actual production metadata query
+executes once and returns eight rows instead of the required two. This is
+genuine bounded-output RED, not a fixture failure. Owned PostgreSQL shut down;
+recorded root/database is `6e3f53b9cc6dee12568a343e`.
+
+Parent then applied the separate minimal source artifact SHA-256
+`551c09d7e90bbf0fdaf73d21a0f1a1fa9183366bf6b32e1dc5a45222eb50cfcf`:
+only final LIMIT 2 is added to the metadata query. The complete UNION identity
+population, same SQL statement/snapshot, exact private joins and zero/one/
+ambiguous error distinctions are preserved. Full five-file owning SQL process
+`7662` completed **PASS**, exit 0: **140 tests / zero failures**, 88.3 seconds,
+seed `215378`, warnings as errors. The actual metadata statement executes once
+and now returns exactly two rows despite all eight complete bindings; every
+original case also executes. This defect's first repair resolves it; failed
+repair rounds zero, Astra recovery zero. Owned PostgreSQL shuts down and its
+recorded root/database is `b331d9b43ce8b6c03915abd7`. Fresh full ten-file
+actual-source SPEC v2 is in progress on frozen KnowledgeLink hash
+`5d196c64432d54ff14e01e707bca322d2e7ac435e4437ae30ec2c4d4023c6a8f`
+and lifecycle-test hash
+`52879f9551d8c01331c68c70e745dc7fb1fe5c841b53d2bdbb3e042399ba00f8`;
+the other ten design/plan/code hashes remain unchanged. Subsequent fresh
+separate QUALITY is required before the scoped repair commit. Runtime SQL
+and full V1/V2 restore are being rerun on this current source; Phase4 remains
+NOT ACCEPTED and no new complete clean-source gate has run yet.
+
+Fresh full ten-file actual-source SPEC v2 by
+`phase4_organization_spec_review` completed **PASS**, zero actionable P0–P2
+and no lesser concerns. Complete actual files/diffs and governing documents
+were reviewed; HEAD and all twelve hashes matched before/after, scoped
+whitespace checks were clean and all read commands finished. LIMIT 2 is an
+output ambiguity sentinel, not an identity population cap; same-statement
+admission and exact join/error distinctions remain unchanged. The native
+count-only trace fixture proves actual statement/return pairing and restores
+its trace/owned collector state. Prior source SPEC P2 remains a historical
+failed review, not a failed implementation repair round.
+
+Parent Runtime/restore process `73779` completed **PASS**, exit 0, on this
+current frozen source. Runtime reports **180 tests / zero failures / 123
+excluded**, 70.6 seconds, seed `215378`, warnings as errors; all 57 integration
+cases execute. Complete current V2 and immutable V1 restore oracles pass with
+their original assertions, search/equality/seal/history/conflict/export and
+post-restore API checks. Migration-module redefinition warnings and existing
+OID reload diagnostics remain visible; none is suppressed or repaired outside
+scope. Full output was retained/read, owned PostgreSQL shut down and all four
+recorded roots are absent: `6ebdbd407923920455196949`,
+`ed27311169d2e757ae40c0bf`, `9accc4c9883f2c3b90af4af1`,
+`b305c9a7ed0014e53378200b`.
+
+After SPEC v2 PASS, fresh independent actual-source QUALITY process `67648`,
+thread `01a12872-233d-7391-979e-875e60307fb0`, is running. It reviews the same
+ten actual code/test files and twelve-file frozen manifest, not ignored patches
+or design-only evidence. Its result is pending; no local repair commit or
+Phase4 acceptance is yet claimed. E2E remains NOT RUN.
+
+Current-source final scoped static/unit process `49979` completed **PASS**,
+exit 0: whole-project format, warnings-as-errors compilation, whitespace and
+xref **No cycles found** pass. Runtime's eight owning files report **180 tests /
+zero failures / 57 integration cases excluded**, 3.1 seconds, executing all
+123 pure cases. Storage's five files report **140 tests / zero failures / all
+140 excluded**, 2.8 seconds, explicitly not SQL evidence. Seed is `215378`.
+Parent independently rechecked all twelve frozen source/design/plan hashes
+using `.devenv/phase4-task9-asset-source-v2.sha256`: every file is OK.
+
+Fresh independent actual-source QUALITY `67648`, thread
+`01a12872-233d-7391-979e-875e60307fb0`, completed **QUALITY PASS**, zero
+actionable P0–P2 findings and no lesser concerns, exit 0. The complete ten
+actual code/test files, two governing documents and scoped diffs were read;
+HEAD and all twelve hashes matched before/after, whitespace checks were clean
+and every command finished. One read-only-shell heredoc temporary-file attempt
+failed without mutation; a plain complete sha256sum recheck finished exit 0.
+This is a review-shell diagnostic, not an implementation repair or failed
+verification gate. No tests/services/DB/Git writes were run by the reviewer.
+
+All bounded Asset/fixture/privacy owning tests, actual SPEC then fresh separate
+QUALITY and current-source static/Runtime/V1/V2 restore checks now PASS.
+The parent will stage only the exact ten code/test files and three governing/
+evidence documents for one narrow local repair commit. This does not close
+the old complete gate `44472`, whose failure and unknown short-literal cause
+remain recorded. A new clean-source whole-candidate SPEC, fresh separate
+QUALITY and entire permitted README rerun remain required before Phase4
+acceptance or Phase5 execution. No Vault feature or compatibility file changed
+in this repair; no publication, activation, E2E or production-data work occurred.
+
+Final owned cleanup process `69706` completed exit 0, confirms zero nondefault
+databases and shuts PostgreSQL down. Its PID/socket are absent, as are both
+bounded-output roots and all previously recorded fixture/privacy/Runtime/
+restore roots. Protected worktree heads and the unrelated untracked Phase2
+plan's original digest remain unchanged; root main status remains clean.
+
+Exact bounded-output and current-source qualification invocations:
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs && mix compile --warnings-as-errors'
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs:471 --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs && mix compile --warnings-as-errors && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs --warnings-as-errors --seed 215378'
+devenv shell -- bash .devenv/phase4-pg-command.sh bash -c 'mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs --warnings-as-errors --seed 215378 && mix singularity.test.restore'
+```
+
+Subsequent parent-owned static/unit process `46426` completed **PASS**, exit 0:
+whole-project format checks, warnings-as-errors compilation, xref **No cycles
+found** and whitespace checks pass. Runtime's eight files report **180 tests /
+zero failures / 57 integration cases excluded**, 3.3 seconds; all 123 pure
+cases execute. Storage's five files report **139 tests / zero failures / all
+139 excluded**, 2.7 seconds, explicitly NOT SQL evidence. Both use seed
+`215378`. The unchanged Runtime SQL and full restore runs above still cover
+their actual source; final clean-source requalification remains required.
+
+Owned cleanup/catalog process `84768` reports zero nondefault databases,
+exits 0 and shuts PostgreSQL down. All three fixture/privacy roots are absent:
+`a2479788f227e708701d11e4`, `737fa007fdb50b8470cf1c95`,
+`85898feb5c4ce9b3ec9cacde`; the owned postmaster PID is absent.
+
+Exact broader and restore commands:
+
+```sh
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_storage/test/singularity/storage/postgres/knowledge_link_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/organization_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/tag_repository_test.exs apps/singularity_storage/test/singularity/storage/postgres/relationship_repository_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collections_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_api_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_resolution_test.exs apps/singularity_runtime/test/singularity/runtime/note_source_collection_routes_test.exs --warnings-as-errors --seed 215378
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.restore
+```
+
+```sh
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/priv/repo/migrations/20261011000200_knowledge_asset_lifecycle_guards.exs apps/singularity_storage/lib/singularity/storage/postgres/knowledge_link_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/organization_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/tag_repository.ex apps/singularity_storage/lib/singularity/storage/postgres/relationship_repository.ex apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs && mix compile --warnings-as-errors && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs --warnings-as-errors --seed 215378'
+devenv shell -- bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/note_authorization_integration_test.exs apps/singularity_runtime/test/singularity/runtime/organization_integration_test.exs:787 apps/singularity_runtime/test/singularity/runtime/note_markdown_export_integration_test.exs:175 --warnings-as-errors --seed 215378
+devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps bash -c 'mix format apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs && bash .devenv/phase4-pg-command.sh mix singularity.test.integration apps/singularity_storage/test/singularity/storage/postgres/knowledge_asset_lifecycle_guards_test.exs --warnings-as-errors --seed 215378'
+```
 
 ## Preserved boundaries and baseline inventory
 

@@ -172,6 +172,188 @@ defmodule Singularity.Runtime.NoteMarkdownExportIntegrationTest do
     assert_audits(c, 1)
   end
 
+  test "real Api Asset deletion marks exact historical metadata without changing sealed membership",
+       c do
+    grant_delete_capability!(c)
+    c = %{c | session: session(c.principal)}
+    public = struct!(Session, Map.from_struct(c.session))
+
+    deletion_runtime =
+      Map.put(
+        c.runtime_plain,
+        :asset_deletions,
+        Singularity.Storage.Postgres.AssetDeletionRepository
+      )
+
+    config =
+      Map.put(facade_config(c), :delete_asset, fn actor, id, revision ->
+        Singularity.Runtime.Assets.Delete.run(deletion_runtime, actor, id, revision)
+      end)
+
+    reference = Enum.find(c.note.attachments, &(&1.target_kind == :asset))
+    membership_before = stored_version(c.note.resource_version_id)
+
+    assert {:ok, before} =
+             Singularity.Runtime.Notes.ResolveSource.attachment(
+               c.runtime_plain,
+               c.session,
+               c.note.resource_id,
+               c.note.resource_version_id,
+               reference.attachment_id
+             )
+
+    assert before.source == %{
+             kind: :asset,
+             resource_id: reference.target_resource_id,
+             resource_version_id: reference.target_resource_version_id,
+             title: "Pinned Asset 界.txt",
+             deleted?: false
+           }
+
+    revision =
+      Fixtures.with_owner(fn ->
+        %{rows: [[revision]]} =
+          query!(MigrationRepo, "SELECT state_revision FROM content.assets WHERE id=$1", [
+            c.source.asset_id
+          ])
+
+        revision
+      end)
+
+    assert {:ok, true} = Api.delete_asset(config, public, text(c.source.asset_id), revision)
+
+    assert Fixtures.with_owner(fn ->
+             query!(
+               MigrationRepo,
+               "SELECT a.state,r.deleted_at IS NULL,ra.released_at IS NOT NULL FROM content.assets a JOIN content.resource_versions v ON v.id=a.resource_version_id JOIN content.resources r ON r.id=v.resource_id JOIN content.resource_assets ra ON (ra.resource_version_id,ra.asset_id)=(v.id,a.id) WHERE a.id=$1",
+               [c.source.asset_id]
+             ).rows
+           end) == [["pending_delete", true, true]]
+
+    assert {:ok, after_delete} =
+             Singularity.Runtime.Notes.ResolveSource.attachment(
+               c.runtime_plain,
+               c.session,
+               c.note.resource_id,
+               c.note.resource_version_id,
+               reference.attachment_id
+             )
+
+    assert after_delete.reference == before.reference
+    assert after_delete.source == %{before.source | deleted?: true}
+    assert {:ok, result} = export(c)
+    assert_export_steps(c)
+    assert_source_inventory(result.markdown, c)
+    assert result.markdown =~ "deleted historical source"
+    assert result.markdown =~ "Pinned Asset 界"
+    assert stored_version(c.note.resource_version_id) == membership_before
+    assert_seal(c.note, 3, 4)
+    assert_audits(c, 1)
+
+    finish_logical_cleanup!(c)
+
+    assert Fixtures.with_owner(fn ->
+             query!(
+               MigrationRepo,
+               "SELECT a.state,a.asset_object_id IS NULL,r.deleted_at IS NULL FROM content.assets a JOIN content.resource_versions v ON v.id=a.resource_version_id JOIN content.resources r ON r.id=v.resource_id WHERE a.id=$1",
+               [c.source.asset_id]
+             ).rows
+           end) == [["deleted", true, true]]
+
+    assert {:ok, after_cleanup} =
+             Singularity.Runtime.Notes.ResolveSource.attachment(
+               c.runtime_plain,
+               c.session,
+               c.note.resource_id,
+               c.note.resource_version_id,
+               reference.attachment_id
+             )
+
+    assert after_cleanup == after_delete
+    assert {:ok, result} = export(c)
+    assert_export_steps(c)
+    assert_source_inventory(result.markdown, c)
+    assert result.markdown =~ "deleted historical source"
+    assert stored_version(c.note.resource_version_id) == membership_before
+    assert_seal(c.note, 3, 4)
+    assert_audits(c, 2)
+
+    # Retention is authenticated against immutable parent membership, not the
+    # deleted Asset's current readiness or the now-cleared object pointer.
+    assert {:ok, saved} =
+             Api.save_note(config, public, c.note.resource_id, %{
+               mutation_id: Ecto.UUID.generate(),
+               base_version_id: c.note.resource_version_id,
+               title: c.note.title,
+               markdown: c.note.markdown <> "\nRetained after real Asset cleanup"
+             })
+
+    assert saved.outcome == :saved
+    assert saved.canonical.attachments == c.note.attachments
+    assert saved.canonical.citations == c.note.citations
+    assert saved.canonical.resource_version_id != c.note.resource_version_id
+    assert stored_version(c.note.resource_version_id) == membership_before
+    assert_seal(saved.canonical, 3, 4)
+
+    assert {:ok, retained} =
+             Singularity.Runtime.Notes.ResolveSource.attachment(
+               c.runtime_plain,
+               c.session,
+               saved.canonical.resource_id,
+               saved.canonical.resource_version_id,
+               reference.attachment_id
+             )
+
+    assert retained.source == after_cleanup.source
+
+    write_state = fn ->
+      Fixtures.with_owner(fn ->
+        for table <-
+              ~w(content.resources content.resource_versions content.note_versions content.note_attachments content.note_citations content.note_source_set_seals content.note_conflicts content.note_mutation_receipts content.note_search_documents content.search_entries audit.events core.outbox_events jobs.job_submissions) do
+          {table, query!(MigrationRepo, "SELECT count(*) FROM " <> table, []).rows}
+        end
+      end)
+    end
+
+    before_rejected = write_state.()
+    new_reference = Map.from_struct(reference) |> Map.put(:attachment_id, Ecto.UUID.generate())
+
+    attachments =
+      Enum.map(saved.canonical.attachments, fn member ->
+        if member.attachment_id == reference.attachment_id,
+          do: new_reference,
+          else: Map.from_struct(member)
+      end)
+
+    assert Api.save_note(config, public, c.note.resource_id, %{
+             mutation_id: Ecto.UUID.generate(),
+             base_version_id: saved.canonical.resource_version_id,
+             title: saved.canonical.title,
+             markdown: saved.canonical.markdown,
+             attachments: attachments
+           }) == {:error, :not_found}
+
+    assert write_state.() == before_rejected
+    assert stored_version(c.note.resource_version_id) == membership_before
+    assert_seal(saved.canonical, 3, 4)
+
+    create_config =
+      Map.put(config, :create_note, fn actor, attrs ->
+        Create.run(c.runtime_plain, actor, attrs)
+      end)
+
+    assert Api.create_note(create_config, public, %{
+             mutation_id: Ecto.UUID.generate(),
+             title: "Rejected new deleted-Asset source",
+             markdown: "New source references still require live readiness",
+             attachments: [new_reference]
+           }) == {:error, :not_found}
+
+    assert write_state.() == before_rejected
+    assert stored_version(c.note.resource_version_id) == membership_before
+    assert_seal(saved.canonical, 3, 4)
+  end
+
   test "tombstoned targets stay historical with exact source pins and restore without rewriting membership",
        c do
     before = stored_version(c.note.resource_version_id)
@@ -615,6 +797,84 @@ defmodule Singularity.Runtime.NoteMarkdownExportIntegrationTest do
           [KnowledgeFixtures.uuid(), capability]
         )
       end
+    end)
+  end
+
+  defp finish_logical_cleanup!(c) do
+    scope = %{principal_id: c.session.principal_id, vault_id: c.session.vault_id}
+
+    envelope =
+      ScopedRepo.transact(RequestRepo, scope, fn repo ->
+        %{
+          rows: [
+            [
+              id,
+              key,
+              owner,
+              principal,
+              capability,
+              principal_epoch,
+              owner_epoch,
+              classification,
+              correlation,
+              causation,
+              revision,
+              payload
+            ]
+          ]
+        } =
+          query!(
+            repo,
+            "SELECT id,idempotency_key,vault_id,principal_id,required_capability,principal_authorization_epoch,vault_authorization_epoch,classification,correlation_id,causation_id,expected_entity_revision,payload FROM core.outbox_events WHERE event_type='asset.cleanup_requested' AND payload->>'asset_id'=$1",
+            [text(c.source.asset_id)]
+          )
+
+        assert {:ok, envelope} =
+                 Singularity.Core.JobEnvelope.new(%{
+                   version: 1,
+                   job_id: text(id),
+                   job_type: "asset_cleanup",
+                   idempotency_key: key,
+                   vault_id: text(owner),
+                   principal_id: text(principal),
+                   required_capability: capability,
+                   principal_authorization_epoch: principal_epoch,
+                   vault_authorization_epoch: owner_epoch,
+                   classification: String.to_existing_atom(classification),
+                   correlation_id: text(correlation),
+                   causation_id: text(causation),
+                   expected_entity_revision: revision,
+                   attempt: 0,
+                   payload: payload
+                 })
+
+        envelope
+      end)
+
+    assert {:ok, _runner_job_id} = Singularity.Storage.Jobs.ObanAdapter.submit(%{}, envelope)
+
+    assert {:ok, %{state: :deleted, asset_object_id: nil}} =
+             ScopedRepo.transact(WorkerRepo, scope, fn repo ->
+               Singularity.Storage.Postgres.AssetDeletionRepository.complete_logical_delete(
+                 repo,
+                 envelope
+               )
+             end)
+  end
+
+  defp grant_delete_capability!(c) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id,name) VALUES($1,'asset.write') ON CONFLICT(name) DO NOTHING",
+        [KnowledgeFixtures.uuid()]
+      )
+
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='asset.write' ON CONFLICT(principal_id,vault_id,capability_id) DO NOTHING",
+        [dump(c.principal.principal_id), c.source.vault_id]
+      )
     end)
   end
 

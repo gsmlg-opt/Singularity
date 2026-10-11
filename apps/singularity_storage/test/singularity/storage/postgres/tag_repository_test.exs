@@ -51,7 +51,77 @@ defmodule Singularity.Storage.Postgres.TagRepositoryTest do
 
   setup do
     %{one: one, two: two} = Fixtures.two_vaults!()
+
+    Fixtures.with_owner(fn ->
+      for source <- [one, two] do
+        assert %{num_rows: 1} =
+                 query!(
+                   MigrationRepo,
+                   "INSERT INTO content.resource_assets(resource_version_id,asset_id,vault_id,classification) VALUES($1,$2,$3,'private')",
+                   [source.resource_version_id, source.asset_id, source.vault_id]
+                 )
+      end
+    end)
+
     %{one: one, two: two, context: context(one), resource_id: Ecto.UUID.load!(one.resource_id)}
+  end
+
+  @tag :fixture_payload_privacy
+  test "both original staging Asset fixtures have exact private live associations", c do
+    for source <- [c.one, c.two] do
+      selected = %{c | context: context(source)}
+
+      assert %{
+               rows: [
+                 [
+                   "singularity_web",
+                   resource,
+                   "asset",
+                   "private",
+                   nil,
+                   version,
+                   owner,
+                   "private",
+                   asset,
+                   "staging",
+                   nil,
+                   version,
+                   asset,
+                   owner,
+                   "private",
+                   nil
+                 ]
+               ]
+             } =
+               scoped(selected, fn context ->
+                 query!(
+                   context.repo,
+                   """
+                   SELECT current_user,r.id,r.kind,r.classification,r.deleted_at,
+                     v.id,v.vault_id,v.classification,a.id,a.state,a.asset_object_id,
+                     ra.resource_version_id,ra.asset_id,ra.vault_id,ra.classification,ra.released_at
+                   FROM content.resources r
+                   JOIN content.resource_versions v ON (v.resource_id,v.vault_id,v.classification)=(r.id,r.vault_id,r.classification)
+                   JOIN content.assets a ON (a.resource_version_id,a.vault_id,a.classification)=(v.id,v.vault_id,v.classification)
+                   JOIN content.resource_assets ra ON (ra.resource_version_id,ra.asset_id,ra.vault_id,ra.classification)=(v.id,a.id,v.vault_id,v.classification)
+                   WHERE (r.id,v.id,a.id,r.vault_id)=($1,$2,$3,$4)
+                   """,
+                   [
+                     source.resource_id,
+                     source.resource_version_id,
+                     source.asset_id,
+                     source.vault_id
+                   ]
+                 )
+               end)
+
+      assert resource == source.resource_id
+      assert version == source.resource_version_id
+      assert asset == source.asset_id
+      assert owner == source.vault_id
+    end
+
+    assert audits(c) == []
   end
 
   test "real audit changeset accepts tag operations and string keyed UUID metadata", c do

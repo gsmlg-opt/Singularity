@@ -784,6 +784,105 @@ defmodule Singularity.Runtime.OrganizationIntegrationTest do
              {:error, :not_found}
   end
 
+  test "real Api Asset deletion keeps historical rows but excludes both organization directions",
+       c do
+    deletion_runtime =
+      Map.put(c.runtime, :asset_deletions, Singularity.Storage.Postgres.AssetDeletionRepository)
+
+    config =
+      Map.put(api_config(c.runtime), :delete_asset, fn actor, id, revision ->
+        Singularity.Runtime.Assets.Delete.run(deletion_runtime, actor, id, revision)
+      end)
+
+    public = struct!(Session, Map.from_struct(c.session))
+    asset = text(c.source.resource_id)
+    note = text(c.note.resource_id)
+    asset_id = text(c.source.asset_id)
+    version = text(c.source.resource_version_id)
+    assert {:ok, tag} = Api.attach_tag(config, public, asset, %{name: "Actual Asset deletion"})
+    assert {:ok, ^tag} = Api.attach_tag(config, public, note, %{name: "Actual Asset deletion"})
+
+    assert {:ok, outgoing} =
+             Api.relate_resource(config, public, asset, %{
+               target_resource_id: note,
+               target_resource_version_id: text(c.note.resource_version_id),
+               type: :references
+             })
+
+    assert {:ok, incoming} =
+             Api.relate_resource(config, public, note, %{
+               target_resource_id: asset,
+               target_resource_version_id: version,
+               type: :related_to
+             })
+
+    assert {:ok, page} = Api.list_backlinks(config, public, note, %{})
+    assert_page(page, [outgoing], nil)
+    assert {:ok, page} = Api.list_outgoing_relationships(config, public, note, %{})
+    assert_page(page, [incoming], nil)
+    canonical_before = knowledge_state(c.source.vault_id)
+
+    revision =
+      Fixtures.with_owner(fn ->
+        %{rows: [[revision]]} =
+          query!(MigrationRepo, "SELECT state_revision FROM content.assets WHERE id=$1", [
+            c.source.asset_id
+          ])
+
+        revision
+      end)
+
+    assert {:ok, true} = Api.delete_asset(config, public, asset_id, revision)
+
+    assert Fixtures.with_owner(fn ->
+             query!(
+               MigrationRepo,
+               """
+               SELECT a.state,r.deleted_at IS NULL,ra.released_at IS NOT NULL,
+                 EXISTS(SELECT 1 FROM content.tombstones t WHERE t.asset_id=a.id AND t.vault_id=a.vault_id)
+               FROM content.assets a
+               JOIN content.resource_versions v ON v.id=a.resource_version_id
+               JOIN content.resources r ON r.id=v.resource_id
+               JOIN content.resource_assets ra ON (ra.resource_version_id,ra.asset_id)=(v.id,a.id)
+               WHERE a.id=$1 AND a.vault_id=$2
+               """,
+               [c.source.asset_id, c.source.vault_id]
+             ).rows
+           end) == [["pending_delete", true, true, true]]
+
+    assert knowledge_state(c.source.vault_id) == canonical_before
+    audits_after_delete = all_audits(c.source.vault_id)
+    assert {:ok, page} = Api.browse_resources_by_tag(config, public, tag.tag_id, %{limit: 1})
+    assert page_maps(page) == [%{resource_id: note, kind: :note}]
+    assert page.next_cursor == nil
+    assert {:ok, page} = Api.list_backlinks(config, public, note, %{limit: 1})
+    assert_page(page, [], nil)
+    assert {:ok, page} = Api.list_outgoing_relationships(config, public, note, %{limit: 1})
+    assert_page(page, [], nil)
+
+    for operation <- [:list_resource_tags, :list_outgoing_relationships, :list_backlinks] do
+      assert apply(Api, operation, [config, public, asset, %{}]) == {:error, :not_found}
+    end
+
+    assert Api.attach_tag(config, public, asset, %{name: "Rejected after real delete"}) ==
+             {:error, :not_found}
+
+    assert Api.relate_resource(config, public, asset, %{
+             target_resource_id: note,
+             type: :references
+           }) ==
+             {:error, :not_found}
+
+    assert Api.relate_resource(config, public, note, %{
+             target_resource_id: asset,
+             type: :references
+           }) ==
+             {:error, :not_found}
+
+    assert knowledge_state(c.source.vault_id) == canonical_before
+    assert all_audits(c.source.vault_id) == audits_after_delete
+  end
+
   defp prepare_authority!(owner) do
     Fixtures.with_owner(fn ->
       query!(MigrationRepo, "UPDATE core.vaults SET locked=false WHERE id=$1", [owner])

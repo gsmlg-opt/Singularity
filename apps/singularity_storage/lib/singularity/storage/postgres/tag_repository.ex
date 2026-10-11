@@ -110,7 +110,7 @@ defmodule Singularity.Storage.Postgres.TagRepository do
   defp mutate(context, resource, tag, operation, mode) do
     with {:ok, repo} <- context_repo(context, mode), :ok <- UUID.validate([resource, tag]) do
       within(repo, context, mode, fn repo ->
-        with :ok <- live_resource(repo, context, resource),
+        with :ok <- mutation_resource(repo, context, resource, operation),
              :ok <- visible_tag(repo, context, tag) do
           statement =
             case operation do
@@ -169,7 +169,7 @@ defmodule Singularity.Storage.Postgres.TagRepository do
            """
            SELECT id FROM content.resources
            WHERE id=$1 AND vault_id=$2 AND classification='private'
-             AND kind=ANY($3::text[]) AND deleted_at IS NULL FOR SHARE
+             AND kind=ANY($3::text[]) AND content.knowledge_resource_is_live(vault_id,id)
            """,
            [dump(resource), dump(context.owner_scope_id), Enum.map(kinds, &Atom.to_string/1)]
          ) do
@@ -192,7 +192,7 @@ defmodule Singularity.Storage.Postgres.TagRepository do
         JOIN content.resources r ON r.id=rt.resource_id AND r.vault_id=rt.vault_id
         WHERE rt.resource_id=$1 AND rt.vault_id=$2
           AND t.classification='private' AND rt.classification='private'
-          AND r.classification='private' AND r.deleted_at IS NULL
+          AND r.classification='private' AND content.knowledge_resource_is_live(r.vault_id,r.id)
           AND r.kind=ANY($3::text[]) AND ($4::uuid IS NULL OR t.id>$4)
         ORDER BY t.id LIMIT $5
         """,
@@ -219,7 +219,7 @@ defmodule Singularity.Storage.Postgres.TagRepository do
         JOIN content.resources r ON r.id=rt.resource_id AND r.vault_id=rt.vault_id
         WHERE rt.tag_id=$1 AND rt.vault_id=$2
           AND t.classification='private' AND rt.classification='private'
-          AND r.classification='private' AND r.deleted_at IS NULL
+          AND r.classification='private' AND content.knowledge_resource_is_live(r.vault_id,r.id)
           AND r.kind=ANY($3::text[]) AND ($4::uuid IS NULL OR r.id>$4)
         ORDER BY r.id LIMIT $5
         """,
@@ -282,7 +282,7 @@ defmodule Singularity.Storage.Postgres.TagRepository do
   defp live_resource(repo, context, resource) do
     case SafeSQL.query!(
            repo,
-           "SELECT id FROM content.resources WHERE id=$1 AND vault_id=$2 AND classification='private' AND kind IN ('asset','note','document') AND deleted_at IS NULL FOR SHARE",
+           "SELECT id FROM content.resources WHERE id=$1 AND vault_id=$2 AND content.knowledge_resource_is_live(vault_id,id)",
            [dump(resource), dump(context.owner_scope_id)]
          ) do
       %{rows: [[_]]} -> :ok
@@ -297,6 +297,20 @@ defmodule Singularity.Storage.Postgres.TagRepository do
          ]) do
       %{rows: [[_]]} -> :ok
       %{rows: []} -> error(:not_found)
+    end
+  end
+
+  defp mutation_resource(repo, context, resource, :attach),
+    do: live_resource(repo, context, resource)
+
+  defp mutation_resource(repo, context, resource, :detach) do
+    case SafeSQL.query!(
+           repo,
+           "SELECT content.lock_knowledge_organization_resources($1,ARRAY[$2]::uuid[])",
+           [dump(context.owner_scope_id), dump(resource)]
+         ) do
+      %{rows: [[true]]} -> :ok
+      %{rows: [[false]]} -> error(:not_found)
     end
   end
 

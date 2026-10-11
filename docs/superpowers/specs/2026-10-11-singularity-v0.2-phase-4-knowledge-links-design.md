@@ -779,6 +779,23 @@ and releases matching `content.resource_assets`; it does not tombstone Resource.
   tombstone OR released exact association. Original metadata and pins remain
   readable after cleanup clears `asset_object_id`; do not require an object,
   original bytes or available state for this metadata-only reader.
+  Before choosing metadata, require exactly one distinct candidate Asset ID
+  across existing `assets`, `asset_metadata` and `resource_assets` evidence for
+  the pinned version and authenticated owner. This identity population ignores
+  classification, lifecycle state, object pointers and association release;
+  the selected binding still requires every exact private join above. A count
+  restricted to current private Asset rows could silently choose later B after
+  original A is reclassified or reassigned to another version while its original
+  metadata/association remains. Missing or diverged evidence must not rescue B.
+  Execute this UNION-distinct admission and all exact private joins in one SQL
+  statement/snapshot; separate count and selection statements are forbidden.
+  Keep the candidate population entirely in SQL and return only the bounded
+  scalar/metadata result, never an unbounded BEAM candidate list. The check
+  relies on retained evidence, which supported lifecycle writers preserve; it
+  cannot reconstruct identity after every original evidence row is irrecoverably
+  removed or rewritten and does not prove custody or tamper-proof Asset identity.
+  This is a reader-only fail-closed check, not new Asset identity immutability,
+  fields, permissions, RLS, lifecycle writes or a historical backfill.
 - Organization liveness requires an undeleted private supported Resource. Asset
   requires at least one exact unreleased, untombstoned private binding whose
   Asset is staging/uploaded/verified/available/processing/ready. Do not use an
@@ -881,6 +898,11 @@ explicit; this is not live byte/custody, browser or release acceptance.
 - Run normal logical cleanup clearing the object pointer; metadata still resolves.
   Preserve retained Save and reject new source references. Cover every six live
   states, different versions/multiple bindings, missing/ambiguous/foreign metadata.
+  Native-web counterproofs must permit and establish original A's reclassification
+  or version reassignment, preserve its old metadata/association, add valid B on
+  the pinned version, then require historical resolution to fail closed rather
+  than substitute B. Prove the role, owner context and identities before the
+  reader assertion; do not change Asset update policy to make the test pass.
 - Actual-role direct INSERT rejects deleted/missing/foreign/mismatched-context
   endpoints. Exact function ACL/invoker/path, unchanged table grants and global
   immutable-kind checks remain independently proved.
@@ -901,6 +923,63 @@ Markdown-export and source-collection integration tests; actual Phase4 design/
 plan/report. Runtime Operations/ports/DTOs need no new fields/signatures. No
 AssetRepository/Delete/Note source readiness, extraction/search, backup wire,
 Vault/custody, E2E or publication work.
+
+### Owning-suite fixture and payload-privacy refinement
+
+The broader Storage owning run reports eight Tag fixture failures and one
+Organization permission-contract failure. Preserve those failures as FAIL.
+These are necessary test-contract refinements, not new production permissions
+or a claim that the original zero-Asset-column-access precondition is unchanged.
+Independently review this detail before its test repair.
+
+In `postgres/tag_repository_test.exs`, retain `Fixtures.two_vaults!()`, its IDs,
+private staging Assets and every existing assertion. Locally compose the missing
+exact private unreleased `resource_assets` association for each of its two
+owners, using the established four-column fixture INSERT under the existing
+test owner helper. Do not edit shared fixtures, create available objects or
+change the resource kind. Prove the exact associations and unchanged staging
+state/object absence; existing native-owner and audit counterproofs remain.
+
+Organization selector metadata may inspect authenticated, RLS-visible Asset
+identity and lifecycle columns solely to reject nonlive Resources. It must not
+hydrate typed payloads or expose additional DTO fields. Refine the isolated
+privacy test to deny table-level SELECT on all five typed tables while allowing
+only `assets.id`, `resource_version_id`, `vault_id`, `classification` and `state`
+to the existing web role, without grant option. Preserve all original five
+table-denial assertions, exact resource metadata results and selected-edge
+results. Rename the test/helper or explicitly explain the lifecycle allowance;
+do not advertise metadata success without any Asset read authority.
+
+Enumerate actual columns from the catalog and prove effective SELECT is true
+only for those five Asset columns and false for every other Asset column and
+every column of AssetMetadata, NoteVersion, DocumentVersion and DocumentFragment.
+Under actual `singularity_web`, execute `assets.*`, each excluded Asset-column
+and typed-table read probes, each in an isolated scoped transaction so expected
+permission errors cannot poison later assertions. Prove live Asset metadata
+succeeds, nonlive metadata rejects, foreign-owner and missing/revoked-membership
+rows remain RLS-invisible, and removing the five lifecycle grants makes the
+lifecycle-dependent selector fail closed. Preserve the closed two-key resource
+and five-key selected-edge output shapes.
+
+Keep the isolated-database guard and unconditional `after` cleanup. Snapshot
+complete table and column privilege-entry inventories for all grantees on the
+five affected tables, including grantor, privilege and grantability, before and
+after. Mutate only web SELECT entries: temporarily remove existing web column
+SELECT grants, then allow exactly the five lifecycle columns. Restore every
+changed original table/column SELECT grant and grant option and prove exact
+inventory equality, including unchanged worker and unrelated privileges.
+Unsupported grantors must fail before any mutation; never approximate restoration
+with broad grants. Preflight the complete inventories and reject any table or
+column SELECT grant issued by `singularity_web`, including downstream grants to
+PUBLIC, worker or other grantees, before the first mutation. Never use CASCADE.
+Add a native-web downstream-grant counterproof proving preflight rejection and
+unchanged complete inventories; do not rely on an eventual REVOKE failure after
+earlier permissions were already changed. Preserve the original web table-SELECT
+ACL assertions too.
+This equality concerns privilege entries, not raw catalog NULL-versus-empty ACL
+representation, which PostgreSQL may normalize after GRANT/REVOKE. Add explicit
+cleanup-on-callback-failure coverage. No production grants, policies, roles,
+capabilities, definer authority, ports or Vault changes are permitted.
 
 ## Verification and acceptance
 

@@ -221,21 +221,42 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
   end
 
   defp source_metadata(repo, owner, resource, version, kind) do
-    {title, typed_join} =
+    {title, deleted, typed_join} =
       case kind do
         :asset ->
-          {"m.original_filename",
+          {"""
+           CASE WHEN (
+             SELECT count(*) FROM (
+               SELECT exact_asset.id FROM content.assets exact_asset
+               WHERE (exact_asset.resource_version_id,exact_asset.vault_id)=(v.id,r.vault_id)
+               UNION
+               SELECT exact_metadata.asset_id FROM content.asset_metadata exact_metadata
+               WHERE (exact_metadata.resource_version_id,exact_metadata.vault_id)=(v.id,r.vault_id)
+               UNION
+               SELECT exact_association.asset_id FROM content.resource_assets exact_association
+               WHERE (exact_association.resource_version_id,exact_association.vault_id)=(v.id,r.vault_id)
+             ) candidate_assets
+           )=1 THEN m.original_filename END
+           """,
+           """
+           (r.deleted_at IS NOT NULL OR a.state IN ('pending_delete','deleted')
+            OR ra.released_at IS NOT NULL OR EXISTS (
+              SELECT 1 FROM content.tombstones t
+              WHERE (t.asset_id,t.vault_id,t.classification)=(a.id,a.vault_id,a.classification)
+            ))
+           """,
            """
            JOIN content.assets a ON (a.resource_version_id,a.vault_id,a.classification)=(v.id,r.vault_id,r.classification)
            JOIN content.asset_metadata m ON (m.asset_id,m.resource_version_id,m.vault_id,m.classification)=(a.id,v.id,r.vault_id,r.classification)
+           JOIN content.resource_assets ra ON (ra.resource_version_id,ra.asset_id,ra.vault_id,ra.classification)=(v.id,a.id,r.vault_id,r.classification)
            """}
 
         :note ->
-          {"n.title",
+          {"n.title", "r.deleted_at IS NOT NULL",
            "JOIN content.note_versions n ON (n.resource_version_id,n.resource_id,n.vault_id,n.classification)=(v.id,r.id,r.vault_id,r.classification)"}
 
         :document ->
-          {"d.title",
+          {"d.title", "r.deleted_at IS NOT NULL",
            "JOIN content.document_versions d ON (d.resource_version_id,d.resource_id,d.vault_id,d.classification)=(v.id,r.id,r.vault_id,r.classification) AND d.state='ready'"}
       end
 
@@ -243,11 +264,12 @@ defmodule Singularity.Storage.Postgres.KnowledgeLinkRepository do
       SafeSQL.query!(
         repo,
         """
-        SELECT #{title},r.deleted_at IS NOT NULL
+        SELECT #{title},#{deleted}
         FROM content.resources r
         JOIN content.resource_versions v ON (v.resource_id,v.vault_id,v.classification)=(r.id,r.vault_id,r.classification)
         #{typed_join}
         WHERE (r.id,v.id,r.vault_id,r.classification)=($1,$2,$3,'private') AND r.kind=$4
+        LIMIT 2
         """,
         [
           Ecto.UUID.dump!(resource),

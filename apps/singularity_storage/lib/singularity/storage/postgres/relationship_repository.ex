@@ -82,9 +82,15 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
               where: r.target_resource_version_id == ^selected.target_resource_version_id
             )
 
-      case repo.delete_all(query, log: false) do
-        {0, _} -> :ok
-        {1, [row]} -> maybe_audit(repo, context, row, 1, "knowledge.unrelated")
+      if repo.exists?(query, log: false) do
+        with :ok <- lock_source(repo, context, selected.source_resource_id) do
+          case repo.delete_all(query, log: false) do
+            {0, _} -> :ok
+            {1, [row]} -> maybe_audit(repo, context, row, 1, "knowledge.unrelated")
+          end
+        end
+      else
+        :ok
       end
     end
   rescue
@@ -219,7 +225,8 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
           r.vault_id == ^context.owner_scope_id and r.classification == :private and
             field(r, ^direction) == ^id and
             source.classification == :private and target.classification == :private and
-            is_nil(source.deleted_at) and is_nil(target.deleted_at) and
+            fragment("content.knowledge_resource_is_live(?,?)", source.vault_id, source.id) and
+            fragment("content.knowledge_resource_is_live(?,?)", target.vault_id, target.id) and
             source.kind in ^allowed_kinds and target.kind in ^allowed_kinds,
         order_by: [asc: r.id],
         limit: ^(limit + 1),
@@ -234,7 +241,8 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
          from r in Resource,
            where:
              r.id == ^id and r.vault_id == ^context.owner_scope_id and
-               r.classification == :private and is_nil(r.deleted_at) and r.kind in ^allowed_kinds
+               r.classification == :private and r.kind in ^allowed_kinds and
+               fragment("content.knowledge_resource_is_live(?,?)", r.vault_id, r.id)
        ) do
       :ok
     else
@@ -277,7 +285,8 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
               on: target.id == r.target_resource_id and target.vault_id == r.vault_id,
               where:
                 r.vault_id == ^context.owner_scope_id and field(r, ^direction) == ^id and
-                  is_nil(source.deleted_at) and is_nil(target.deleted_at) and
+                  fragment("content.knowledge_resource_is_live(?,?)", source.vault_id, source.id) and
+                  fragment("content.knowledge_resource_is_live(?,?)", target.vault_id, target.id) and
                   source.classification == :private and target.classification == :private,
               order_by: [asc: r.source_resource_id, asc: r.target_resource_id, asc: r.id],
               limit: 100,
@@ -299,9 +308,9 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
         from r in Resource,
           where:
             r.id in ^ids and r.vault_id == ^context.owner_scope_id and
-              r.classification == :private and is_nil(r.deleted_at),
+              r.classification == :private and
+              fragment("content.knowledge_resource_is_live(?,?)", r.vault_id, r.id),
           order_by: r.id,
-          lock: "FOR SHARE",
           select: r.id
       )
 
@@ -309,6 +318,17 @@ defmodule Singularity.Storage.Postgres.RelationshipRepository do
       valid_pin(repo, context, edge)
     else
       error(:not_found)
+    end
+  end
+
+  defp lock_source(repo, context, resource) do
+    case SafeSQL.query!(
+           repo,
+           "SELECT content.lock_knowledge_organization_resources($1,ARRAY[$2]::uuid[])",
+           [Ecto.UUID.dump!(context.owner_scope_id), Ecto.UUID.dump!(resource)]
+         ) do
+      %{rows: [[true]]} -> :ok
+      %{rows: [[false]]} -> error(:not_found)
     end
   end
 

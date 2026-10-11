@@ -7,6 +7,8 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
 
   @repository Singularity.Storage.Postgres.OrganizationRepository
   @uppercase "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+  @typed_tables ~w(assets asset_metadata note_versions document_versions document_fragments)
+  @asset_lifecycle_columns ~w(id resource_version_id vault_id classification state)
 
   # Actual singularity_web SQL/RLS tests. No Runtime capability, live custody,
   # original-byte or production-activation acceptance is claimed here.
@@ -274,7 +276,248 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
              end)
   end
 
-  test "metadata still resolves with all typed-content SELECT privileges removed and restores exact ACLs",
+  @tag :fixture_payload_privacy
+  test "native web metadata needs only five lifecycle columns and every typed payload read is denied",
+       c do
+    edge = seed_edge!(c)
+
+    without_typed_reads(fn ->
+      columns =
+        scoped(c, fn context ->
+          query!(
+            context.repo,
+            """
+            SELECT current_user,c.relname,a.attname,
+              has_column_privilege(current_user,c.oid,a.attnum,'SELECT')
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_attribute a ON a.attrelid=c.oid
+            WHERE n.nspname='content' AND c.relname=ANY($1::text[])
+              AND a.attnum>0 AND NOT a.attisdropped
+            ORDER BY c.relname,a.attnum
+            """,
+            [@typed_tables]
+          ).rows
+        end)
+
+      assert Enum.sort(for ["singularity_web", "assets", column, true] <- columns, do: column) ==
+               Enum.sort(@asset_lifecycle_columns)
+
+      assert Enum.sort(
+               for [table, column, _, "singularity_web", "SELECT", grantable?] <-
+                     owned_typed_acl_inventory(),
+                   do: {table, column, grantable?}
+             ) ==
+               Enum.sort(for column <- @asset_lifecycle_columns, do: {"assets", column, false})
+
+      for ["singularity_web", table, column, allowed?] <- columns do
+        assert allowed? == (table == "assets" and column in @asset_lifecycle_columns)
+
+        unless allowed?,
+          do:
+            assert_typed_read_denied!(
+              c,
+              "SELECT " <>
+                acl_identifier(column) <>
+                " FROM content." <> acl_identifier(table) <> " LIMIT 1"
+            )
+      end
+
+      for table <- @typed_tables,
+          do:
+            assert_typed_read_denied!(
+              c,
+              "SELECT * FROM content." <> acl_identifier(table) <> " LIMIT 1"
+            )
+
+      for {row, kind} <- [{c.source, :asset}, {c.note, :note}, {c.document, :document}] do
+        expected = %{resource_id: text(row.resource_id), kind: kind}
+        assert resources(c, [text(row.resource_id)]) == {:ok, [expected]}
+        assert Enum.sort(Map.keys(expected)) == [:kind, :resource_id]
+      end
+
+      assert selected_edge(c, edge.relationship_id) == {:ok, edge}
+
+      assert Enum.sort(Map.keys(edge)) ==
+               [
+                 :relationship_id,
+                 :source_resource_id,
+                 :target_resource_id,
+                 :target_resource_version_id,
+                 :type
+               ]
+    end)
+  end
+
+  @tag :fixture_payload_privacy
+  test "lifecycle-only metadata stays fail closed for nonlive Assets and native missing or revoked owner context",
+       c do
+    foreign = KnowledgeFixtures.source!()
+
+    without_typed_reads(fn ->
+      expected = %{resource_id: text(c.source.resource_id), kind: :asset}
+      assert resources(c, [expected.resource_id]) == {:ok, [expected]}
+
+      assert native_asset_rows(c, c.source) == [
+               [
+                 "singularity_web",
+                 c.context.principal_id,
+                 c.context.owner_scope_id,
+                 c.source.asset_id,
+                 c.source.resource_version_id,
+                 c.source.vault_id,
+                 "private",
+                 "available"
+               ]
+             ]
+
+      Fixtures.with_owner(fn ->
+        assert %{num_rows: 1} =
+                 query!(
+                   MigrationRepo,
+                   "UPDATE content.assets SET state='pending_delete' WHERE id=$1",
+                   [c.source.asset_id]
+                 )
+
+        assert %{rows: [[nil, "pending_delete"]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT r.deleted_at,a.state FROM content.resources r JOIN content.resource_versions v ON (v.resource_id,v.vault_id)=(r.id,r.vault_id) JOIN content.assets a ON (a.resource_version_id,a.vault_id)=(v.id,v.vault_id) WHERE a.id=$1",
+                   [c.source.asset_id]
+                 )
+      end)
+
+      assert resources(c, [expected.resource_id]) == {:error, Error.new(:not_found)}
+
+      Fixtures.with_owner(fn ->
+        assert %{num_rows: 1} =
+                 query!(
+                   MigrationRepo,
+                   "UPDATE content.assets SET state='available' WHERE id=$1",
+                   [c.source.asset_id]
+                 )
+      end)
+
+      assert resources(c, [expected.resource_id]) == {:ok, [expected]}
+
+      Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+
+        query!(
+          MigrationRepo,
+          "REVOKE SELECT (id,resource_version_id,vault_id,classification,state) ON content.assets FROM singularity_web",
+          []
+        )
+      end)
+
+      try do
+        assert resources(c, [expected.resource_id]) == {:error, Error.new(:forbidden)}
+        assert_typed_read_denied!(c, "SELECT id FROM content.assets LIMIT 1")
+      after
+        Fixtures.with_owner(fn ->
+          assert_isolated_acl_database!(MigrationRepo)
+
+          query!(
+            MigrationRepo,
+            "GRANT SELECT (id,resource_version_id,vault_id,classification,state) ON content.assets TO singularity_web",
+            []
+          )
+        end)
+      end
+
+      assert resources(c, [expected.resource_id]) == {:ok, [expected]}
+      assert native_asset_rows(c, foreign) == []
+      assert resources(c, [text(foreign.resource_id)]) == {:error, Error.new(:not_found)}
+
+      missing_membership =
+        %{c | context: %{c.context | owner_scope_id: text(foreign.vault_id)}}
+
+      assert native_asset_rows(missing_membership, foreign) == []
+
+      assert resources(missing_membership, [text(foreign.resource_id)]) ==
+               {:error, Error.new(:not_found)}
+
+      assert %{rows: [["singularity_web", principal, owner]]} =
+               query!(
+                 RequestRepo,
+                 "SELECT current_user,current_setting('singularity.principal_id',true),current_setting('singularity.vault_id',true)",
+                 []
+               )
+
+      assert principal in [nil, ""]
+      assert owner in [nil, ""]
+
+      assert %{rows: []} =
+               query!(RequestRepo, "SELECT id,state FROM content.assets WHERE id=$1", [
+                 c.source.asset_id
+               ])
+
+      Fixtures.revoke_membership!(c.source)
+      assert native_asset_rows(c, c.source) == []
+      assert resources(c, [expected.resource_id]) == {:error, Error.new(:not_found)}
+    end)
+  end
+
+  @tag :fixture_payload_privacy
+  test "restricted metadata restores existing column SELECT grant options even when the callback raises",
+       c do
+    with_existing_column_selects(fn ->
+      baseline = owned_typed_acl_inventory()
+
+      for fail? <- [false, true] do
+        callback = fn ->
+          assert resources(c, [text(c.source.resource_id)]) ==
+                   {:ok, [%{resource_id: text(c.source.resource_id), kind: :asset}]}
+
+          assert_typed_read_denied!(c, "SELECT asset_object_id FROM content.assets LIMIT 1")
+          assert_typed_read_denied!(c, "SELECT markdown FROM content.note_versions LIMIT 1")
+
+          if fail?, do: raise("lifecycle privacy callback failed"), else: :ok
+        end
+
+        if fail? do
+          assert_raise RuntimeError, "lifecycle privacy callback failed", fn ->
+            without_typed_reads(callback)
+          end
+        else
+          assert without_typed_reads(callback) == :ok
+        end
+
+        assert owned_typed_acl_inventory() == baseline
+      end
+    end)
+  end
+
+  for grant_scope <- [:table, :column] do
+    @grant_scope grant_scope
+    @tag :fixture_payload_privacy
+    test "ACL preflight rejects native web-issued #{@grant_scope} SELECT before any mutation",
+         c do
+      with_web_issued_select(c, @grant_scope, fn ->
+        baseline = owned_typed_acl_inventory()
+        expected_column = if @grant_scope == :table, do: nil, else: "asset_object_id"
+
+        assert [
+                 "assets",
+                 expected_column,
+                 "singularity_web",
+                 "singularity_worker",
+                 "SELECT",
+                 false
+               ] in baseline
+
+        marker = make_ref()
+
+        assert_raise ExUnit.AssertionError, ~r/unsupported web-issued SELECT grant/, fn ->
+          without_typed_reads(fn -> send(self(), {:privacy_callback_ran, marker}) end)
+        end
+
+        refute_received {:privacy_callback_ran, ^marker}
+        assert owned_typed_acl_inventory() == baseline
+      end)
+    end
+  end
+
+  test "metadata still resolves with typed payload SELECT removed and only Asset lifecycle columns allowed",
        c do
     edge = seed_edge!(c)
 
@@ -350,32 +593,268 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
         )
       end)
 
-  defp without_typed_reads(fun) do
-    tables = ~w(assets asset_metadata note_versions document_versions document_fragments)
+  defp assert_typed_read_denied!(c, statement) do
+    error =
+      assert_raise Postgrex.Error, fn ->
+        scoped(c, fn context -> query!(context.repo, statement, []) end)
+      end
+
+    assert error.postgres.code == :insufficient_privilege
+    assert error.postgres.pg_code == "42501"
+  end
+
+  defp native_asset_rows(c, source) do
+    scoped(c, fn context ->
+      query!(
+        context.repo,
+        "SELECT current_user,current_setting('singularity.principal_id',true),current_setting('singularity.vault_id',true),id,resource_version_id,vault_id,classification,state FROM content.assets WHERE id=$1",
+        [source.asset_id]
+      ).rows
+    end)
+  end
+
+  defp owned_typed_acl_inventory,
+    do: Fixtures.with_owner(fn -> typed_acl_inventory() end)
+
+  defp typed_acl_inventory do
+    query!(
+      MigrationRepo,
+      """
+      SELECT c.relname,NULL::text AS column_name,
+        pg_get_userbyid(p.grantor),
+        CASE p.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(p.grantee) END,
+        p.privilege_type,p.is_grantable
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      CROSS JOIN LATERAL aclexplode(NULLIF(COALESCE(c.relacl,acldefault('r',c.relowner)),'{}'::aclitem[])) p
+      WHERE n.nspname='content' AND c.relname=ANY($1::text[])
+      UNION ALL
+      SELECT c.relname,a.attname,
+        pg_get_userbyid(p.grantor),
+        CASE p.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(p.grantee) END,
+        p.privilege_type,p.is_grantable
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      JOIN pg_attribute a ON a.attrelid=c.oid
+      CROSS JOIN LATERAL aclexplode(NULLIF(a.attacl,'{}'::aclitem[])) p
+      WHERE n.nspname='content' AND c.relname=ANY($1::text[])
+        AND a.attnum>0 AND NOT a.attisdropped
+      ORDER BY 1,2 NULLS FIRST,3,4,5,6
+      """,
+      [@typed_tables]
+    ).rows
+  end
+
+  defp typed_columns do
+    query!(
+      MigrationRepo,
+      "SELECT c.relname,a.attname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='content' AND c.relname=ANY($1::text[]) AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
+      [@typed_tables]
+    ).rows
+  end
+
+  defp assert_restorable_select_inventory!(inventory) do
+    refute Enum.any?(inventory, fn
+             [_, _, "singularity_web", _, "SELECT", _] -> true
+             _ -> false
+           end),
+           "unsupported web-issued SELECT grant"
+
+    assert Enum.all?(inventory, fn
+             [_, _, grantor, "singularity_web", "SELECT", _] ->
+               grantor == "singularity_table_owner"
+
+             _ ->
+               true
+           end),
+           "unsupported web SELECT grantor"
+  end
+
+  defp clear_web_selects! do
+    columns = typed_columns()
+
+    for table <- @typed_tables do
+      query!(MigrationRepo, "REVOKE SELECT ON content.#{table} FROM singularity_web", [])
+      selected = for [^table, column] <- columns, do: acl_identifier(column)
+
+      query!(
+        MigrationRepo,
+        "REVOKE SELECT (" <>
+          Enum.join(selected, ",") <>
+          ") ON content." <>
+          table <>
+          " FROM singularity_web",
+        []
+      )
+    end
+  end
+
+  defp restore_web_selects!(inventory) do
+    clear_web_selects!()
+
+    for [table, column, "singularity_table_owner", "singularity_web", "SELECT", grantable?] <-
+          inventory do
+      selection =
+        if is_nil(column), do: "SELECT", else: "SELECT (" <> acl_identifier(column) <> ")"
+
+      option = if grantable?, do: " WITH GRANT OPTION", else: ""
+
+      query!(
+        MigrationRepo,
+        "GRANT " <>
+          selection <>
+          " ON content." <>
+          table <>
+          " TO singularity_web" <> option,
+        []
+      )
+    end
+  end
+
+  defp with_existing_column_selects(fun) do
+    previous =
+      Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+        inventory = typed_acl_inventory()
+        assert_restorable_select_inventory!(inventory)
+
+        query!(
+          MigrationRepo,
+          "GRANT SELECT (asset_object_id) ON content.assets TO singularity_web",
+          []
+        )
+
+        query!(
+          MigrationRepo,
+          "GRANT SELECT (markdown) ON content.note_versions TO singularity_web WITH GRANT OPTION",
+          []
+        )
+
+        inventory
+      end)
+
+    try do
+      seeded = owned_typed_acl_inventory()
+
+      assert [
+               "assets",
+               "asset_object_id",
+               "singularity_table_owner",
+               "singularity_web",
+               "SELECT",
+               false
+             ] in seeded
+
+      assert [
+               "note_versions",
+               "markdown",
+               "singularity_table_owner",
+               "singularity_web",
+               "SELECT",
+               true
+             ] in seeded
+
+      fun.()
+    after
+      Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+        restore_web_selects!(previous)
+        assert typed_acl_inventory() == previous
+      end)
+    end
+  end
+
+  defp with_web_issued_select(c, scope, fun) do
+    permission =
+      case scope do
+        :table -> "SELECT"
+        :column -> "SELECT (asset_object_id)"
+      end
 
     previous =
       Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+        inventory = typed_acl_inventory()
+        assert_restorable_select_inventory!(inventory)
+
+        query!(
+          MigrationRepo,
+          "GRANT " <> permission <> " ON content.assets TO singularity_web WITH GRANT OPTION",
+          []
+        )
+
+        inventory
+      end)
+
+    try do
+      scoped(c, fn context ->
+        assert_isolated_acl_database!(context.repo)
+        assert %{rows: [["singularity_web"]]} = query!(context.repo, "SELECT current_user", [])
+
+        query!(
+          context.repo,
+          "GRANT " <> permission <> " ON content.assets TO singularity_worker",
+          []
+        )
+      end)
+
+      fun.()
+    after
+      scoped(c, fn context ->
+        assert_isolated_acl_database!(context.repo)
+
+        query!(
+          context.repo,
+          "REVOKE " <> permission <> " ON content.assets FROM singularity_worker",
+          []
+        )
+      end)
+
+      Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+        restore_web_selects!(previous)
+        assert typed_acl_inventory() == previous
+      end)
+    end
+  end
+
+  defp assert_isolated_acl_database!(repo) do
+    %{rows: [[database]]} = query!(repo, "SELECT current_database()", [])
+    assert Regex.match?(~r/\Asingularity_test_[0-9a-f]{24}\z/, database)
+  end
+
+  defp acl_identifier(identifier), do: "\"" <> String.replace(identifier, "\"", "\"\"") <> "\""
+
+  defp without_typed_reads(fun) do
+    tables = ~w(assets asset_metadata note_versions document_versions document_fragments)
+
+    {previous, complete_previous} =
+      Fixtures.with_owner(fn ->
         %{rows: [[database]]} = query!(MigrationRepo, "SELECT current_database()", [])
         assert Regex.match?(~r/\Asingularity_test_[0-9a-f]{24}\z/, database)
+        complete = typed_acl_inventory()
+        assert_restorable_select_inventory!(complete)
 
-        for table <- tables do
-          rows = typed_read_acl(table)
+        previous =
+          for table <- tables do
+            rows = typed_read_acl(table)
 
-          assert rows in [
-                   [],
-                   [["singularity_table_owner", false]],
-                   [["singularity_table_owner", true]]
-                 ]
+            assert rows in [
+                     [],
+                     [["singularity_table_owner", false]],
+                     [["singularity_table_owner", true]]
+                   ]
 
-          {table, rows}
-        end
+            {table, rows}
+          end
+
+        {previous, complete}
       end)
 
     try do
       Fixtures.with_owner(fn ->
-        for table <- tables do
-          query!(MigrationRepo, "REVOKE SELECT ON content.#{table} FROM singularity_web", [])
+        assert_isolated_acl_database!(MigrationRepo)
+        clear_web_selects!()
 
+        for table <- tables do
           assert %{rows: [[false]]} =
                    query!(
                      MigrationRepo,
@@ -383,29 +862,26 @@ defmodule Singularity.Storage.Postgres.OrganizationRepositoryTest do
                      ["content.#{table}"]
                    )
         end
+
+        # This is lifecycle metadata authority, not typed-payload SELECT authority.
+        query!(
+          MigrationRepo,
+          "GRANT SELECT (id,resource_version_id,vault_id,classification,state) ON content.assets TO singularity_web",
+          []
+        )
       end)
 
       fun.()
     after
       Fixtures.with_owner(fn ->
+        assert_isolated_acl_database!(MigrationRepo)
+        restore_web_selects!(complete_previous)
+
         for {table, rows} <- previous do
-          case rows do
-            [["singularity_table_owner", true]] ->
-              query!(
-                MigrationRepo,
-                "GRANT SELECT ON content.#{table} TO singularity_web WITH GRANT OPTION",
-                []
-              )
-
-            [["singularity_table_owner", false]] ->
-              query!(MigrationRepo, "GRANT SELECT ON content.#{table} TO singularity_web", [])
-
-            [] ->
-              :ok
-          end
-
           assert typed_read_acl(table) == rows
         end
+
+        assert typed_acl_inventory() == complete_previous
       end)
     end
   end
