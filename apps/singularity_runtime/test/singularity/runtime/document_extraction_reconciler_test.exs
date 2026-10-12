@@ -280,13 +280,284 @@ defmodule Singularity.Runtime.DocumentExtractionReconcilerTest do
     end
 
     for table <- ~w(content.document_versions content.document_fragments) do
-      assert %{rows: [[false, false]]} =
+      assert %{rows: [[true, true]]} =
                query!(
                  RequestRepo,
                  "SELECT has_table_privilege($1,$2,'SELECT'), has_any_column_privilege($1,$2,'SELECT')",
                  ["singularity_worker", table]
                )
     end
+
+    # This is native read-only/RLS metadata evidence, not byte-custody proof.
+    source = KnowledgeFixtures.source!()
+    foreign = KnowledgeFixtures.source!()
+    {document, fragment} = KnowledgeFixtures.ready_document!(source)
+    {other_document, other_fragment} = KnowledgeFixtures.ready_document!(foreign)
+    KnowledgeFixtures.retire_document_on_exit!(document)
+    KnowledgeFixtures.retire_document_on_exit!(other_document)
+    versions = [document.resource_version_id, other_document.resource_version_id]
+
+    read_rows = fn repo ->
+      %{rows: documents} =
+        query!(
+          repo,
+          """
+          SELECT resource_version_id,resource_id,vault_id,classification,
+            source_asset_id,source_resource_id,source_resource_version_id,
+            source_object_id,source_digest,source_byte_size,media_type,title,
+            created_by_principal_id,state,extracted_text_digest,detected_language
+          FROM content.document_versions
+          WHERE resource_version_id=ANY($1::uuid[]) ORDER BY resource_version_id
+          """,
+          [versions]
+        )
+
+      %{rows: fragments} =
+        query!(
+          repo,
+          """
+          SELECT id,resource_id,resource_version_id,vault_id,classification,
+            ordinal,text,digest,locator
+          FROM content.document_fragments
+          WHERE resource_version_id=ANY($1::uuid[]) ORDER BY resource_version_id,ordinal,id
+          """,
+          [versions]
+        )
+
+      %{documents: documents, fragments: fragments}
+    end
+
+    expected_rows = fn row, extracted ->
+      %{
+        documents: [
+          [
+            row.resource_version_id,
+            row.resource_id,
+            row.vault_id,
+            row.classification,
+            row.source_asset_id,
+            row.source_resource_id,
+            row.source_resource_version_id,
+            row.source_object_id,
+            row.source_digest,
+            row.source_byte_size,
+            row.media_type,
+            row.title,
+            row.created_by_principal_id,
+            "ready",
+            extracted.digest,
+            "en"
+          ]
+        ],
+        fragments: [
+          [
+            extracted.fragment_id,
+            row.resource_id,
+            row.resource_version_id,
+            row.vault_id,
+            "private",
+            extracted.ordinal,
+            extracted.text,
+            extracted.digest,
+            %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
+          ]
+        ]
+      }
+    end
+
+    own_rows = expected_rows.(document, fragment)
+    foreign_rows = expected_rows.(other_document, other_fragment)
+    hidden_rows = %{documents: [], fragments: []}
+
+    owner_snapshot = fn ->
+      Fixtures.with_owner(fn ->
+        Map.new(~w(content.document_versions content.document_fragments), fn table ->
+          %{rows: rows} =
+            query!(
+              MigrationRepo,
+              "SELECT * FROM #{table} WHERE resource_version_id=ANY($1::uuid[]) ORDER BY resource_version_id" <>
+                if(table == "content.document_fragments", do: ",ordinal,id", else: ""),
+              [versions]
+            )
+
+          {table, rows}
+        end)
+      end)
+    end
+
+    original_rows = owner_snapshot.()
+
+    WorkerRepo.checkout(fn ->
+      assert %{rows: [[backend, "singularity_worker"]]} =
+               query!(WorkerRepo, "SELECT pg_backend_pid(),current_user", [])
+
+      assert_context_absent = fn ->
+        refute WorkerRepo.in_transaction?()
+
+        assert %{rows: [[^backend, "singularity_worker", principal, owner]]} =
+                 query!(
+                   WorkerRepo,
+                   """
+                   SELECT pg_backend_pid(),current_user,
+                     current_setting('singularity.principal_id',true),
+                     current_setting('singularity.vault_id',true)
+                   """,
+                   []
+                 )
+
+        assert principal in [nil, ""]
+        assert owner in [nil, ""]
+        assert read_rows.(WorkerRepo) == hidden_rows
+      end
+
+      assert_scope = fn repo, context ->
+        assert repo == WorkerRepo
+        assert WorkerRepo.in_transaction?()
+        principal = Ecto.UUID.load!(context.principal_id)
+        owner = Ecto.UUID.load!(context.vault_id)
+
+        assert %{rows: [[^backend, "singularity_worker", ^principal, ^owner]]} =
+                 query!(
+                   repo,
+                   """
+                   SELECT pg_backend_pid(),current_user,
+                     current_setting('singularity.principal_id',true),
+                     current_setting('singularity.vault_id',true)
+                   """,
+                   []
+                 )
+      end
+
+      scoped_rows = fn context ->
+        ScopedRepo.transact(WorkerRepo, context, fn repo ->
+          assert_scope.(repo, context)
+          read_rows.(repo)
+        end)
+      end
+
+      for table <- ~w(content.document_versions content.document_fragments) do
+        assert %{rows: [[^backend, "singularity_worker", true, true, false, false, false, false]]} =
+                 query!(
+                   WorkerRepo,
+                   """
+                   SELECT pg_backend_pid(),current_user,
+                     has_table_privilege(current_user,$1,'SELECT'),
+                     has_any_column_privilege(current_user,$1,'SELECT'),
+                     has_table_privilege(current_user,$1,'INSERT'),
+                     has_table_privilege(current_user,$1,'UPDATE'),
+                     has_table_privilege(current_user,$1,'DELETE'),
+                     has_table_privilege(current_user,$1,'TRUNCATE')
+                   """,
+                   [table]
+                 )
+
+        assert %{rows: [[true, true]]} =
+                 query!(
+                   WorkerRepo,
+                   "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass($1)",
+                   [table]
+                 )
+      end
+
+      assert_context_absent.()
+      assert scoped_rows.(source) == own_rows
+      assert_context_absent.()
+      assert scoped_rows.(foreign) == foreign_rows
+      assert_context_absent.()
+
+      for context <- [
+            %{source | vault_id: foreign.vault_id},
+            %{source | principal_id: foreign.principal_id}
+          ] do
+        assert scoped_rows.(context) == hidden_rows
+        assert_context_absent.()
+      end
+
+      # ScopedRepo rejects nil UUIDs. Clear each GUC independently inside a
+      # real scoped transaction to exercise the missing-context RLS branches.
+      for missing <- ~w(singularity.principal_id singularity.vault_id) do
+        assert hidden_rows ==
+                 ScopedRepo.transact(WorkerRepo, source, fn repo ->
+                   assert_scope.(repo, source)
+
+                   assert %{rows: [[""]]} =
+                            query!(repo, "SELECT set_config($1,'',true)", [missing])
+
+                   principal =
+                     if missing == "singularity.principal_id",
+                       do: "",
+                       else: Ecto.UUID.load!(source.principal_id)
+
+                   owner =
+                     if missing == "singularity.vault_id",
+                       do: "",
+                       else: Ecto.UUID.load!(source.vault_id)
+
+                   assert %{rows: [[^backend, ^principal, ^owner]]} =
+                            query!(
+                              repo,
+                              """
+                              SELECT pg_backend_pid(),
+                                current_setting('singularity.principal_id',true),
+                                current_setting('singularity.vault_id',true)
+                              """,
+                              []
+                            )
+
+                   read_rows.(repo)
+                 end)
+
+        assert_context_absent.()
+      end
+
+      assert {:error, :document_scope_rollback} =
+               ScopedRepo.transact(WorkerRepo, source, fn repo ->
+                 assert_scope.(repo, source)
+                 assert read_rows.(repo) == own_rows
+                 {:error, :document_scope_rollback}
+               end)
+
+      assert_context_absent.()
+      assert owner_snapshot.() == original_rows
+
+      # An unexpected successful mutation is rolled back before failing its
+      # assertion. Each statement has its own native transaction boundary.
+      for table <- ~w(content.document_versions content.document_fragments),
+          {statement, params} <- [
+            {"INSERT INTO #{table} SELECT * FROM #{table} WHERE resource_version_id=$1",
+             [document.resource_version_id]},
+            {"UPDATE #{table} SET classification='private' WHERE resource_version_id=$1",
+             [document.resource_version_id]},
+            {"DELETE FROM #{table} WHERE resource_version_id=$1", [document.resource_version_id]},
+            {"TRUNCATE TABLE #{table}", []}
+          ] do
+        result =
+          ScopedRepo.transact(WorkerRepo, source, fn repo ->
+            assert_scope.(repo, source)
+            assert read_rows.(repo) == own_rows
+
+            case Singularity.Storage.SafeSQL.query(repo, statement, params) do
+              {:error, %Postgrex.Error{} = error} -> {:error, error}
+              {:ok, _result} -> {:error, :unexpected_direct_mutation_success}
+            end
+          end)
+
+        assert {:error,
+                %Postgrex.Error{
+                  postgres: %{code: :insufficient_privilege, pg_code: "42501"}
+                }} = result
+
+        assert_context_absent.()
+        assert owner_snapshot.() == original_rows
+      end
+
+      Fixtures.revoke_membership!(source)
+      assert scoped_rows.(source) == hidden_rows
+      assert_context_absent.()
+      assert scoped_rows.(foreign) == foreign_rows
+      assert_context_absent.()
+      assert owner_snapshot.() == original_rows
+    end)
   end
 
   test "worker scanner returns only version and owner UUIDs for an expired Document" do
