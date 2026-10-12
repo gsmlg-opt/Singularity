@@ -12,6 +12,15 @@ Design: `docs/superpowers/specs/2026-10-12-singularity-v0.2-phase-5-zero-asset-r
 This plan amends only master Task14's zero-Asset prohibition; all other Task14
 source, digest, preflight, completion and cleanup requirements remain mandatory.
 
+Current source evidence: completion-order repair1 and the separate test-warning
+helper repair now pass whole pure3 54actual/0fail/23SQLexcluded and live3
+89actual/0fail/13pureexcluded. Original38 pure and66new+23old live cases remain;
+16 additive native capture completion cases pass. Initial RED and intermediate
+warnings-as-errors FAIL remain in the acceptance history. Final actual
+NONAUTHOR SOURCE SPEC and distinct fresh QUALITY both CLOSED PASS, allfive
+owning source/test hashes independently match. Parent final verification and
+the scoped localcommit remain pending; Phase5 acceptance is still unqualified.
+
 ## A. Actual design review and prerequisite
 
 - [x] Actual nonauthor SOURCE SPEC reviews full design/plan against original
@@ -21,9 +30,12 @@ source, digest, preflight, completion and cleanup requirements remain mandatory.
 - [x] A distinct fresh actual-source QUALITY reviewer checks the late association/
   material-load races and genuine test observability. Record reviewed hashes,
   all findings and actual disposition; do not substitute an author's own review.
-- [ ] Synchronize the master's sole zero-only exception after both reviews.
+- [x] Synchronize the master's sole zero-only exception after both reviews.
   Before Task14 authoring, Task13 must have complete required GREEN plus actual
   SOURCE SPEC/fresh QUALITY and a small local commit. No dependency bypass.
+  Qualified Task13 local commit:09f8ee0c0a69cdd26612e0663a29a9d156c46986.
+  This records Task14's historical prerequisite, not its current implementation
+  state. No source authoring during any live parent gate.
 
 ## B. RED source composition and owning live cases
 
@@ -145,24 +157,24 @@ end
 
 ## D. Complete validation and handoff
 
-- [ ] Whole pure owner files must pass, zero warnings; record actual executed
+- [x] Whole pure owner files must pass, zero warnings; record actual executed
   counts/exclusions and normal exit0, not a predicted count:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_export_read_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_runtime/test/singularity/runtime/document_custody_test.exs --seed 215378 --warnings-as-errors
 ```
 
-- [ ] Whole live owning file set must pass on the existing private PostgreSQL,
+- [x] Whole live owning file set must pass on the existing private PostgreSQL,
   genuine source/custody races and real clean closure included:
 
 ```sh
 devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/knowledge_export_custody_live_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_runtime/test/singularity/runtime/document_custody_test.exs --seed 215378 --warnings-as-errors
 ```
 
-- [ ] Since Task14 adds Repository methods, retain the COMPLETE two-file Task13
+- [x] Since Task14 adds Repository methods, retain the COMPLETE two-file Task13
   SQL gate and whole five-file pure command from its accepted plan; preserve all
   provenance/seal/page/source-set/cut/audit/COMMIT assertions.
-- [ ] Compile with warnings-as-errors, changed-file format check, seven-app/
+- [x] Compile with warnings-as-errors, changed-file format check, seven-app/
   zero-xref-cycle check; verify frozen56 and exact source receipts. Archive full
   gate output/normal exit/actual counts and private DB/root/lease/GUC/lock cleanup.
 - [ ] Ordinary failure remains FAIL and enters bounded diagnosis/repair; escalate

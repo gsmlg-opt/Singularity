@@ -73,6 +73,316 @@ defmodule Singularity.Storage.KnowledgeExport.Repository do
 
   def next_page(_sealed, _cursor, _limit), do: {:error, Error.new(:invalid)}
 
+  # These reads run only inside the authenticated request scope. The owner is
+  # taken from its PostgreSQL context, never from a captured descriptor.
+  def lock_asset_source(repo, binding, mode) do
+    export_read(fn ->
+      owner = export_owner!(repo)
+      unless binding["owner_scope_id"] == owner, do: fail(:integrity_failure)
+
+      case mode do
+        :zero ->
+          unless binding["plaintext_byte_size"] == 0 and binding["format_version"] == 1 and
+                   binding["ciphertext_byte_size"] == 134,
+                 do: fail(:integrity_failure)
+
+        %Range{first: first, last: last, step: 1}
+        when first >= 0 and last >= first and last - first < 65_536 ->
+          unless last < binding["plaintext_byte_size"], do: fail(:integrity_failure)
+
+        _ ->
+          fail(:invalid)
+      end
+
+      export_original!(repo, owner, binding, false)
+      :ok
+    end)
+  end
+
+  def document_source(repo, %{version: version, source: source}) do
+    export_read(fn ->
+      owner = export_owner!(repo)
+      resource = canonical_id(version["resource_id"])
+      id = canonical_id(version["version_id"])
+      export_live_version!(repo, owner, resource, id, "document")
+
+      [source_resource, source_version, asset, object, digest, size] =
+        one(
+          export_query(
+            repo,
+            """
+            SELECT source_resource_id,source_resource_version_id,source_asset_id,source_object_id,
+                   source_digest,source_byte_size
+            FROM content.document_versions
+            WHERE resource_id=$1 AND resource_version_id=$2 AND vault_id=$3 AND classification='private'
+            LIMIT 2
+            """,
+            [dump(resource), dump(id), dump(owner)]
+          )
+        )
+
+      unless version["kind"] == "document" and hex(digest) == version["original_digest"] and
+               size == version["original_byte_size"] and is_integer(size) and
+               size in 0..67_108_864 and source["owner_scope_id"] == owner and
+               source["resource_id"] == text(source_resource) and
+               source["version_id"] == text(source_version) and source["asset_id"] == text(asset) and
+               source["object_id"] == text(object) and source["plaintext_byte_size"] == size,
+             do: fail(:integrity_failure)
+
+      export_original!(repo, owner, source, true)
+
+      {:ok,
+       %{
+         resource_id: resource,
+         resource_version_id: id,
+         object_id: text(object),
+         object_generation: source["object_generation"],
+         source_digest: digest,
+         source_byte_size: size
+       }}
+    end)
+  end
+
+  def document_source(_repo, _binding), do: {:error, Error.new(:invalid)}
+
+  def revalidate_note(repo, %{version: version}) do
+    export_read(fn ->
+      owner = export_owner!(repo)
+      resource = canonical_id(version["resource_id"])
+      id = canonical_id(version["version_id"])
+      export_live_version!(repo, owner, resource, id, "note")
+
+      [body] =
+        one(
+          export_query(
+            repo,
+            """
+            SELECT markdown FROM content.note_versions
+            WHERE resource_id=$1 AND resource_version_id=$2 AND vault_id=$3 AND classification='private'
+              AND octet_length(markdown)<=1048576 LIMIT 2
+            """,
+            [dump(resource), dump(id), dump(owner)]
+          )
+        )
+
+      unless version["kind"] == "note" and
+               hex(:crypto.hash(:sha256, body)) == version["body_digest"],
+             do: fail(:integrity_failure)
+
+      :ok
+    end)
+  end
+
+  def revalidate_note(_repo, _binding), do: {:error, Error.new(:invalid)}
+
+  def revalidate_fragment(repo, %{fragment: fragment}) do
+    export_read(fn ->
+      owner = export_owner!(repo)
+      resource = canonical_id(fragment["resource_id"])
+      version = canonical_id(fragment["version_id"])
+      export_live_version!(repo, owner, resource, version, "document")
+
+      [id, ordinal, digest, locator, body] =
+        one(
+          export_query(
+            repo,
+            """
+            SELECT id,ordinal,digest,locator,text FROM content.document_fragments
+            WHERE resource_id=$1 AND resource_version_id=$2 AND vault_id=$3 AND classification='private'
+              AND id=$4 AND octet_length(text)<=65536 LIMIT 2
+            """,
+            [dump(resource), dump(version), dump(owner), fragment["id"]]
+          )
+        )
+
+      unless id == fragment["id"] and ordinal == fragment["ordinal"] and
+               hex(digest) == fragment["digest"] and locator == fragment["locator"] and
+               byte_size(body) == fragment["byte_size"] and :crypto.hash(:sha256, body) == digest and
+               DocumentFragment.id(version, locator, ordinal, digest) == id,
+             do: fail(:integrity_failure)
+
+      :ok
+    end)
+  end
+
+  def revalidate_fragment(_repo, _binding), do: {:error, Error.new(:invalid)}
+
+  defp export_read(callback) do
+    callback.()
+  rescue
+    exception -> {:error, KnowledgeError.from(exception)}
+  catch
+    :throw, {__MODULE__, %Error{} = error} -> {:error, error}
+    _, _ -> {:error, Error.new(:storage_unavailable, retryable?: true)}
+  end
+
+  defp export_owner!(repo) do
+    unless is_atom(repo) and not is_nil(repo) and repo.in_transaction?(), do: fail(:invalid)
+
+    case export_query(
+           repo,
+           """
+           SELECT current_setting('singularity.principal_id',true),
+                  current_setting('singularity.vault_id',true)
+           """,
+           []
+         ) do
+      [[principal, owner]] ->
+        canonical_id(principal)
+        canonical_id(owner)
+
+      _ ->
+        fail(:invalid)
+    end
+  end
+
+  defp export_query(repo, sql, params), do: SafeSQL.query!(repo, sql, params).rows
+
+  defp export_live_version!(repo, owner, resource, version, kind) do
+    case export_query(
+           repo,
+           """
+           SELECT r.kind FROM content.resources r
+           JOIN content.resource_versions v ON
+             (v.resource_id,v.vault_id,v.classification)=(r.id,r.vault_id,r.classification)
+           WHERE r.id=$1 AND v.id=$2 AND r.vault_id=$3 AND r.classification='private'
+             AND r.deleted_at IS NULL LIMIT 2
+           """,
+           [dump(resource), dump(version), dump(owner)]
+         ) do
+      [[^kind]] -> :ok
+      [] -> fail(:not_found)
+      _ -> fail(:integrity_failure)
+    end
+  end
+
+  defp export_original!(repo, owner, binding, retained?) do
+    asset = canonical_id(binding["asset_id"])
+    object = canonical_id(binding["object_id"])
+
+    # Asset first is the established destructive-mutation lock order. Object,
+    # envelope and domain-version locks then cover custody material loading.
+    one(
+      export_query(
+        repo,
+        "SELECT id FROM content.assets WHERE id=$1 AND vault_id=$2 AND classification='private' FOR SHARE",
+        [dump(asset), dump(owner)]
+      )
+    )
+
+    one(
+      export_query(
+        repo,
+        "SELECT id FROM content.asset_objects WHERE id=$1 AND vault_id=$2 AND classification='private' FOR SHARE",
+        [dump(object), dump(owner)]
+      )
+    )
+
+    one(
+      export_query(
+        repo,
+        """
+        SELECT e.id FROM content.asset_key_envelopes e
+        JOIN core.domain_key_versions d ON
+          (d.id,d.vault_id,d.key_domain_id)=(e.domain_key_version_id,e.vault_id,e.key_domain_id)
+        WHERE e.asset_object_id=$1 AND e.vault_id=$2 AND e.classification='private' AND d.state='active'
+        LIMIT 2 FOR SHARE OF e,d
+        """,
+        [dump(object), dump(owner)]
+      )
+    )
+
+    [
+      actual_asset,
+      actual_object,
+      domain,
+      domain_version,
+      domain_generation,
+      generation,
+      lookup,
+      ciphertext,
+      size,
+      cipher_size,
+      storage,
+      format,
+      state,
+      lifecycle,
+      deleted,
+      released,
+      tombstoned,
+      metadata_size,
+      candidates
+    ] =
+      one(
+        export_query(
+          repo,
+          """
+          SELECT a.id,o.id,o.key_domain_id,e.domain_key_version_id,d.generation,e.key_generation,
+                 o.lookup_digest,o.ciphertext_hash,o.plaintext_byte_size,o.ciphertext_byte_size,
+                 o.storage_ref,o.format_version,a.state,o.lifecycle,r.deleted_at,ra.released_at,
+                 EXISTS(SELECT 1 FROM content.tombstones t WHERE
+                   (t.asset_id,t.vault_id,t.classification)=(a.id,a.vault_id,a.classification)),
+                 m.plaintext_byte_size,
+                 (SELECT count(*) FROM (
+                   SELECT id FROM content.assets WHERE resource_version_id=$2 AND vault_id=$3
+                   UNION SELECT asset_id FROM content.asset_metadata WHERE resource_version_id=$2 AND vault_id=$3
+                   UNION SELECT asset_id FROM content.resource_assets WHERE resource_version_id=$2 AND vault_id=$3
+                 ) candidates)
+          FROM content.assets a
+          JOIN content.resource_versions v ON (v.id,v.vault_id,v.classification)=(a.resource_version_id,a.vault_id,a.classification)
+          JOIN content.resources r ON (r.id,r.vault_id,r.classification)=(v.resource_id,v.vault_id,v.classification)
+          JOIN content.resource_assets ra ON (ra.asset_id,ra.resource_version_id,ra.vault_id,ra.classification)=(a.id,v.id,a.vault_id,a.classification)
+          JOIN content.asset_metadata m ON (m.asset_id,m.resource_version_id,m.vault_id,m.classification)=(a.id,v.id,a.vault_id,a.classification)
+          JOIN content.asset_objects o ON (o.id,o.vault_id,o.classification)=(CASE WHEN $4 THEN $5::uuid ELSE a.asset_object_id END,a.vault_id,a.classification)
+          JOIN content.asset_key_envelopes e ON (e.asset_object_id,e.vault_id,e.key_domain_id,e.classification)=(o.id,o.vault_id,o.key_domain_id,o.classification)
+          JOIN core.domain_key_versions d ON (d.id,d.vault_id,d.key_domain_id)=(e.domain_key_version_id,e.vault_id,e.key_domain_id)
+          JOIN core.key_domains k ON (k.id,k.vault_id)=(o.key_domain_id,o.vault_id)
+          WHERE r.id=$1 AND v.id=$2 AND a.vault_id=$3 AND a.classification='private'
+            AND r.kind='asset' AND d.state='active' AND k.state='active' AND k.kind='content'
+            AND k.classification='private' LIMIT 2
+          """,
+          [
+            dump(binding["resource_id"]),
+            dump(binding["version_id"]),
+            dump(owner),
+            retained?,
+            dump(object)
+          ]
+        )
+      )
+
+    actual = %{
+      "kind" => "asset",
+      "resource_id" => binding["resource_id"],
+      "version_id" => binding["version_id"],
+      "asset_id" => text(actual_asset),
+      "object_id" => text(actual_object),
+      "owner_scope_id" => owner,
+      "classification" => "private",
+      "key_domain_id" => text(domain),
+      "domain_key_version_id" => text(domain_version),
+      "domain_key_generation" => domain_generation,
+      "object_generation" => generation,
+      "lookup_digest" => hex(lookup),
+      "ciphertext_hash" => hex(ciphertext),
+      "plaintext_byte_size" => size,
+      "ciphertext_byte_size" => cipher_size,
+      "storage_ref" => storage,
+      "format_version" => format,
+      "plaintext_sha256" => nil
+    }
+
+    unless actual == binding and candidates == 1 and size == metadata_size and
+             lifecycle == "available" and
+             format == 1 and
+             (retained? or
+                (is_nil(deleted) and is_nil(released) and
+                   not tombstoned and state in ["available", "processing", "ready"])),
+           do: fail(:integrity_failure)
+
+    :ok
+  end
+
   defp authority!(repo, %{principal_id: principal, vault_id: owner}) do
     principal = canonical_id(principal)
     owner = canonical_id(owner)

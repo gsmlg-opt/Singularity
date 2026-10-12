@@ -748,15 +748,199 @@ defmodule Singularity.Runtime.DocumentCustodyPermissionTest do
   use ExUnit.Case, async: false
   @moduletag :integration
 
-  alias Singularity.Storage.WorkerRepo
+  import Singularity.Storage.DataCase, only: [query!: 3]
+  alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo, ScopedRepo, WorkerRepo}
 
-  test "worker role cannot directly read the pinned Document table" do
-    assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
-             Ecto.Adapters.SQL.query(
-               WorkerRepo,
-               "SELECT resource_version_id FROM content.document_versions LIMIT 0",
-               [],
-               log: false
+  test "worker backup reads require active matching RLS scope and never permit direct Document mutation" do
+    # Disposable SQL metadata establishes permissions and immutable pins only,
+    # not authenticated original bytes or a replacement for native custody.
+    source = KnowledgeFixtures.source!()
+    foreign = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+    other_document = KnowledgeFixtures.document!(foreign)
+    KnowledgeFixtures.retire_document_on_exit!(document)
+    KnowledgeFixtures.retire_document_on_exit!(other_document)
+    versions = [document.resource_version_id, other_document.resource_version_id]
+    original_rows = owner_rows(versions)
+
+    WorkerRepo.checkout(fn ->
+      assert %{rows: [[backend, "singularity_worker", true, false, false, false, false]]} =
+               query!(
+                 WorkerRepo,
+                 """
+                 SELECT pg_backend_pid(), current_user,
+                   has_table_privilege(current_user,'content.document_versions','SELECT'),
+                   has_table_privilege(current_user,'content.document_versions','INSERT'),
+                   has_table_privilege(current_user,'content.document_versions','UPDATE'),
+                   has_table_privilege(current_user,'content.document_versions','DELETE'),
+                   has_table_privilege(current_user,'content.document_versions','TRUNCATE')
+                 """,
+                 []
+               )
+
+      assert %{rows: [[true, true]]} =
+               query!(
+                 WorkerRepo,
+                 """
+                 SELECT relrowsecurity, relforcerowsecurity
+                 FROM pg_class WHERE oid = 'content.document_versions'::regclass
+                 """,
+                 []
+               )
+
+      assert_context_absent!(backend)
+      assert %{rows: []} = pin_rows(WorkerRepo, versions)
+
+      assert scoped_rows(source, versions, backend) == [pin(document, source)]
+      assert_context_absent!(backend)
+      assert scoped_rows(foreign, versions, backend) == [pin(other_document, foreign)]
+      assert_context_absent!(backend)
+
+      for context <- [
+            foreign,
+            %{source | vault_id: foreign.vault_id},
+            %{source | principal_id: foreign.principal_id}
+          ] do
+        assert scoped_rows(context, [document.resource_version_id], backend) == []
+        assert_context_absent!(backend)
+      end
+
+      assert {:error, :document_scope_rollback} =
+               ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+                 assert_scope!(scoped, backend, source)
+                 assert %{rows: rows} = pin_rows(scoped, versions)
+                 assert rows == [pin(document, source)]
+                 {:error, :document_scope_rollback}
+               end)
+
+      assert_context_absent!(backend)
+      assert %{rows: []} = pin_rows(WorkerRepo, versions)
+
+      # Each native denial runs in a separate real transaction. An unexpected
+      # successful statement is still rolled back before its assertion fails.
+      for {statement, params} <- [
+            {"INSERT INTO content.document_versions SELECT * FROM content.document_versions WHERE resource_version_id=$1",
+             [document.resource_version_id]},
+            {"UPDATE content.document_versions SET title='forbidden mutation' WHERE resource_version_id=$1",
+             [document.resource_version_id]},
+            {"DELETE FROM content.document_versions WHERE resource_version_id=$1",
+             [document.resource_version_id]},
+            {"TRUNCATE TABLE content.document_versions", []}
+          ] do
+        result =
+          ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+            assert_scope!(scoped, backend, source)
+
+            case Singularity.Storage.SafeSQL.query(scoped, statement, params) do
+              {:error, %Postgrex.Error{} = error} -> {:error, error}
+              {:ok, _result} -> {:error, :unexpected_direct_mutation_success}
+            end
+          end)
+
+        assert {:error,
+                %Postgrex.Error{
+                  postgres: %{code: :insufficient_privilege, pg_code: "42501"}
+                }} = result
+
+        assert_context_absent!(backend)
+        assert owner_rows(versions) == original_rows
+      end
+
+      Fixtures.revoke_membership!(source)
+      assert scoped_rows(source, versions, backend) == []
+      assert_context_absent!(backend)
+      assert scoped_rows(foreign, versions, backend) == [pin(other_document, foreign)]
+      assert_context_absent!(backend)
+      assert %{rows: []} = pin_rows(WorkerRepo, versions)
+      assert owner_rows(versions) == original_rows
+    end)
+  end
+
+  defp scoped_rows(context, versions, backend) do
+    ScopedRepo.transact(WorkerRepo, context, fn scoped ->
+      assert_scope!(scoped, backend, context)
+      %{rows: rows} = pin_rows(scoped, versions)
+      rows
+    end)
+  end
+
+  defp pin_rows(repo, versions) do
+    query!(
+      repo,
+      """
+      SELECT resource_version_id, resource_id, vault_id, source_asset_id,
+        source_resource_id, source_resource_version_id, source_object_id,
+        source_digest, source_byte_size
+      FROM content.document_versions
+      WHERE resource_version_id = ANY($1::uuid[]) ORDER BY resource_version_id
+      """,
+      [versions]
+    )
+  end
+
+  defp pin(document, source) do
+    [
+      document.resource_version_id,
+      document.resource_id,
+      source.vault_id,
+      source.asset_id,
+      source.resource_id,
+      source.resource_version_id,
+      source.object_id,
+      source.digest,
+      source.byte_size
+    ]
+  end
+
+  defp owner_rows(versions) do
+    Fixtures.with_owner(fn ->
+      %{rows: rows} =
+        query!(
+          MigrationRepo,
+          """
+          SELECT * FROM content.document_versions
+          WHERE resource_version_id = ANY($1::uuid[]) ORDER BY resource_version_id
+          """,
+          [versions]
+        )
+
+      rows
+    end)
+  end
+
+  defp assert_scope!(repo, backend, context) do
+    principal = Ecto.UUID.load!(context.principal_id)
+    owner = Ecto.UUID.load!(context.vault_id)
+    assert repo == WorkerRepo
+    assert WorkerRepo.in_transaction?()
+
+    assert %{rows: [[^backend, "singularity_worker", ^principal, ^owner]]} =
+             query!(
+               repo,
+               """
+               SELECT pg_backend_pid(), current_user,
+                 current_setting('singularity.principal_id',true),
+                 current_setting('singularity.vault_id',true)
+               """,
+               []
              )
+  end
+
+  defp assert_context_absent!(backend) do
+    refute WorkerRepo.in_transaction?()
+
+    assert %{rows: [[^backend, "singularity_worker", principal, owner]]} =
+             query!(
+               WorkerRepo,
+               """
+               SELECT pg_backend_pid(), current_user,
+                 current_setting('singularity.principal_id',true),
+                 current_setting('singularity.vault_id',true)
+               """,
+               []
+             )
+
+    assert principal in [nil, ""]
+    assert owner in [nil, ""]
   end
 end
