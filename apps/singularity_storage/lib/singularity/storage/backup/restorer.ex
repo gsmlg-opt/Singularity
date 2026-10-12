@@ -6,6 +6,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   alias Singularity.Core.ObjectRef
   alias Singularity.Core.StageRef
   alias Singularity.Storage.Backup.BundleReader
+  alias Singularity.Storage.Backup.KnowledgeIntegrityInventory
   alias Singularity.Storage.Backup.KnowledgePreflight
   alias Singularity.Storage.Backup.KnowledgeRestoreDigest
   alias Singularity.Storage.Backup.LogicalBundleVerifier
@@ -363,11 +364,12 @@ defmodule Singularity.Storage.Backup.Restorer do
          vault_key
        ) do
     try do
-      with {:ok, integrity_capability} <-
+      with {:ok, options} <- integrity_options(adapters, imported, vault_key),
+           {:ok, integrity_capability} <-
              adapter_value(
                adapters.integrity_issuer,
                :issue,
-               [integrity_options(adapters, imported, vault_key)],
+               [options],
                :storage_unavailable
              ),
            true <- not is_nil(integrity_capability) or storage_unavailable() do
@@ -440,7 +442,7 @@ defmodule Singularity.Storage.Backup.Restorer do
   end
 
   defp integrity_options(adapters, imported, vault_key) do
-    %{
+    options = %{
       owner: self(),
       vault_key: vault_key,
       binding: %{
@@ -455,6 +457,20 @@ defmodule Singularity.Storage.Backup.Restorer do
       key_wrapper: adapter_module(adapters.key_wrapper),
       ttl_ms: adapters.integrity_ttl_ms
     }
+
+    if Map.get(imported.cut, :logical_version) == 3 do
+      with {:ok, prepared} <-
+             KnowledgeIntegrityInventory.prepare(
+               adapters.migration_repo,
+               adapters.object_storage,
+               imported
+             ) do
+        {:ok,
+         %{options | inventory: prepared.inventory, material_loader: prepared.material_loader}}
+      end
+    else
+      {:ok, options}
+    end
   end
 
   defp import_verified(

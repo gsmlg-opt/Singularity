@@ -45,6 +45,15 @@ implementation. The complete
 [master Phase 5 deliverables](2026-08-31-singularity-v0.2-release.md#phase-5--portable-export-backup-v3-restore-and-upgrade)
 and §10 govern completion.
 
+Task9E's new facade/size-proof/single fault-injection amendment has actual
+NONAUTHOR DESIGN SPEC and distinct fresh QUALITY CLOSEDPASS/noP1P2 at exact
+four-file hashes c161d673/bf434b49/78848c2e/13ba6ee2. Full parent/reviewer reads,
+current source16/original frozen56/protected native5 checks and unchanged owning
+baseline48pure/0+35SQL/0 with normalEMPTY/rootabsence precede test-only GO at
+HEAD4e2499d. Prior C/D and Task14/15 evidence remains scoped history, not E
+implementation qualification. All new native witnesses are NOT RUN; source GO
+waits for complete causal RED. Architecture consumes zero repair rounds.
+
 Use only `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on documentation handoff
 `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Phase 4's tested implementation
@@ -69,6 +78,17 @@ Logical V3 preparation keeps default V2 and the current unsupported-canonical
 guard closed until writer and restore qualify together in Tasks 11 and 12.
 Do not change frozen leases, use extraction authority for export, disable
 triggers/RLS, synthesize sessions or use runtime commands to replay history.
+The sole trigger exception is Task9E's review-gated, one-case
+fault-injection contract in the compatibility design/plan: only the named
+`document_fragments_immutable_guard` on `content.document_fragments`, only an
+owned disposable migrated destination AFTER genuine import COMMIT, and only
+the unreferenced old-ready nonhead ordinal1 canonical text/digest/id mutation.
+Re-enable before corruption COMMIT, preserve all other triggers/RLS, prove exact
+definition/enabled-state/RLS restoration and ordinary denial, then invoke the
+helper in its fresh transaction. This necessary local test-contract authority
+permits no production/released-migration bypass, shared corruption helper or
+other disabled trigger. The selected test remains gated on the E amendment's
+actual independent design reviews; it is not runtime evidence yet.
 No browser/archive UI is added. E2E is manual-only **NOT RUN**, explicitly
 deferred for local phase advancement; final browser/release acceptance remains
 required. All other required gates and actual independent review must pass.
@@ -94,7 +114,7 @@ permitted while either integrity or projection verification remains incomplete.
 | Complete cut and object inventory | Existing `backup/exporter.ex`; new forward backup-read/guard migration |
 | Typed staging and preflight | New `backup/knowledge_preflight.ex`, `backup/knowledge_restore_digest.ex`; existing `backup/restorer.ex` |
 | Historical admission and independent finalizer | New forward migrations after `20261011000200`; no edit to released migrations |
-| Original evidence, search and work | Existing Storage `backup/integrity_audit.ex`, `backup/reconciler.ex`; narrow Runtime integrity call |
+| Original evidence, search and work | New Storage `backup/knowledge_integrity_inventory.ex`, `backup/knowledge_integrity_audit.ex`; existing `backup/reconciler.ex`; narrow Runtime integrity call; preserve Base `backup/integrity_audit.ex` |
 | Portable pure contract | New Core `knowledge_export.ex`, `knowledge_export_manifest.ex`; additive `note_markdown_sources.ex` entry point |
 | Portable snapshot/read/write | New Storage `knowledge_export/repository.ex`, `knowledge_export/spool.ex`, `knowledge_export/writer.ex`; new Runtime `knowledge/export_snapshot.ex`, `knowledge/export.ex`, `knowledge/export_read.ex`, `knowledge/export_artifact.ex` |
 | Public composition | Existing Runtime `api.ex`, `application.ex`; Task16 dedicated export-root setting in `config/dev.exs`, `config/test.exs`, `config/runtime.exs`; preserve existing production seams and architecture byte contracts |
@@ -1238,9 +1258,11 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
 ## Task 9: Verify original plaintext evidence before rebuild/completion
 
-**Modify:** Storage `backup/integrity_audit.ex`, Runtime `integrity_audit.ex`,
-both complete integrity owning tests.
-**Create:** `apps/singularity_storage/test/singularity/storage/backup/document_restore_integrity_test.exs`.
+**Modify:** Storage `backup/knowledge_integrity_inventory.ex`, Runtime
+`integrity_audit.ex` and their complete owning tests; retain complete Base
+integrity/rewrap tests and unchanged Base `backup/integrity_audit.ex`.
+**Create:** `apps/singularity_storage/lib/singularity/storage/backup/knowledge_integrity_audit.ex`,
+`apps/singularity_storage/test/singularity/storage/backup/document_restore_integrity_test.exs`.
 **Depends on:** Tasks 7 and 8.
 
 Necessary original-reference compatibility is governed by the separately
@@ -1263,53 +1285,102 @@ and matching plan. Actual independent SOURCE SPEC and distinct fresh QUALITY
 PASS on complete design d19067aa/plan d68e4320. Keep all two Rls/thirteen Grants
 cases, exact literal privileges/nongrantable ACLs, native DML/private-function/
 receipt/seal/other-role denials and stronger real baseline owner-filter reads.
-No production grant/policy/helper changes. Implementation waits for running
-SQL50680 closure; newly observed timeout/lifecycle failures need separate
-diagnosis. No focused repair PASS substitutes for complete retained16 GREEN
-or unlocks Task9C by itself.
+No production grant/policy/helper changes. Current Rls e24dcace/Grants efd5c7c8
+passed focused15 and complete retained16; actual final nonauthor SOURCE SPEC
+then distinct fresh QUALITY passed. Historical50680 FAIL remains recorded.
+No focused repair PASS alone substitutes for complete retained16 qualification.
 
 The owning Admission wrong-reference negative preserves its single case, all
 ten variants/default60 and complete native body under the bounded test-only
 `docs/superpowers/specs/2026-10-12-singularity-v0.2-phase-5-admission-fixture-lifecycle-design.md`
 and matching plan. Actual nonauthor SOURCE SPEC then distinct fresh QUALITY
-PASS on complete candidate28674f51/c798847e. Prepare original independently
+PASS on historical candidate28674f51/c798847e and native-close amendment
+6a5607ac/dc697ab0. Prepare original independently
 authenticated sources before one empty migrated rollback-only destination;
 each variant retains its own actual native transaction/graph rejection and
 complete before/after no-import/storage/replay checks. Ordinary other cases
 still allocate separate destinations; protected helpers/production untouched.
-Explicitly assert successful replay discard, with stage cleanup even on error.
+Require exactly one same-process genuine successful native close with real
+open-before/closed-after controls; discard only an unconsumed replay. Preserve
+the original callback result/raised kind-reason-stack and unconditional stage
+cleanup, including authentication/close failure. Duplicate/failed/foreign/
+unqualified observations deny.
 Initial full344actual/93FAIL/3excluded gate remains FAIL; interrupted private
 resources were recovered and one captured chunk is declared incomplete.
-Only complete owning70/full16 GREEN with normal cleanup and final actual
-reviews can qualify this fixture repair or unlock Task9C.
+Current Admission43b4c144 passed complete owning70 and full16 with normal
+cleanup/static/frozen checks; final actual nonauthor SOURCE SPEC then distinct
+fresh QUALITY both passed. Full16 executed344actual/0 with3 non-SQL exclusions,
+covered separately by whole legacy pure5/0. Task9C test-first authoring may
+proceed; compatibility TasksC–G and Phase5 remain unaccepted. Admission contains
+pending Task9B cases, so commit its qualified repair with the combined TaskF
+handoff rather than committing tests without required00700 implementation.
 
-- [ ] Add RED verifying every Document immutable `source_digest/byte_size`
+- [x] Close parent full reads and actual nonauthor DESIGN SPEC then distinct
+  fresh QUALITY for the Task9E amendment before any E test/source authoring.
+  Execute detailed E's baseline, test-only causal RED, implementation, whole
+  owner GREEN and all retained F gates; preserve original C/D exact-gate history
+  and cumulative repair counters. Every new native witness remains NOT RUN.
+- [x] Add RED verifying every Document immutable `source_digest/byte_size`
   against the full inventory/material and authenticated plaintext hashes,
   including objects retained only by deleted/old Documents. A matching
   ciphertext hash with a wrong original plaintext digest must fail.
-- [ ] Define Storage `IntegrityAudit.verify_document_sources(repo, binding,
-  inventory, plaintext_hashes)` where binding is exact owner/manifest. Validate
+- [x] Define Storage `KnowledgeIntegrityInventory.verify_document_sources(repo,
+  binding, original_inventory, plaintext_hashes)` where binding is EXACTLY the
+  two owner/manifest keys. Validate
   restored saga and equal inventory identity; hashes contain exactly one
   `%{asset_object_id: id, sha256: <<32 bytes>>}` per inventory entry in canonical
   order. Reject missing/duplicate/extra evidence, foreign owner/manifest, wrong
-  size/hash and unverified materials. Asset-only entries remain valid. Recheck
+  size/hash and unverified materials. No fabricated full C.Context or independent
+  expected manifest-hash/tag/root authority absent from `/4` inputs. Hash and
+  compare ORIGINAL I without normalizing refs; exact nine-field I/N(I) stay
+  unchanged. Asset-only entries remain valid. Recheck
   all ready historical extracted concatenation digests, independent of heads.
-- [ ] Add a narrow call in Runtime `verify_final` after
+- [x] Implement the strictly increasing frozen format1 size law using public
+  Format constants: `C(P)=66+P+24*ceil(P/4194304)+68`. Match immutable Doc size
+  against ORIGINAL inventory ciphertext size, plus current Object size/format.
+  Current metadata equality alone is insufficient. Execute all nine independent
+  literal vectors in the compatibility design, adjacent/gap/malformed/overflow
+  negatives and real encrypted empty/chunk-edge authenticated-reader cases.
+- [x] Use public KnowledgeBackupFixtures APIs and actual LocalDestination,
+  BundleReader, LogicalBundleVerifier and Restorer.import into a different empty
+  disposable destination. Prove actual committed import/saga before E negatives.
+  Transform all sharing Doc digests coherently for the native plaintext mismatch;
+  transform all sharing Doc/Object sizes coherently, correct Object size for a
+  real reader then restore wrong matching Object size for the causal size-law
+  denial. Qualify all states/retained historical/deleted originals, Asset-only
+  entries, UUID/canonical/mixed refs and malformed hash/binding/ref negatives.
+- [x] Execute ONLY the detailed E single-fragment-guard exception for historical
+  extracted mismatch. Require successful helper baseline, actual original
+  trigger/function/enabled-state/RLS snapshots, zero referencing FKs, canonical
+  replacement tuple, separate native corruption COMMIT with guard re-enabled,
+  all other guards/RLS retained, exact restoration and ordinary forbidden UPDATE
+  proof, then E denial in its own transaction. Injection failure rolls back DDL
+  and data. Do not substitute preflight/guard/nested-transaction denial or weaken
+  the required aggregate mismatch; preserve imported saga/no completion.
+- [x] Add a narrow call in Runtime `verify_final` after
   `validate_plaintext_summary/3` and before `rebuild_lexical/2`:
 
 ```elixir
 :ok <- adapter_ok(call(adapters.search_rebuilder, :verify_document_sources,
-  [search_binding(target), target.inventory, plaintext.plaintext_hashes]))
+  [search_binding(target), target.original_inventory, plaintext.plaintext_hashes]))
 ```
 
-  The existing adapter is `{StorageIntegrityAudit, MigrationRepo}`, so the
-  three supplied arguments reach Storage's four-arity helper with repo prepended.
-  Require that callback in final-context adapter validation, update the full
-  existing LexicalRebuilder fake and preserve its `rebuild` callback. Do not put plaintext hashes into the search summary
+  For authenticated V3, compose `{KnowledgeIntegrityAudit, MigrationRepo}`:
+  the three arguments reach its four-arity Document delegate with repo prepended.
+  The facade delegates E verification to KnowledgeIntegrityInventory and initially
+  delegates rebuild unchanged to Base. Do not add a reverse Base->C dependency.
+  Require Document callback only for V3; retain version only from authenticated
+  Imported/Rewrapped cut and preserve explicit V1/V2 and existing no-version
+  legacy-map requirements. Explicit unknown version denies; no caller version
+  option/inference/new handoff field. Preserve module `/3` and tuple `/4`
+  dispatch. Update the full LexicalRebuilder recording fake and preserve its
+  rebuild assertions. Do not put plaintext hashes into the search summary
   or logs. Keep `PlaintextSummary`, RestoreIntegrityLease, rewrap/key handoff,
   ciphertext/Note/Asset verification, crypto and completion authority unchanged.
   Fakes gain an exact recording callback and prove order/denial, not live custody.
-- [ ] Run full existing Runtime integrity tests and new Storage integration:
+  Test absence, malformed/error result, exact original-I/two-key arguments,
+  summary validation before helper, denial before rebuild/audit and revocation.
+- [x] Run full existing Runtime integrity tests and new Storage integration:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/integrity_audit_test.exs apps/singularity_storage/test/singularity/storage/integrity_audit_test.exs --seed 215378 --warnings-as-errors
@@ -1318,13 +1389,29 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
   Assert denial prevents rebuild/completion and maintenance destination stays
   unpublished. No claim of rollback of an already committed import/rewrap.
+  These master commands are retained minimum owners; the detailed E commands
+  additionally require whole C pure/SQL and rewrap owners, and every retained F
+  command remains required. Report actual counts/exclusions/native cleanup.
 - [ ] Obtain SPEC then fresh QUALITY on the precise compatibility addition,
   report frozen-substrate files unchanged, commit
   `feat(restore): verify retained document originals from authenticated evidence`.
 
+Current Task9 B–F source handoff, 2026-10-13: all native owning/retained gates,
+actual combined NONAUTHOR SOURCE SPEC and distinct fresh SOURCE QUALITY have
+closed PASS/noP1P2, exact source14 and all79 protected entries unchanged at
+HEAD `9f91c97eb392b4c49c888ed31795d520d15bb8dd`. Corrected E executes88 pure
+and45 SQL; F executes344 SQL,5 legacy pure,203 downstream pure and separate
+Task8 SQL78/pure50. Exclusions, historical failures, exact commands, full
+archives and normal cleanup are in
+`docs/verification/2026-10-13-phase-5-task9-compatibility-handoff.md`.
+The combined compatibility plan selects the bounded commit message
+`fix(restore): preserve v3 storage references across integrity verification`;
+it includes the E source verification and replaces the older separate message.
+Only the local Git handoff remains next. No Task10/11 or Phase5 acceptance.
+
 ## Task 10: Rebuild unified search and reconcile interrupted extraction/work
 
-**Modify:** Storage `backup/integrity_audit.ex`, `backup/reconciler.ex`,
+**Modify:** Storage `backup/knowledge_integrity_audit.ex`, `backup/reconciler.ex`,
 `unified_search_restore_test.exs`, `restore_reconciliation_test.exs`.
 **Create:** `apps/singularity_storage/test/singularity/storage/backup/document_restore_reconciliation_test.exs`.
 **Retain:** Runtime extraction reconciler/restart contracts unchanged.
@@ -1334,7 +1421,9 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   and Notes, old/deleted/non-ready suppression and retained historical citation
   fragments. Seed stale derived rows; rebuild twice and compare exact stable
   kind/resource/version/fragment tuples, locators/text/IDs and summary digest.
-- [ ] Extend `IntegrityAudit.rebuild_locked` to enumerate owner resource IDs in
+- [ ] Replace only the V3 facade's initial unchanged Base rebuild delegate with
+  unified knowledge rebuilding; keep Base and native V1/V2 semantics unchanged.
+  Implement `KnowledgeIntegrityAudit` rebuilding to enumerate owner resource IDs in
   stable order, clear stale projections and call
   `content.reconcile_search_resource_internal(owner, resource_id)` for current
   Note/Document heads, preserving established Asset metadata rebuilding.
@@ -1375,6 +1464,12 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 **Retain owners:** Runtime backup/restore files and all legacy restore fixtures.
 **Depends on:** Tasks 7–10, including Task 8's explicit version-aware guard.
 
+Task9E local authenticated-reader/helper/import qualification is not this task's
+native RestoreIntegrityLease, actual wrapper-chain or normal-publication proof.
+All actual lease/normal-publication witnesses remain NOT RUN until executed.
+V3 uses `{KnowledgeIntegrityAudit, MigrationRepo}` with Task10's unified rebuild;
+legacy native Base compositions and every old oracle assertion remain intact.
+
 - [ ] Add RED live composition through established backup, authenticated bundle,
   Restorer, existing rewrap/integrity lease and completion in disposable databases.
   The explicit writer version 3 is the test adapter; production default stays 2.
@@ -1382,6 +1477,13 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   locators/digests/receipts/conflicts/tombstones and original binary bytes; then
   compare public search after lawful recovery. Test empty clean destination and
   supported disposable replacement staging while active source data is unchanged.
+- [ ] Include normal Asset finalization with actual UUID persisted reference,
+  plus retained canonical-path and mixed inventories, exact original I/N(I) and
+  actual typed native PlaintextSummary through the unchanged frozen lease.
+  Qualify the E size-mutation barrier with the actual native lease when E used
+  only a local reader; fixture-known hashes/recording issuer/material ports
+  cannot prove the lease used P. Preserve helper -> unified rebuild -> completion
+  order and wrong-size/digest denial after successful genuine import/read.
 - [ ] Add independent malformed cases for duplicate PK/unique keys, extra/missing
   rows/objects, mixed versions, classification/owner/kind/head/ancestry/conflict
   errors, ordinal gaps, locator/fragment/digest tampering, unsupported format,
@@ -1535,7 +1637,8 @@ current13/frozen56 matches and normal cleanup; actual NONAUTHOR SOURCE SPEC
 then distinct fresh QUALITY PASS on receipt3d7de0cf (Repository17e3874a,
 Test76810aa3). Historical failure/initial fixture-witness gates remain FAIL.
 The separate Legacy owning70 gate closed normally70/0 with clean resources.
-Task13 local commit is next; Task14 implementation still waits for that commit.
+Task13 local commit is09f8ee0c0a69cdd26612e0663a29a9d156c46986; its exact
+seven owning files match the tested/reviewed receipt. No publication occurred.
 Legacy retained16 and final reviews remain separate pending Task9C prerequisites.
 
 - [x] Add RED tests for the fixed Runtime ExportSnapshot entry, authenticated
@@ -1660,7 +1763,7 @@ devenv shell -- bash .devenv/phase5-pg-command.sh mix singularity.test.integrati
   fresh QUALITY, commit `feat(export): capture exact live source closure in private spool`.
 
 
-- [ ] Make the bounded Task13 local commit after every live parent gate closes;
+- [x] Make the bounded Task13 local commit after every live parent gate closes;
   record its SHA and exact seven-file/source verification scope. This does not
   qualify pending Legacy70/full16, Task14 authenticated bytes or Phase5.
 ## Task 14: Exact immutable source reads using unchanged request custody
@@ -1679,38 +1782,100 @@ eager reads remain prohibited. Keep the Asset-first/object/selected-envelope/
 domain-version locks through actual original callback/custody/audit/COMMIT.
 No Task14 implementation before Task13's complete qualification/local commit.
 
-- [ ] Add RED `ExportRead.document(runtime, session, captured_binding)` and
+Task13's prerequisite is qualified at local09f8ee0. Task14's two NEW test
+authors closed before the initial full pure/live commands. Pure closed248592,
+exit2:61 reported,38 actual,25 missing-module failures,23 SQL exclusions.
+Initial live closed8e46b6/exit2:102 reported,89 actual,67 failures,13 pure
+exclusions. All66 NEW cases failed an attachment timestamp fixture contract;
+one old worker-permission assertion conflicts with accepted worker SELECT.
+These failures remain FAIL, with bounded diagnosis/test repairs pending;
+neither live binding nor Task14 acceptance is established.
+
+The final NEW-only fixture correction closes complete initial RED: puref1e34b/
+exit2,38 actual/25 missingNEWmodule failures,23 SQL exclusions; live9ed6a1/exit2,
+89 actual/66 missingNEWwiring failures,13 pure exclusions,74.8s. All23 old native
+cases pass. Full66 failure sections independently resolve to65ExportRead guards
+and1AssetScope guard, not earlier constructor failures. All66 assertions/cases
+remain; prior failures are retained. Native cleanup/source/frozen checks closed.
+Bounded Task14 production authoring may now proceed; no behavior acceptance.
+
+Initial concrete implementation passes complete pure3 closed5f960b/exit0:
+38actual/0fail/23SQLexcluded and live3 closedcf7516/exit0:89actual/0fail/
+13pureexcluded,103.4s (all66NEW plus23OLD native cases). Formatterd9d71bexit0,
+new13source receipt86332714 matchedd1dd0c and frozen56matchedeb206a. Actual
+SOURCE SPEC closed nofindings; distinct fresh QUALITY closed one P2: final
+sealed capture check precedes final text eligibility guard, so capture can
+expire/abort during that guard and still report completion. Previous GREEN is
+historical scoped evidence, not Task14 qualification. TEST-ONLY causal native
+Spool Note/fragment/empty expiry/abort regressions now authorized; production
+order fix waits parent RED. All old assertions/66 live cases retained. No
+custody/lease/Vault change; E2E NOT RUN. Parent review records are
+`.devenv/phase5-task14-initial-source-source-spec.md` and
+`.devenv/phase5-task14-initial-source-quality-finding.md`.
+
+Completion-P2 test-only source closed with16 new native Note/fragment ×
+normal/empty × expiry/abort × descriptor/reducer witnesses; all25 old pure
+cases remain. Whole pure3 causal RED closed0ca7b0/exit2:77reported/54actual/
+16newFAIL/23SQLexcluded. Every new case reaches its exact final-error assertion
+after positive native reads, final invalidation, scope COMMIT/close and no-lease
+witnesses; current source incorrectly returns OK. All38 retained actual cases
+pass. Full archive `.devenv/phase5-task14-completion-initial-red-pure.log`
+SHA9caabb3b4b546a8c2ea28e5c3e023442250d79a6242f788fe29e747e461ee103.
+Formatted pure source3a249336; ExportReadf4987b44 and frozen56 remain unchanged.
+Production completion-order repair1 now runs the final canonical guard before
+the final native capture read. Whole pure3 closes152ccf/exit0:54actual/0fail/
+23SQLexcluded; whole live3 closesd00380/exit0:89actual/0fail/13pureexcluded,
+115.7s. An intermediate54actual/0assertion-failure run closed166afa/exit1 on
+56 generated-test warnings; it remains FAIL. Test-only helper extraction keeps
+all41 pure cases/assertions and removes static literal branch warnings without
+suppression. Current ExportRead9e7e20f2/Testc9d5064d; source16matched890650 and
+originalfrozen56matchede7b3d8. Actual SQL root absence d4caa2/normalmaintenance
+40c2bf EMPTY. Final actual NONAUTHOR SOURCE SPEC and distinct fresh QUALITY both
+closed PASS with no P1/P2, receipt18739b26. Fresh precommit whole pure3e82f6d
+closes54actual/0fail/23SQLexcluded and staticd093b3 verifies format/WAE/zero
+cycles. Task14 is qualified as an isolated component and locally committed at
+444e4604f1131746d0350393e8d3e8d05b6a9db7; no Phase5/publication qualification.
+Full GREEN logs27bc3fb4/dc61cbb1,
+intermediate warningFAIL58a3aba6; Solrepair1 successful/Astra0.
+
+`runtime.knowledge_export_repository` is a trusted internal BEAM composition
+seam, defaulting to the actual Storage Repository. Module/tuple dispatch may
+support deterministic tests but is never selected through session/binding/
+request options or exposed by Task16. Original authorization, fixed real
+OperationScope, Asset callback, custody, reader, audit and COMMIT stay intact.
+
+- [x] Add RED `ExportRead.document(runtime, session, captured_binding)` and
   `ExportRead.asset(runtime, session, captured_binding)` tests. Exact old version
   of a live Document returns original bytes even when its source Asset is deleted;
   deleted Document, changed pin/object/size/hash and unknown storage format deny.
-- [ ] Implement owner-free exact binding lookup under `OperationScope`:
+- [x] Implement owner-free exact binding lookup under `OperationScope`:
   specified live Document resource + immutable version + independently retained
   source object/digest/size; max 64 MiB; exact envelope generation. Use unchanged
   request custody `purpose: :document_source`, `access: :request`, session/
   principal/owner epochs, required `asset.read`, exact version/object/generation.
   Use existing `DownloadLease.read_document_chunk/2` and empty authentication.
   Authenticate complete preflight then bounded delivery; revoke leases in `after`.
-- [ ] For Asset pins prove one exact version/resource/Asset/object association,
+- [x] For Asset pins prove one exact version/resource/Asset/object association,
   retain live Asset authorization and existing bounded delivery; never call the
   eager `:all` bytes variant for nonempty sources. Only the reviewed locked
   canonical-zero exception above may invoke existing :all. Revalidate binding
   before lease and at completion; no custody/lease/grant change.
   No worker/extraction identity, RestoreIntegrityLease or caller adapter.
-- [ ] Reject revocation/unlock loss between chunks and after preflight; exact
+- [x] Reject revocation/unlock loss between chunks and after preflight; exact
   historical pin must not follow current head. Fake tests prove callback order/
   bounds/revoke; live test uses real existing custody and source SQL binding.
   A fake lease cannot establish live correctness.
-- [ ] Revalidate originally included Note/fragment exact immutable binding and
+- [x] Revalidate originally included Note/fragment exact immutable binding and
   resource liveness after snapshot and at completion, without following a new
   head, tags or pending-to-ready extraction. Consume sealed captured canonical
   text with its exact digest; no invented text lease. Deleted/revoked selected
   source fails the whole export rather than metadata-only downgrade. Keep
   original binary custody/DownloadLease unchanged and distinguish these checks
   from authenticated original chunk delivery.
-- [ ] Resolve Task13's private included-Asset pending digest only from authenticated
+- [x] Resolve Task13's private included-Asset pending digest only from authenticated
   actual original bytes and exact captured binding/size. Do not substitute keyed
   lookup/ciphertext evidence or invent a persisted digest/lease authority.
-- [ ] Run pure and isolated live owners:
+- [x] Run pure and isolated live owners:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_export_read_test.exs apps/singularity_runtime/test/singularity/runtime/document_api_test.exs apps/singularity_runtime/test/singularity/runtime/document_custody_test.exs --seed 215378 --warnings-as-errors
@@ -1723,29 +1888,109 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
 ## Task 15: Private bounded writer, byte verification and portable manifest
 
+Necessary scaling repair: draft design and detailed plan
+`docs/superpowers/specs/2026-10-12-singularity-v0.2-phase-5-sealed-record-iteration-design.md`
+and
+`docs/superpowers/plans/2026-10-12-singularity-v0.2-phase-5-sealed-record-iteration.md`.
+Resolve the actual independent quality P2 with reviewed internal metadata
+point reads and one traversal, causal RED, whole owning/retained gates, then
+fresh source/spec and quality review. No Writer acceptance or local commit
+until this finding closes; previous116/0 remains historical scoped evidence.
+
+Repair design actual SOURCE SPEC and distinct fresh QUALITY closed PASS at
+reviewed interfaces ed5f601e/c67f0fa1. Test-only source closed; whole pure5
+causal RED closed4696b3/exit2:180actual/21FAIL,17SQLexcluded. The20 additive
+Spool cases reach missing concrete exports and Writer's native traversal witness
+observes2080page calls before its expected zero-call assertion fails. All159
+other cases pass, including all old Spool/Writer cases and additive near-limit
+denial. No constructor/trace/cleanup failure. Full archivef98aae73; production
+Spoolb643cd80/Writer4681a19e unchanged at that causal RED snapshot. Production
+repair1 currentSpool2d6dfb4e/Writerb119b752 now passes whole pure5:
+180actual/0fail/17SQLexcluded, retained Repository/Snapshot SQL48actual/0fail/
+11pureexcluded, retained Task13pure134actual/0fail/17SQLexcluded and complete
+format/WAE/zero-cycle static gate5e0b09. All old31Spool/50Writer assertions
+are byte-identical after stripping only the additive marker blocks.
+Actual nonauthor SOURCE SPEC closedPASS, receipt9254daf1; distinct fresh
+QUALITY closed TWO P2: repeated global fragment/Note-source identity scans and
+repeated growing whole-ETS-ledger copies during full materialization. Actual
+review receipt6a7ff820 records both; point-read GREEN is not Task15 acceptance.
+The bounded full-materialization amendment passed actual design SOURCE SPEC
+then distinct fresh QUALITY at reviewed interfaces711deca5/4131e4b4. Test-only
+author CLOSED with five added whole-path/bounds/ambiguity/inode cases; all old52
+cases/helpers remain exact after removing only the new marked block. Parent
+fullread/format closedca6aae; inverse5bef3a recovers entire oldbe8a650e.
+Whole pure5 causal RED closes05eaca/exit2:185actual/3FAIL/17SQLexcluded,
+all180oldactual plus newambiguity/inode cases PASS. The three failures reach
+required zero-work counts (131globalcounts/1266ledgercopies) and missing charged
+auxiliary-index denial, after native setup/output/cleanup assertions pass.
+Complete archive3f17139c/source16receipt1119efdb matched8ee021. Cumulative
+Sol scalability repair2 authoring is now CLOSED; parent fully read1640lines,
+onlyWriterformat0b444fexit0. Writer841f3e6b/Test51d972c1/current16receipt3c6b7ee1
+matchedfaae0b, originalfrozen56 allmatch. Wholepure5 4a39ebexit0:185actual/0fail/
+17SQLexcluded logfd47fc89; retainedRepo/Snapshot SQL731f65exit0:48actual/0fail/
+11pureexcluded log63219b0c, actualrootabsenceb042df andnormalmaintenanceb6a231
+EMPTY log0e1665c4. RetainedTask13pure24a037exit0:134actual/0/17SQLexcluded
+log764c576c; statica4ff05exit0format/WAE/zeroCycles log6fd24830. ActualNONAUTHOR
+SOURCE SPEC CLOSEDPASS/noP1P2 wholeowningreads/nativeproof, receiptff9a8735;
+distinct fresh SOURCE QUALITY subsequently CLOSEDPASS/noP1P2 after whole source/
+test/native-path/archive reads and independent old52 inverse. Earlier thread-limit
+and later separate E-review capacity failures are availability history, not
+production repairs or waived reviews. Task15 qualified bounded component locally
+committed4e2499d5b89664c3e7b63cb1f3136c243b276c83, exactly seven owned paths.
+No measured million-record latency or Task16/Phase5/browser/release acceptance
+claim; cumulative oldround1 remains unaccepted, currentrepair2gates/reviewsPASS,
+Astra recovery0.
+
 **Create:** `apps/singularity_storage/lib/singularity/storage/knowledge_export/writer.ex`,
 `apps/singularity_storage/test/singularity/storage/knowledge_export/writer_test.exs`,
 `docs/formats/portable-knowledge-v1.md`.
 **Depends on:** Tasks 2 and 13.
 
-- [ ] Add RED filesystem tests for `Writer.open/1`, `append_file/3`,
+Initial complete pure3 gate closedbd2e97/exit2:Core66/0 and NEW Writer40/40
+failures. Thirty-nine failures are missing concrete Writer wiring; one NEW
+constructor assertion incorrectly treats a legitimate metadata-only Asset
+descriptor as a pending included original. Preserve its original-digest
+assertions while characterizing the exact included subset. Additional genuine
+sealed-but-inconsistent Note/fragment metadata counterexamples are test-only
+authoring, not production qualification. No concrete Writer existed at that
+initial snapshot. The corrected complete pure3 gate closed530a67/exit2:
+Core66/0 and Writer46/45 failures,112 actual/no exclusions. All45 failures
+reach missing concrete Writer; one genuine native Spool aggregate-digest
+denial passes before Writer. Five additional sealed metadata/text witnesses
+reach the Writer guard, not a constructor failure. Production Writer authoring
+subsequently closed and the first production46/3 FAIL is retained. Bounded
+repair1 plus four added regressions now pass the complete owner command:
+Core66/0 and Writer50/0,116 actual/no exclusions, normal closeda5a31/exit0.
+Whole format/WAE/xrefzero passed488c28/exit0. Independent actual SOURCE SPEC
+then distinct fresh QUALITY and the bounded local commit remain pending.
+Unit callbacks prove Writer semantics, not live custody or Task16 acceptance.
+
+Completion publication uses an exclusive directory reservation under the
+trusted application-owned0700 root, operation-bound inode/ownership/emptiness
+witnesses and a shared finish/abort generation gate. Rename may replace only
+that operation's reservation, never a preexisting destination. Recheck owned
+identity and cancellation before returning an artifact; cleanup never follows
+or removes a foreign replacement. This is not OS RENAME_NOREPLACE protection
+against hostile same-UID root mutation; no such protection is claimed.
+
+- [x] Add RED filesystem tests for `Writer.open/1`, `append_file/3`,
   `append_manifest_record/3`, `finish/1`, `abort/1`, `entries/2`, `read_chunk/3`.
   Root is application-configured, never caller input. Writer state has only
   private paths/IO/hash/byte counters; receives authenticated plaintext chunks,
   never keys, wrappers, leases or crypto material.
-- [ ] Use random operation-owned directories mode 0700, exclusive files mode
+- [x] Use random operation-owned directories mode 0700, exclusive files mode
   0600 and no symlink traversal/overwrite. Validate UUID paths/case-fold collisions;
   append at most 64 KiB, update hash/size incrementally, stream one JSON record
   at a time through exact canonical record order. Use separate private array
   spools if needed to assemble the exact ordered top-level arrays without
   collecting the encoded manifest. Enforce bytes/records/deadline ceilings.
-- [ ] Write notes/<resource>--<version>.md; document original with fixed extension;
+- [x] Write notes/<resource>--<version>.md; document original with fixed extension;
   extracted `.txt` concatenates canonical fragment text with **no delimiter**.
   Compute UTF-8 byte offsets, not character counts, and exact extracted digest.
   Non-ready Documents have original/state and no fabricated extracted file.
   Asset source pins use assets/<resource>--<version>.bin. Verify each canonical
   original/body/text digest separately from rendered-file hashes.
-- [ ] Consume only Task13 sealed capture refs. Rehash canonical Note Markdown,
+- [x] Consume only Task13 sealed capture refs. Rehash canonical Note Markdown,
   reassemble at most one<=1MiB Note and<=100 exact source descriptions, invoke
   unchanged Core.render_portable/3 and split its bounded<=16MiB rendered binary
   into<=64KiB chunks. This allowed per-Note allocation is not corpus buffering
@@ -1754,31 +1999,41 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   Count all temporary plaintext copies/framing/index bytes toward1GiB spool;
   all finalized files including manifest toward64GiB, with separate1GiB manifest
   ceiling. Fixed limits have no test/public override or plaintext exemption.
-- [ ] Finalize private Asset version drafts with Task14 verified original SHA-256
+- [x] Finalize private Asset version drafts with Task14 verified original SHA-256
   and byte size before unchanged Core manifest validation. No pending digest or
   private binary binding/path can appear in a completed public manifest.
-- [ ] Assemble manifest last with exactly `format/version/selection/resources/
+- [x] Assemble manifest last with exactly `format/version/selection/resources/
   versions/fragments/tags/tag_assignments/relationships/attachments/citations/files`
   as design §5 specifies. Stable arrays/keys/UTC timestamps/no export-clock
   timestamp make identical captured selections byte-identical. `files` excludes
   manifest.json; returned artifact descriptor includes its size/hash separately.
   Verify every listed file/reference/size/hash, then atomic rename to complete
   within the same staging root. An error returns no completed artifact.
-- [ ] Test disk-full injection, checksum mismatch, canceled writer, malformed
+- [x] Test disk-full injection, checksum mismatch, canceled writer, malformed
   record, symlink/collision, existing path, chunk/page size observers, exact
   binary/empty/Unicode originals, UTF-8 offsets, metadata-only descriptors and
   deterministic bytes. Never buffer whole original/fragment set/JSON in memory.
   Cleanup only the operation directory, preserving a sentinel neighboring root.
-- [ ] Document every record field/null/availability, selection scope, readable
+- [x] Document every record field/null/availability, selection scope, readable
   source links, metadata-only tombstones/history, bounds and privacy without
   treating the manifest as logical backup or an all-history recovery API.
-- [ ] Run the complete pure filesystem file and Core owners to GREEN:
+- [x] Run the complete pure filesystem file and Core owners to GREEN:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_storage/test/singularity/storage/knowledge_export/writer_test.exs apps/singularity_core/test/singularity/core/knowledge_export_manifest_test.exs apps/singularity_core/test/singularity/core/note_markdown_sources_test.exs --seed 215378 --warnings-as-errors
 ```
 
   SPEC then QUALITY, commit `feat(export): stream private portable files and verified manifest`.
+
+Actual nonauthor SOURCE SPEC passed on Writer4681a19e/Testa1d596e8. Distinct
+fresh QUALITY closed with one P2: Writer reads each metadata record through
+Spool.read_page(...,1), repeating fullcollection sorting in capture indexing
+and again in append. This is static O(N^2 log N) work, not a measured large-
+volume result. The fixed15m/ceilings and all50 assertions remain unchanged.
+Writer handoff stays unqualified despite the prior whole116/0 GREEN. Required
+design/test-first bounded repair and fresh independent reviews are pending;
+parent factual records are `.devenv/phase5-task15-repair1-source-spec.md` and
+`.devenv/phase5-task15-repair1-quality-finding.md`.
 
 ## Task 16: Runtime orchestration, session-bound handles and public API
 
@@ -1791,6 +2046,19 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 `config/dev.exs`, `config/test.exs`, `config/runtime.exs`; Web architecture contracts for
   exact reviewed additive blocks only; no web feature/controller/UI.
 **Depends on:** Tasks 13–15.
+
+Architecture design/plan are
+`docs/superpowers/specs/2026-10-12-singularity-v0.2-phase-5-export-artifact-ownership-design.md`
+and `docs/superpowers/plans/2026-10-12-singularity-v0.2-phase-5-export-artifact-ownership.md`.
+Actual nonauthor DESIGN_SOURCE_SPEC closed documentary disposition PASS WITH
+UNSATISFIED BOUNDARIES: late unreturned native lease after public call timeout,
+and companion death losing the sole lease identifier/map. Both strict cleanup
+guarantees remain BLOCKED_DESIGN/unchecked/unwaived; native manifestations NOT RUN.
+Distinct fresh DESIGN QUALITY closed one additional P2: cleanup's supervisor-
+absence check does not atomically cover the later supervisor start, permitting
+overlapping startup scavenging of live owned files. That bounded startup design
+must be repaired/reviewed independently. No affected source GO/Task16 acceptance;
+independent Task9/15 work continues without changing frozen custody or leases.
 
 - [ ] Add RED API/handle tests for these exact public operations and internal
   leading-config variants following the existing Api testing convention:
@@ -1832,6 +2100,12 @@ close_knowledge_export(session, handle)
   short-lived request PID exiting after successful return must not destroy
   the handle. Its owning authenticated session can still read until explicit
   close, revocation, expiry, artifact-owner death or restart cleanup.
+  Any operation-local Writer ledger has the same owner lifetime: create and
+  materialize it inside the eventual supervised artifact owner, or transfer
+  it through a trusted internal ownership seam before generation exits. No
+  caller option, global registry or new custody capability. The requester-exit
+  test must read actual entries/chunks after the generating request is DOWN;
+  checking only handle presence is insufficient.
   Authenticate live owning
   session before entries and every chunk; handle possession is insufficient.
   Use monotonic deadline and deterministic test clock/barriers, no arbitrary
@@ -2042,8 +2316,9 @@ test -z "$(git status --porcelain)"
 | V1/V2 compatibility and complete permitted local gate | 1, 7, 11, 18, 19; independent fixtures/oracle and actual gate |
 | No production writes, no publication, no Vault feature work | All tasks, final 19 audit; E2E remains NOT RUN |
 
-No task is marked completed in this draft. No implementation/test acceptance
-or current V3/portable-export behavior is claimed. Independent design review
-may require concrete amendments; any requirement to change frozen custody/key/
-capability/policy semantics is a boundary blocker, not an omitted implementation
-step or permission to silently work around it.
+Current task checkboxes and the acceptance report record bounded local evidence;
+the initial design draft had no completed tasks. Phase5 overall, complete live
+V3/portable-export composition and browser/release acceptance remain unqualified.
+Necessary reviewed amendments follow continuous local-development authority.
+Any requirement to change frozen custody/key/capability/policy semantics remains
+a boundary blocker, not permission to silently work around it.

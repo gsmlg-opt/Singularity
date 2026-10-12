@@ -3,6 +3,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
   @moduletag :integration
   @tables ~w(document_versions document_import_receipts document_fragments note_attachments note_citations note_source_set_seals tags resource_tags relationships)
   @web_read_tables ~w(document_versions document_fragments)
+  @worker_read_tables ~w(document_versions document_fragments note_attachments note_citations tags resource_tags relationships)
   @canonical_web_grants %{
     "document_versions" => ~w(SELECT),
     "document_fragments" => ~w(SELECT),
@@ -58,26 +59,26 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     assert_document_baseline_grants()
   end
 
-  test "baseline web Document reads require owner scope and an active authorized principal" do
+  test "baseline web and worker Document reads require owner scope and an active authorized principal" do
     source = KnowledgeFixtures.source!()
     other = KnowledgeFixtures.source!()
     {document, _fragment} = KnowledgeFixtures.ready_document!(source)
     {other_document, _other_fragment} = KnowledgeFixtures.ready_document!(other)
 
-    for table <- @web_read_tables do
-      assert %{rows: []} = query!(RequestRepo, "SELECT resource_version_id FROM content.#{table}")
+    for repo <- [RequestRepo, WorkerRepo], table <- @web_read_tables do
+      assert %{rows: []} = query!(repo, "SELECT resource_version_id FROM content.#{table}")
 
       assert %{rows: [[version]]} =
-               ScopedRepo.transact(RequestRepo, source, fn repo ->
-                 query!(repo, "SELECT resource_version_id FROM content.#{table}")
+               ScopedRepo.transact(repo, source, fn scoped ->
+                 query!(scoped, "SELECT resource_version_id FROM content.#{table}")
                end)
 
       assert version == document.resource_version_id
 
       assert %{rows: []} =
-               ScopedRepo.transact(RequestRepo, source, fn repo ->
+               ScopedRepo.transact(repo, source, fn scoped ->
                  query!(
-                   repo,
+                   scoped,
                    "SELECT resource_version_id FROM content.#{table} WHERE resource_version_id=$1",
                    [
                      other_document.resource_version_id
@@ -86,17 +87,17 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
                end)
 
       assert %{rows: []} =
-               ScopedRepo.transact(RequestRepo, %{source | vault_id: other.vault_id}, fn repo ->
-                 query!(repo, "SELECT resource_version_id FROM content.#{table}")
+               ScopedRepo.transact(repo, %{source | vault_id: other.vault_id}, fn scoped ->
+                 query!(scoped, "SELECT resource_version_id FROM content.#{table}")
                end)
     end
 
     Fixtures.revoke_membership!(source)
 
-    for table <- @web_read_tables do
+    for repo <- [RequestRepo, WorkerRepo], table <- @web_read_tables do
       assert %{rows: []} =
-               ScopedRepo.transact(RequestRepo, source, fn repo ->
-                 query!(repo, "SELECT resource_version_id FROM content.#{table}")
+               ScopedRepo.transact(repo, source, fn scoped ->
+                 query!(scoped, "SELECT resource_version_id FROM content.#{table}")
                end)
     end
   end
@@ -193,7 +194,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     end
 
     for role <- ~w(singularity_web singularity_worker), privilege <- ~w(SELECT INSERT) do
-      expected = role == "singularity_web" and privilege == "SELECT"
+      expected = privilege in canonical_privileges(role, "document_versions")
 
       assert %{rows: [[^expected]]} =
                query!(
@@ -316,7 +317,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     for role <- ~w(singularity_web singularity_worker),
         table <- ~w(document_versions document_fragments document_import_receipts),
         privilege <- ~w(SELECT INSERT UPDATE DELETE) do
-      expected = role == "singularity_web" and table in @web_read_tables and privilege == "SELECT"
+      expected = privilege in canonical_privileges(role, table)
 
       assert %{rows: [[^expected]]} =
                query!(RequestRepo, "SELECT has_table_privilege($1,$2,$3)", [
@@ -336,7 +337,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
     end
   end
 
-  test "canonical tables enforce RLS and exactly the web-only source and organization grants" do
+  test "canonical tables enforce RLS and exactly the web organization and worker backup read grants" do
     for table <- @tables do
       assert %{rows: [[true, true]]} =
                query!(
@@ -348,9 +349,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
       for role <-
             ~w(singularity_web singularity_worker singularity_dispatcher singularity_pre_auth),
           privilege <- ~w(SELECT INSERT UPDATE DELETE TRUNCATE REFERENCES TRIGGER) do
-        expected =
-          role == "singularity_web" and
-            privilege in Map.get(@canonical_web_grants, table, [])
+        expected = privilege in canonical_privileges(role, table)
 
         assert %{rows: [[^expected]]} =
                  query!(RequestRepo, "SELECT has_table_privilege($1, $2, $3)", [
@@ -361,8 +360,9 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
       end
 
       expected_acl =
-        for privilege <- Map.get(@canonical_web_grants, table, []),
-            do: ["singularity_web", privilege, false]
+        for role <- ~w(singularity_web singularity_worker),
+            privilege <- canonical_privileges(role, table),
+            do: [role, privilege, false]
 
       assert %{rows: ^expected_acl} =
                query!(
@@ -372,13 +372,18 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
                  FROM pg_class AS relation
                  CROSS JOIN LATERAL aclexplode(coalesce(relation.relacl, acldefault('r', relation.relowner))) AS acl
                  WHERE relation.oid = to_regclass($1) AND acl.grantee <> relation.relowner
-                 ORDER BY acl.grantee, acl.privilege_type
+                 ORDER BY pg_get_userbyid(acl.grantee), acl.privilege_type
                  """,
                  ["content.#{table}"]
                )
 
-      for repo <- [RequestRepo, WorkerRepo, DispatcherRepo, PreAuthRepo] do
-        if repo == RequestRepo and "SELECT" in Map.get(@canonical_web_grants, table, []) do
+      for {repo, role} <- [
+            {RequestRepo, "singularity_web"},
+            {WorkerRepo, "singularity_worker"},
+            {DispatcherRepo, "singularity_dispatcher"},
+            {PreAuthRepo, "singularity_pre_auth"}
+          ] do
+        if "SELECT" in canonical_privileges(role, table) do
           assert %{rows: []} = query!(repo, "SELECT * FROM content.#{table}")
         else
           error =
@@ -532,7 +537,7 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
           ~w(singularity_web singularity_worker singularity_dispatcher singularity_pre_auth),
         table <- ~w(document_versions document_fragments),
         privilege <- ~w(SELECT INSERT UPDATE DELETE) do
-      expected = role == "singularity_web" and privilege == "SELECT"
+      expected = privilege in canonical_privileges(role, table)
 
       assert %{rows: [[^expected]]} =
                query!(RequestRepo, "SELECT has_table_privilege($1,$2,$3)", [
@@ -544,10 +549,22 @@ defmodule Singularity.Storage.KnowledgeGrantsTest do
 
     for repo <- [WorkerRepo, DispatcherRepo, PreAuthRepo],
         table <- ~w(document_versions document_fragments) do
-      error =
-        assert_raise Postgrex.Error, fn -> query!(repo, "SELECT * FROM content.#{table}") end
+      if repo == WorkerRepo do
+        assert %{rows: []} = query!(repo, "SELECT * FROM content.#{table}")
+      else
+        error =
+          assert_raise Postgrex.Error, fn -> query!(repo, "SELECT * FROM content.#{table}") end
 
-      assert error.postgres.code == :insufficient_privilege
+        assert error.postgres.code == :insufficient_privilege
+      end
     end
   end
+
+  defp canonical_privileges("singularity_web", table),
+    do: Map.get(@canonical_web_grants, table, [])
+
+  defp canonical_privileges("singularity_worker", table),
+    do: if(table in @worker_read_tables, do: ["SELECT"], else: [])
+
+  defp canonical_privileges(_role, _table), do: []
 end

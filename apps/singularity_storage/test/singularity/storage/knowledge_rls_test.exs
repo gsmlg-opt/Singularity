@@ -25,6 +25,29 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
     other = KnowledgeFixtures.source!()
     rows = organization!(source)
 
+    for {table, _attrs} <- rows do
+      statement = "SELECT vault_id FROM content.#{table} WHERE vault_id = $1"
+      assert %{rows: []} = query!(WorkerRepo, statement, [source.vault_id])
+
+      assert %{rows: [[owner_id]]} =
+               ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+                 query!(scoped, statement, [source.vault_id])
+               end)
+
+      assert owner_id == source.vault_id
+
+      for context <- [
+            other,
+            %{source | vault_id: other.vault_id},
+            %{source | principal_id: other.principal_id}
+          ] do
+        assert %{rows: []} =
+                 ScopedRepo.transact(WorkerRepo, context, fn scoped ->
+                   query!(scoped, statement, [source.vault_id])
+                 end)
+      end
+    end
+
     KnowledgeTestGrants.with_grants(@tables, fn ->
       for repo <- [RequestRepo, WorkerRepo], {table, attrs} <- rows do
         statement = "SELECT vault_id FROM content.#{table} WHERE vault_id = $1"
@@ -74,14 +97,23 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
                  end)
       end
     end)
+
+    for {table, _attrs} <- rows do
+      assert %{rows: []} =
+               ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+                 query!(scoped, "SELECT vault_id FROM content.#{table} WHERE vault_id = $1", [
+                   source.vault_id
+                 ])
+               end)
+    end
   end
 
   test "rollback clears context on the same connection and temporary grants restore production permissions" do
     source = KnowledgeFixtures.source!()
 
     assert_permissions = fn ->
-      for {repo, allowed?} <- [{RequestRepo, true}, {WorkerRepo, false}] do
-        assert %{rows: [[^allowed?, ^allowed?, false, false, false]]} =
+      for {repo, insert?} <- [{RequestRepo, true}, {WorkerRepo, false}] do
+        assert %{rows: [[true, ^insert?, false, false, false]]} =
                  query!(
                    repo,
                    """
@@ -144,14 +176,10 @@ defmodule Singularity.Storage.KnowledgeRlsTest do
                query!(scoped, "SELECT id FROM content.tags WHERE vault_id=$1", [source.vault_id])
              end)
 
-    error =
-      assert_raise Postgrex.Error, fn ->
-        ScopedRepo.transact(WorkerRepo, source, fn scoped ->
-          query!(scoped, "SELECT id FROM content.tags", [])
-        end)
-      end
-
-    assert error.postgres.code == :insufficient_privilege
+    assert %{rows: []} =
+             ScopedRepo.transact(WorkerRepo, source, fn scoped ->
+               query!(scoped, "SELECT id FROM content.tags", [])
+             end)
 
     for repo <- [RequestRepo, WorkerRepo],
         {statement, params} <- [

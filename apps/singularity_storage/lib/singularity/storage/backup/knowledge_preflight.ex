@@ -1259,7 +1259,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
     absent!(
       repo,
-      "SELECT 1 FROM #{relation("content.asset_objects")} o WHERE o.lifecycle='available' AND (o.storage_ref<>'objects/'||o.vault_id::text||'/'||o.key_domain_id::text||'/hmac-sha256/'||substr(encode(o.lookup_digest,'hex'),1,2)||'/'||encode(o.lookup_digest,'hex') OR NOT EXISTS (SELECT 1 FROM #{relation("content.asset_key_envelopes")} e WHERE e.asset_object_id=o.id))"
+      "SELECT 1 FROM #{relation("content.asset_objects")} o WHERE o.lifecycle='available' AND ((o.storage_ref<>o.id::text AND o.storage_ref<>'objects/'||o.vault_id::text||'/'||o.key_domain_id::text||'/hmac-sha256/'||substr(encode(o.lookup_digest,'hex'),1,2)||'/'||encode(o.lookup_digest,'hex')) OR NOT EXISTS (SELECT 1 FROM #{relation("content.asset_key_envelopes")} e WHERE e.asset_object_id=o.id))"
     )
   end
 

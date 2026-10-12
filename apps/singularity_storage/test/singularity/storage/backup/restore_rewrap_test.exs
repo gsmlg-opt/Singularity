@@ -725,3 +725,640 @@ defmodule Singularity.Storage.Backup.RestoreRewrapTest do
 
   defp uuid(value), do: Ecto.UUID.dump!(value)
 end
+
+defmodule Singularity.Storage.Backup.KnowledgeRestoreRewrapTest do
+  use ExUnit.Case, async: false
+
+  import Singularity.Storage.AuditAssertions, only: [assert_persisted_audit!: 4]
+
+  alias Singularity.Core.Error
+  alias Singularity.Storage.{LocalFilesystemAdapter, MigrationRepo, SafeSQL}
+
+  alias Singularity.Storage.Backup.{
+    BundleReader,
+    KnowledgeBackupFixtures,
+    KnowledgeIntegrityInventory,
+    LocalDestination,
+    LogicalBundleVerifier,
+    Restorer
+  }
+
+  alias Singularity.Storage.Backup.KnowledgeBackupFixtures.FixtureCrypto
+
+  alias Singularity.Storage.Backup.RestoreRewrapTest.{
+    IntegrityIssuer,
+    KeyDeriver,
+    KeyWrapper,
+    PasswordHasher,
+    RecoveredVaultKey
+  }
+
+  alias Singularity.Storage.Crypto.Format
+
+  @moduletag :integration
+  @password "RESTORE_PASSWORD_CANARY_811"
+  @verifier "fresh-verifier-811"
+  @salt :binary.copy(<<0x81>>, 16)
+  @kek :binary.copy(<<0x82>>, 32)
+  @vault_key :binary.copy(<<0x83>>, 32)
+  @encoded_wrapper "new-owner-wrapper-811"
+  @ids ~w(account_id principal_id vault_id session_id live_note_id deleted_note_id
+    initial_note_version_id canonical_note_version_id competing_note_version_id
+    merge_note_version_id open_competing_note_version_id deleted_note_version_id
+    resolved_conflict_id open_conflict_id ready_document_id ready_old_version_id
+    ready_current_version_id deleted_document_id deleted_document_version_id
+    pending_document_id pending_version_id extracting_document_id extracting_version_id
+    failed_document_id failed_version_id unsupported_document_id unsupported_version_id
+    attachment_id citation_id deleted_attachment_id deleted_citation_id tag_id
+    relationship_id pdf_object_id empty_object_id plain_object_id unicode_object_id
+    markdown_object_id)a
+       |> Enum.with_index(1)
+       |> Map.new(fn {name, n} ->
+         {name, "73000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")}
+       end)
+  @originals %{
+    pdf: "%PDF-1.7\n" <> <<0, 1, 255>> <> "\n%%EOF\n",
+    pdf_duplicate: "%PDF-1.7\n" <> <<0, 1, 255>> <> "\n%%EOF\n",
+    empty: "",
+    plain: "plain original\r\nsecond line\n",
+    unicode: "界🙂 café\n",
+    markdown: "# Original Markdown\n"
+  }
+
+  defmodule FailingIssuer do
+    def issue(options) do
+      send(self(), {:integrity_issue, options})
+
+      {:error,
+       Singularity.Core.Error.new(:conflict,
+         message: "PRIVATE-ISSUER-CANARY",
+         details: %{key: "PRIVATE-ISSUER-CANARY"}
+       )}
+    end
+
+    def revoke(capability) do
+      send(self(), {:integrity_revoke, capability})
+      :ok
+    end
+  end
+
+  setup_all do
+    portable = Path.join(System.tmp_dir!(), "knowledge-rewrap-#{Ecto.UUID.generate()}")
+    File.mkdir_p!(portable)
+    File.chmod!(portable, 0o700)
+    on_exit(fn -> File.rm_rf!(portable) end)
+
+    sources =
+      KnowledgeBackupFixtures.with_destination(:current, fn destination ->
+        fixture =
+          KnowledgeBackupFixtures.seed!(
+            Map.merge(destination, %{ids: @ids, originals: @originals})
+          )
+
+        Map.new([:canonical, :uuid, :mixed], fn mode ->
+          transform = fn rows ->
+            Map.update!(rows, "content.asset_objects", fn objects ->
+              objects
+              |> Enum.with_index()
+              |> Enum.map(fn {object, index} ->
+                if mode == :uuid or (mode == :mixed and rem(index, 2) == 0),
+                  do: Map.replace!(object, "storage_ref", object["id"]),
+                  else: object
+              end)
+            end)
+          end
+
+          assert {:ok, bundle} =
+                   KnowledgeBackupFixtures.transformed_bundle(fixture, rows: transform)
+
+          filename = bundle.binding.destination_ref
+          File.cp!(Path.join(destination.object_root, filename), Path.join(portable, filename))
+          File.chmod!(Path.join(portable, filename), 0o600)
+          assert :ok = BundleReader.discard_verified(bundle.verified)
+
+          {mode,
+           %{
+             portable: portable,
+             filename: filename,
+             binding: bundle.binding,
+             database: destination.database
+           }}
+        end)
+      end)
+
+    %{sources: sources}
+  end
+
+  for mode <- [:canonical, :uuid, :mixed] do
+    test "authenticated V3 #{mode} rewrap issues only the projected view and commits unchanged original history",
+         ctx do
+      with_import(ctx.sources[unquote(mode)], fn storage, imported ->
+        before = destination_snapshot()
+        original = imported.object_inventory
+        projected = projected(original)
+        context = context(storage)
+
+        assert {:ok, %Restorer.Rewrapped{} = rewrapped} =
+                 Restorer.rewrap_owner(context, imported, @password, :opaque_recovered_capability)
+
+        assert rewrapped.cut === imported.cut
+        assert rewrapped.object_inventory === original
+        assert rewrapped.manifest === imported.manifest
+        assert rewrapped.manifest_hash === imported.manifest_hash
+        assert rewrapped.manifest_tag === imported.manifest_tag
+
+        assert rewrapped.owner === %{
+                 imported.owner
+                 | wrapper_generation: imported.owner.wrapper_generation + 1
+               }
+
+        assert rewrapped.integrity_capability == :opaque_integrity_capability
+        assert_options(imported, storage, projected)
+        assert_receive {:password_hash, @password}
+        assert_receive {:derive, @password, @salt, params}
+        assert params == context.vault_kdf_params
+        expected_generation = imported.owner.wrapper_generation + 1
+        owner_id = imported.cut.vault_id
+
+        assert_receive {:recovered_rewrap, :opaque_recovered_capability, @kek,
+                        %{vault_id: ^owner_id, generation: ^expected_generation}}
+
+        assert_receive {:unwrap, @kek, @encoded_wrapper,
+                        %{purpose: :vault_key, generation: ^expected_generation, aad: ^owner_id}}
+
+        assert_receive {:recovered_revoke, :opaque_recovered_capability}
+        refute_received {:integrity_revoke, _capability}
+
+        after_rewrap = destination_snapshot()
+        assert after_rewrap.graph === before.graph
+        assert after_rewrap.saga === before.saga
+        assert after_rewrap.objects === before.objects
+        assert_committed_rewrap(imported, rewrapped.integrity_principal_id, context)
+        # The recording issuer and unwrap stub attest composition, not live lease/AEAD success.
+      end)
+    end
+  end
+
+  for mutation <- [
+        :saga_manifest_id,
+        :saga_manifest_hash,
+        :saga_manifest_tag,
+        :saga_owner,
+        :saga_count,
+        :saga_inventory_hash,
+        :saga_root_hash,
+        :saga_status,
+        :configured_root,
+        :persisted_reference,
+        :cut_inventory
+      ] do
+    test "V3 #{mutation} preparation denial precedes issuer and every rewrap write", ctx do
+      with_import(ctx.sources.canonical, fn storage, imported ->
+        {storage, imported} = mutate(unquote(mutation), storage, imported)
+        before = destination_snapshot()
+
+        assert {:error, %Error{code: expected_code, message: nil, details: %{}}} =
+                 KnowledgeIntegrityInventory.prepare(MigrationRepo, storage, imported)
+
+        assert {:error, %Error{code: ^expected_code, message: nil, details: %{}}} =
+                 Restorer.rewrap_owner(
+                   context(storage),
+                   imported,
+                   @password,
+                   :opaque_recovered_capability
+                 )
+
+        assert_receive {:recovered_revoke, :opaque_recovered_capability}
+        refute_received {:integrity_issue, _options}
+        refute_received {:integrity_revoke, _capability}
+        assert destination_snapshot() === before
+        assert before.rewrap_audits == []
+      end)
+    end
+  end
+
+  test "prepared V3 issuer failure returns sanitized failure without committing credentials or history",
+       ctx do
+    with_import(ctx.sources.mixed, fn storage, imported ->
+      before = destination_snapshot()
+
+      assert {:ok, _prepared} =
+               KnowledgeIntegrityInventory.prepare(MigrationRepo, storage, imported)
+
+      context = Map.put(context(storage), :integrity_issuer, FailingIssuer)
+
+      assert {:error, %Error{code: :conflict, message: nil, details: %{}}} =
+               Restorer.rewrap_owner(context, imported, @password, :opaque_recovered_capability)
+
+      assert_options(imported, storage, projected(imported.object_inventory))
+      assert_receive {:recovered_revoke, :opaque_recovered_capability}
+      refute_received {:integrity_revoke, _capability}
+      assert destination_snapshot() === before
+      assert before.rewrap_audits == []
+    end)
+  end
+
+  test "prepared V3 native rewrap transaction failure revokes its issued capability and preserves every row",
+       ctx do
+    with_import(ctx.sources.uuid, fn storage, imported ->
+      principal = Ecto.UUID.generate()
+
+      owner(fn ->
+        sql(
+          "INSERT INTO identity.principals(id,account_id,kind,metadata) VALUES($1,$2,'system','{\"name\":\"integrity_audit\"}'::jsonb)",
+          [dump(principal), dump(imported.owner.account_id)]
+        )
+
+        sql(
+          "INSERT INTO core.vault_members(principal_id,vault_id,clearance) VALUES($1,$2,'restricted')",
+          [dump(principal), dump(imported.cut.vault_id)]
+        )
+
+        sql(
+          "INSERT INTO core.capabilities(id,name) VALUES($1,'vault.password_change') ON CONFLICT(name) DO NOTHING",
+          [dump(Ecto.UUID.generate())]
+        )
+
+        sql(
+          "INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id) SELECT $1,$2,id FROM core.capabilities WHERE name='vault.password_change'",
+          [dump(principal), dump(imported.cut.vault_id)]
+        )
+      end)
+
+      before = destination_snapshot()
+
+      assert {:ok, _prepared} =
+               KnowledgeIntegrityInventory.prepare(MigrationRepo, storage, imported)
+
+      assert {:error, %Error{code: :conflict, message: nil, details: %{}}} =
+               Restorer.rewrap_owner(
+                 context(storage),
+                 imported,
+                 @password,
+                 :opaque_recovered_capability
+               )
+
+      assert_options(imported, storage, projected(imported.object_inventory))
+      assert_receive {:integrity_revoke, :opaque_integrity_capability}
+      assert_receive {:recovered_revoke, :opaque_recovered_capability}
+      assert destination_snapshot() === before
+      assert before.rewrap_audits == []
+    end)
+  end
+
+  defp assert_options(imported, storage, projected) do
+    assert_receive {:integrity_issue, options}
+
+    assert {KnowledgeIntegrityInventory, %KnowledgeIntegrityInventory.Context{} = loader} =
+             options.material_loader
+
+    binding = %{
+      manifest_id: imported.manifest.manifest_id,
+      vault_id: imported.cut.vault_id,
+      vault_key_version_id: imported.owner.vault_key_version_id,
+      vault_key_generation: imported.owner.vault_key_generation
+    }
+
+    assert options === %{
+             owner: self(),
+             vault_key: @vault_key,
+             binding: binding,
+             inventory: projected,
+             material_loader: {KnowledgeIntegrityInventory, loader},
+             object_storage: storage,
+             key_wrapper: KeyWrapper,
+             ttl_ms: 5_000
+           }
+
+    assert loader.repo == MigrationRepo
+    assert loader.storage === storage
+    assert Tuple.to_list(loader.original) === imported.object_inventory
+    assert Tuple.to_list(loader.projected) === projected
+    assert loader.binding === binding
+    assert loader.manifest_hash === imported.manifest_hash
+    assert loader.manifest_tag === imported.manifest_tag
+
+    assert loader.inventory_hash ===
+             :crypto.hash(
+               :sha256,
+               :erlang.term_to_binary(imported.object_inventory, [:deterministic])
+             )
+
+    {LocalFilesystemAdapter, %{root: root}} = storage
+    assert loader.root_hash === :crypto.hash(:sha256, Path.expand(root))
+    refute inspect(loader) =~ @vault_key
+  end
+
+  defp assert_committed_rewrap(imported, principal, context) do
+    owner(fn ->
+      for credential <- imported.owner.active_credential_ids do
+        assert %{rows: [[@verifier, 1, nil]]} =
+                 sql(
+                   "SELECT verifier,verifier_version,revoked_at FROM identity.credentials WHERE id=$1",
+                   [dump(credential)]
+                 )
+      end
+
+      expected_generation = imported.owner.wrapper_generation + 1
+
+      assert %{rows: [[^expected_generation, 1, @salt, params, "aes_256_gcm", @encoded_wrapper]]} =
+               sql(
+                 "SELECT generation,kdf_version,kdf_salt,kdf_parameters,wrapper_algorithm,wrapped_key FROM core.vault_key_wrappers WHERE id=$1",
+                 [dump(imported.owner.vault_key_wrapper_id)]
+               )
+
+      assert params ==
+               Map.new(context.vault_kdf_params, fn {key, value} ->
+                 {Atom.to_string(key), value}
+               end)
+
+      assert %{rows: [["system", %{"name" => "integrity_audit"}, nil]]} =
+               sql(
+                 "SELECT kind,metadata,revoked_at FROM identity.principals WHERE id=$1",
+                 [dump(principal)]
+               )
+
+      assert %{rows: [["integrity.audit", "restricted"]]} =
+               sql(
+                 """
+                 SELECT c.name,m.clearance FROM core.principal_capabilities p
+                 JOIN core.capabilities c ON c.id=p.capability_id
+                 JOIN core.vault_members m ON m.principal_id=p.principal_id AND m.vault_id=p.vault_id
+                 WHERE p.principal_id=$1 AND p.vault_id=$2 AND p.revoked_at IS NULL AND m.revoked_at IS NULL
+                 """,
+                 [dump(principal), dump(imported.cut.vault_id)]
+               )
+
+      assert_persisted_audit!(
+        MigrationRepo,
+        "credential.rewrapped_after_restore",
+        [target_id: imported.manifest.manifest_id],
+        actor_kind: "system",
+        system_principal_name: "integrity_audit",
+        result: "completed",
+        target_type: "backup_manifest"
+      )
+
+      assert %{rows: [[1]]} =
+               sql(
+                 "SELECT count(*) FROM audit.events WHERE operation='credential.rewrapped_after_restore'"
+               )
+
+      assert %{rows: [[0]]} =
+               sql("SELECT count(*) FROM audit.events WHERE operation='backup.restore_completed'")
+    end)
+  end
+
+  defp mutate(:configured_root, {LocalFilesystemAdapter, %{root: root}}, imported) do
+    other = Path.join(root, "other-destination")
+    File.mkdir_p!(other)
+    {{LocalFilesystemAdapter, %{root: other}}, imported}
+  end
+
+  defp mutate(:persisted_reference, storage, imported) do
+    [entry | _] = imported.object_inventory
+
+    owner(fn ->
+      assert %{num_rows: 1} =
+               sql("UPDATE content.asset_objects SET storage_ref=id::text WHERE id=$1", [
+                 dump(entry.asset_object_id)
+               ])
+    end)
+
+    {storage, imported}
+  end
+
+  defp mutate(:cut_inventory, storage, imported) do
+    {storage,
+     %{imported | cut: %{imported.cut | object_inventory: projected(imported.object_inventory)}}}
+  end
+
+  defp mutate(mutation, storage, imported) do
+    {field, value} =
+      case mutation do
+        :saga_manifest_id -> {"manifest_id", dump(Ecto.UUID.generate())}
+        :saga_manifest_hash -> {"manifest_hash", <<61::256>>}
+        :saga_manifest_tag -> {"manifest_tag", <<64::128>>}
+        :saga_owner -> {"vault_id", dump(Ecto.UUID.generate())}
+        :saga_count -> {"object_count", 4}
+        :saga_inventory_hash -> {"inventory_hash", <<62::256>>}
+        :saga_root_hash -> {"destination_root_hash", <<63::256>>}
+        :saga_status -> {"state", "pending"}
+      end
+
+    owner(fn ->
+      extra = if mutation == :saga_status, do: ",imported_at=NULL", else: ""
+
+      assert %{num_rows: 1} =
+               sql("UPDATE audit.restore_import_sagas SET #{field}=$1#{extra}", [value])
+    end)
+
+    {storage, imported}
+  end
+
+  defp destination_snapshot do
+    owner(fn ->
+      graph =
+        Map.new(
+          [
+            {"content.resources", "id"},
+            {"content.resource_versions", "id"},
+            {"content.note_versions", "resource_version_id"},
+            {"content.note_conflicts", "id"},
+            {"content.note_attachments", "note_resource_version_id,id"},
+            {"content.note_citations", "note_resource_version_id,id"},
+            {"content.note_source_set_seals", "note_resource_version_id"}
+          ],
+          fn {table, order} -> {table, sql("SELECT * FROM #{table} ORDER BY #{order}").rows} end
+        )
+
+      %{
+        graph: graph,
+        credentials: sql("SELECT * FROM identity.credentials ORDER BY id").rows,
+        wrappers: sql("SELECT * FROM core.vault_key_wrappers ORDER BY id").rows,
+        principals: sql("SELECT * FROM identity.principals ORDER BY id").rows,
+        memberships: sql("SELECT * FROM core.vault_members ORDER BY principal_id,vault_id").rows,
+        capabilities:
+          sql(
+            "SELECT * FROM core.principal_capabilities ORDER BY principal_id,vault_id,capability_id"
+          ).rows,
+        objects: sql("SELECT * FROM content.asset_objects ORDER BY id").rows,
+        saga: sql("SELECT * FROM audit.restore_import_sagas").rows,
+        rewrap_audits:
+          sql(
+            "SELECT * FROM audit.events WHERE operation='credential.rewrapped_after_restore' ORDER BY id"
+          ).rows
+      }
+    end)
+  end
+
+  defp with_import(source, callback) do
+    KnowledgeBackupFixtures.with_destination(:current, fn destination ->
+      refute destination.database == source.database
+      storage = {LocalFilesystemAdapter, %{root: destination.object_root}}
+
+      assert {:ok, reader} =
+               LocalDestination.reader_source(%{backup_root: source.portable}, source.filename)
+
+      crypto = %{
+        key: :crypto.hash(:sha256, "knowledge-fixture-backup-key"),
+        vault_id: @ids.vault_id,
+        encryption_domain_id: id(902),
+        object_id: id(900),
+        chunk_index: 0,
+        algorithm: Format.algorithm(),
+        format_version: Format.format_version(),
+        chunk_size: Format.chunk_size()
+      }
+
+      assert {:ok, verified} =
+               BundleReader.authenticate_all(reader,
+                 crypto: {FixtureCrypto, crypto},
+                 verifier: {LogicalBundleVerifier, source.binding}
+               )
+
+      assert {:ok, imported} =
+               Restorer.import(%{object_storage: storage}, MigrationRepo, %{
+                 verified: verified,
+                 cut: verified.cut,
+                 binding: source.binding
+               })
+
+      assert imported.cut.logical_version == 3
+      assert imported.cut.object_inventory === imported.object_inventory
+      assert length(imported.object_inventory) == 5
+
+      assert owner(fn ->
+               sql(
+                 "SELECT id::text,storage_ref FROM content.asset_objects WHERE lifecycle='available' ORDER BY id"
+               ).rows
+             end) ===
+               Enum.map(imported.object_inventory, &[&1.asset_object_id, &1.storage_ref])
+
+      callback.(storage, imported)
+    end)
+  end
+
+  defp context(storage) do
+    %{
+      migration_repo: MigrationRepo,
+      password_hasher: PasswordHasher,
+      key_deriver: KeyDeriver,
+      key_wrapper: KeyWrapper,
+      recovered_vault_key: RecoveredVaultKey,
+      integrity_issuer: IntegrityIssuer,
+      integrity_ttl_ms: 5_000,
+      object_storage: storage,
+      random_bytes: fn 16 -> @salt end,
+      vault_kdf_params: %{version: 1, t_cost: 2, m_cost: 16, parallelism: 1}
+    }
+  end
+
+  defp projected(inventory),
+    do: Enum.map(inventory, &Map.replace!(&1, :storage_ref, &1.asset_object_id))
+
+  defp owner(callback) do
+    assert {:ok, result} =
+             MigrationRepo.transaction(fn ->
+               sql("SET LOCAL ROLE singularity_table_owner")
+               callback.()
+             end)
+
+    result
+  end
+
+  defp sql(statement, params \\ []), do: SafeSQL.query!(MigrationRepo, statement, params)
+  defp dump(value), do: Ecto.UUID.dump!(value)
+  defp id(n), do: "60000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")
+end
+
+defmodule Singularity.Storage.Backup.RestoreRewrapLegacyOptionsTest do
+  use ExUnit.Case, async: true
+
+  alias Singularity.Core.Error
+  alias Singularity.Storage.Backup.{IntegrityAudit, Restorer}
+
+  alias Singularity.Storage.Backup.RestoreRewrapTest.{
+    IntegrityIssuer,
+    KeyDeriver,
+    KeyWrapper,
+    ObjectStorage,
+    PasswordHasher,
+    RecoveredVaultKey
+  }
+
+  for version <- [1, 2] do
+    test "explicit legacy V#{version} preserves issuer options and failed-commit revocation" do
+      owner = %{
+        account_id: id(1),
+        active_credential_ids: [id(2)],
+        all_credential_ids: [id(2)],
+        owner_principal_ids: [id(3)],
+        vault_key_wrapper_id: id(4),
+        wrapper_generation: 9,
+        vault_key_version_id: id(5),
+        vault_key_generation: 7
+      }
+
+      imported = %Restorer.Imported{
+        manifest: %{manifest_id: id(6)},
+        manifest_hash: <<1::256>>,
+        manifest_tag: <<2::128>>,
+        cut: %{
+          logical_version: unquote(version),
+          manifest_id: id(6),
+          vault_id: id(7),
+          object_inventory: []
+        },
+        object_inventory: [],
+        owner: owner
+      }
+
+      storage = {ObjectStorage, %{root: "/tmp/legacy-options-only"}}
+
+      context = %{
+        migration_repo: MissingMigrationRepo,
+        password_hasher: PasswordHasher,
+        key_deriver: KeyDeriver,
+        key_wrapper: KeyWrapper,
+        recovered_vault_key: RecoveredVaultKey,
+        integrity_issuer: IntegrityIssuer,
+        integrity_ttl_ms: 5_000,
+        object_storage: storage,
+        random_bytes: fn 16 -> :binary.copy(<<0x81>>, 16) end,
+        vault_kdf_params: %{version: 1, t_cost: 2, m_cost: 16, parallelism: 1}
+      }
+
+      assert {:error, %Error{code: :storage_unavailable}} =
+               Restorer.rewrap_owner(
+                 context,
+                 imported,
+                 "RESTORE_PASSWORD_CANARY_811",
+                 :opaque_recovered_capability
+               )
+
+      assert_receive {:integrity_issue, options}
+
+      assert options === %{
+               owner: self(),
+               vault_key: :binary.copy(<<0x83>>, 32),
+               binding: %{
+                 manifest_id: id(6),
+                 vault_id: id(7),
+                 vault_key_version_id: id(5),
+                 vault_key_generation: 7
+               },
+               inventory: [],
+               material_loader: {IntegrityAudit, MissingMigrationRepo},
+               object_storage: storage,
+               key_wrapper: KeyWrapper,
+               ttl_ms: 5_000
+             }
+
+      assert_receive {:integrity_revoke, :opaque_integrity_capability}
+      assert_receive {:recovered_revoke, :opaque_recovered_capability}
+    end
+  end
+
+  defp id(n), do: "74000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(n), 12, "0")
+end

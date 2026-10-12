@@ -2,8 +2,8 @@
 
 ## Current status
 
-**IN PROGRESS — Tasks0–8 scoped source/gates are locally qualified; Task8 tested source is locally committed at `21d066036edbcb3f0a0737ae2dca36a9cea79427`, after actual full SOURCE SPEC and distinct fresh QUALITY PASS. All Task13 design/test-layout/zero-ready contract amendments pass actual SPEC/fresh QUALITY; its corrected SQL fixture and repeated complete causal RED are in progress before production GO. Task9B compatibility tests are being authored separately; no Task9 production repair is qualified.**
-Phase5 as a whole is not accepted; Tasks9–19 remain required. Phase5 has its own
+**IN PROGRESS — Tasks0–9 and portable Tasks13–15 have bounded local source/gate acceptance. Task8 attribution is independently accepted at `9f91c97eb392b4c49c888ed31795d520d15bb8dd`. Combined Task9 B–F native gates, actual whole SOURCE SPEC and distinct fresh QUALITY pass; the scoped local commit is next. Task10 unchanged Runtime baseline has one privilege-contract failure; diagnosis identifies the already accepted00500 SELECT grant, and repair remains pending. It is not GREEN.**
+Phase5 as a whole is not accepted; Tasks10–12 and16–19 remain required. Phase5 has its own
 worktree `.trees/v0.2-phase-5-export-backup`, branch
 `codex/v0.2-phase-5-export-backup`, based on Phase4 documentation handoff
 `5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Phase4's exact tested implementation
@@ -5134,3 +5134,1144 @@ This closes the own70 failure only; complete retained16/static/final actual
 NONAUTHOR SOURCE SPEC then distinct fresh QUALITY remain required for Task9C.
 Task13 independently qualified seven-file local commit may now proceed; no
 Stage5/real-byte/browser/publication acceptance is inferred.
+
+## Task13 bounded local commit and remaining gates
+
+Parent explicit-staged exactly18 paths:seven new Task13 owning files, master
+design/plan/report and four independently reviewed amendment design/plan pairs.
+Stage path/count/check and current13 checks passed. Local commit567d17 exit0:
+`09f8ee0c0a69cdd26612e0663a29a9d156c46986`,
+`feat(export): capture exact live source closure in private spool`.
+PostHEADacb5ee and exact18paths d972de verified; index219eef empty. DirtyTask9
+preflight/test/new00700, ACL/Admission tests and their pending documents remain
+untouched/unstaged; no unrelated file was staged or removed. This is the exact
+seven-file Task13 component qualified in the dirty phase checkout, not a clean
+whole-phase/CI/release qualification. Its receipt3d7de0cf preserves that baseline.
+No push, merge, version/tag/release/deployment/activation/backfill/data operation.
+
+Task14 prerequisite is satisfied, with its own test-first/source/review gates
+still required. Parent next runs unchanged complete retained16 for the separate
+ACL/Admission repair. Source remains frozen during that gate; Task9C stays
+blocked on its normal GREEN/static/final SOURCE SPEC then distinct QUALITY.
+E2E NOT RUN/manual-only; no Vault/frozen compatibility feature work.
+
+## Retained one-shot repair1 complete qualification and Task9C GO
+
+Unchanged full16 SQL17644 closed221785 exit0,1541.9s:347 reported,
+344 actual tests,0 failures,3 non-SQL exclusions. FULL raw archive
+`.devenv/phase5-retained-one-shot-repair1-complete16-sql.log` SHA
+`3d8dd5e421fa518926bfc430e969db2d809814f7291bf45a4606848a6bf2313c`.
+Every captured chunk is retained; no lost/truncated chunk is claimed complete.
+Separate whole legacy pure98829 closed3b750b exit0,2.4s:14 reported,
+5 actual/0 failures,9 SQL exclusions; includes the three non-SQL restore-owner
+cases. FULL raw archive
+`.devenv/phase5-retained-one-shot-repair1-legacy-pure.log` SHA
+`2f88b1e6b429b1ca661712424c75b74a8a4bb0a003e1bd662d6142e7c0ac650f`.
+Whole format-check/compileWAE/xrefzero84409 closed122912 exit0,No cycles found;
+FULL archive `.devenv/phase5-retained-one-shot-repair1-static.log` SHA
+`9a3dc75733d125ec6bcaf065db2d08ac31e68d2bdad931fe05703e4bd4ba9e02`.
+All source/test/support remained frozen during all gates; no source authoring
+or formatter/service/SQL overlap. Earlier owning70/0 and focusedACL15/0 remain
+separate scoped evidence, not substitutes for this complete16 qualification.
+
+After normalclosure, immutable16receipt8504dded matches7071ac/d0ab19;
+current13receipt3d7de0cf matchesb0e8bf/ff7470; frozen56 matchesc2f7bb/1e6aba,
+registryd029 unchanged. Actual allocated fixture root
+`/tmp/singularity/integration/d86b84612fc2d6eeaf07bd3a` absent e8d530 exit0;
+postclosed maintenance7e51cc exit0 EMPTY, no singularity_test databases.
+Diffchecks b88d40/292f7d exit0 and seven actual applicationsf4959d verified.
+Complete parent checks record
+`.devenv/phase5-retained-one-shot-repair1-checks.md` SHA
+`9feb06f6bf4bcd3a2284c4755d772e851e6768b151651c880e65f704267abd75`.
+NativeOTP28 probe fe4706f7 and whole Admission inverse761e3bb8 stay exact;
+protected fixtures/reader/destination/grant helper/accepted migrations unchanged.
+
+Actual NONAUTHOR final SOURCE SPEC PASS by phase5_precommit_native_quality,
+complete2194-line Admission/320-lineRls/570-lineGrants/four governing documents,
+actual protected auth/replay/native-close/staging/fixture/grant paths and all
+full new logs. Reused earlier complete reads only after exact byte hashes;
+current ten-mode case and native-close helper reread. No findings. Record
+`.devenv/phase5-retained-one-shot-repair1-final-source-spec.md` SHA
+`9b494dcfe274fd150379ff5789bd962b56a9b9dfe5638b93cb61cbd0f1b7d904`.
+THEN distinct fresh actual QUALITY PASS by phase5_task13_test_author,
+nonauthor of all three Legacy tests/helpers/four documents, with complete full
+source/governing/dependency/diff/log reads and independent receipt/root checks.
+No findings. Record
+`.devenv/phase5-retained-one-shot-repair1-final-quality.md` SHA
+`8894dafbf2a9db8fd92a72effdec0da2f4b0ea990312290d1ffeef43be01e5cc`.
+Both reviewers all commands CLOSED, no edits/gates/SQL/services/network/Git/
+subagents; reviewerSol0/Astra0, parent one-shotrepair1 separately recorded.
+
+The bounded Legacy contract repair is qualified locally. Historical344/93
+incomplete-output FAIL, owning70/3 FAIL and interrupted cleanup remain preserved,
+not reclassified. Task9C may begin test-first; its own adapter/Restorer/Runtime/
+Document integrity and live restoration gates remain pending. Admission also
+contains pending Task9B UUID/mixed/function-equivalence tests; do not commit
+that whole file alone without its required00700 implementation. Qualified
+Legacy edits will join the reviewed bounded compatibility TaskF commit after
+its required complete gates, preserving all unrelated files.
+
+Task14 and Task15 independent TEST-ONLY authoring started after ALL gates and
+final Legacy reviews CLOSED. Task14 owns only two NEW Runtime test files;
+Task15 owns only NEW WriterTest. Production ExportRead/Repository extensions/
+Writer remain unimplemented and require parent causal RED then SOURCE GO.
+No Task14/15, Phase5, real portable-byte/browser/release qualification inferred.
+E2E NOT RUN/manual-only; no frozen Vault/custody/key/capability/policy/crypto/
+lease semantics change, publication, activation, backfill or production-data work.
+
+## Task9C / Task14 / Task15 complete initial RED and test diagnosis
+
+All NEW test authors closed before parent formatter93641/58f5a4/exit0 and
+serial whole-owner commands. Initial immutable nine-entry source receipt
+`.devenv/phase5-new-9c14-15-initial-red-source.sha256` SHA
+`c4489b3a9e09cd92ed3e2a8ae25b32f14ff20f63f5e2d289cd3fd2ccbcf0f8d8`
+is retained, not regenerated for necessary NEW test corrections. Current13,
+retained16 and frozen56 all matched before these gates. No production module
+for Task9C/14/15 exists, and no source/test/support changed during any gate.
+
+Task9C first compilation failed at a NEW Kernel.binding/1 name conflict,
+exit1, no tests executed. One Sol correction renamed only the helper/calls.
+The first whole pure command then closed a5967e/exit2:22 reported,9 failures,
+13 SQL exclusions. First SQL closed ee6be7/exit2:22 reported,13 failures,
+9 pure exclusions; two NEW counterproof constructors incorrectly expected
+wire-only count fields in the normalized Imported cut. Native chunk6fcb54 was
+tool-truncated; `.devenv/phase5-task9c-initial-red-sql-incomplete-capture.log`
+stays INCOMPLETE historical FAIL. Actual LogicalBundleVerifier.cut_result/2
+omits those fields. The separate constructor Sol repair1 changes only the
+existing cut inventory, asserts its actual shape, preserves independent saga
+count/hash counterproofs and adds a positive for the real no-count cut.
+Explicit missing-module guards bound undefined-call output without changing
+the required identity/binding assertions.
+
+Final whole Task9C pure constructor-repair1 closed624d7a/exit2,2.1s:
+22 reported,9 actual failures,13 SQL exclusions. Complete raw
+`.devenv/phase5-task9c-initial-red-pure-constructor-repair1.log` SHA
+`2adaaa458663c43e1dd26defa78f5d2abbf1d79084216b316a7576a2dc534c24`.
+Whole SQL constructor-repair1 closed d7d88e/exit2,95.0s:22 reported,
+13 actual failures,9 pure exclusions. Complete raw
+`.devenv/phase5-task9c-initial-red-sql-constructor-repair1.log` SHA
+`ca4c6de7e2eec2a71881764ba9e0d224766e4d77ac4c67f267f1884bf97e7dfb`.
+All failures now reach the missing concrete adapter guard, wiring RED only,
+not proof of substantive rejection. Current NEW source SHA
+`be73eb16c767dbeab899377d87df7989285cc2e1e7090541a14b040a5c21287f`.
+Actual fixture root8c407d942b118ce9301e0bb4 absent49b046/exit0;
+after-closure maintenance9ebed2/exit0 EMPTY. No manual deletion/interruption.
+
+Task14 whole pure3 closed248592/exit2,2.8s:61 reported,38 actual,
+25 failures,23 SQL exclusions. All25 NEW cases reach missing concrete
+ExportRead; thirteen existing pure cases pass. Complete raw
+`.devenv/phase5-task14-initial-red-pure.log` SHA
+`72500ca6f941e342325a9702bff2ee915344b47b6bc43ccc1d3ab25ce4a43157`.
+Whole live3 closed8e46b6/exit2,22.3s:102 reported,89 actual,
+67 failures,13 pure exclusions. All66 NEW cases die before ExportRead because
+NEW note_attachments INSERT lacks the accepted DDL's NOT NULL inserted_at.
+Read-only diagnosis also found the same latent omission in NEW tags INSERT,
+and NEW unused context/default warnings. No shared fixture change is needed.
+One existing DocumentCustodyPermissionTest expects denied worker SELECT,
+but accepted00500 explicitly grants that SELECT for current worker contracts;
+diagnosis and an assertion-preserving contract update remain pending.
+Complete raw `.devenv/phase5-task14-initial-red-sql.log` SHA
+`5329b6196d717cf1ee4981dc56fe96f8bcd2fc917589c50ef6879cfca4f46470`.
+Actual root e0ce3b94734bf2c9dacfb51b absent4c9c8f/exit0. No live source,
+custody, permission or Task14 qualification follows from this FAIL.
+
+Task15 whole pure3 closedbd2e97/exit2:Core66/0 (14.3s), NEW Writer40/40
+failures (10.9s),106 actual in total, no exclusions. Thirty-nine failures are
+missing Writer wiring; one NEW assertion erroneously expects a legitimately
+valid metadata_only_unselected Asset descriptor to fail Core record/2.
+Complete raw `.devenv/phase5-task15-initial-red-pure.log` SHA
+`7fef47fc8562f781061df8f193b0bae2f81da0eda17bd0e06d6348b29c92941e`.
+After all gates CLOSED the Task15 owner received TEST-ONLY GO: characterize
+the exact pending-original subset without weakening digest assertions, and
+add genuine sealed-but-inconsistent Note/fragment metadata counterexamples.
+The Task14 owner separately received TEST-ONLY GO for its NEW timestamp and
+warning repairs. All production remains NOT IMPLEMENTED; parent must read
+closed author deltas, format and rerun whole owners before production GO.
+
+Trusted Repository composition and trusted-root reservation/no-overwrite
+premises are now explicit in the governing design/plan. They expose no request
+adapter/path/limit option, change no frozen behavior, and claim no hostile
+same-UID OS no-replace protection. Actual implementation, complete GREEN,
+NONAUTHOR SOURCE SPEC then distinct fresh QUALITY and local commits remain
+required. Sol defect counts are separate; no defect has had two failed repair
+rounds, and no Astra repair has yet been required for these authoring corrections.
+E2E remains NOT RUN/manual-only. No Phase5/browser/release acceptance,
+merge/push/version/tag/release/deployment/activation/backfill/production-data
+operation, or Vault/custody/key/capability/policy/crypto/lease change occurred.
+
+## Corrected Task15 RED and bounded Task9C/14 authoring
+
+After all initial gates CLOSED, the Task15 test owner corrected only the
+included-original constructor premise and added six genuine sealed text/
+metadata counterexamples. The original40 cases/assertions remain, including
+metadata-only Asset original size/SHA. Parent read the full deltas and genuine
+seal witnesses, then formatted only the NEW live/Writer tests (55306 closed
+d279ae/exit0). Current formatted WriterTest SHA
+`2bd4e6a795d19306eced91a7f5215a504133ef2061f585f54566c93bf9dce108`.
+Whole pure3 session19580 closed530a67/exit2:Core66/0 (13.0s), Writer46/45
+failures (11.9s),112 actual/no exclusions. All45 failures reach missing concrete
+Writer; five new sealed-but-inconsistent Note/fragment metadata witnesses reach
+that guard. One native Spool aggregate-SHA denial passes before any Writer call.
+No construction failure or warning remains. This is valid initial wiring RED,
+not substantive Writer behavior proof. Complete untruncated raw archive
+`.devenv/phase5-task15-initial-red-pure-test-repair1.log` SHA
+`526d46f3172ab12d055cf917a748d6935aaa8fba0f3006bb6942aee7f976ba09`.
+Only after normal closure did the Task15 owner receive bounded production GO
+for NEW Writer and portable-format documentation; source is still authoring.
+
+The Task14 owner closed its four NEW fixture/warning corrections: explicit
+attachment/tag inserted_at, unused context/default removal. The accepted DDL,
+shared fixtures and every66 live case/assertion are preserved. Corrected
+whole live gate is pending, so the initial66 fixture failures remain FAIL.
+Independent design SOURCE SPEC then distinct fresh QUALITY passed the narrow
+Document worker-read contract amendment without findings. Parent factual
+records are `.devenv/phase5-document-worker-read-design-source-spec.md` and
+`.devenv/phase5-document-worker-read-design-quality.md`; reviewed draft design
+SHA6dce0f9f75960d7ef34ba659332d8b2f01cddaf53b26ad96ee997c551b177339
+and plan SHA46f49b991f62ebe05e974cf3a081e2e2f424426469e2bf3cf63e3a6111645c5b.
+Only the final old permission-test module was then authored and CLOSED;
+parent read its complete delta. Actual native role/SELECT-only privilege/RLS,
+same/foreign/revoked scopes, PostgreSQL42501 mutation probes, preserved rows
+and same-backend normal/rollback GUC cleanup replace the historical denied-
+SELECT premise. Probes use unchanged SafeSQL, not fake errors or raw-query
+telemetry. Current raw old owning-file SHA
+`37946344ab9ef2167c1a98ba26daf53cbb534c24b27bf2b9041c104ae305cb4a`;
+the preceding-module prefix remains exactly
+`56daca6dc13501fe397c03d029079c62f11684fb725cd961dbfcd5169d018ccf`.
+Whole-file permission/custody validation is still pending. No grants, policy,
+production or byte-custody implementation were changed.
+
+Parent authored the first NEW Task9C adapter, raw SHA
+`3e4febf344e4c9f95131d0fd443abb2b0a80102b0fce950596e57368a698ae25`.
+It retains original I, derives only storage_ref UUIDs for N(I), binds the real
+import saga/owner/root/closure/persisted originals, then delegates the exact
+projected entry to unchanged Base inside the same repeatable-read transaction.
+One additional positive test asserts the actual owner GUC beside native
+backend/role/snapshot witnesses; all22 owning cases and prior assertions remain.
+Raw test SHAfaf05b8d0236f54cd5c4cef7c3a46be18e2ecc777660c3c1ef5ea5775c8abca8.
+A complete bounded nonauthor read-only advisory found no confirmed blocking
+defect; this is NOT acceptance SPEC/QUALITY. Source is closed but unformatted,
+uncompiled and unqualified. Both owning gates remain required. Restorer,
+Runtime integrity, frozen custody/crypto and released migrations are unchanged.
+
+All formatter/Mix/SQL/service gates remain stopped while Writer source authoring
+is active. E2E NOT RUN/manual-only. No publication, production activation or
+Phase5/browser/release acceptance is inferred from these authoring milestones.
+
+## Task9C/14/15 first production snapshot gates and repair diagnosis
+
+All source authors CLOSED before formatter62410 closed86396d/exit0.
+Parent read the complete Writer/format document; formatted source hashes are
+Writer9e81cdc26135146f5535d2bb3fbc66d89303b7aa8130441ebd9b139fbfd06511
+and TaskC1f360f654f07b6f4bbf38f8925f1ab18232794836b5576d74d0b386104f59d49.
+Immutable eight-entry source receipt
+`.devenv/phase5-new-9c14-15-prod1-source.sha256` SHA
+`6d3ff98a62b39fc90bdce51263827b217247893288ef623d29fd975321cd55b7`.
+Frozen56 matched2e80d4, current13 matched303815; old custody prefix remains
+56daca6dc13501fe397c03d029079c62f11684fb725cd961dbfcd5169d018ccf (509a93).
+Source/test/support stayed frozen during every serial gate below.
+
+| Whole gate | Normal close | Actual / failures / exclusions | Complete raw archive SHA256 |
+| --- | --- | --- | --- |
+| Task14 corrected pure3 | 48b147/exit2,3.2s | 38 / 25 / 23 SQL | 0fd605152e2fd5149611298fb2502239cbfc2c19dcc6000263e82a87d166a961 |
+| Task14 corrected live3 | 67f873/exit2,26.3s | 89 / 66 / 13 pure | 8305b6bbe6e3ea150d226d0c46944c4ea8017dad15e4afe640b961c924d463cc |
+| TaskC first pure | b7d6bc/exit0,2.0s | 9 / 0 / 13 SQL | 8182a6b15ae97b5887f72353a8d0ef260e9b487876bd1ea5078ba9afbbf22bfb |
+| TaskC first SQL | 35e761/exit2,94.6s | 13 / 2 / 9 pure | 04d580a4bf6a2c1a0a1965fe925be3e119aaa696714f6194f241e6c2f87abfcd |
+| Task15 first pure3 | fd7797/exit2,Core14.0s+Writer61.0s | 112 / 3 / 0 | 2e51aad0440cb5bda0fc0e8adf177f84f5d59df4599469bab3f7139adf369837 |
+
+Archives are `.devenv/phase5-task14-corrected-initial-red-pure.log`,
+`phase5-task14-corrected-initial-red-sql.log`, `phase5-task9c-prod1-pure.log`,
+`phase5-task9c-prod1-sql.log`, and `phase5-task15-prod1-pure.log` respectively.
+Every native chunk was captured fully; no tool-truncated output is claimed
+complete. Source8 still matched317ca7 after all gates. Both actual allocated
+SQL roots a79f3ea9d528c5235dc23ef1 and814086551f41aea8174dae0e are absent
+(a43906/ae8539 exit0). Normal postclosed maintenancece7434 exit0 EMPTY.
+No interruption, manual fixture deletion or overlapping authors/gates.
+
+All23 OLD Task14 integration cases pass, including the corrected native
+Document permission case. All66 NEW cases still fail before ExportRead:
+the attachment/tag timestamps now pass, but a second direct native Authorize
+witness incorrectly reuses an unbound requirement. Actual OperationScope fills
+the two session epochs before its own successful native authorization and
+enters the callback; direct Authorize requires those same exact epochs.
+Independent read-only diagnosis CLOSED before bounded NEW-only repair1:
+copy both genuine resolved session epochs into requirement/1, keep the native
+positive assertion and all66 cases. Pure call/2 receives the same bounded
+concrete-module/export guard already used by live call/3; all25 cases remain.
+Current raw liveSHA7723fc6ab1e36ca2aafa717dc42902b589042f9e926a285c4383051732b32c80
+and pureSHAccd61bf74dbf338b4e880d60447b98e4392cb223c15d914b860e7bbce6791d36;
+exact inverse reproduces the first-snapshot bytes. This newly exposed
+authority-construction defect is separate from the timestamp repair; no native
+grant, policy, custody, key, capability, Vault or shared fixture was changed.
+
+TaskC's nine pure and eleven SQL cases pass; both remaining SQL failures are
+the NEW RecordingRepo instrumentation seam, before native material witnesses.
+Actual installed EctoSQL passes the literal repo name into Registry.lookup;
+delegating get_dynamic_repo/0 on an unregistered module does not register it.
+Parent test-only correction1 introduces a transaction-owned inert address
+associated with the exact real MigrationRepo adapter metadata, not a separate
+pool, fake SQL/result, authority flag or production change. Nested transactions
+reuse that address; after closes it even on failure. Exact inverse26cce0
+reproduces prior whole-filefaf05b8d; raw corrected testSHA
+1bb7c17011b5dd07c275c1621aa39e936fad8c9eb1e2b46869596b793abc0e06.
+All actual backend/snapshot/role/owner and genuine concurrent-commit assertions
+remain. Production C is unchanged; complete corrected gates are pending.
+
+Task15 has Core66/0 and Writer46/3 failures. Source/log diagnosis identifies
+invalid nested-root ENOENT misclassified as storage_unavailable, failed abort
+cleanup leaving its owned busy phase stuck, and a NEW finish constructor whose
+omitted citations legitimately trigger mandatory earlier Note rendering denial.
+Bounded Writer production repair1 is authoring. The narrow constructor correction
+may omit a genuine unrelated relationship to reach finish, preserving every
+finish/error/noartifact/cleanup assertion; a separate regression must retain
+the missing-citation early denial. Explicit empty/symlink completion reservation
+and reservation-drift coverage are also required, not yet qualification.
+No early render-binding assertion may be relaxed or old failure relabeled PASS.
+Each defect's repair counter is separate; no two same-defect failed rounds or
+Astra escalation threshold has occurred. Source is frozen again only after
+every repair author closes; all further formatter/Mix/SQL gates wait until then.
+E2E NOT RUN/manual-only; no component/Phase5, live portable, browser, release,
+publication, production activation/backfill or production-data acceptance.
+
+## TaskC and Writer repair1 complete owner GREEN; reviews pending
+
+All repair authors CLOSED before parent formatter59014 closedf48008/exit0.
+The immutable revised eight-entry source receipt
+`.devenv/phase5-new-9c14-15-repair1-source.sha256` SHA
+`d506b609246c53b842a3a6acaef43a8c45534a514955ac114009e11953318c8b`
+retains exact C/Writer/14 source at these serial gates; preceding receipts and
+failures were not regenerated/reclassified. Parent read every repair delta.
+TaskC source remains1f360f65; test isa2044e65. Writer source4681a19e,
+testa1d596e8 and format document902a8a8a. These are source/test hashes, not
+publication refs. All source/test/support stayed frozen during every gate.
+
+Whole corrected TaskC pure8502 closed6746e0/exit0:22 reported,9 actual/0,
+13 SQL exclusions,2.1s. Whole corrected SQL30159 closed7fca5f/exit0:
+22 reported,13 actual/0,9 pure exclusions,147.6s. The exact backend/snapshot/
+table-owner/owner-GUC and genuine concurrent committed-write tests now execute
+and pass; the metadata alias uses the actual pool and is closed in after.
+Full raw archives `.devenv/phase5-task9c-recording-repair1-pure.log` SHA
+`a20e25116fdc7088b223ff798479b11574dcac68670895784cb98e9f98a8365c`
+and `.devenv/phase5-task9c-recording-repair1-sql.log` SHA
+`221a63b196a60daac6690d23f7829dddeffabc737e3e34c9d26873ec97302ccf`.
+Original I, cut, saga digest and unchanged Base material remain exact; no
+Restorer/Runtime composition has yet been enabled or accepted.
+
+Whole Writer repair1 pure3 session12486 closedda5a31/exit0:Core66/0 (13.4s)
+plus Writer50/0 (69.4s),116 actual/no exclusions. Full raw archive
+`.devenv/phase5-task15-repair1-pure.log` SHA
+`db86cd0fc28752bc16387fe5accc02c82362c70e562090228ef990950ed905fd`.
+All previous46 cases remain with only the authorized finish-constructor phase
+correction. Four added cases cover actual omitted citations denied at Note
+render, preexisting empty completion, preexisting symlink completion, and native
+reserved inode drift to foreign directory/symlink. They preserve foreign paths
+and retry genuine cleanup only after the owning fixture restores the witnessed
+original reservation. No fake rename result or added Writer option is used.
+Root error classification and failed-owned-abort phase repair1 pass. The tests
+do not claim hostile same-UID OS atomic no-replace, GiB-scale allocation, live
+custody or Runtime artifact-owner handoff qualification.
+
+Whole static39739 closed488c28/exit0:format check, compileWAE and zero xref
+cycles. Full raw archive `.devenv/phase5-task9c15-repair1-static.log` SHA
+`9a3dc75733d125ec6bcaf065db2d08ac31e68d2bdad931fe05703e4bd4ba9e02`.
+Postclosed source8 matched916dab; frozen56 matchedab7632 and current13
+matcheda01f86. Both actual native roots1452399b961c7dafb91401ba and
+c2a705765c277646b0f4ba10 are absent (5053c9/223623 exit0). Maintenance3d2ba1
+exit0 EMPTY, diffcheck8343a8/exit0. No interrupted/manual cleanup or source/
+gate overlap. Actual nonauthor SOURCE SPEC then distinct fresh QUALITY for
+each component remain required before its bounded local handoff/next slice.
+
+The corrected complete Task14 pure closed4f40f8/exit2:38 actual/25 failures,
+23 SQL exclusions; all25 now have bounded missing-concrete ExportRead guards.
+Corrected whole live closed8003af/exit2:89 actual/66 failures,13 pure exclusions,
+76.0s. Full raw archives `.devenv/phase5-task14-authority-repair1-initial-red-pure.log`
+SHA2faea31872fa86724217eac8a1f013ff8b3513cc07bb75c27b870686cc62d3bf
+and `.devenv/phase5-task14-authority-repair1-initial-red-sql.log`
+SHAaf7c90967dfbfcacb7751975bacbc659ac871dd8b25be6a670bfdf32ba726a3b.
+All23 old native cases still pass. The epoch repair passes its original barrier.
+Exact full-log diagnosis finds59 NEW missing-wiring failures (including direct
+audit calls and the absent fixed AssetScope sanitized by original Download),
+not59 successful feature denials. Seven NEW ready-Document text constructors
+claim adapter 'plain'; actual Core/Spool require 'plain_text' for text/plain.
+Only that NEW fixture literal needs correction; real capture assertions stay.
+Pending captures already reach the missing ExportRead guard. No frozen custody
+defect or grant/capability change is established. Test-only correction remains
+pending; the whole66 FAIL is preserved, and no Task14 production GO yet.
+
+Each resolved defect's Sol counter remains independent, no two same-defect
+failed repair rounds and no Astra threshold. E2E NOT RUN/manual-only; no Phase5,
+portable live/browser/release acceptance, merge/push/tag/release/deployment,
+production activation/backfill/data or Vault/custody/key/capability/policy change.
+
+## TaskC independent acceptance, final Task14 initial RED and Writer review finding
+
+TaskC actual nonauthor SOURCE SPEC by phase5_precommit_native_quality and
+distinct fresh QUALITY by phase5_inventory_source_quality both CLOSED without
+findings on source1f360f65/testa2044e65, after owning9pure/13SQL/static GREEN.
+Both read fullsource/test/design/plan and traced actual native dependencies.
+Parent factual records `.devenv/phase5-task9c-recording-repair1-source-spec.md`
+and `.devenv/phase5-task9c-recording-repair1-quality.md` are summaries of actual
+verdicts, not transcripts. ComponentC accepted for TaskD test-first work only;
+no combined F/G commit, unchangedlease/liveplaintext/Phase5 acceptance yet.
+
+Final Task14 NEW-only fixture correction replaces nativeclaim 'plain' with
+'plain_text', adds concrete AssetScope/5 guard before the unchanged realzero
+Download positive, and routes twoaudit/COMMIT calls through the bounded helper.
+Exactinverse restores old7723fc6a byteforbyte; all66cases/assertions preserved.
+Formatter closededceca/exit0, currentlive9ddc329b. Wholepure47203 closedf1e34b/
+exit2:61reported/38actual/25missingNEWmoduleFAIL/23SQLexcluded,3.4s. Wholelive
+53610 closed9ed6a1/exit2:102reported/89actual/66FAIL/13pureexcluded,74.8s.
+All66 fullfailure sections independently checked:65missingExportRead and1
+missingAssetScope, no constructor failure. All23OLDintegration cases pass.
+This is valid initial wiring RED, not substantive behavior/security acceptance.
+Fullarchives `.devenv/phase5-task14-fixture-repair2-initial-red-pure.log`
+SHA908f38ad4eab6281f2ada835c08cf44032b5b46fee8abed5693cc407c575e88e
+and `.devenv/phase5-task14-fixture-repair2-initial-red-sql.log`
+SHA18283e6c0948af415ab76856c4774e94a082c6398121bdb1b033a4ca4f0d7c03.
+New8source receipt872e57ed19b1f0ea6246c9b52ec0cbaf924b771bc6698c60ba162c6990b33838
+matched9bff1d, frozen56matched3d7dac, current13matchedcecd22; actualroot5cb3ba3d
+absent22201b and maintenancef4419f/exit0 EMPTY after normal closure. No manual
+cleanup or source/gate overlap. Task14 bounded production GO may proceed.
+
+Writer actual nonauthor SOURCE SPEC by phase5_writer_source_spec CLOSED with
+nofindings. Distinct fresh QUALITY by phase5_writer_source_quality CLOSED with
+one actionable P2; handoff NOT qualified. Root independently inspected actual
+Writer414/441 and Spool91-96: perrecord read_page(...,1) reconstructs/sorts/
+fullyfilters wholecollection in BOTH indexing and append, O(N^2 log N) CPU and
+O(N^2) keylistallocation. Static finding only; no measuredmillion-row timing
+claimed. Prior wholeCore66/Writer50 GREEN remains scoped historical evidence.
+Parentrecords `.devenv/phase5-task15-repair1-source-spec.md` SHA2b0f6dfd5d7be37a59477871c5076f6082d24b4e21f7fa43bc41b230477a6738
+and `.devenv/phase5-task15-repair1-quality-finding.md` preserve actual verdicts.
+Design/test-first repair, deterministic work-count regression, retained gates
+and fresh reviews required; no raisedquota/deadline or weakerassertion.
+Newscaling defect Solrepair0/Astra0; priorunrelatedrepair1GREEN retained.
+E2E NOT RUN/manual-only and all frozen/publication/production restrictions intact.
+
+## Task14 initial GREEN and review finding; TaskD causal RED; scaling design closure
+
+Task14 initial production formatted by parent after BOTH source authors closed:
+ExportReadf4987b44, Repository831bf33a, pure61b895/live9ddc329/OLDcustody2da057.
+Whole pure3 closed5f960bexit0:61reported/38actual/0fail/23SQLexcluded,3.4s.
+Whole live3 closedcf7516exit0:102reported/89actual/0fail/13pureexcluded,103.4s;
+all66NEW and23OLD native cases pass. Full logs
+`.devenv/phase5-task14-initial-source-pure.log` SHA88a4a0c6931a827b8ca2fa9198104cc6c24242d7af50274988a1c1f035933b4a and
+`.devenv/phase5-task14-initial-source-sql.log` SHAe76a1343552ddbe262ff1596fb6ddadd299b14d0bc271aaa97174d1f86863547.
+Actual test-produced23503 COMMIT failure message is retained native history;
+the corresponding required failure/cleanup assertion passes, not an ignored gate.
+Source13receipt86332714 matchedd1dd0c, frozen56matchedeb206a and actualroot2c8c8d70
+absentba0d82 after normal closure. Actual nonauthor SOURCE SPEC closedPASS;
+distinct freshQUALITY closed oneP2: final nativecapture validation happens
+BEFORE finaltextguard, permitting expiry/abort inside lastguard then success.
+ReviewedGREEN is historical; Task14 NOT qualified. NEWpure test-only regressions
+for realSpool Note/fragment incl empty expiry/abort now authoring; parent RED and
+minimalcompletion-order repair plus fresh whole gates/reviews required.
+
+TaskD appended18 owningStorage cases (16SQL+2legacyPure) and23RuntimePure cases;
+all complete oldfiles retained exact prefixes23930bytes/48237f9d and11332bytes/
+51382c89 verified after formatting. Full pure3RED closed76ebf3exit2:Storage8actual/
+0fail/22SQLexcluded, Runtime31actual/19fail;39actual total. All19failures reach
+missingV3projection, not constructor setup. WholeSQL closede60607exit2:
+21reported/18actual/15fail/3pureexcluded,167.9s. Fullnative all15sections verified
+10missingV3prepared denial+5missingprojectedloader, genuineauthenticated bundle/
+import fixtures allpass. Full log `.devenv/phase5-task9d-initial-red-sql-complete.log`
+SHAcc677acf5209522a1ac8a7df7f5a21b2da76a36a885014272ec23145cb431e38.
+Earlier identical620581/b18b5f runs closed15FAIL but outputcapture truncated;
+retain incomplete-output evidence, no source changes/failedSol repair rounds.
+Finalsource receipt matchedd1dd0c, rootfda1934c absentd5083e and maintenance4bbec6
+exit0EMPTY, normalclosure/no manualcleanup. RootD bounded composition authored
+Restorerb23f8409/Runtimebb5be2cf only; no format/compile/GREEN yet. Both paths
+retain originalI and compare actual N(I) evidence, no lease/summary rewriting.
+TaskE source-pin verification and Task11 reallease restore remain unqualified.
+
+Scaling draft actual SOURCE SPEC same-ID crosscollection substitution P2 and
+freshQUALITY testcleanup P2 both closed in reviewed finaldesigned5f601e/
+planc67f0fa1. Actual native indexmapselector/offset/length/SHA plus metadata_valid
+and exactkey selected; tracedcallback abortsownedWriter synchronously before
+tracebarriers/restoration, while its ETS ownerPID is alive. Both reviewers
+fullread finaldocs/native source and CLOSEDPASS/nofindings; factualstatus-only
+updates do not change interfaces. Rootrecord
+`.devenv/phase5-sealed-iteration-design-final-reviews.md`. TEST-ONLY owningWriter/
+Spool regression authoring GO afterallparentgatesclosed; causalRED/productionGO
+pending. Fixed quotas/deadlines/native frame schema and all50 Writer assertions
+preserved. All source authors mustclose before parent formatter/Mix/SQL/services.
+Solimplementation repair rounds0/Astra0 for current new defects; prior unrelated
+repairs remain historical. No phase/localcommit/publication qualification.
+E2E NOT RUN/manual-only; frozenVault/custody/lease/key/policy/production preserved.
+
+## Task14 completion-P2 and scaling causal RED; TaskD initial pure GREEN
+
+Both test-only authors closed; parent fullread all additions and formatted five
+owning files, closed7fd50bexit0. Test-only inverses before formatting reproduce
+the complete old25ExportRead cases and old31Spool/50Writer files; no old assertion
+changed. Formatted pure3a249336/SpoolTestc0cafb37/WriterTestbe8a650e.
+Whole Task14pure3 RED0ca7b0exit2:77reported/54actual/16newFAIL/23SQLexcluded,
+4.9s. Each new case reaches exactly the expected completion-error assertion;
+current source returns falseOK after native capture expiry/abort inside its last
+synthetic canonical guard. All38 retained actual cases PASS. Native lifetime,
+positive-read/invalidation, scope closure/no-leases/ownedcleanup witnesses are
+asserted; this is not live SQL eligibility evidence. Full archive
+`.devenv/phase5-task14-completion-initial-red-pure.log` SHA9caabb3b4b546a8c2ea28e5c3e023442250d79a6242f788fe29e747e461ee103.
+
+Whole scalingpure5 RED4696b3exit2:Core66/0, Storage103/21FAIL, Runtime11actual/
+0 with17SQLexcluded;180actual total,159PASS. All20Spool cases reach missing
+concrete exports. Writer's native tracer/barriers/restoration and synchronous
+staging cleanup succeed; expectedpage_calls0 fails with2080actual. All old
+Spool/Writer and new near-limit denial PASS, no constructor/trace failure.
+Full native archive `.devenv/phase5-sealed-iteration-initial-red-pure.log`
+SHAf98aae73c76071b66ad31c50e1f1ce6bc1088108b1a6c326275b3e9af35aefd6.
+New source9receipt7d6b4361 matched82231e; originalfrozen56matched4019b5 and
+diffcheck970851exit0. ProductionExportReadf4987b44/Spoolb643cd80/Writer4681a19e
+unchanged. CausalREDs do not consume failed production repair rounds; Sol0/Astra0.
+Both production repairs and GREEN/reviews remain pending.
+
+TaskD initial bounded production now formatted unchanged b23f8409/bb5be2cf.
+Whole pure3 GREENf6b115exit0:Storage8actual/0 with22SQLexcluded, Runtime31actual/
+0;39actual total,34.0s. All19 earlier projection failures now pass. Full archive
+`.devenv/phase5-task9d-initial-source-green-pure.log` SHAb433c38c482fa4727100992f5512b4e08aabcd858d66f17ac6f8a2bf56754388.
+Whole RestoreRewrap SQL currently running; not yet a passing claim. Required
+independent SOURCE SPEC and distinct freshQUALITY remain pending. No Document
+source-pin/livelease/TaskF/G/Phase5 acceptance or localcommit. E2E NOT RUN.
+
+## Task14 completion repair1, Task15 point-read repair1 and TaskD xref repair1
+
+The final Task14 guard now precedes its final native Spool capture read; genuine
+expiry/abort during the guard cannot produce descriptor/reducer success. First
+repair run166afa had54actual/0assertionfail but closedexit1 on56 generated-test
+warnings: FAIL, archived .devenv/phase5-task14-completion-repair1-pure-warnings-fail.log
+SHA58a3aba6e5ffe8b476873269f51c66d987e1315ce485bd0497c37c18cba7e1a5.
+Separate TEST-ONLY private-helper extraction preserves all41 pure cases and
+every assertion/branch/cleanup while removing compile-time literal warnings.
+No flag suppression, skipped assertion or native behavior change. Final whole
+pure3 closes152ccfexit0:54actual/0fail/23SQLexcluded, zero warnings; archive
+.devenv/phase5-task14-warning-repair1-pure.log SHA27bc3fb46fd06954189f01f7ffc8fecc2719e27673cf63bd4a40e046469857bd.
+Final whole live3 closesd00380exit0:102reported/89actual/0fail/13pureexcluded,
+115.7s, all66new+23old actual SQL contracts. Archive
+.devenv/phase5-task14-completion-repair1-sql.log SHAdc61cbb1184816606e49c5ebe764e391ce53251a2920e16d6e846f195dd16d56.
+Expected23503 rejection/COMMIT log remains native asserted evidence, not ignored.
+Actual root eeb8f14f absentd4caa2, normal maintenance40c2bf exit0 EMPTY. Current
+ExportRead9e7e20f2/Testc9d5064d; final actual NONAUTHOR SOURCE SPEC now active,
+distinct freshQUALITY/localcommit remain pending.
+
+Task15 point-read/traversal repair1 wholepure5 53d354exit0:
+Core66/0+Storage103/0+Runtime11actual/0,17SQLexcluded;180actual/0fail.
+Archive .devenv/phase5-sealed-iteration-repair1-pure.log SHA1eb75933bdcf3587849649169d40c4f8d0c2ee1dce74b2327f5e00e59db452ad.
+RetainedRepository/Snapshot SQL b04230exit0:48actual/0fail,11pureexcluded,
+archive34f0c5dfeeff00545a013440cc28b0add28d2557c80d2450f68b6ba80e0e3f27.
+RetainedTask13pure ad4cf3exit0:134actual/0fail,17SQLexcluded, archive4c11c81f.
+Current2d6dfb4e/b119b752 retains allold31Spool/50Writer assertions; parent
+marker-only inverses5bd39d/7b7565 recover whole old1fbe2ed1/a1d596e8.
+Actual NONAUTHOR SOURCE SPEC closedPASS, receipt9254daf1. Distinct freshQUALITY
+CLOSED TWO P2: full fragment/source identity scans at609/679/808 and repeated
+growing ETS ledger copies at1265. Parent inspected exactnative paths, agrees;
+newfixture only open/metadataappend omits full materialization. All recorded
+GREEN remains true scoped evidence, NOT fullTask15 acceptance. Root detailed
+actualreview record .devenv/phase5-sealed-iteration-repair1-quality-findings.md.
+Necessary reviewed amendment+nativefullpathRED+boundedSolrepair2+freshreviews
+pending. Cumulative fullTask15 scalability round1 NOT ACCEPTED; if the second
+bounded scalability repair still fails, escalate Astra. Distinguish new findings
+from already-repaired paging and architecture-only specialist work. No measured
+million-row latency/deadline claim or weakened assertion.
+
+TaskD initial wholeSQL8d71f0exit0:18actual/0fail/3pureexcluded,194.5s;
+archivee50f374948b5335898d93cdf73b1395f0ac09712d212747f4126d512a1374ac2.
+Initial static926e72exit1 found Restorer/adapter struct-expansion xref cycle.
+Typed-tag-only bounded C repair1 changes %Restorer.Imported{} to exact
+%{__struct__: Restorer.Imported}; inverse689eae recovers entire1f360f65.
+Current C1d5f6216 retains same native struct tag and data/SQL/error semantics.
+Complete static5e0b09exit0 now verifies format/WAE and ZERO cycles;
+archive664991541251f6f5507778153ba03bd3dafb055f4c930f68fbbdac73ded53a23.
+Whole C/Dpure/SQL reruns on typedsource and actual independent Dreviews pending.
+
+Current source16receipt49531b6f matched890650; originalfrozen56registry
+ d0296d241c66e382baa09a0a092fe8add6df66364d5f2d5644f4f4ea1963a050
+matched e7b3d8 and is not regenerated. Astra architecture only prepares Task16
+newdesign/plan, parent runtime gates remain closed while that author is active.
+No Task14/15/9D/Phase5 acceptance, new localcommit, merge/push/release/activation/
+backfill or frozenVault/custody/lease changes. E2E NOT RUN/manual-only.
+Other unblocked release work continues.
+
+
+## Task14 local handoff; exact typed C/D gates; full materialization repair2 RED
+
+Task14 final actual NONAUTHOR SOURCE SPEC and distinct fresh QUALITY both
+CLOSED PASS/noP1P2; fullread native composition/complete owning tests and old
+Document assertion-prefix proof retained. Actual review receipt18739b26.
+Supplemental SQL completion receipt a7ca234d records actual d00380exit0, not
+inference from a plain log. Fresh precommit pure3e82f6dexit0:54actual/0fail/
+23SQLexcluded, archive29458a23; fresh staticd093b3exit0 format/WAE/zeroCycles,
+archive3fb85a25. Exact source16matched9bf163/frozen56c57de6/diff9b29db and
+six explicit staged paths verified46bc0c/afdab1/f495bd. Local commitca3f12
+closed0 at444e4604f1131746d0350393e8d3e8d05b6a9db7, message
+feat(export): read captured sources with existing request custody. Other dirty/
+untracked source/docs preserved and unstaged; no publication/Phase5 acceptance.
+
+Typed C source1d5f6216 wholepure874f09exit0:9actual/0fail/13SQLexcluded,
+archivef366a915; wholeSQL50a72eexit0:13actual/0fail/9pureexcluded,149.7s,
+archive9fde11f6. Normal actualroot5cdbf16b absent82e976; maintenance1730cb
+exit0 EMPTY, complete archive3f700fc0. Exacttyped D wholepure8189b3exit0:
+39actual/0fail/22SQLexcluded, archive1e5ef566; wholeSQL247558exit0:
+18actual/0fail/3pureexcluded,120.9s, archiveceadc19e. Actualroot224584b4
+absent4a12ef; normalmaintenance3268e3exit0EMPTY, archive86a5dccb. Fresh
+static01d1a4exit0 format/WAE/zeroCycles, archivee7a13d89. Current source16
+receipt1119efdb matched8ee021; ORIGINALfrozen56d0296d24 matched35be64, never
+regenerated. D actual NONAUTHOR SOURCE SPEC/freshQUALITY still pending;
+no TaskE/source-pin/Task11 reallease/compatibility combinedhandoff qualification.
+
+Task15 full-materialization amendment actualdesign SOURCE SPEC then distinct
+freshQUALITY CLOSEDPASS at reviewed interfaces711deca5/4131e4b4, complete
+review receipt34824d2b. Test-only author CLOSED one unique block/fivecases;
+formattedWriterTest51d972c1; stripping onlynewblock recovers wholeprevious
+be8a650e (5bef3a), all52oldcases/helpers unchanged. Parentfullread/formatca6aae
+closed0. Complete wholepure5 causalRED05eacaexit2:Core66/0,Storage108/3FAIL,
+Runtime11actual/0 with17SQLexcluded;185actual total/182PASS. Allnative fixture,
+full file/manifest byte/hash/equality, trace barriers/restoration and owned
+synchronousabort assertions succeed before three exact required failures:
+131globalfragmentcounts,1266wholeledgercopies, and omitted auxiliary-index
+budget denial. Ambiguous historical/fileless citation and witnessed nested
+Documentinode/sentinel counterexamples PASS. Fullcomplete archive
+.devenv/phase5-full-materialization-repair2-initial-red-pure.log
+SHA3f17139c0936930f3cc2106578ad4299f5cfa67ef7d40e44f69e641c0ad06d31.
+No literal warnings/suppression/line filters/testtimeouts changed. CausalRED
+consumes no failedproductionround; cumulativeSolscalabilityround1 unaccepted,
+boundedround2 now GO after parent C/D/native/static gates closed. Ifsameoutcome
+stillFAILafterround2, escalateAstraRECOVERY≥3boundedattemptsifneeded; Task16
+Astraarchitecture consumedzero recovery attempts. No measuredmillion-rowclaim.
+
+Task16 actual nonauthor initialDESIGN_SPEC closed P2companiondeath losing sole
+nativeleaseidentifier/map, in addition to alreadydocumented defaultcalltimeout/
+lateissuance gap. Parentdoc-onlydisposition retains BOTHstrictguarantees
+BLOCKED_DESIGN/unsatisfied/unwaived; native manifestationsNOTRUN. Nonauthor
+amendmentreview CLOSEDPASSWITHUNSATISFIEDBOUNDARIES on design82a35ebd/
+plan7d28f42c, source/8addition/contextports unchanged. Distinct freshQUALITY
+CLOSEDoneadditionalP2: startupscavengeabsencecheck doesnotcoverlater native
+Supervisor.start_link, enabling overlappedstartup to remove liveownedartifact.
+Source-supportedinterleaving, NOTRUNnativeproof. Startupdesignrepair/review and
+existingpublicalternative/nativeboundarycharacterizationstillrequired; no
+Task16sourceGO/acceptance. Parentmustnotwaive strictchecks/change frozenleases
+or whole-sessionrevoke. Independentvalid Task9/15work continues.
+
+No Vault feature/frozenfile/productiondata/activation/backfill work; E2E NOTRUN,
+manual-only/deferred. No merge/push/version/tag/release/deploy. Phase5unqualified.
+
+
+## Exact C/D review closure and full Writer repair2 scoped GREEN
+
+Exact C/D actual NONAUTHOR SOURCE SPEC and distinct fresh SOURCE QUALITY both
+CLOSEDPASS/noP1P2; direct whole source/tests/governing/native import/material/
+lease/reader/crypto traces and exact6hashes/oldtestprefix/typedinverse/frozen56
+verified. Parent capture receipt .devenv/phase5-task9d-current-source-reviews.md
+SHA7f402bb18f60ae0a1ab5f0bf6f87df96284a470be20bd333ae5c4f3aef6ad46d.
+Only bounded C/D qualifies; combined compatibility/F/localcommit and E/Task11
+real normal-publication/lease restoration remain pending. No new test execution
+is inferred from a read-only review.
+
+Task15 repair2 ONLY Writer source author closed; parent full1640line read and
+onlysourceformat0b444f/exit0. Writer841f3e6b/Test51d972c1; exact16receipt
+3c6b7ee107d5c877501738b7fa0df5d3b71645785f5e34792b888f07847f1537 matches
+70630d/faae0b, original56frozen allmatch, not regenerated. Whole samepure5
+4a39eb/exit0:185actual/0fail/17SQLexcluded, complete logfd47fc89. Retained
+Repository/Snapshot SQL731f65/exit0:48actual/0fail/11pureexcluded, log63219b0c;
+actualrootc14f809a absentb042df, maintenanceb6a231/exit0EMPTY, log0e1665c4,
+no manualcleanup. Retained Task13pure24a037/exit0:134actual/0fail/17SQLexcluded,
+log764c576c. Complete statica4ff05/exit0 format/WAE/zeroCycles, log6fd24830.
+Actual NONAUTHOR SOURCE SPEC CLOSEDPASS/noP1P2, whole source/owningtests/native
+causalRED+GREEN read, receiptff9a8735c8bbd139c152ce16da8f409af48c218c00f7454fd1d36041dd9f90b6.
+Distinct fresh SOURCE QUALITY pending: actual collaboration spawn/followup
+returned 'agent thread limit reached', including after completed SPEC interrupt.
+This is a tool-capacity problem, not a production failure/repair count or waived
+review; no acceptance/localcommit is claimed. Independent valid work continues.
+
+Read-only Astra PROJECT_ARCHITECTURE chose Task9E unfrozen KnowledgeIntegrityAudit
+facade, V3-only Document callback with ORIGINAL I, and exact existing format1
+ciphertext-size law to bind immutable Document size independently of later
+mutable Object size. No new frozen summary/lease/crypto fields. Architecture
+runtime qualification NOT RUN. Four governing compatibility/master documents
+are being amended, with a single named fragment immutability-guard exception
+solely in a disposable imported test DB to construct a genuinely causal ready-
+history digest mismatch. Trigger definitions/enabled states/RLS must restore,
+all other guards remain enabled, native COMMIT must succeed, ordinary forbidden
+updates must again deny, and helper runs a fresh transaction. No tests/source
+GO until actual independent design reviews close; no migration/prod bypass.
+
+Cumulative Task15 scalabilityround1 unaccepted/currentrepair2gatesPASS;
+Astra recovery0 (architecture only). Task16 strict frozen boundaries/startupP2
+remain unsatisfied, no sourceGO. Phase5 unqualified. E2E NOT RUN/manual-only/
+deferred; no Vault feature work, activation/backfill/production data, merge/
+push/version/tag/release/deploy.
+
+## Actual Writer QUALITY closure/local commit and Task9E design/baseline closure
+
+The preceding pending-review/capacity statements are historical, not current.
+Distinct fresh NONAUTHOR Task15 SOURCE QUALITY by
+`phase5_exact_writer_and_document_fresh_quality` explicitly CLOSEDPASS/noP1P2
+after whole Writer/Test/Spool/Test, governing repair docs/format and native
+Core paths; independently verified old52-case inverse, source16/frozen56,
+all six complete archives and normal cleanup records. Parent captured the
+actual scoped verdict, not a self-review, in
+`.devenv/phase5-full-materialization-repair2-source-quality-review.md`, SHA
+e4965116283647b766a6efae696e9b66bada5e065025125a00ce44dd303a010c.
+The same agent's later selected-model capacity failure concerned a separate
+unfinished E design review; it did not undo or supply the actual Writer verdict.
+That E review subsequently resumed and closed separately. No availability
+failure is counted as a production repair or accepted in place of review.
+
+Parent rechecked all exact16 source/original56 frozen hashes, complete required
+gate/review records and clean staged diff. Actual repository hook discovery
+found only sample hooks and no configured active hook. Local commit
+`4e2499d5b89664c3e7b63cb1f3136c243b276c83` contains exactly seven paths:
+Spool/Writer, their two complete tests, portable-knowledge-v1.md and the two
+sealed-record-iteration repair documents. Native commit652883/exit0 and
+postcommit exact SHA/file/status checks verified it; staged index is empty.
+All other dirty compatibility/fixture/docs files were preserved, not staged.
+Task15 is a qualified bounded local component, not Task16/wholePhase5, native
+custody/browser/release acceptance or a measured million-record latency result.
+Earlier scalabilityround1 remains unaccepted; repair2 gates/reviewsPASS,
+AstraRECOVERY0. No push or publication.
+
+Task9E actual NONAUTHOR DESIGN SPEC then distinct fresh NONAUTHOR DESIGN QUALITY
+both CLOSEDPASS/noP1P2 after complete compatibility docs, all amended master
+sections and native Runtime/C/Base/Reader/Format/lease/fixture/trigger/FK reads.
+Exact reviewed four-file hashes c161d673/bf434b49/78848c2e/13ba6ee2 stayed
+unchanged through reviews. Captures are
+`.devenv/phase5-task9e-amendment-design-spec-review.md` SHA
+eeb8d49e60424f6b5e8fd858aaf48d899cc4b58ba3bf2d1cf1d6704e3145ce88 and
+`.devenv/phase5-task9e-amendment-design-quality-review.md` SHA
+a09e70145bb835832e8ec4717a184745f16f36a282ff69ff33b67e17313eca3a.
+Subsequent governing-document changes synchronize only factual status/checklists;
+the reviewed facade, original-I/two-key callback, monotonic size proof, immutable
+historical pins and single disposable canonical-fragment fault exception remain.
+
+Before test GO, existing complete Runtime/Base integrity, rewrap and C baseline
+pure gate8f6cf4/exit0 passed48actual/0fail/35SQLexcluded; SQLgatee93ee8/exit0
+passed35actual/0fail/17pureexcluded,221.7s. Complete archives
+`.devenv/phase5-task9e-preimplementation-pure.log` SHA
+fa5cdba5f5c69cd0a5f01c2489f6942fda2e5d3e51b113f7cea699dcd2fc7985 and
+`phase5-task9e-preimplementation-sql.log` SHA
+d18213d2b4bd2b1e271c8bb1f89dd91919407456e6e5b8b0f932eedb795bfe18.
+Actualroot1774f972 absent41616a; normalmaintenance831c81/exit0EMPTY, archive
+ebdebfa9ba957672cb39e7bbbcf62b05e22fb93ae5d54efd30efd2022dee09e0,
+no manualcleanup. Protected native5/source16/original frozen56 allmatched,
+registry51df30a1/3c6b7ee1/d0296d24. These are unchanged baseline evidence,
+NOT E helper/native mismatch qualification.
+
+At exact localHEAD4e2499d parent issued two disjoint TEST-ONLY assignments:
+new Storage document_restore_integrity_test.exs and complete Runtime
+integrity_audit_test.exs. Storage author CLOSED685lines/hash12a3ae5d with
+8pure+10SQL authored cases; Runtime author resumed after a model-capacity
+error, then CLOSED1007lines/hashb9e9b349 with32additional cases. Its old11332-
+byte legacy prefix51382c89 remains exact and the recorded inverse recovers the
+entire previous667-line811774b4 test, retaining all old assertions/helpers.
+No author formatter/Mix/tests/SQL/probes/services/Git/source edits. New tests
+and native witnesses remain NOT RUN until parent complete execution; production
+GO waits for causal RED. Erepair0/AstraRECOVERY0; E2E NOT RUN/manual-only/
+deferred. No Vault feature work, frozen-source change, production-data work,
+activation, backfill, merge/push/version/tag/release/deploy or phase acceptance.
+
+## Task9E initial RED, masked SQL failure and bounded snapshot fixture correction
+
+Test-only parent formatterfa931e closed0; archive44870841. The first whole pure
+gate6ca695 closed1 at the new local binding/1 conflict with imported Kernel:
+archive9bee787a7e03fea1f9456d0aa82b910c83783dfd4b2d3f08563ffe72e29a647d.
+It has no complete totals and is not causal E RED. Exact FOUR local-name changes
+recover ec424f86 by inverse; corrected DocTestb85734a0 and versioned source17
+receipt58c76f55 preserve original frozen56/protectednative5 and all old source.
+
+Compiled expanded whole pure5d695d2 closed2:88actual/27fail/45SQLexcluded.
+Storage25actual/3fail reaches only missing internal format1 size seam; its four
+real encrypted empty/chunk-edge reader cases pass. Runtime63actual/24fail reaches
+missing V3 callback/order/unknown-version/extra-key/error-result validation;
+other39Runtime cases pass. Complete archive
+`.devenv/phase5-task9e-compiled-initial-red-pure.log` SHA
+53ec0a2e45fbba574eecd1d948683d333429980df5d6ebf6bf45a5bb8e75327b.
+Parent read all27 complete failure sections. This qualifies initial wiring RED,
+not native source mismatch or complete E behavior.
+
+Whole expanded SQL17497 closed2be764/exit2:70reported/25pureexcluded=45actual,
+10fail/35retainedPASS,433.6s. ALL10new failures are the test helper's repeated
+discard after genuine import: actual native close_snapshot returns einval and
+masks primary outcomes. Complete output archive
+`.devenv/phase5-task9e-initial-sql-snapshot-cleanup-failure.log` SHA
+60f526299acc41ad3f4d87e8d012a97b10373544b8d95e380e8229530cd2e148.
+This is FAILED fixture evidence, NOT causal E SQL qualification. Actual owned
+root2c53e0b41aa3a5a1c5ee1478 absent8b51bb/exit0; normal PG maintenance24169d
+closed0 EMPTY with no manual cleanup, archive
+`.devenv/phase5-task9e-initial-sql-normal-maintenance.log` SHA
+ea9b9ff7f553d8f0786b2fc23d72fa1fb9174d41ff7eaae95b3a10c58be4c346.
+
+Parent/independent read-only diagnosis traced the public native close through
+LocalDestination→BundleReader.reduce_verified→Preflight→Restorer, then the new
+test finalizer. Bounded TEST-ONLY author CLOSED3ownedfiles: DocTest92bc137a,
+CompatDesign33ef73c3 and CompatPlan6b170de7. The observer wraps only the returned
+native close callback, delegates unchanged and counts actual successful closes
+and foreign-owner success. Require0/0 before import and1/0 after import/finally;
+unconditional fallback discards only unconsumed input and requires native:ok.
+einval never becomes success, no Replay/device inspection/fake IO, no frozen
+behavior change. Parent FULLread all1190testlines and both473/476-line docs;
+exact inversecdea61/exit0 recoversb85734a0, preserving every other byte. Earlier
+parent inverse-script ordering error remains diagnostic, not a proof. Original
+56frozen+5protected native all61OK8b3533/exit0, not regenerated. Full parent byte
+proof archive SHAccc58f6b4d358c28f3af6246dca7033b2550d40da7ac2e9c6f1f0c03a9b42d89.
+Actual NONAUTHOR fixture SOURCE SPEC CLOSEDPASS/noP1P2; distinct fresh QUALITY
+and complete pure/SQL reruns remain pending. Compile correction separate;
+snapshot-fixture attempt1; Eproductionrepair0/AstraRECOVERY0. No EsourceGO yet.
+
+## Task16 startup review FAIL and separate Task8 attribution design repair
+
+Actual NONAUTHOR DESIGN SPEC of startup-docsb162cd51/1a93e20f CLOSEDFAIL oneP2:
+the full unchanged historical pipeline lacks accepted Task8 WorkerRepo alias and
+repository-aware object_storage inversion. Startup replacement itself recovers
+current rawApp3ce2dad6 and has a sound designed guarded native-start window, but
+the first Phase3 alias context has zero matches. These are accepted21d0660
+production changes, not startup drift. No test execution was inferred.
+
+Bounded Astra PROJECT_ARCHITECTURE DOC-only repair1 CLOSED TWOownedTask16docs:
+design496dffbf/537lines and plan5dffa0cd/1409lines. Parent FULLread both. Step7a
+is separately qualified test-only exact Task8 attribution; it adds two literal
+inverses and explicit stages for every old mutation group while preserving old
+tuples/digests/assertions. Step7b composes future Task16 inversion/stripping then
+Task8 before unchanged Phase4/3/2 normalization. Author's read-only byte
+calculations recover all5 original baseline digests and reject11 Task8 negative
+variants; these are NOT ExUnit/native startup acceptance. New actual independent
+SPEC and fresh QUALITY remain pending. Accepted Task8 source unchanged.
+Both strict late-unreturned-issuance and companion-hard-kill lease guarantees
+remain UNSATISFIED/UNWAIVED/BLOCKED_DESIGN; no Task16 source/testGO or Task17.
+Task8 attribution designrepair1 / productionrepair0 / AstraRECOVERY0, no reset.
+Independent valid Task9 work continues; E2E NOT RUN/manual-only/deferred.
+No Vault feature, production data/activation/backfill or publication occurred.
+
+## Task9E corrected fixture reviews, complete RED closure and bounded source GO
+
+The preceding fixture QUALITY/rerun/source-GO pending statements are historical.
+Actual NONAUTHOR fixture SOURCE SPEC and distinct fresh SOURCE QUALITY both
+CLOSEDPASS/noP1P2 on exact DocTest92bc137a/CompatDesign33ef73c3/CompatPlan6b170de7.
+Captures9d10001d/3d9cbb12 preserve the received verdicts. Independent AWK inverse
+28eed8/exit0 and parent inversecdea61 both recoverb85734a0; every other test byte
+is unchanged. Parent formatter55197 CLOSED042a32/exit0 leaves DocTest92bc137a
+unchanged. Full format logdaea3a3d; corrected versioned source17 receiptd4c437d1
+changes only the new test entry, preserves old receipt58c76f55 and never
+regenerates frozen56/protectednative5.
+
+Same complete expanded pure5 CLOSED6816f6/exit2:88actual/27fail/45SQLexcluded.
+Storage25actual/3fail remains missing size-law export; four real encrypted
+empty/chunk-edge reader cases and other22Storage pure cases PASS. Runtime63actual/
+24fail remains V3 callback/order, explicit unknown version, extra hash key and
+helper error/result validation; other39Runtime cases PASS. Parent read the FULL
+36220-character output and all27 complete failure sections. Complete repeat log
+`.devenv/phase5-task9e-snapshot-fixture-corrected-red-pure.log` SHA
+3d85629cfe75a0139f3e65bc50cd5d93060af4c5b1e58219ff0d948b40920075.
+
+Same whole SQL73323 CLOSED8efbf1/exit2:70reported/25pureexcluded=45actual,
+10fail/35retainedPASS,297.4s. Parent read every FULL failure section: all10new
+tests now reach missing verify_document_sources/4 AFTER genuine authentication,
+native import/commit and actual reader preconditions. The stronger size case
+also reaches that entry after the real native restore-integrity lease reads.
+There is no repeated-close/masking failure. This is qualified wiring RED only,
+NOT yet substantive mismatch or the historical-fragment corruption witness:
+that test stops at its required positive helper baseline until implementation.
+Complete SQL log
+`.devenv/phase5-task9e-snapshot-fixture-corrected-red-sql.log` SHA
+1070cbfe546ad7e47d7fa161a181c7d4b8cfc4992679a184ee72165afb1397b9.
+Owned root7af5e597a9759093f17603d0 absent9f7a39/exit0; normal maintenance
+d9ba69/exit0EMPTY except the unchanged devenv version warning. Complete cleanup
+log46101eca6cfdfb6fd03feb534d29b00416508a5ca2897925751fd6064573e661.
+No manual cleanup, native timeout change or relaxed assertion.
+
+Immediately before source GO, f3afe8/exit0 rechecks ALL17 corrected source,
+ALL5 protected native and ALL56 original frozen entries; allmatch. Parent issues
+bounded E implementation GO only for the existing C owner, the new unfrozen
+KnowledgeIntegrityAudit facade and Runtime IntegrityAudit. Original I, exact
+two-key binding, genuine fresh transaction, immutable size/pins and all-ready
+incremental fragments remain mandatory. No tests are weakened or rewritten.
+Full GREEN owners, static zero-cycle gate, actual independent SOURCE SPEC and
+distinct fresh QUALITY remain required before E/F local acceptance. Initial TDD
+RED is not an implementation repair round; snapshot-fixture attempt1 remains
+separate, Eproductionrepair0/AstraRECOVERY0. Task11 normal publication, unified
+rebuild, whole Phase5 and release acceptance remain unqualified. E2E NOT RUN.
+
+## Task9E initial implementation and native constraint-timing fixture failure
+
+The bounded E source authors are CLOSED. Existing C source gains the fresh
+owner-only original-I/hash closure, immutable source/pin/size law and streamed
+all-ready-fragment checks; the new unfrozen facade delegates `/4` to C and keeps
+`/2` on unchanged Base. Runtime invokes the V3 callback with the original I,
+exact two-key binding and validated native hashes before rebuild. Unknown
+versions and malformed V3 hash maps fail closed. No frozen/native implementation
+or old C API changed. Parent byte inverse dabbe7/exit0 recovers exact old C
+1d5f6216 and Runtime bb5be2cf; read-only receipt f3904a/exit0 verifies all18
+initial source, all5 protected native and all56 original frozen entries.
+
+Parent source-only formatter27855 CLOSED648061/exit0; full log
+`.devenv/phase5-task9e-initial-source-parent-format.log` SHA
+e49bf81792af10bdbf5e249ba453bc31e3b6f0cb510dac656be23b432d822d9a.
+Versioned source18 receipt287d9859 retains old manifests unchanged. Complete
+expanded pure5 gate35009 CLOSED20f81b/exit0: Storage25actual and Runtime63actual,
+88actual/0fail/45SQLexcluded. Full output
+`.devenv/phase5-task9e-initial-implementation-pure.log` SHA
+53b111a44770d03af8e2c4f91a3d8b3b13338473979326bbe254037726289136.
+This is complete pure evidence, not SQL or phase acceptance.
+
+Same whole SQL4 gate75326 CLOSEDdd7b31/exit2:70reported/25pureexcluded=
+45actual/44PASS/1FAIL,453.5s. All35 retained and9 new cases pass, including the
+three storage-reference forms, historical states, immutable size proof against
+real native lease reads, original-I/hash closure and digest denial. The sole
+failure is the native old-ready/nonhead fragment fault witness: PostgreSQL55006
+rejects restoring its one disabled immutable guard while initially-deferred
+constraint-trigger events are pending. Genuine import, positive helper baseline,
+normal immutable denial, injected rollback and restoration were reached; required
+corruption COMMIT and fresh historical-aggregate denial were NOT REACHED.
+Full log `.devenv/phase5-task9e-initial-implementation-sql-pending-trigger-failure.log`
+SHA a4291e1c3f734dae9151533ff2e566f1e8613e5c5a02026a9a478b30f1c77753.
+Actual owned root1d9480339f3a511644146dcf absent75307f/exit0; normal maintenance
+f888ea/exit0EMPTY, no manual cleanup. Cleanup log
+`.devenv/phase5-task9e-initial-implementation-sql-normal-maintenance.log` SHA
+edb02d0cf8a554ccc9db2b256733bb12b6b2c9fa609e905e93e58d44eae89aaa.
+
+Actual nonauthor whole SOURCE SPEC CLOSEDFAIL1P2 at that native witness and
+found no additional confirmed E production P1/P2. Its original received verdict
+is preserved, not relabeled by a correction: capture
+`.devenv/phase5-task9e-initial-implementation-source-spec-fail-review.md` SHA
+6e3ed834635e5dcf16daf0d974dafe9f9a4a6480d3efdcb1f6b380cf288476bc.
+Fresh whole SOURCE QUALITY and E/F acceptance remain pending.
+
+Parent verified the existing native document_lifecycle_test.exs precedent and
+released deferred completion guards before authoring exactly FOUR test lines:
+execute every active constraint immediately in the same disposable transaction
+before single-guard disable/update/restore. This changes transaction timing, not
+constraint definitions or enforcement; no extra guard, FK, RLS, policy, ACL,
+replication setting, canonical source or migration is changed. Every existing
+rollback, restoration, COMMIT, helper-denial and unpublished-state assertion
+remains. Compatibility design/plan clarify this timing and preserve failed
+history. Exact inverse7a2ce0/exit0 recovers full previous DocTest92bc137a and
+all18 previous source entries. Full command/output/diagnostic archive
+`.devenv/phase5-task9e-constraint-timing-fixture-inverse.log` SHA
+593c2a1823d62534c53dc8d66ed3bce3824f2aa3d7b671bddd251dc509cbd911.
+An outer display-only ReferenceError occurred after that native command completed
+and was stored; later retrieval verifies exit0, no native rerun or gate repair.
+
+Current DocTest01334f2e/CompatDesign4fc87718/CompatPlan51271bae correction has
+actual independent SPEC in progress; distinct fresh QUALITY, parent formatter,
+whole pure5/SQL4 reruns and the genuine committed corruption/helper-denial witness
+are NOT RUN. Native constraint-timing fixture repair1 is verification pending;
+earlier compile and snapshot-fixture corrections remain recorded. No counters
+are erased. Eproductionrepair0/AstraRECOVERY0. No E, F, Task11, Phase5 or release
+acceptance; E2E NOT RUN/manual-only/deferred. No Vault feature work, frozen-source
+change, production data/activation/backfill or merge/push/version/tag/release/deploy.
+
+## Task16 Task8 attribution design reviews, separate prerequisite still pending
+
+Actual nonauthor DESIGN SPEC and distinct fresh DESIGN QUALITY both CLOSEDPASS
+with no new P1/P2 on ownership design496dffbf and plan5dffa0cd. Received captures
+`.devenv/phase5-task16-task8-attribution-design-spec-review.md` SHA
+3d1b4e41622b0e5bad64f6cbb72c7fc8a0ae45dbf07395d98a55d857026cbb14 and
+`.devenv/phase5-task16-task8-attribution-design-fresh-quality-review.md` SHA
+95641cfbae013c8eb46b4c6897f0cccffaf961b7cb65a9a03ff5beba128a18f5.
+Their static historical inverses are not native tests. Separate Step7a requires
+parent whole architecture/Application baseline, causal mutation RED, strict
+Task8 attribution-only test implementation, complete owning tests, actual SPEC
+and distinct fresh QUALITY before its own acceptance. Those gates remain
+NOT RUN; accepted Task8 Application source is unchanged. Both strict native
+lease promises remain UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, so no Task16 source/test
+GO or Task17 follows these design verdicts. Task8 attribution designrepair1,
+productionrepair0/AstraRECOVERY0; independent valid Task9 work continues.
+
+## Task9E native timing correction: complete owning checks GREEN
+
+Actual correction SPEC and distinct fresh QUALITY both CLOSEDPASS/noP1P2 on
+Test01334f2e/Design4fc87718/Plan51271bae. Received captures
+`.devenv/phase5-task9e-constraint-timing-fixture-spec-review.md` SHA
+9e108f5aacc70635d2c92471de4cfc39ec7c4b0a4bb1ef50ff9e32a00609db2f and
+`.devenv/phase5-task9e-constraint-timing-fixture-fresh-quality-review.md` SHA
+1df024d38d35da488fd43d26b5d78662c4e06db7ec12e232fa20cbc4cb11bbb2.
+Both independently recover exact old full test92bc137a and docs33ef73c3/6b170de7;
+all18 prior source, protected5 and original frozen56 are preserved. These source
+verdicts do not relabel the earlier SQL/SPEC FAIL.
+
+Parent new-test-only formatter93264 CLOSED020b56/exit0 keeps test01334f2e exact;
+log2a697b43. New versioned source18 receipt5bb70e20 changes only the test entry
+from initial receipt287d9859, retaining every old manifest. Parentd6e342 and
+67fa38/exit0 verify all79 entries before whole reruns/SQL; no protected/frozen
+manifest regeneration.
+
+Same whole pure5 gate41417 CLOSEDcb6510/exit0: Storage25actual/0fail,
+Runtime63actual/0fail;88actual/0fail/45SQLexcluded. Full log
+`.devenv/phase5-task9e-constraint-timing-corrected-pure.log` SHA
+3040bf2e3b1b98e83824d5c8d9a81abd15e4dd89a7ca3d4729c8ea650a26f0bd.
+Same whole SQL4 gate56827 CLOSED0bc7d9/exit0:70reported/25pureexcluded=
+45actual/0fail;35retained+10newPASS,436.6s. Full log
+`.devenv/phase5-task9e-constraint-timing-corrected-sql.log` SHA
+070fc41685b592ef1355c994cb336ebaf53f1d5f00e9ea7d5fd91f81869f3bbc.
+The required genuine imported positive baseline, injected rollback, native
+corruption COMMIT, exact guard/function/RLS/policy/ACL restoration, ordinary
+forbidden UPDATE, independently observed old-ready aggregate mismatch and OWN
+fresh helper denial are reached and pass. Retained saga, zero completion and
+unpublished destination assertions remain. This is the substantive native witness,
+not a foreign-key/constraint/lifecycle failure or fake reader result.
+
+Actual root71b441243a29932ce9322aae absenta4ebf1/exit0; normal PG maintenance
+b18797/exit0EMPTY except unchanged version warning. No manual cleanup.
+Complete cleanup log
+`.devenv/phase5-task9e-constraint-timing-corrected-sql-normal-maintenance.log` SHA
+944e0613aaa8f596e8ad23eaaa88478f377371721b38cb61489625e8bd400d01.
+Static63526 CLOSED3b5767/exit0: formatcheck/WAEcompile/zero cycles PASS;
+full log `.devenv/phase5-task9e-constraint-timing-corrected-static.log` SHA
+b539647b9c41edf7656a4a57c84456f3bed6c329f6da4c45603acc69e3045165.
+Afterstaticada0df/exit0 rechecks all18source/protected5/frozen56, all79OK.
+
+Whole corrected E nonauthor SOURCE SPEC remains in progress, distinct fresh
+whole SOURCE QUALITY pending. TaskF retained/downstream/separate Task8 exporter
+checks and the Task8 architecture attribution prerequisite still pending. No
+E/F local handoff, Task10/11 qualification, Phase5 or release acceptance follows
+these E owning checks alone. Native timing-fixture repair1 succeeds; earlier
+compile/snapshot corrections remain preserved, Eproductionrepair0/AstraRECOVERY0.
+No Vault feature, frozen native change, production data/activation/backfill,
+merge/push/version/tag/release/deploy. E2E remains NOT RUN/manual-only/deferred.
+
+## Task8 attribution prerequisite: characterized baseline and fixed RED target
+
+Parent whole Architecture+Application baseline59497 CLOSED2ab230/exit2:
+Application11actual/0fail, Architecture23actual/3fail, total34actual/31PASS/3FAIL.
+All three old failures are the approved Phase3/worker/full historical contexts
+before missing accepted Task8 attribution. They are retained as baseline evidence,
+not a Task16 startup regression or desired new TDD RED. Full baseline
+`.devenv/phase5-task8-attribution-whole-baseline.log` SHA
+a6e355f963b6cb487241e4e978adff7467ee0c156a332e2763a6ab7fa384fc4e.
+Architecture83e5c014, accepted Application3ce2dad6 and ApplicationTest4f724f7c
+remain unchanged. Only the architecture test is authorized for Step7a.
+
+Read-only Sol investigation recommends a compiling identity scaffold for the
+NEW test-only inverse, direct fixed-positive digest and thirteen individually
+reported direct-inverse strict negatives. The new failures cannot pass through
+the pre-existing missing Phase3 context. All old tests/helpers stay exact during
+initial RED; GREEN replaces the scaffold entirely with the designed strict
+literal inverse and adapts all seven old source stages. No permissive
+already-normalized branch or original digest replacement is permitted.
+
+Parent independently verifies historical source, not whichever-current bytes:
+Task8 parent990657d71250b8eb633111aeb44d2f2ab32e47a3 and accepted Phase4
+42c01a5c99b1df3d1e4284d277c6ea48046875cb both contain Application SHA
+4deda19432de3174c2f737216c8185e3cdea8bb91d3960475308a27558bdfbca.
+Native commandsd612d3/4a8269/e58462 allCLOSED0; full fixed-target evidence
+`.devenv/phase5-task8-attribution-historical-target-git-receipts.log` SHA
+2e9b3bed09c28033280e5fa89fba11b450589e8fb2f2ce943a93d0db6fcb97e2.
+This intermediate positive does not replace original legacy digest4bed50e5 or
+any old helper, tuple, registration assertion or mutation witness. New RED,
+implementation, GREEN and actual independent source reviews remain NOT RUN.
+Task16 strict lease guarantees still UNSATISFIED/UNWAIVED/BLOCKED_DESIGN;
+attribution-only work grants no Task16/17 source GO. E2E NOT RUN.
+
+## Corrected whole Task9E: actual implementation reviews closed
+
+Direct NONAUTHOR whole SOURCE SPEC
+`/root/phase5_task16_atomic_startup_design_spec` and distinct fresh NONAUTHOR
+whole SOURCE QUALITY `/root/phase5_task9e_constraint_timing_fresh_quality`
+both CLOSED PASS, no P1/P2, on the exact corrected eight-file source.
+Each reviewed the complete source, native seams, full outputs and preserved
+byte contracts; all read-only commands closed. Captures:
+
+- `.devenv/phase5-task9e-corrected-implementation-source-spec-review.md`,
+  SHA-256 `d20a0c747507ced4c87953d5da7adaf74d2e7ad313d8d81fc5355d63a3cac884`.
+- `.devenv/phase5-task9e-corrected-implementation-source-fresh-quality-review.md`,
+  SHA-256 `1aa0353233be47008a4f03b3aad04e0127c35779886bc3d67a345b15e2aedd6a`.
+
+These verdicts follow the corrected 88 actual pure/45 actual SQL owning gates
+and normal EMPTY/root-absence cleanup above. Earlier SQL/SPEC FAIL remains
+historical evidence; it is not relabeled by the corrected acceptance.
+
+## Task8 attribution prerequisite: causal RED, GREEN and local handoff
+
+The [dedicated attribution report](2026-10-13-phase-5-task8-attribution-prerequisite.md)
+records whole baseline34/3FAIL, new causal RED48/17FAIL, corrected whole
+GREEN51/0FAIL, static PASS/zero cycles and preserved79 OK. Independent actual
+NONAUTHOR SOURCE SPEC `/root/phase5_task8_attribution_source_spec` followed by
+distinct fresh SOURCE QUALITY `/root/phase5_task8_attribution_fresh_source_quality`
+both CLOSED PASS/noP1P2. Parent and both reviewers independently recovered
+complete original architecture owner83e5c014 and fixed Application digests.
+
+After every gate closed, parent staged only the architecture owner and its
+dedicated evidence report. Local commit
+`9f91c97eb392b4c49c888ed31795d520d15bb8dd`,
+`test(architecture): attribute accepted phase5 backup composition`, changes
+exactly those two files; the index is empty afterward. No other dirty/untracked
+work was staged. Native Sol GREEN repairs0, pre-native parent correction1,
+Astra recovery0. Task16/17 remains unqualified.
+
+## Task9F: complete retained native gates closed
+
+The [bounded compatibility handoff report](2026-10-13-phase-5-task9-compatibility-handoff.md)
+records exact source14, all commands, complete archive hashes and cleanup:
+
+| Parent gate | Actual result |
+| --- | --- |
+| Retained whole16 SQL | 344 actual/0FAIL; 3 excluded; exit0 |
+| Separate legacy pure | 5 actual/0FAIL; 9 SQL excluded; exit0 |
+| Downstream whole10 pure | 203 actual/0FAIL; exit0 |
+| Separate Task8 whole3 SQL | 78 actual/0FAIL; exit0 |
+| Separate Task8 whole3 pure | 50 actual/0FAIL; exit0 |
+| Static | Format/WAEcompile PASS; zero cycles; exit0 |
+
+SQL session19586 completed in1619.7s; its owned root3819047be1c15f2374cc5db5
+was absent and normal maintenanceEMPTY. SQL session15521 completed in299.3s;
+its owned rootb5671072e0969dcfc7dd696b was absent and normal maintenanceEMPTY.
+No manual cleanup or simultaneous native operation occurred. Every owner was
+complete, with no line filter. Current source18/protected5/original frozen56
+were rechecked after the gates: all79 OK. `git diff --check` exited0.
+
+Combined actual NONAUTHOR SOURCE SPEC then distinct fresh SOURCE QUALITY on B–E
+is still pending; no F local commit or Task10 production GO follows native
+results alone. New F native repairs0, all prior component counters preserved.
+Task10 and Task11 genuine normal publication/live-lease qualification remain
+required. Task16 strict guarantees UNSATISFIED/UNWAIVED/BLOCKED_DESIGN.
+E2E NOT RUN/manual-only/deferred. No Vault feature or publication/activation.
+
+## Task9F actual combined source review closure — 2026-10-13
+
+All required B–F native owning/retained/static gates and actual combined source
+SPEC then distinct fresh QUALITY are CLOSED PASS/noP1P2. Reviewer tasks:
+`/root/phase5_task8_attribution_source_spec` and
+`/root/phase5_task9f_combined_fresh_quality`. Both independently checked all14
+actual files EOF, full archives/amendments, preservation inverses and entry=closure
+source14+all79. Original tested application bytes unchanged. Parent captures:
+
+- `.devenv/phase5-task9f-combined-implementation-source-spec-review.md`,
+  SHA256 `b1fff0f5d5cd1b7488edb6678e9cb9af3639b5f852fa636e3117c2640931ec1b`.
+- `.devenv/phase5-task9f-combined-implementation-source-fresh-quality-review.md`,
+  SHA256 `dd88bb75b4268a875d850ec09d5e7f53371292e32d66d34347215a13cff45d94`.
+
+Complete exact commands/counts/archive hashes are in the dedicated
+[Task9 compatibility handoff](2026-10-13-phase-5-task9-compatibility-handoff.md).
+Only source14, governing master/compatibility/amendment documents and evidence
+are to be staged for the bounded F commit. Untracked Task10/16 documents and
+Task13/15 postcommit bookkeeping remain outside that commit.
+
+## Task10 untouched baseline and diagnosed READ contract FAIL
+
+Before Task10 test/source changes, parent native ETF vectors passed; complete
+Base/Runtime pure owners executed68 actual PASS (4 integration exclusions).
+Complete existing Storage unified/restore/Base SQL owners executed27 actual
+PASS (5 pure exclusions), with normal EMPTY/root-absent closure. Complete
+UNCHANGED Runtime recovery/restart owners then executed10 actual,9PASS1FAIL,
+185.7s, exit2. The original permission case expects worker SELECT false/false
+for Document tables; native actual is true/true. This FAIL is not reclassified.
+
+READONLY Sol diagnosis confirms already accepted unchanged migration00500
+(SHA256 `f2abeb240665c727725d0ca055bb829a182dfb0e3bf64d87ed77cef7d65a4154`,
+commit `21d066036edbcb3f0a0737ae2dca36a9cea79427`) grants both
+`content.document_versions` and `content.document_fragments` SELECT.
+The first failing table is versions; fragments is likewise stale by source
+contract but not reached in the failed loop. Necessary test-contract amendment
+requires design/review, exact owner/RLS/read-only negatives and complete rerun;
+no bare boolean inversion, deleted assertion or production grant change.
+
+Baseline archives:
+
+- Native ETF `627739bd672aadf4ef3dd55f316183d5dd4bcf17a4b8306c1b7b351bda98a20b`.
+- Whole Base/Runtime pure `5fd615bc01a678c34393d18af750096bc6ba2cc146bbbc8721498a53610a6e63`.
+- Whole existing Storage SQL `51ae35369b0bf9aff0e16baba18a9eb6747bc0dab57300c92efdb0b2c419057e`.
+- Whole native Runtime FAIL `bea4d96a98f39afd00c9b51e28bf93a4f7dd9c1672d1c3ae51261c6547955af8`.
+
+Normal maintenance EMPTY and exact roots610b9fe164f6a8d1b1f80a58 /
+b8d2d57fb6c4751e5ff923f2 absent, no manual deletion. Original frozen56 stays
+unchanged; Runtime recovery tests are not in it. New protected3 receipt records
+original Runtime2/Base and remains historical, never silently regenerated.
+Diagnosis only, Sol/Astra repair0/0. Task10 test/production GO remains pending.
+No Task10 acceptance, Phase5 acceptance, Vault work, E2E or publication.

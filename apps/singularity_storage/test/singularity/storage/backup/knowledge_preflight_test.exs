@@ -812,6 +812,121 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     end)
   end
 
+  for references <- [:uuid, :mixed] do
+    test "authenticated #{references} object references preserve the complete staged historical graph" do
+      references = unquote(references)
+
+      with_fixture(fn fixture, storage ->
+        before = @fixtures.canonical_rows(fixture)
+
+        transform = &reference_rows(&1, references)
+
+        expected = transform.(before)
+        bundle = authenticated(fixture, rows: transform)
+        assert length(bundle.cut.object_inventory) == 5
+
+        assert Enum.map(bundle.cut.object_inventory, &{&1.asset_object_id, &1.storage_ref}) ==
+                 Enum.map(expected["content.asset_objects"], &{&1["id"], &1["storage_ref"]})
+
+        assert_reference_variants(bundle.cut.object_inventory, references)
+
+        # SQL metadata and authenticated real-byte fixtures characterize preflight;
+        # they do not prove normal upload publication or Task11's complete restore.
+        assert {:error, :reference_graph} =
+                 owner_transaction(fn ->
+                   assert {:ok, staged} = stage(bundle, storage)
+                   assert {:ok, summary} = validate(staged, bundle.cut)
+
+                   assert summary.counts ==
+                            Map.new(expected, fn {table, rows} -> {table, length(rows)} end)
+
+                   assert map_size(summary.digests) == 38
+
+                   assert Enum.all?(summary.digests, fn {_table, digest} ->
+                            byte_size(digest) == 32
+                          end)
+
+                   for schema <- LogicalSchemaV3.all(),
+                       do: assert(staged_rows(schema) == expected[schema.table])
+
+                   assert Enum.count(events(), &(&1 == :seal)) == 5
+                   assert :finalize not in events()
+                   MigrationRepo.rollback(:reference_graph)
+                 end)
+
+        assert @fixtures.canonical_rows(fixture) == before
+        assert_no_temp_tables()
+        cleanup_stages(storage)
+        assert_no_publication(storage)
+      end)
+    end
+  end
+
+  test "coherent authenticated rows and inventory reject wrong UUID and noncanonical physical references" do
+    with_fixture(fn fixture, storage ->
+      before = @fixtures.canonical_rows(fixture)
+      object = Enum.find(before["content.asset_objects"], &(&1["id"] == @ids.plain_object_id))
+      canonical = canonical_reference(object)
+      assert object["storage_ref"] == canonical
+      assert Enum.any?(before["content.asset_objects"], &(&1["id"] == @ids.pdf_object_id))
+
+      for reference <- [
+            @ids.pdf_object_id,
+            canonical_reference(Map.replace!(object, "vault_id", @unknown)),
+            canonical_reference(Map.replace!(object, "key_domain_id", @unknown)),
+            canonical_reference(Map.replace!(object, "lookup_digest", <<0::256>>)),
+            "arbitrary-opaque-reference",
+            String.upcase(canonical),
+            "/" <> canonical,
+            canonical <> "/",
+            "objects/../" <> canonical,
+            String.replace(canonical, "/", "\\")
+          ] do
+        bundle =
+          authenticated(fixture,
+            rows: fn rows ->
+              edit(rows, "content.asset_objects", %{"id" => object["id"]}, fn row ->
+                Map.replace!(row, "storage_ref", reference)
+              end)
+            end
+          )
+
+        assert Enum.find(bundle.cut.object_inventory, &(&1.asset_object_id == object["id"])).storage_ref ==
+                 reference
+
+        reject_bundle(fixture, storage, bundle, before)
+      end
+    end)
+  end
+
+  test "distinct object UUIDs cannot alias one live physical owner domain and lookup identity" do
+    with_fixture(fn fixture, storage ->
+      before = @fixtures.canonical_rows(fixture)
+      pdf = Enum.find(before["content.asset_objects"], &(&1["id"] == @ids.pdf_object_id))
+
+      bundle =
+        authenticated(fixture,
+          rows: fn rows ->
+            edit(rows, "content.asset_objects", %{"id" => @ids.plain_object_id}, fn row ->
+              row
+              |> Map.replace!("lookup_digest", pdf["lookup_digest"])
+              |> Map.replace!("storage_ref", row["id"])
+            end)
+          end
+        )
+
+      aliases =
+        Enum.filter(bundle.cut.object_inventory, &(&1.lookup_digest == pdf["lookup_digest"]))
+
+      assert Enum.map(aliases, & &1.asset_object_id) == [@ids.pdf_object_id, @ids.plain_object_id]
+
+      assert Enum.uniq(Enum.map(aliases, &{&1.vault_id, &1.key_domain_id, &1.lookup_digest}))
+             |> length() == 1
+
+      reject_bundle(fixture, storage, bundle, before)
+    end)
+  end
+
   test "authenticated inventory and canonical Asset metadata must agree without decrypting originals" do
     with_fixture(fn fixture, storage ->
       original = @fixtures.canonical_rows(fixture)
@@ -1183,6 +1298,32 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     do: Ecto.Adapters.SQL.query!(MigrationRepo, statement, parameters)
 
   defp dump(uuid), do: Ecto.UUID.dump!(uuid)
+
+  defp reference_rows(rows, references) do
+    put_rows(
+      rows,
+      "content.asset_objects",
+      Enum.map(rows["content.asset_objects"], fn object ->
+        if references == :uuid or object["id"] == @ids.pdf_object_id,
+          do: Map.replace!(object, "storage_ref", object["id"]),
+          else: object
+      end)
+    )
+  end
+
+  defp assert_reference_variants(_inventory, :uuid), do: :ok
+
+  defp assert_reference_variants(inventory, :mixed) do
+    assert Enum.any?(inventory, &(&1.storage_ref == &1.asset_object_id))
+    assert Enum.any?(inventory, &String.starts_with?(&1.storage_ref, "objects/"))
+  end
+
+  defp canonical_reference(object) do
+    digest = Base.encode16(object["lookup_digest"], case: :lower)
+
+    "objects/#{object["vault_id"]}/#{object["key_domain_id"]}/hmac-sha256/" <>
+      binary_part(digest, 0, 2) <> "/" <> digest
+  end
 
   defp id(index),
     do: "60000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(index), 12, "0")

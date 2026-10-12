@@ -4,7 +4,7 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreAdmissionTest do
   @moduletag :integration
 
   alias Singularity.Core.Error
-  alias Singularity.Storage.{MigrationRepo, LocalFilesystemAdapter}
+  alias Singularity.Storage.{MigrationRepo, LocalFilesystemAdapter, MigrationTestEnvironment}
 
   alias Singularity.Storage.Backup.{
     BundleReader,
@@ -293,6 +293,232 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreAdmissionTest do
         end)
       end)
     end
+  end
+
+  for references <- [:uuid, :mixed] do
+    @tag :tmp_dir
+    test "direct owner SQL admits #{references} references through all thirty-eight digests and actual COMMIT",
+         ctx do
+      [source] = prepare_reference_sources(ctx.tmp_dir, [unquote(references)])
+
+      with_destination(source, fn _destination, bundle, storage ->
+        # This separately owned SQL/digest fixture deliberately does not call
+        # KnowledgePreflight. Its old UUID denial must reach the admission graph.
+        # It is not normal authenticated upload or Task11 live-chain evidence.
+        expected = reference_summary(source.rows)
+
+        assert ordered_counts(expected) ==
+                 Enum.map(LogicalSchemaV3.all(), &length(source.rows[&1.table]))
+
+        assert Enum.sum(Map.values(expected.counts)) == 36
+        assert map_size(expected.digests) == 38
+        assert length(bundle.cut.object_inventory) == 2
+
+        assert Enum.map(bundle.cut.object_inventory, &{&1.asset_object_id, &1.storage_ref}) ==
+                 Enum.map(source.rows["content.asset_objects"], &{&1["id"], &1["storage_ref"]})
+
+        assert_no_import()
+
+        assert {:ok, :committed} =
+                 owner_transaction(fn ->
+                   require_contract()
+                   lock_restore()
+                   marker(bundle, storage)
+                   begin_sql(expected, bundle)
+                   assert_bound(true)
+                   assert_admission(expected, bundle, storage, "loading")
+                   insert_graph(source.rows)
+                   assert_owned_summary(expected)
+                   validate_sql(bundle)
+                   sql("SELECT audit.assert_knowledge_restore_graph($1)", [dump(@ids.vault_id)])
+                   assert_bound(false)
+                   assert_admission(expected, bundle, storage, "validated")
+                   force_ordinary_constraints()
+                   mark_imported()
+                   :committed
+                 end)
+
+        owner_transaction(fn ->
+          assert canonical_summary() == expected
+          assert_owned_summary(expected)
+          assert_seal()
+          assert_empty_exclusions()
+
+          assert sql("SELECT id::text,storage_ref FROM content.asset_objects ORDER BY id").rows ==
+                   Enum.map(source.rows["content.asset_objects"], &[&1["id"], &1["storage_ref"]])
+
+          assert [["validated"]] ==
+                   sql("SELECT state FROM audit.knowledge_restore_admissions").rows
+
+          assert [["imported"]] == sql("SELECT state FROM audit.restore_import_sagas").rows
+        end)
+      end)
+    end
+  end
+
+  @tag :tmp_dir
+  test "direct owner SQL graph rejects a different existing UUID and foreign or noncanonical paths",
+       ctx do
+    references = [
+      :wrong_uuid,
+      :owner,
+      :domain,
+      :lookup,
+      :opaque,
+      :case,
+      :absolute,
+      :trailing,
+      :traversal,
+      :separator
+    ]
+
+    sources = prepare_reference_sources(ctx.tmp_dir, references)
+    assert length(sources) == 10
+    assert Enum.map(sources, & &1.references) == references
+
+    KnowledgeBackupFixtures.with_destination(:current, fn destination ->
+      for source <- sources do
+        invalid = source.references
+
+        with_admission_bundle(destination, source, fn _destination, bundle, storage ->
+          # Independent direct admission fixture: coherent wire/inventory and
+          # canonical digests cannot evade the graph's exact-reference predicate.
+          expected = reference_summary(source.rows)
+          assert_no_import()
+
+          error =
+            assert_raise Postgrex.Error, fn ->
+              owner_transaction(fn ->
+                require_contract()
+                lock_restore()
+                marker(bundle, storage)
+                begin_sql(expected, bundle)
+                assert_admission(expected, bundle, storage, "loading")
+                insert_graph(source.rows)
+                assert_owned_summary(expected)
+                force_ordinary_constraints()
+                validate_sql(bundle)
+                flunk("invalid reference #{invalid} passed the admission graph")
+              end)
+            end
+
+          assert error.postgres.code == :check_violation
+          assert error.postgres.message == "invalid knowledge restore object closure"
+          assert_no_import()
+        end)
+      end
+    end)
+  end
+
+  @tag :tmp_dir
+  test "distinct UUID references cannot insert a duplicate live physical identity", ctx do
+    [source] = prepare_reference_sources(ctx.tmp_dir, [:uuid])
+    [first, second] = source.rows["content.asset_objects"]
+    assert first["id"] != second["id"]
+
+    rows =
+      Map.replace!(source.rows, "content.asset_objects", [
+        first,
+        Map.replace!(second, "lookup_digest", first["lookup_digest"])
+      ])
+
+    with_destination(source, fn _destination, _bundle, _storage ->
+      error =
+        assert_raise Postgrex.Error, fn -> owner_transaction(fn -> insert_graph(rows) end) end
+
+      assert error.postgres.code == :unique_violation
+      assert error.postgres.constraint == "asset_objects_live_lookup_key"
+      assert_no_import()
+    end)
+  end
+
+  test "a validated reference mutation remains denied only at actual deferred COMMIT", ctx do
+    with_destination(ctx.locked, fn _destination, bundle, storage ->
+      object = hd(ctx.locked.rows["content.asset_objects"])
+      reference = canonical_reference(Map.replace!(object, "key_domain_id", @unknown))
+      callback_returned = make_ref()
+      test_process = self()
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          owner_transaction(fn ->
+            require_contract()
+            lock_restore()
+            marker(bundle, storage)
+            begin_sql(ctx.locked.expected, bundle)
+            insert_graph(ctx.locked.rows)
+            validate_sql(bundle)
+            assert_admission(ctx.locked.expected, bundle, storage, "validated")
+
+            sql("UPDATE content.asset_objects SET storage_ref=$1 WHERE id=$2", [
+              reference,
+              dump(object["id"])
+            ])
+
+            assert [[reference]] ==
+                     sql("SELECT storage_ref FROM content.asset_objects WHERE id=$1", [
+                       dump(object["id"])
+                     ]).rows
+
+            assert [[1]] == sql("SELECT count(*) FROM content.asset_objects").rows
+            force_ordinary_constraints()
+            mark_imported()
+            # No second validation and no draining the restore final-check trigger.
+            send(test_process, {:reference_commit_callback_returned, callback_returned})
+          end)
+        end
+
+      assert_received {:reference_commit_callback_returned, ^callback_returned}
+      assert error.postgres.code == :check_violation
+      assert error.postgres.message == "invalid knowledge restore object closure"
+
+      assert_no_import()
+    end)
+  end
+
+  test "forward storage-reference migration changes only the exact predicate and retains function security" do
+    MigrationTestEnvironment.with_database(20_261_011_000_600, fn _environment ->
+      {:ok, repo} = MigrationRepo.start_link()
+
+      try do
+        assert {:ok, before} = owner_transaction(&restore_graph_definition/0)
+        prefix = "o.storage_ref<>'objects/'"
+        suffix = "||'/'||pg_catalog.encode(o.lookup_digest,'hex')"
+        [leading, rest] = String.split(before.definition, prefix)
+        [clause, trailing] = String.split(rest, suffix, parts: 2)
+        old = prefix <> clause <> suffix
+
+        assert String.replace(old, ~r/\s+/, "") ==
+                 "o.storage_ref<>'objects/'||o.vault_id::text||'/'||o.key_domain_id::text||'/hmac-sha256/'||pg_catalog.substr(pg_catalog.encode(o.lookup_digest,'hex'),1,2)||'/'||pg_catalog.encode(o.lookup_digest,'hex')"
+
+        replacement = "(o.storage_ref<>o.id::text AND " <> old <> ")"
+        expected = leading <> replacement <> trailing
+
+        migrations =
+          :singularity_storage |> :code.priv_dir() |> to_string() |> Path.join("repo/migrations")
+
+        compiler_options = Code.compiler_options()
+        Code.compiler_options(ignore_module_conflict: true)
+
+        try do
+          assert [20_261_011_000_700] ==
+                   Ecto.Migrator.run(MigrationRepo, migrations, :up,
+                     to: 20_261_011_000_700,
+                     log: false
+                   )
+        after
+          Code.compiler_options(compiler_options)
+        end
+
+        assert {:ok, after_migration} = owner_transaction(&restore_graph_definition/0)
+        assert after_migration.definition == expected
+        assert after_migration.security == before.security
+        assert [_before, _after] = String.split(after_migration.definition, replacement)
+        assert String.replace(after_migration.definition, replacement, old) == before.definition
+      after
+        GenServer.stop(repo)
+      end
+    end)
   end
 
   test "internal adapter uses only authentic bound staging, preserving raw unlocked evidence",
@@ -1232,6 +1458,128 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreAdmissionTest do
     end)
   end
 
+  defp prepare_reference_sources(portable, reference_modes) do
+    KnowledgeBackupFixtures.with_destination(:current, fn destination ->
+      fixture =
+        KnowledgeBackupFixtures.seed!(Map.merge(destination, %{ids: @ids, originals: @originals}))
+
+      all = KnowledgeBackupFixtures.canonical_rows(fixture)
+      plain = fixture.sources.plain
+
+      rows =
+        Enum.reduce(
+          [
+            {"content.resources", "id", plain.resource_id},
+            {"content.resource_versions", "id", plain.resource_version_id},
+            {"content.asset_objects", "id", plain.object_id},
+            {"content.assets", "id", plain.asset_id},
+            {"content.asset_key_envelopes", "asset_object_id", plain.object_id},
+            {"content.resource_assets", "asset_id", plain.asset_id}
+          ],
+          live_rows(all, fixture, true),
+          fn {table, field, value}, rows ->
+            {:ok, schema} = LogicalSchemaV3.fetch_table(table)
+            keys = Enum.map(schema.primary_key, &Enum.fetch!(schema.columns, &1.position).name)
+            added = Enum.filter(all[table], &(&1[field] == value))
+            assert length(added) == 1
+
+            Map.update!(rows, table, fn existing ->
+              Enum.sort_by(existing ++ added, fn row -> Enum.map(keys, &row[&1]) end)
+            end)
+          end
+        )
+
+      for references <- reference_modes do
+        rows = reference_rows(rows, references)
+
+        assert {:ok, bundle} =
+                 KnowledgeBackupFixtures.transformed_bundle(fixture, rows: fn _ -> rows end)
+
+        filename = bundle.binding.destination_ref
+        File.cp!(Path.join(destination.object_root, filename), Path.join(portable, filename))
+        File.chmod!(Path.join(portable, filename), 0o600)
+
+        %{
+          database: destination.database,
+          portable: portable,
+          filename: filename,
+          rows: rows,
+          binding: bundle.binding,
+          references: references
+        }
+      end
+    end)
+  end
+
+  defp reference_rows(rows, references) do
+    [object, other] = rows["content.asset_objects"]
+    canonical = canonical_reference(object)
+    assert object["storage_ref"] == canonical
+    assert other["storage_ref"] == canonical_reference(other)
+
+    reference =
+      case references do
+        :canonical -> canonical
+        :uuid -> object["id"]
+        :mixed -> object["id"]
+        :wrong_uuid -> other["id"]
+        :owner -> canonical_reference(Map.replace!(object, "vault_id", @unknown))
+        :domain -> canonical_reference(Map.replace!(object, "key_domain_id", @unknown))
+        :lookup -> canonical_reference(Map.replace!(object, "lookup_digest", <<0::256>>))
+        :opaque -> "arbitrary-opaque-reference"
+        :case -> String.upcase(canonical)
+        :absolute -> "/" <> canonical
+        :trailing -> canonical <> "/"
+        :traversal -> "objects/../" <> canonical
+        :separator -> String.replace(canonical, "/", "\\")
+      end
+
+    objects = [
+      Map.replace!(object, "storage_ref", reference),
+      if(references == :uuid,
+        do: Map.replace!(other, "storage_ref", other["id"]),
+        else: other
+      )
+    ]
+
+    Map.replace!(rows, "content.asset_objects", objects)
+  end
+
+  defp reference_summary(rows) do
+    # Explicit owner-only SQL fixture, independent of the preflight under test.
+    # Read all canonical row digests, then roll back before opening admission.
+    assert {:error, {:reference_summary, expected}} =
+             owner_transaction(fn ->
+               insert_graph(rows)
+               force_ordinary_constraints()
+               expected = canonical_summary()
+               MigrationRepo.rollback({:reference_summary, expected})
+             end)
+
+    expected
+  end
+
+  defp canonical_reference(object) do
+    digest = Base.encode16(object["lookup_digest"], case: :lower)
+
+    "objects/#{object["vault_id"]}/#{object["key_domain_id"]}/hmac-sha256/" <>
+      binary_part(digest, 0, 2) <> "/" <> digest
+  end
+
+  defp restore_graph_definition do
+    [[definition | security]] =
+      sql("""
+      SELECT pg_get_functiondef(p.oid),pg_get_userbyid(p.proowner),p.proacl::text,
+        p.oid::regprocedure::text,pg_get_function_identity_arguments(p.oid),
+        pg_get_function_result(p.oid),l.lanname,p.provolatile::text,p.prosecdef,
+        p.proconfig,p.prokind::text,p.proparallel::text,p.proisstrict,p.proleakproof
+      FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
+      WHERE p.oid=to_regprocedure('audit.assert_knowledge_restore_graph(uuid)')
+      """).rows
+
+    %{definition: definition, security: security}
+  end
+
   defp prepare_source(portable, locked) do
     KnowledgeBackupFixtures.with_destination(:current, fn destination ->
       fixture =
@@ -1395,39 +1743,98 @@ defmodule Singularity.Storage.Backup.KnowledgeRestoreAdmissionTest do
 
   defp with_destination(source, fun) do
     KnowledgeBackupFixtures.with_destination(:current, fn destination ->
-      refute destination.database == source.database
-      storage = private_storage(destination, "admission-private")
+      with_admission_bundle(destination, source, fun)
+    end)
+  end
 
-      assert {:ok, reader} =
-               LocalDestination.reader_source(%{backup_root: source.portable}, source.filename)
+  defp with_admission_bundle(destination, source, fun) do
+    refute destination.database == source.database
+    storage = private_storage(destination, "admission-private")
 
-      crypto = %{
-        key: :crypto.hash(:sha256, "knowledge-fixture-backup-key"),
-        vault_id: @ids.vault_id,
-        encryption_domain_id: id(902),
-        object_id: id(900),
-        chunk_index: 0,
-        algorithm: Format.algorithm(),
-        format_version: Format.format_version(),
-        chunk_size: Format.chunk_size()
-      }
+    assert {:ok, reader} =
+             LocalDestination.reader_source(%{backup_root: source.portable}, source.filename)
 
+    {reader, close_reference} = observe_admission_snapshot_close(reader)
+
+    crypto = %{
+      key: :crypto.hash(:sha256, "knowledge-fixture-backup-key"),
+      vault_id: @ids.vault_id,
+      encryption_domain_id: id(902),
+      object_id: id(900),
+      chunk_index: 0,
+      algorithm: Format.algorithm(),
+      format_version: Format.format_version(),
+      chunk_size: Format.chunk_size()
+    }
+
+    try do
       assert {:ok, verified} =
                BundleReader.authenticate_all(reader,
                  crypto: {FixtureCrypto, crypto},
                  verifier: {LogicalBundleVerifier, source.binding}
                )
 
-      assert %BundleReader.Verified{records: [], replay: %BundleReader.Replay{}} = verified
-      bundle = %{verified: verified, cut: verified.cut, binding: source.binding}
-
       try do
+        assert %BundleReader.Verified{records: [], replay: %BundleReader.Replay{}} = verified
+        bundle = %{verified: verified, cut: verified.cut, binding: source.binding}
         fun.(destination, bundle, storage)
       after
-        BundleReader.discard_verified(verified)
-        cleanup_stages(storage)
+        assert_admission_snapshot_closed(verified, close_reference)
       end
-    end)
+    after
+      cleanup_stages(storage)
+    end
+  end
+
+  defp observe_admission_snapshot_close(reader) do
+    owner = self()
+    reference = make_ref()
+    native_close = Map.fetch!(reader.file_system, :close_snapshot)
+
+    observed_close = fn snapshot ->
+      before_state = admission_snapshot_fd_state(snapshot)
+
+      try do
+        result = native_close.(snapshot)
+        after_state = admission_snapshot_fd_state(snapshot)
+        send(owner, {reference, self(), result, before_state, after_state})
+        result
+      catch
+        kind, reason ->
+          after_state = admission_snapshot_fd_state(snapshot)
+          send(owner, {reference, self(), {:raised, kind}, before_state, after_state})
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+    end
+
+    {%{reader | file_system: Map.put(reader.file_system, :close_snapshot, observed_close)},
+     reference}
+  end
+
+  defp admission_snapshot_fd_state(snapshot) do
+    case :file.pread(snapshot.device, 0, 1) do
+      {:ok, <<_>>} -> :open
+      {:error, :einval} -> :closed
+      _ -> :unqualified
+    end
+  catch
+    _kind, _reason -> :unqualified
+  end
+
+  defp assert_admission_snapshot_closed(verified, reference) do
+    observation =
+      receive do
+        {^reference, caller, result, before_state, after_state} ->
+          {caller, result, before_state, after_state}
+      after
+        0 ->
+          assert :ok == BundleReader.discard_verified(verified)
+          assert_received {^reference, caller, result, before_state, after_state}
+          {caller, result, before_state, after_state}
+      end
+
+    assert observation == {self(), :ok, :open, :closed}
+    refute_received {^reference, _, _, _, _}
   end
 
   defp private_storage(destination, name) do

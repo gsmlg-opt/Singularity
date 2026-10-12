@@ -13,6 +13,7 @@ defmodule Singularity.Runtime.IntegrityAudit do
   alias Singularity.Storage.Backup.IntegrityAudit, as: StorageIntegrityAudit
   alias Singularity.Storage.Backup.IntegrityAudit.CiphertextSummary
   alias Singularity.Storage.Backup.IntegrityAudit.SearchSummary
+  alias Singularity.Storage.Backup.KnowledgeIntegrityInventory
 
   @ciphertext_context_keys [:ciphertext_auditor, :object_storage]
   @final_context_keys [
@@ -25,7 +26,7 @@ defmodule Singularity.Runtime.IntegrityAudit do
 
   @spec verify_ciphertext(map(), map()) :: :ok | {:error, Error.t()}
   def verify_ciphertext(context, rewrapped) when is_map(context) and is_map(rewrapped) do
-    with {:ok, target} <- restore_target(rewrapped),
+    with {:ok, target} <- restore_target(context, rewrapped),
          {:ok, adapters} <- adapters(context, @ciphertext_context_keys),
          {:ok, _summary} <- verify_locked(adapters, target) do
       :ok
@@ -102,14 +103,16 @@ defmodule Singularity.Runtime.IntegrityAudit do
   def run(_context, _envelope), do: {:error, Error.new(:job_failed)}
 
   defp verify_final(context, rewrapped, capability, lease_adapter) do
-    with {:ok, target} <- restore_target(rewrapped),
+    with {:ok, target} <- restore_target(context, rewrapped),
          {:ok, adapters} <- adapters(context, @final_context_keys),
          true <- adapters.restore_integrity_lease == lease_adapter || invalid(),
+         :ok <- require_document_callback(context, target),
          {:ok, ciphertext} <- verify_locked(adapters, target),
          {:ok, plaintext} <-
            adapter_value(call(lease_adapter, :verify_all, [capability])),
          {:ok, plaintext_inventory_sha256} <-
            validate_plaintext_summary(plaintext, ciphertext, target),
+         :ok <- verify_document_sources(adapters.search_rebuilder, target, plaintext),
          {:ok, lexical} <- rebuild_lexical(adapters.search_rebuilder, target),
          :ok <-
            adapter_ok(
@@ -183,6 +186,7 @@ defmodule Singularity.Runtime.IntegrityAudit do
     expected_ids = Enum.map(target.inventory, & &1.asset_object_id)
 
     with true <- secure_compare(inventory_sha256, expected_inventory_sha256),
+         :ok <- validate_document_hash_shapes(target, plaintext_hashes),
          {:ok, encoded_hashes} <- encode_plaintext_hashes(plaintext_hashes, expected_ids) do
       {:ok,
        :crypto.hash(:sha256, [
@@ -217,6 +221,36 @@ defmodule Singularity.Runtime.IntegrityAudit do
   end
 
   defp encode_plaintext_hashes(_hashes, _expected_ids), do: integrity_failure()
+
+  defp validate_document_hash_shapes(%{logical_version: 3}, hashes) do
+    if Enum.all?(hashes, fn
+         %{asset_object_id: _id, sha256: _hash} = entry -> map_size(entry) == 2
+         _malformed -> false
+       end),
+       do: :ok,
+       else: integrity_failure()
+  end
+
+  defp validate_document_hash_shapes(_target, _hashes), do: :ok
+
+  defp require_document_callback(context, %{logical_version: 3}) do
+    with {:ok, _adapter} <- adapter(context, :search_rebuilder, :verify_document_sources, 3),
+         do: :ok
+  end
+
+  defp require_document_callback(_context, _target), do: :ok
+
+  defp verify_document_sources(adapter, %{logical_version: 3} = target, plaintext) do
+    adapter_ok(
+      call(adapter, :verify_document_sources, [
+        search_binding(target),
+        target.original_inventory,
+        plaintext.plaintext_hashes
+      ])
+    )
+  end
+
+  defp verify_document_sources(_adapter, _target, _plaintext), do: :ok
 
   defp rebuild_lexical(adapter, target) do
     with {:ok, result} <- adapter_value(call(adapter, :rebuild, [search_binding(target)])),
@@ -269,8 +303,8 @@ defmodule Singularity.Runtime.IntegrityAudit do
   defp search_binding(target),
     do: %{manifest_id: target.manifest_id, vault_id: target.vault_id}
 
-  defp restore_target(%{
-         cut: %{vault_id: vault_id, object_inventory: cut_inventory},
+  defp restore_target(context, %{
+         cut: %{vault_id: vault_id, object_inventory: cut_inventory} = cut,
          integrity_principal_id: integrity_principal_id,
          manifest: %{manifest_id: manifest_id},
          object_inventory: inventory
@@ -279,21 +313,38 @@ defmodule Singularity.Runtime.IntegrityAudit do
     with {:ok, ^manifest_id} <- canonical_uuid(manifest_id),
          {:ok, ^vault_id} <- canonical_uuid(vault_id),
          {:ok, ^integrity_principal_id} <- canonical_uuid(integrity_principal_id),
-         {:ok, _inventory_sha256} <- StorageIntegrityAudit.inventory_sha256(vault_id, inventory) do
+         {:ok, logical_version} <- authenticated_logical_version(cut),
+         {:ok, projected} <- integrity_inventory(context, cut, inventory),
+         {:ok, _inventory_sha256} <- StorageIntegrityAudit.inventory_sha256(vault_id, projected) do
       {:ok,
        %{
          integrity_principal_id: integrity_principal_id,
-         inventory: inventory,
+         inventory: projected,
+         logical_version: logical_version,
+         original_inventory: inventory,
          manifest_id: manifest_id,
          vault_id: vault_id
        }}
     else
-      {:error, %Error{} = error} -> error
+      {:error, %Error{}} = error -> error
       _invalid -> backup_invalid()
     end
   end
 
-  defp restore_target(_rewrapped), do: backup_invalid()
+  defp restore_target(_context, _rewrapped), do: backup_invalid()
+
+  defp authenticated_logical_version(cut) do
+    case Map.fetch(cut, :logical_version) do
+      :error -> {:ok, :legacy}
+      {:ok, version} when version in [1, 2, 3] -> {:ok, version}
+      _unknown -> backup_invalid()
+    end
+  end
+
+  defp integrity_inventory(context, %{logical_version: 3} = cut, _original),
+    do: KnowledgeIntegrityInventory.project(Map.get(context, :object_storage), cut)
+
+  defp integrity_inventory(_context, _cut, original), do: {:ok, original}
 
   defp integrity_capability(%{integrity_capability: %Capability{} = capability}),
     do: {:ok, capability}
