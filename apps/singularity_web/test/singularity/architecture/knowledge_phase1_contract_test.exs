@@ -339,6 +339,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     test "#{label} cannot be relocated outside its approved insertion context" do
       path = unquote(path)
       source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
       addition = unquote(addition)
       assert [before, rest] = String.split(source, addition)
 
@@ -354,7 +356,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
       assert_document_registration!(path, relocated)
 
       assert_raise ExUnit.AssertionError, fn ->
-        assert_runtime_baseline!(path, relocated, @runtime_baselines[path])
+        assert_historical_runtime_baseline!(path, relocated, @runtime_baselines[path])
       end
     end
   end
@@ -362,6 +364,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   test "registration and byte guards reject unauthorized Document and legacy changes" do
     for {path, expected} <- @runtime_baselines do
       source = read_source(path)
+      assert_runtime_baseline!(path, source, expected)
+      source = normalize_phase5!(path, source)
       unauthorized = source <> "\ndefmodule ExtraDocumentRegistration do; end\n"
 
       assert_raise ExUnit.AssertionError, fn ->
@@ -370,7 +374,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
       for changed <- [unauthorized, source <> "\n:unrelated_legacy_change\n"] do
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(path, changed, expected)
+          assert_historical_runtime_baseline!(path, changed, expected)
         end
       end
     end
@@ -378,6 +382,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
   test "approved additions cannot change, disappear or be duplicated" do
     source = read_source(@api)
+    assert_runtime_baseline!(@api, source, @runtime_baselines[@api])
+    source = normalize_phase5!(@api, source)
 
     for {pattern, _} <- api_additions() do
       assert [[addition]] = Regex.scan(pattern, source)
@@ -388,7 +394,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             String.replace(source, addition, addition <> addition)
           ] do
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(@api, changed, @runtime_baselines[@api])
+          assert_historical_runtime_baseline!(@api, changed, @runtime_baselines[@api])
         end
       end
     end
@@ -399,11 +405,13 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           {"config/config.exs", "    document_extract: 2,\n"}
         ] do
       source = read_source(path)
+      assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
 
       for replacement <- ["", addition <> addition, String.replace(addition, "2", "3")] do
         if replacement != addition do
           assert_raise ExUnit.AssertionError, fn ->
-            assert_runtime_baseline!(
+            assert_historical_runtime_baseline!(
               path,
               String.replace(source, addition, replacement),
               @runtime_baselines[path]
@@ -418,6 +426,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- worker_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
       source = strip_phase3_additions!(path, strip_phase4_additions!(source, path))
       assert [before, rest] = String.split(source, addition)
 
@@ -447,6 +456,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- phase3_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
       assert [before, rest] = String.split(source, addition)
       assert [_, _] = String.split(source, preceding <> addition <> following)
 
@@ -472,7 +482,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             relocated
           ] do
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+          assert_historical_runtime_baseline!(path, changed, @runtime_baselines[path])
         end
       end
     end
@@ -497,6 +507,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- phase4_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
       assert [before, rest] = String.split(source, addition)
       normalized = strip_phase4_organization_additions!(source, path)
       assert [_, _] = String.split(normalized, preceding <> addition <> following)
@@ -513,7 +524,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             relocated
           ] do
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+          assert_historical_runtime_baseline!(path, changed, @runtime_baselines[path])
         end
       end
     end
@@ -550,6 +561,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, preceding, addition, following, destination} <- phase4_organization_additions() do
       source = read_source(path)
       assert_runtime_baseline!(path, source, @runtime_baselines[path])
+      source = normalize_phase5!(path, source)
       assert [before, rest] = String.split(source, addition)
       assert [_, _] = String.split(source, preceding <> addition <> following)
 
@@ -565,7 +577,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             relocated
           ] do
         assert_raise ExUnit.AssertionError, fn ->
-          assert_runtime_baseline!(path, changed, @runtime_baselines[path])
+          assert_historical_runtime_baseline!(path, changed, @runtime_baselines[path])
         end
       end
     end
@@ -609,7 +621,13 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end
   end
 
+  defp normalize_phase5!(path, source), do: undo_phase5_task8!(path, source)
+
   defp assert_runtime_baseline!(path, source, expected) do
+    assert_historical_runtime_baseline!(path, normalize_phase5!(path, source), expected)
+  end
+
+  defp assert_historical_runtime_baseline!(path, source, expected) do
     source = strip_phase4_additions!(source, path)
     source = strip_phase3_additions!(path, source)
     assert_phase2_runtime_baseline!(path, source, expected)
@@ -1178,4 +1196,217 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     refute section =~ ~r/```|~~~|<!--|-->|^(?: {4,}| {0,3}\t)\S/m
     section |> String.replace(~r/\s+/, " ") |> String.trim()
   end
+
+  # BEGIN Task8 exact test attribution.
+  test "accepted Task8 inverse recovers independently fixed pre-Task8 Application bytes" do
+    source = read_source(@application)
+    Enum.each(phase5_task8_replacements(), &assert_task8_tuple!(source, &1))
+
+    assert_digest!(
+      @application <> " Task8 inverse",
+      undo_phase5_task8!(@application, source),
+      "4deda19432de3174c2f737216c8185e3cdea8bb91d3960475308a27558bdfbca"
+    )
+
+    assert_historical_runtime_baseline!(
+      @application,
+      undo_phase5_task8!(@application, source),
+      @runtime_baselines[@application]
+    )
+  end
+
+  for {id, mutation} <- [
+        {"P5-T8A", :missing},
+        {"P5-T8A", :duplicate},
+        {"P5-T8A", :altered},
+        {"P5-T8A", :relocated},
+        {"P5-T8A", :before},
+        {"P5-T8A", :after},
+        {"P5-T8B", :missing},
+        {"P5-T8B", :duplicate},
+        {"P5-T8B", :altered},
+        {"P5-T8B", :relocated},
+        {"P5-T8B", :before},
+        {"P5-T8B", :after},
+        {"P5-T8B", :coexisting}
+      ] do
+    test "Task8 #{id} inverse rejects #{mutation}" do
+      source = read_source(@application)
+      tuple = Enum.find(phase5_task8_replacements(), &(elem(&1, 0) == unquote(id)))
+      mutated = task8_mutation!(source, tuple, unquote(mutation))
+
+      assert_raise ExUnit.AssertionError, fn ->
+        undo_phase5_task8!(@application, mutated)
+      end
+    end
+  end
+
+  for {label, insertion, addition} <- [
+        {"extra WorkerRepo alias", "defmodule Singularity.Runtime.Application do\n",
+         "  alias Singularity.Storage.WorkerRepo, as: ExtraWorkerRepo\n"},
+        {"extra object-storage clause", "      authorize: Authorize,\n",
+         "      object_storage: {Exporter, %{repo: WorkerRepo, storage: storage, unauthorized: true}},\n"},
+        {"adjacent unauthorized registration", "      Singularity.Storage.PreAuthRepo,\n",
+         "      Singularity.Runtime.UnauthorizedDocument,\n"}
+      ] do
+    test "Task8 current-source digest rejects #{label}" do
+      source = read_source(@application)
+      assert_runtime_baseline!(@application, source, @runtime_baselines[@application])
+      insertion = unquote(insertion)
+      assert [prefix, suffix] = String.split(source, insertion)
+      addition = unquote(addition)
+      mutated = prefix <> insertion <> addition <> suffix
+      refute mutated == source
+      assert [_, _] = String.split(mutated, addition)
+      normalized = undo_phase5_task8!(@application, mutated)
+      refute normalized == undo_phase5_task8!(@application, source)
+
+      error =
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(@application, mutated, @runtime_baselines[@application])
+        end
+
+      assert String.starts_with?(error.message, @application <> " changed from accepted baseline")
+    end
+  end
+
+  defp phase5_task8_replacements do
+    [
+      {"P5-T8A", "  alias Singularity.Storage.Postgres.SearchProjectionReconciler\n", "",
+       "  alias Singularity.Storage.WorkerRepo\n", "\n  @impl true\n",
+       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "39a200187ee4217b6af3360373f70fa99161596960c6d41bf1a5505b4593ef54",
+       "1eb83e25ae05b4c71e16192cd860d41bcd2276680872dc14f309790e8a84bb1f",
+       "3d711a1b22e36f343aedd6f100553d22a36aecc0d9a53fcca215a99ac6cb0b0b",
+       "  alias Singularity.Runtime.BackupKeyLease\n"},
+      {"P5-T8B", "      object_lock: ObjectLock,\n",
+       "      object_storage: {Exporter, storage},\n",
+       "      object_storage: {Exporter, %{repo: WorkerRepo, storage: storage}},\n",
+       "      storage: storage\n",
+       "765151e924b1527ee46e84b28c1f4767fb8a24f7e4a0002f4bfb3bc92d978f63",
+       "c7135faaa946b7ee597e9671c314a92a1ece93aaf2b3a0da4d72ffc92e84adc2",
+       "ab107ddaf89d242ac18e359d680c0f11b7b35199be202c119672c769fcfe8050",
+       "bb3696cd1d51ab0af2f6cb7a04cb6f8d388b38830892703f4ead6f591baf2c63",
+       "      assets: AssetRepository,\n"}
+    ]
+  end
+
+  defp undo_phase5_task8!(@application = path, source) do
+    Enum.reduce(phase5_task8_replacements(), source, fn
+      {id, before, old, new, after_bytes, old_hash, new_hash, old_context_hash, new_context_hash,
+       _destination},
+      remaining ->
+        assert_digest!(path <> id <> " old", old, old_hash)
+        assert_digest!(path <> id <> " new", new, new_hash)
+
+        assert_digest!(
+          path <> id <> " old context",
+          before <> old <> after_bytes,
+          old_context_hash
+        )
+
+        context = before <> new <> after_bytes
+        assert_digest!(path <> id <> " new context", context, new_context_hash)
+        assert [_, _] = String.split(remaining, new)
+        if old != "", do: refute(String.contains?(remaining, old))
+        assert [prefix, suffix] = String.split(remaining, context)
+        prefix <> before <> old <> after_bytes <> suffix
+    end)
+  end
+
+  defp undo_phase5_task8!(_path, source), do: source
+
+  defp assert_task8_tuple!(source, tuple) do
+    {id, before, old, new, after_bytes, old_hash, new_hash, old_context_hash, new_context_hash,
+     destination} = tuple
+
+    assert_digest!(@application <> id <> " old", old, old_hash)
+    assert_digest!(@application <> id <> " new", new, new_hash)
+
+    assert_digest!(
+      @application <> id <> " old context",
+      before <> old <> after_bytes,
+      old_context_hash
+    )
+
+    assert_digest!(
+      @application <> id <> " new context",
+      before <> new <> after_bytes,
+      new_context_hash
+    )
+
+    assert [_, _] = String.split(source, new)
+    assert [prefix, suffix] = String.split(source, before <> new <> after_bytes)
+    assert [_, _] = String.split(source, destination)
+    if old != "", do: refute(String.contains?(source, old))
+    {before, old, new, after_bytes, destination, prefix, suffix}
+  end
+
+  defp task8_mutation!(source, tuple, mutation) do
+    {before, old, new, after_bytes, destination, prefix, suffix} =
+      assert_task8_tuple!(source, tuple)
+
+    context = before <> new <> after_bytes
+    old_site = before <> old <> after_bytes
+
+    mutated =
+      case mutation do
+        :missing ->
+          removed = prefix <> old_site <> suffix
+          refute String.contains?(removed, new)
+          assert [_, _] = String.split(removed, old_site)
+          removed
+
+        :duplicate ->
+          duplicated = prefix <> before <> new <> new <> after_bytes <> suffix
+          assert [_, _, _] = String.split(duplicated, new)
+          duplicated
+
+        :altered ->
+          altered_new = String.replace(new, "WorkerRepo", "WorkerRepoUnapproved")
+          refute altered_new == new
+          altered = prefix <> before <> altered_new <> after_bytes <> suffix
+          assert [_, _] = String.split(altered, before <> altered_new <> after_bytes)
+          refute String.contains?(altered, new)
+          altered
+
+        :relocated ->
+          removed = prefix <> old_site <> suffix
+          assert [destination_prefix, destination_suffix] = String.split(removed, destination)
+          relocated = destination_prefix <> destination <> new <> destination_suffix
+          assert [_, _] = String.split(relocated, new)
+          assert [_, _] = String.split(relocated, destination <> new)
+          assert [_, _] = String.split(relocated, old_site)
+          refute String.contains?(relocated, context)
+          relocated
+
+        :before ->
+          changed_before = before <> "  # unauthorized Task8 before context\n"
+          changed = prefix <> changed_before <> new <> after_bytes <> suffix
+          assert [_, _] = String.split(changed, new)
+          assert [_, _] = String.split(changed, changed_before <> new <> after_bytes)
+          refute String.contains?(changed, context)
+          changed
+
+        :after ->
+          changed_after = "  # unauthorized Task8 after context\n" <> after_bytes
+          changed = prefix <> before <> new <> changed_after <> suffix
+          assert [_, _] = String.split(changed, new)
+          assert [_, _] = String.split(changed, before <> new <> changed_after)
+          refute String.contains?(changed, context)
+          changed
+
+        :coexisting ->
+          assert old != ""
+          coexisting = prefix <> before <> new <> old <> after_bytes <> suffix
+          assert [_, _] = String.split(coexisting, new)
+          assert [_, _] = String.split(coexisting, old)
+          coexisting
+      end
+
+    refute mutated == source
+    mutated
+  end
+
+  # END Task8 exact test attribution.
 end
