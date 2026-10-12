@@ -669,6 +669,580 @@ defmodule Singularity.Storage.KnowledgeExport.SpoolTest do
     assert :ok = call(:abort, [spool])
   end
 
+  # BEGIN sealed-record-iteration test-only additions
+  test "exact metadata reads match actual native pages for all fixed scalar and composite keys",
+       c do
+    records = metadata_records()
+    sealed = metadata_capture(c, records)
+
+    for collection <- @collections do
+      expected = records[collection]
+
+      assert {:ok, %{records: ^expected, next_cursor: nil}} =
+               call(:read_page, [sealed, cursor(sealed, collection), 500])
+
+      for record <- expected do
+        assert {:ok, ^record} =
+                 call(:read_metadata, [sealed, collection, metadata_key(collection, record)])
+      end
+
+      assert {:ok, ^expected} =
+               call(:reduce_metadata, [
+                 sealed,
+                 collection,
+                 [],
+                 fn record, acc -> {:ok, acc ++ [record]} end
+               ])
+    end
+
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "ordered metadata reduction preserves exact composite version keys rather than flattening them",
+       c do
+    expected = Enum.map(1..5, &asset_version(&1, 12))
+    sealed = metadata_capture(c, %{versions: Enum.reverse(expected)})
+    {paged, _} = pages(sealed, cursor(sealed, :versions), [], [])
+    assert paged == expected
+
+    assert {:ok, reversed} =
+             call(:reduce_metadata, [
+               sealed,
+               :versions,
+               [],
+               fn record, acc -> {:ok, [metadata_key(:versions, record) | acc]} end
+             ])
+
+    assert Enum.reverse(reversed) == Enum.map(expected, &metadata_key(:versions, &1))
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "ordered metadata reduction returns every native record exactly once independent of insertion",
+       c do
+    expected = Enum.map(1..7, &resource/1)
+    sealed = metadata_capture(c, %{resources: Enum.reverse(expected)})
+    {paged, _} = pages(sealed, cursor(sealed, :resources), [], [])
+    assert paged == expected
+
+    assert {:ok, reversed} =
+             call(:reduce_metadata, [
+               sealed,
+               :resources,
+               [],
+               fn record, acc -> {:ok, [record | acc]} end
+             ])
+
+    assert Enum.reverse(reversed) == expected
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "empty ordered metadata reduction preserves accumulator and never calls consumer", c do
+    sealed = metadata_capture(c, %{})
+    token = make_ref()
+
+    assert {:ok, {:initial, 7}} =
+             call(:reduce_metadata, [
+               sealed,
+               :resources,
+               {:initial, 7},
+               fn _, _ ->
+                 send(self(), token)
+                 {:error, Error.new(:forbidden)}
+               end
+             ])
+
+    refute_receive ^token, 0
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "exact metadata rejects unknown collections missing keys and coercion without aborting source",
+       c do
+    sealed = metadata_capture(c, metadata_records())
+    version_key = {uuid(1), uuid(1_001)}
+
+    for {collection, key} <- [
+          {:unknown, uuid(1)},
+          {"resources", uuid(1)},
+          {:files, uuid(1)},
+          {:resources, nil},
+          {:resources, uuid(999)},
+          {:resources, [uuid(1)]},
+          {:versions, Tuple.to_list(version_key)},
+          {:versions, :erlang.term_to_binary(version_key)},
+          {:versions, {uuid(1), uuid(999)}}
+        ] do
+      assert {:error, %Error{code: :invalid}} = call(:read_metadata, [sealed, collection, key])
+    end
+
+    for args <- [
+          [sealed, :unknown, [], fn _, acc -> {:ok, acc} end],
+          [sealed, "resources", [], fn _, acc -> {:ok, acc} end],
+          [sealed, :resources, [], nil],
+          [sealed, :resources, [], fn _ -> :ok end]
+        ] do
+      assert {:error, %Error{code: :invalid}} = call(:reduce_metadata, args)
+    end
+
+    for invalid <- [nil, %{}, "sealed", :erlang.term_to_binary(sealed)],
+        method <- [:point, :reduce] do
+      assert_error(metadata_read(method, invalid, :resources, uuid(1)))
+    end
+
+    assert {:ok, record} = call(:read_metadata, [sealed, :resources, uuid(1)])
+    assert record == resource(1)
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "exact metadata detects swapped native catalog keys before point or reduction delivery",
+       c do
+    for method <- [:point, :reduce] do
+      sealed = metadata_capture(c, %{resources: [resource(1), resource(2)]})
+      first = sealed._collections.resources[uuid(1)]
+      second = sealed._collections.resources[uuid(2)]
+      entries = %{uuid(1) => second, uuid(2) => first}
+      substituted = %{sealed | _collections: Map.put(sealed._collections, :resources, entries)}
+
+      assert_metadata_native_denial(
+        c,
+        sealed,
+        metadata_read(method, substituted, :resources, uuid(1))
+      )
+    end
+  end
+
+  test "same-ID resource and tag whole-frame substitution cannot cross the native collection selector",
+       c do
+    for method <- [:point, :reduce] do
+      tag = %{"id" => uuid(1), "display_value" => "Tag", "normalized_key" => "tag"}
+      sealed = metadata_capture(c, %{resources: [resource(1)], tags: [tag]})
+      assert {:ok, %{records: [^tag]}} = call(:read_page, [sealed, cursor(sealed, :tags), 500])
+      tag_frame = sealed._collections.tags[uuid(1)]
+      resource_frame = sealed._collections.resources[uuid(1)]
+
+      collections =
+        sealed._collections
+        |> Map.put(:resources, %{uuid(1) => tag_frame})
+        |> Map.put(:tags, %{uuid(1) => resource_frame})
+
+      substituted = %{sealed | _collections: collections}
+
+      assert_metadata_native_denial(
+        c,
+        sealed,
+        metadata_read(method, substituted, :resources, uuid(1))
+      )
+    end
+  end
+
+  test "genuine wrong native index reference cannot authenticate a different metadata payload",
+       c do
+    for method <- [:point, :reduce] do
+      sealed = metadata_capture(c, %{resources: [resource(1), resource(2)]})
+      first = sealed._collections.resources[uuid(1)]
+      second = sealed._collections.resources[uuid(2)]
+      substituted_frame = %{first | index: second.index}
+      entries = Map.put(sealed._collections.resources, uuid(1), substituted_frame)
+      substituted = %{sealed | _collections: Map.put(sealed._collections, :resources, entries)}
+
+      assert_metadata_native_denial(
+        c,
+        sealed,
+        metadata_read(method, substituted, :resources, uuid(1))
+      )
+    end
+  end
+
+  test "point and reduction authenticate real payload and index bytes not only native file lengths",
+       c do
+    for file <- [:payload, :index], method <- [:point, :reduce] do
+      sealed = metadata_capture(c, %{resources: [resource(1)]})
+      frame = sealed._collections.resources[uuid(1)]
+      ref = if file == :index, do: frame.index, else: frame
+      path = Path.join(operation_dir(c.root, sealed), Atom.to_string(file))
+      bytes = File.read!(path)
+      position = ref.offset + 40
+      <<prefix::binary-size(position), original, rest::binary>> = bytes
+      File.write!(path, prefix <> <<Bitwise.bxor(original, 1)>> <> rest)
+      assert File.stat!(path).size == byte_size(bytes)
+      assert_metadata_native_denial(c, sealed, metadata_read(method, sealed, :resources, uuid(1)))
+    end
+  end
+
+  test "point and reduction reject unsealed stale and already aborted native captures", c do
+    {:ok, initial} = call(:open, [c.context])
+    {:ok, appended} = call(:append, [initial, {:metadata, :resources}, resource(1)])
+    {:ok, sealed} = call(:seal, [appended])
+
+    for descriptor <- [initial, appended], method <- [:point, :reduce] do
+      assert {:error, %Error{code: :invalid}} =
+               metadata_read(method, descriptor, :resources, uuid(1))
+    end
+
+    assert :ok = call(:abort, [sealed])
+
+    for method <- [:point, :reduce] do
+      assert {:error, %Error{code: :invalid}} = metadata_read(method, sealed, :resources, uuid(1))
+    end
+
+    assert File.ls!(c.root) == ["neighbor-sentinel"]
+    assert File.read!(c.sentinel) == "neighbor"
+  end
+
+  test "point and reduction expire at the unchanged deadline and clean only their owned capture",
+       c do
+    for method <- [:point, :reduce] do
+      now = :atomics.new(1, signed: true)
+      :atomics.put(now, 1, 0)
+
+      sealed =
+        metadata_capture(c, %{resources: [resource(1)]}, %{clock: fn -> :atomics.get(now, 1) end})
+
+      assert sealed._deadline == 900_000
+      :atomics.put(now, 1, sealed._deadline)
+      assert_metadata_native_denial(c, sealed, metadata_read(method, sealed, :resources, uuid(1)))
+    end
+  end
+
+  test "forged capture identity cannot read metadata or remove the genuine owned operation", c do
+    sealed = metadata_capture(c, %{resources: [resource(1)]})
+    forged = %{sealed | capture_id: uuid(999)}
+
+    for method <- [:point, :reduce] do
+      assert {:error, %Error{code: :invalid}} = metadata_read(method, forged, :resources, uuid(1))
+    end
+
+    assert File.dir?(operation_dir(c.root, sealed))
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "native operation identity drift denies metadata without adopting or deleting the replacement",
+       c do
+    for method <- [:point, :reduce] do
+      sealed = metadata_capture(c, %{resources: [resource(1)]})
+      directory = operation_dir(c.root, sealed)
+      displaced = directory <> "-owned"
+      File.rename!(directory, displaced)
+      File.mkdir!(directory)
+      File.chmod!(directory, 0o700)
+      foreign = Path.join(directory, "foreign-sentinel")
+      File.write!(foreign, "foreign")
+
+      try do
+        assert_error(metadata_read(method, sealed, :resources, uuid(1)))
+        assert File.read!(foreign) == "foreign"
+        assert File.dir?(displaced)
+        assert File.read!(c.sentinel) == "neighbor"
+      after
+        File.rm!(foreign)
+        File.rmdir!(directory)
+        File.rename!(displaced, directory)
+        assert_metadata_cleanup(c, sealed)
+      end
+    end
+  end
+
+  test "ordinary reduction consumer error halts once strips details and leaves native capture readable",
+       c do
+    sealed = metadata_capture(c, %{resources: [resource(1), resource(2)]})
+    token = make_ref()
+    canary = "METADATA_CONSUMER_PRIVATE_290a"
+
+    result =
+      call(:reduce_metadata, [
+        sealed,
+        :resources,
+        0,
+        fn record, _ ->
+          send(self(), {token, record["id"]})
+
+          {:error,
+           Error.new(:forbidden, retryable?: true, message: canary, details: %{body: canary})}
+        end
+      ])
+
+    assert {:error, %Error{code: :forbidden, retryable?: true, details: %{}, message: nil}} =
+             result
+
+    assert result == {:error, Error.new(:forbidden, retryable?: true)}
+    refute inspect(result) =~ canary
+    assert_receive {^token, first}
+    assert first == uuid(1)
+    refute_receive {^token, _}, 0
+    assert {:ok, record} = call(:read_metadata, [sealed, :resources, uuid(2)])
+    assert record == resource(2)
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "raised thrown and malformed reduction callbacks fail content-free without false native corruption",
+       c do
+    sealed = metadata_capture(c, %{resources: [resource(1)]})
+    canary = "METADATA_CALLBACK_PRIVATE_3d72"
+
+    for {consumer, code} <- [
+          {fn _, _ -> raise canary end, :storage_unavailable},
+          {fn _, _ -> throw(canary) end, :storage_unavailable},
+          {fn _, _ -> {:ok, :unchecked, canary} end, :invalid},
+          {fn _, _ -> {:error, canary} end, :invalid},
+          {fn _, _ -> :ok end, :invalid}
+        ] do
+      result = call(:reduce_metadata, [sealed, :resources, [], consumer])
+      assert {:error, %Error{code: ^code, details: %{}, message: nil}} = result
+      assert result == {:error, Error.new(code)}
+      refute inspect(result) =~ canary
+      assert {:ok, record} = call(:read_metadata, [sealed, :resources, uuid(1)])
+      assert record == resource(1)
+    end
+
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  test "consumer cancellation invalidates reduction completion and preserves neighboring captures",
+       c do
+    sealed = metadata_capture(c, %{resources: [resource(1)]})
+    other = metadata_capture(c, %{resources: [resource(2)]})
+
+    assert {:error, %Error{}} =
+             call(:reduce_metadata, [
+               sealed,
+               :resources,
+               0,
+               fn _, acc ->
+                 assert :ok = call(:abort, [sealed])
+                 {:ok, acc + 1}
+               end
+             ])
+
+    refute File.exists?(operation_dir(c.root, sealed))
+    assert File.dir?(operation_dir(c.root, other))
+    assert {:ok, record} = call(:read_metadata, [other, :resources, uuid(2)])
+    assert record == resource(2)
+    assert_metadata_cleanup(c, other)
+  end
+
+  test "last successful metadata consumer cannot hide expiry before final reduction return", c do
+    now = :atomics.new(1, signed: true)
+    :atomics.put(now, 1, 0)
+
+    sealed =
+      metadata_capture(c, %{resources: [resource(1)]}, %{clock: fn -> :atomics.get(now, 1) end})
+
+    token = make_ref()
+
+    result =
+      call(:reduce_metadata, [
+        sealed,
+        :resources,
+        0,
+        fn _, acc ->
+          send(self(), token)
+          :atomics.put(now, 1, sealed._deadline)
+          {:ok, acc + 1}
+        end
+      ])
+
+    assert_receive ^token
+    assert_metadata_native_denial(c, sealed, result)
+  end
+
+  test "empty reduction repeats native readability rather than accepting the entry deadline alone",
+       c do
+    state = :atomics.new(2, signed: true)
+
+    clock = fn ->
+      if :atomics.get(state, 1) == 0 or :atomics.add_get(state, 2, 1) == 1,
+        do: 0,
+        else: 900_000
+    end
+
+    sealed = metadata_capture(c, %{}, %{clock: clock})
+    :atomics.put(state, 1, 1)
+    token = make_ref()
+
+    result =
+      call(:reduce_metadata, [
+        sealed,
+        :resources,
+        :initial,
+        fn _, _ ->
+          send(self(), token)
+          {:ok, :unchecked}
+        end
+      ])
+
+    refute_receive ^token, 0
+    assert_metadata_native_denial(c, sealed, result)
+  end
+
+  test "last successful metadata consumer cannot hide native size drift before final return", c do
+    sealed = metadata_capture(c, %{resources: [resource(1)]})
+
+    result =
+      call(:reduce_metadata, [
+        sealed,
+        :resources,
+        0,
+        fn _, acc ->
+          path = Path.join(operation_dir(c.root, sealed), "payload")
+          File.write!(path, File.read!(path) <> "DRIFT_AFTER_LAST_RECORD")
+          {:ok, acc + 1}
+        end
+      ])
+
+    assert_metadata_native_denial(c, sealed, result)
+  end
+
+  test "exact metadata preserves accepted pending Asset draft without inventing a digest", c do
+    key = {:binary_binding, :asset, uuid(1), uuid(1_001)}
+    draft = Map.put(asset_version(1, 12), "original_digest", nil)
+    {:ok, spool} = call(:open, [c.context])
+    {:ok, spool} = call(:append, [spool, key, asset_binding(1, 12)])
+    {:ok, spool} = call(:append, [spool, {:metadata, :versions}, draft])
+    {:ok, sealed} = call(:seal, [spool])
+    on_exit(fn -> assert :ok = call(:abort, [sealed]) end)
+
+    assert {:ok, %{records: [^draft]}} =
+             call(:read_page, [sealed, cursor(sealed, :versions), 500])
+
+    assert {:ok, ^draft} = call(:read_metadata, [sealed, :versions, {uuid(1), uuid(1_001)}])
+
+    assert {:ok, [^draft]} =
+             call(:reduce_metadata, [
+               sealed,
+               :versions,
+               [],
+               fn record, acc -> {:ok, [record | acc]} end
+             ])
+
+    assert {:error, %Error{code: :invalid}} =
+             Singularity.Core.KnowledgeExportManifest.record(:versions, draft)
+
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  defp metadata_capture(c, records, overrides \\ %{}) do
+    {:ok, spool} = call(:open, [Map.merge(c.context, overrides)])
+
+    spool =
+      Enum.reduce(@collections, spool, fn collection, current ->
+        Enum.reduce(Map.get(records, collection, []), current, fn record, owned ->
+          {:ok, next} = call(:append, [owned, {:metadata, collection}, record])
+          next
+        end)
+      end)
+
+    {:ok, sealed} = call(:seal, [spool])
+    on_exit(fn -> assert :ok = call(:abort, [sealed]) end)
+    sealed
+  end
+
+  defp metadata_read(:point, sealed, collection, key),
+    do: call(:read_metadata, [sealed, collection, key])
+
+  defp metadata_read(:reduce, sealed, collection, _key) do
+    token = make_ref()
+
+    result =
+      call(:reduce_metadata, [
+        sealed,
+        collection,
+        [],
+        fn _, acc ->
+          send(self(), token)
+          {:ok, acc}
+        end
+      ])
+
+    refute_receive ^token, 0
+    result
+  end
+
+  defp assert_metadata_native_denial(c, sealed, result) do
+    assert {:error, %Error{code: :integrity_failure, details: %{}, message: nil}} = result
+    assert result == {:error, Error.new(:integrity_failure)}
+    refute File.exists?(operation_dir(c.root, sealed))
+    assert_metadata_cleanup(c, sealed)
+  end
+
+  defp assert_metadata_cleanup(c, sealed) do
+    assert :ok = call(:abort, [sealed])
+    refute File.exists?(operation_dir(c.root, sealed))
+    assert File.ls!(c.root) == ["neighbor-sentinel"]
+    assert File.read!(c.sentinel) == "neighbor"
+  end
+
+  defp metadata_records do
+    locator = %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
+
+    %{
+      resources: [resource(1)],
+      versions: [asset_version(1, 12)],
+      fragments: [
+        %{
+          "id" => sha("fragment identity"),
+          "resource_id" => uuid(2),
+          "version_id" => uuid(1_002),
+          "ordinal" => 0,
+          "digest" => sha("text"),
+          "locator" => locator,
+          "extracted_path" => nil,
+          "start_byte" => nil,
+          "byte_size" => nil
+        }
+      ],
+      tags: [%{"id" => uuid(3), "display_value" => "Tag", "normalized_key" => "tag"}],
+      tag_assignments: [%{"resource_id" => uuid(1), "tag_id" => uuid(3)}],
+      relationships: [
+        %{
+          "id" => uuid(4),
+          "source_resource_id" => uuid(1),
+          "target_resource_id" => uuid(2),
+          "target_version_id" => uuid(1_002),
+          "type" => "references"
+        }
+      ],
+      attachments: [
+        %{
+          "note_resource_id" => uuid(1),
+          "note_version_id" => uuid(1_001),
+          "id" => uuid(5),
+          "ordinal" => 0,
+          "target_resource_id" => uuid(2),
+          "target_version_id" => uuid(1_002),
+          "target_kind" => "document",
+          "role" => "source",
+          "label" => nil
+        }
+      ],
+      citations: [
+        %{
+          "note_resource_id" => uuid(1),
+          "note_version_id" => uuid(1_001),
+          "id" => uuid(6),
+          "ordinal" => 0,
+          "source_resource_id" => uuid(2),
+          "source_version_id" => uuid(1_002),
+          "fragment_id" => sha("fragment identity"),
+          "locator" => locator
+        }
+      ]
+    }
+  end
+
+  defp metadata_key(collection, record) when collection in [:resources, :tags, :relationships],
+    do: record["id"]
+
+  defp metadata_key(:versions, record), do: {record["resource_id"], record["version_id"]}
+
+  defp metadata_key(:fragments, record),
+    do: {record["resource_id"], record["version_id"], record["ordinal"], record["id"]}
+
+  defp metadata_key(:tag_assignments, record), do: {record["resource_id"], record["tag_id"]}
+
+  defp metadata_key(collection, record) when collection in [:attachments, :citations],
+    do: {record["note_resource_id"], record["note_version_id"], record["ordinal"], record["id"]}
+
+  # END sealed-record-iteration test-only additions
+
   defp call(function, args) do
     assert Code.ensure_loaded?(@spool), "missing concrete capture Spool"
     assert function_exported?(@spool, function, length(args))

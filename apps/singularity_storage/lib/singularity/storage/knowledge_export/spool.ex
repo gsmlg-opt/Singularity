@@ -82,6 +82,58 @@ defmodule Singularity.Storage.KnowledgeExport.Spool do
     end)
   end
 
+  def read_metadata(spool, collection, key) when collection in @collections do
+    with :ok <- readable(spool),
+         {:ok, frame} <- Map.fetch(spool._collections[collection], key) do
+      with {:ok, bytes} <- checked_metadata_payload(spool, collection, frame),
+           record = JSON.decode!(bytes),
+           :ok <- metadata_valid(spool, collection, record),
+           true <- record_key(collection, record) === key do
+        {:ok, record}
+      else
+        _ -> fail_capture(spool, :integrity_failure)
+      end
+    else
+      {:error, %Error{}} = failure -> failure
+      _ -> error(:invalid)
+    end
+  rescue
+    _ -> fail_capture(spool, :integrity_failure)
+  catch
+    _, _ -> fail_capture(spool, :integrity_failure)
+  end
+
+  def read_metadata(_, _, _), do: error(:invalid)
+
+  def reduce_metadata(spool, collection, initial, consume)
+      when collection in @collections and is_function(consume, 2) do
+    with :ok <- readable(spool) do
+      keys = spool._collections |> Map.fetch!(collection) |> Map.keys() |> Enum.sort()
+
+      result =
+        Enum.reduce_while(keys, {:ok, initial}, fn key, {:ok, acc} ->
+          with {:ok, record} <- read_metadata(spool, collection, key),
+               {:ok, next} <- consume.(record, acc) do
+            {:cont, {:ok, next}}
+          else
+            {:error, %Error{code: code, retryable?: retryable?}} ->
+              {:halt, {:error, Error.new(code, retryable?: retryable?)}}
+
+            _ ->
+              {:halt, error(:invalid)}
+          end
+        end)
+
+      with {:ok, final} <- result, :ok <- readable(spool), do: {:ok, final}
+    end
+  rescue
+    _ -> error(:storage_unavailable)
+  catch
+    _, _ -> error(:storage_unavailable)
+  end
+
+  def reduce_metadata(_, _, _, _), do: error(:invalid)
+
   def read_page(spool, cursor, limit) do
     with :ok <- readable(spool),
          true <- is_integer(limit) and limit in 1..500,
@@ -1144,6 +1196,23 @@ defmodule Singularity.Storage.KnowledgeExport.Spool do
 
       failure ->
         failure
+    end
+  end
+
+  defp checked_metadata_payload(spool, collection, frame) do
+    expected_index = %{
+      "selector" => ["metadata", Atom.to_string(collection)],
+      "offset" => frame.offset,
+      "length" => frame.length,
+      "sha256" => hex(frame.hash)
+    }
+
+    with {:ok, index_bytes} <- read_frame(spool, :index, frame.index),
+         true <- JSON.decode!(index_bytes) === expected_index,
+         {:ok, bytes} <- read_frame(spool, :payload, frame) do
+      {:ok, bytes}
+    else
+      _ -> error(:integrity_failure)
     end
   end
 
