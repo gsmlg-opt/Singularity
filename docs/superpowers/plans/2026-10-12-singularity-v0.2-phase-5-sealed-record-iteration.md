@@ -15,7 +15,8 @@ Actual source SPEC passed; fresh source QUALITY found two additional full-path
 P2s. Repair2 amendment TasksE–H passed actual design reviews. Test-only causal
 RED and production authoring are closed; all current owning/retained/static
 gates pass. Actual SOURCE SPEC and distinct fresh SOURCE QUALITY both CLOSED
-PASS/noP1P2; Task15 is a qualified bounded component ready for scoped localcommit.
+PASS/noP1P2; Task15 is a qualified bounded component locally committed at
+`4e2499d5b89664c3e7b63cb1f3136c243b276c83`, exactly seven owned paths.
 The same quality agent's later model-capacity failure concerned its separate
 Task9E design review, not the completed Writer source verdict; that design
 review subsequently resumed and also closed PASS.
@@ -366,7 +367,7 @@ Worker ONLY writer.ex. Preserve accepted Spool ports/tests, format, Task14/D/fro
   same fullTask15 outcome fails later, retain counters and route parent-managed
   Astra RECOVERY with at least3 bounded attempts if needed. Never misclassify
   architecture/model-capacity errors as repairs or artificially reset counts.
-- [ ] Parent scoped local commit only after all required gates/reviews; synchronize
+- [x] Parent scoped local commit only after all required gates/reviews; synchronize
   master/report exactscope/evidence/noVaultwork. Task16/Phase5 remain unqualified.
 
 Repair2 source author CLOSED with only Writer.ex changed. Parent fully read all
@@ -387,6 +388,6 @@ thread-limit failures were review availability history, not source repair result
 no parent self-review replaced the required actual review. The reviewer's later
 model-capacity failure affected its separate unfinished Task9E design review,
 which also subsequently closed PASS. Repair2 owning/retained/static gates and
-both source reviews pass; localcommit remains pending until recorded. Cumulative
+both source reviews pass; scoped localcommit4e2499d is recorded. Cumulative
 scalabilityround1 remains unaccepted history; Astra recovery0. No Task16/Phase5,
 browser or release acceptance, Vault feature work, E2E or publication is claimed.

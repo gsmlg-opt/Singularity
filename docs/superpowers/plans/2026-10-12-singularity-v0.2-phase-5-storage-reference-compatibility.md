@@ -38,7 +38,8 @@ all79 protected entries, at HEAD `9f91c97eb392b4c49c888ed31795d520d15bb8dd`.
 Earlier pending/FAIL paragraphs are historical evidence, not current verdicts.
 Exact results/review captures are in
 `docs/verification/2026-10-13-phase-5-task9-compatibility-handoff.md`.
-The bounded local commit remains next; TaskG/Task10–12 remain unqualified.
+The bounded26-path local commit is `5619eccdbc2256c4c5aa702b653038fa57ada6fe`;
+TaskG/Task10–12 remain unqualified. All earlier pending statements are historical.
 
 Task9E amendment: actual NONAUTHOR DESIGN SPEC and distinct fresh QUALITY
 CLOSED PASS/noP1P2 on exact four-file review hashes c161d673/bf434b49/
@@ -448,7 +449,7 @@ git diff --check
 - [x] Record exact source/migration lists, unchanged accepted migrations/frozen56,
   test results, SQL function equivalence/ACL evidence and residual risks. Obtain
   actual nonauthor SOURCE SPEC then separate fresh QUALITY on that exact diff.
-- [ ] Parent makes a small local reviewed commit, preserving unrelated files:
+- [x] Parent makes a small local reviewed commit, preserving unrelated files:
   `fix(restore): preserve v3 storage references across integrity verification`.
   Record commit SHA and exact verification scope; no publication or phase acceptance.
 

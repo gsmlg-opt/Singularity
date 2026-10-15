@@ -4,13 +4,14 @@
 
 All required parent-executed native B–F checks are CLOSED PASS.
 Combined actual NONAUTHOR SOURCE SPEC and distinct fresh SOURCE QUALITY are
-also CLOSED PASS, no P1/P2. This accepts the bounded B–F source component;
-the scoped local commit is the next parent operation. It does not accept
+also CLOSED PASS, no P1/P2. The bounded B–F component is locally committed at
+`5619eccdbc2256c4c5aa702b653038fa57ada6fe`, exactly26 reviewed paths. It does not accept
 Task10/11, Phase5 or any release.
 
 Worktree: `.trees/v0.2-phase-5-export-backup`.
 Branch: `codex/v0.2-phase-5-export-backup`.
-Current local HEAD: `9f91c97eb392b4c49c888ed31795d520d15bb8dd`.
+Reviewed precommit HEAD: `9f91c97eb392b4c49c888ed31795d520d15bb8dd`.
+Bounded local handoff HEAD: `5619eccdbc2256c4c5aa702b653038fa57ada6fe`.
 Previous `4e2499d5b89664c3e7b63cb1f3136c243b276c83` remains unchanged
 apart from the separately reviewed Task8 attribution test/report commit.
 Main, other worktrees, unrelated files and the index are preserved.
@@ -208,6 +209,12 @@ tested source bytes are unchanged. QUALITY's initial read-only preflight-prefix
 diagnostic failed because additions are internal; its subsequent complete-line/
 diff preservation calculation passed. This is recorded, not a source repair.
 No Task10 production GO follows merely from F's acceptance.
+
+Parent Git commit closed exit0; exact staged26-path verification, cached
+diff-check and staged/current equality all passed. Postcommit index is EMPTY.
+Task10/16 untracked documents and Task13/15 bookkeeping remain preserved and
+unstaged. Commit message:
+`fix(restore): preserve v3 storage references across integrity verification`.
 New F native repair rounds: 0. Earlier component-specific Sol/fixture repairs
 and Astra architecture advice remain separately recorded, not reset by GREEN.
 Astra recovery rounds remain 0.

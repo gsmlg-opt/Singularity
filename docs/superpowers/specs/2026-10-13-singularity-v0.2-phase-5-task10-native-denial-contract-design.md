@@ -3,8 +3,25 @@
 Status: DESIGN REVIEWED. Actual independent DESIGN SPEC then NEW distinct fresh
 DESIGN QUALITY CLOSED PASS/noP1P2 on reviewed designf628637e/planf03c4f0d.
 These status-only lines follow the archived exact reviewed documents. Parent
-permits bounded Sol test repair attempt2 only after the design-only local commit;
-implementation/native GREEN and source acceptance remain pending.
+bounded Sol test repair attempt2 followed design-only local commit2a7873b and
+actual author closure. Parent format/compile CLOSEDexit0, then exact whole H3
+CLOSED148tests0FAIL631.0s and repeated complete Runtime2 CLOSED10tests0FAIL187.3s.
+Normal cleanups EMPTY/roots absent/eight-source/frozen56/protected3 unchanged.
+Retained whole Base/Task9/Task8 pure/SQL and static checks subsequently CLOSED
+PASS with actual exclusions preserved. README and corrected source acceptance remain pending;
+Task10/Phase5 not accepted. At focused closure combined failed Sol1/Astra0 was unchanged.
+
+Complete permitted README integration subsequently naturally CLOSED FAIL:
+session36198/exit2, Storage370FAIL and Runtime369FAIL (1831executed/739FAIL).
+Normal final maintenance is NOTEMPTY: one exact test-owned orphan DB/root.
+Current8/frozen56/protected3/locked13 remain unchanged. Earlier focused PASSs
+remain scoped evidence, not full README or Task10 acceptance. Cumulative
+combined failedSol2/AstraRepair0 now requires bounded Astra recovery1;
+historical failedSol1 receipts and separate preparation counters are preserved.
+The precisely scoped next amendment is
+`2026-10-13-singularity-v0.2-phase-5-readme-compatibility-design.md` and its
+companion plan. Independent design reviews precede authoring; no Task10/Phase5
+acceptance or weakened Observer/Runtime/security assertion follows.
 
 ## Evidence, authority and scope
 
@@ -43,6 +60,9 @@ disjoint Sol owns only the test. Entry test SHA256
 6799d0c43ec3af7abe00b23fa55f0f6297a696da2d071ea06ed38efe8e2f31d6.
 Every production file, other test, shared fixture, released/new migration,
 frozen/protected baseline, Vault/custody/lease/wire/defaultV2 stays unchanged.
+That exact exclusion describes this historical single-test R2 repair. The
+subsequent separately reviewed complete-README amendment permits only its
+named knowledge test/support changes; it does not widen this repair or freeze.
 
 ## Recommended bounded repair and rejected alternatives
 

@@ -5,6 +5,402 @@ SPEC followed by separate fresh QUALITY review have closed. Phase 5 remains
 IN PROGRESS; this document is not implementation acceptance. The reviewed
 snapshots and bounded corrections are recorded in the Phase 5 report.
 
+## Current Task10 qualification — 2026-10-15
+
+Task10 source/gate qualification is complete on local source commit
+`d1a8d4f73c570daa7177468b246a25819a2cdd39`: all15 permitted README gates PASS,
+including2092 unit tests+10properties,1882 integration tests and197 JS tests.
+Final whole28 actual SPEC followed by NEW distinct fresh QUALITY both CLOSED
+PASS, no actionable P1/P2. Exact commands, five local code commits, immutable
+evidence and documentation-handoff closure conditions are in [Task10 handoff](../../verification/2026-10-15-phase-5-task10-handoff.md).
+Phase5 remains IN PROGRESS; Tasks11/12 are not accepted and defaultV2 stays.
+Task16 BOTH strict ALL-leases remain UNSATISFIED/UNWAIVED/BLOCKED_DESIGN.
+E2E NOT RUN; no publication, deployment, production activation or Vault feature work.
+
+## Historical qualification records
+
+The statuses below belong to their recorded earlier source generations. Their
+FAIL/NOT RUN results are preserved; they do not describe the current handoff.
+
+Fresh sameSource permitted README gates1–6 now PASS. ONE ordinary NO-ARGS
+unit revalidation f25c4a/session62510 naturally CLOSED0/f9d87b at2026-10-15
+05:31:10+08/default96/auto-seed546534:2092executedtests+10properties/0FAIL/
+1874existingexcluded. Complete untruncated raw78lines/24416bytes/9b1e6d6b
+readEOF66359a, closure04b50ff1; all277/27/source/pins/indexHEAD/owned0 poste763e7
+PASS, ordinarypost8b8e9c CLOSED0EMPTY. No observer/seed/filter/prewarm/deadline/
+concurrency/source changes. This current PASS does NOT prove causalrepair or
+reliability and does NOT reclassify originalFAIL; residual PDFcauseUNKNOWN
+retained for final independent Source review.
+README gate7 integration ONE execution029e56/session4152 naturally CLOSED2/
+42160f at2026-10-15 07:16:12+08/default96/seed988075:Storage14FAIL/4INVALID
+(1501selected/1497executed), Runtime373executed/0FAIL; others all excluded.
+Aggregate1874selected/4invalid/1870executed/14FAIL/2102existingexcluded.
+Raw925lines/118036bytes/SHAfff90b0f98bb4f424d4c879563ede664eb96e1f7afe6e338df299ae380ee0e8b
+read complete1EOF/a74851. Post277/27/source/pins/HEAD/indexEMPTY/owned0/
+rawSHA guard536f1c PASS; ordinaryposte30feb CLOSED0EMPTY.
+Thirteen wake-migration preparation refusals, four search-plan setup invalidations
+after15s checkout, and one V3 large typed-row public import timeout at60s require
+separate diagnosis. No causal repair, assertion/deadline weakening or rerun.
+Closure: `.devenv/phase5-task10-upload-stream-readme-integration1-failure-closure.md`.
+Gate7 FAIL blocks acceptance; gates8–15 NOT STARTED. Continue diagnosis and
+necessary reviewed repair under continuous authorization. E2E NOT RUN.
+Historical preceding NO-ARGS unit gate6 Native34963 naturally CLOSED2 at
+2026-10-14 05:51:22UTC/default96/seed879520:
+2092executedtests+10properties/1FAIL/1874excluded NOT PASS. The sole failure is
+PDFTest196/208: real Poppler malformed.pdf expected unsupported/malformed_document,
+actual failed/extractor_failed. Runtime1033executed/0FAIL does not supersede the
+failed required gate or establish causality. Full90line/25134byte rawSHA256
+7456c42e93f3a974e419beae5804714cdbd379c5af5f850d858eeaf1f588caa3 retained/read.
+All24/protected/indexEMPTY/HEAD unchanged/diffcheck0, exact-worktree BEAM/logger
+absence and ordinary maintenance8163eb CLOSED0/EMPTY. No Native LIVE violation.
+Two independent bounded read-only Sol maps CLOSED; originalfailure causeUNKNOWN.
+Reviewed sanitized utilityV16 wholepreflightPASS, ONE owning and ONE full-cohort
+characterization both nonrecurrenceINCONCLUSIVE; no PDF productrepair. Formal
+ordinary unit revalidation above is separate current evidence, not diagnostics
+substituting a gate or repeat-until-green. Final full Source reviews/local
+commits/literalGitclean pending. Cumulative Source qualification
+FAILs now Sol3/Astra5 (historical Sol2/Astra5 preserved); new PDF repair rounds0.
+Task10/Phase5 NOT ACCEPTED; Task11/12 Source NO GO; E2E NOT RUN.
+
+
+Bounded diagnostic design SPEC then fresh QUALITY CLOSED PASS. Actual utility V1
+SPEC PASS, then NEW distinct fresh QUALITY CHANGES REQUIRED: cross-input-window
+events may be ignored, and suppressed completion may be misclassified as await
+failure. Exact V1 snapshots/review retained (snapshot seal d990b992, review1cd9aa92).
+Utility correction1 actual SPEC CHANGES REQUIRED: same-window post-terminal
+processing can retain COMPLETE. V2 snapshots/rejection retained (c2d83c7c/d9bdcb02).
+Utility correction2 AUTHOR CLOSED: observer70a48f36/preflight56cb5808,
+parent full EOF/diff checks and current14-input seal f4d41c19 PASS.
+Actual independent SPEC CLOSED PASS (ff5d58bc), then NEW distinct fresh QUALITY
+CHANGES REQUIRED (0d516647): extra conflicting control entries and contradictory
+cleanup classifications can retain COMPLETE. Exact V3 snapshots/seal c391ec77
+preserved. Two Sol repair qualifications failed; bounded Astra utility recovery1
+AUTHOR CLOSED under design a61bb6d5/astra_gate=SOL_REPEATED_FAILURE: actual
+observerdf910416/preflight0f7b4c8c, parent EOF/diff/guards PASS, V4 seal97c85166.
+V4 nonauthor SPEC CLOSED PASS (5c87f33a), then NEW distinct fresh QUALITY
+CHANGES REQUIRED (f377bb7c): unassociated root classifications and an initiating
+close request contradicting terminal result can retain COMPLETE. V4 snapshots
+seal50563b98 retained; bounded Astra utility recovery2 AUTHOR CLOSED under design
+a699126f: actual observere43407d3/preflighte670f362, parent actual EOF/diff/guards
+PASS, V5 seal19246dac (24inputs). V5 nonauthor SPEC CLOSED CHANGES REQUIRED
+(7f7b186f): zero-status EXIT and output-limit/process_failed combinations may
+incorrectly retain COMPLETE. Exact V5 snapshotseal929ddbb8 retained; bounded
+Astra utility recovery3 AUTHOR CLOSED under design23b5900b: actual
+observer19556449/preflight92a5bf1f, parent complete EOF/diff/guards PASS, V6
+seal d9bdbbd5 (28inputs). Actual V6 nonauthor SPEC CLOSED PASS (3fe3b39c);
+NEW distinct fresh QUALITY CLOSED CHANGES REQUIRED (859bde15): retained
+normal_result can contradict or follow the initiating close yet retain COMPLETE.
+Exact V6 snapshotseal76df416b preserved. Bounded Astra utility recovery4
+AUTHOR CLOSED under design806ddc1e: observer00645d3c/preflightb3f37227,
+parent complete EOF/diff/guards CLOSED, V7 seal9e7ea6e9 (33inputs).
+Actual independent V7 SPEC CLOSED CHANGES REQUIRED (a62016ea): unreachable
+running/closing await states and incompatible initiating close reader/request
+labels still retain COMPLETE. Exact V7 snapshotseale4e7b179 preserved.
+Bounded Astra utility recovery5 AUTHOR CLOSED under design22ae9488 and
+Source-precision supplement183ca1fb: observer11d82791/preflight2185151e.
+Parent complete EOF/diff/guards PASS, V8 seal6de49f4c (38inputs).
+Actual independent V8 SPEC CLOSED CHANGES REQUIRED (b69ce761): terminal-pipe
+close must immediately finish with identical pipe labels/stored request;
+observed normal output bytes must respect recorded output cap.
+Exact V8 snapshotsealf074d8c0 preserved. Bounded Astra utility recovery6
+AUTHOR CLOSED under designf76f99e6: observer4acc2df0/preflight13939185.
+Parent full actual EOF/deltas/guards CLOSED0, root18893052/current V9 seal
+f46bad2b (42inputs). Actual V9 SPEC CLOSED PASS (ebabbec3); NEW distinct fresh
+V9 QUALITY CLOSED PASS (ce72c12b). No V8 QUALITY started. FIRST isolated
+preflight24961 naturally CLOSED1: observer588 ambiguous try/catch definition
+does not compile. Raw13lines/1277bytes/aea2162f and closurecf9036de preserved;
+no synthetic assertion or real PDF case ran. Protected guards PASS, owned
+BEAM/logger absent, ordinary maintenance68058 CLOSED0 EMPTY. Exact V9 snapshot
+pair0b2727ec preserved. Bounded Astra recovery7 AUTHOR CLOSED under89fe14fb:
+observer6943092c (+7/-1), preflight13939185 unchanged. Root full closurefd99f162,
+current V10 sealdfcd450f (49inputs), actual SPEC CLOSED PASS (fc2dda38);
+NEW distinct fresh V10 QUALITY CLOSED PASS (a47639a2). Second isolated
+preflight53922 naturally CLOSED1: first matchspec_projection contract fails;
+initialize/2 recursive clauses also shadowed. Raw25lines/1834bytes/65ba8321,
+exact V10 snapshots6667a133 and ordinary maintenance5e7778 CLOSED0 EMPTY.
+Astra recovery8 diagnosis CLOSED (60694915): unsupported matchspec :<= atoms
+and starter/recursive initialization overlap. Root confirmed pinned OTP source.
+Recovery8 AUTHOR CLOSED under6c4a1095: observer5531f8ec exactly six replacements;
+preflight13939185 byte-identical, assertions unchanged. Root complete EOF/diff/
+guards CLOSED0, root95029f4f/current V11 seal98f9cc3d (57inputs).
+Actual V11 SPEC CLOSED PASS (0206b5a6); NEW distinct fresh QUALITY CLOSED PASS
+(4c93f993). Optional standalone BIF query NOT RUN. Third isolated preflight46228
+naturally CLOSED139: complete raw6lines/838bytes/32f66ed7 has no stack, assertion
+result or completion marker; runtime qualification INCOMPLETE/cause UNKNOWN.
+Root abnormal-exit closure75e751e8, exact V11 snapshotsealecd39e8b,
+protected guards438174 CLOSED0/owned BEAMlogger absent; ordinary maintenance961272
+CLOSED0 EMPTY. Bounded Astra recovery9 read-only diagnosis CLOSED (1f30fc67):
+no operation localized or OTP/PDF cause established. Recovery9 AUTHOR CLOSED
+under63990f2d: preflight62b86c1e exactly +16/-0 fixed phase markers; observer5531f8ec
+unchanged. Root fullEOF/diff/inverse/protected guards CLOSED0, rootbc6a0e73/current
+V12 sealb31d0f56 (65inputs). Actual V12 SPEC CLOSED PASS (c2697a40), NEW distinct
+fresh QUALITY CLOSED PASS (116679e2). Fourth whole preflight56388 naturally
+CLOSED139: raw9lines/976bytes/05741069 prints installed_enter/returned then
+matchspec_enter, not returned. Failure closureafb0c9d9; exact V12 snapshotsfc4ec28e,
+postguards96f4e2 CLOSED0/owned BEAMlogger absent; ordinary posted949a CLOSED0 EMPTY.
+This narrows only the matchspec interval, not an exact BIF, signal, OTP defect or
+original PDF cause. Astra local diagnosis10 CLOSED (22f9a614) and root pinned-OTP
+static hypothesis44a639fb preserved. Recovery10 AUTHOR CLOSED under0d70308b:
+preflightfba2f365 exactly +8/-0 further fixed markers; observer5531f8ec unchanged.
+Root fullEOF/diff/eight-line inverse/guards CLOSED0, root021ecfff/current V13
+seal19cfbce3 (74inputs). Actual V13 SPEC CLOSED PASS (990e7a37); NEW distinct fresh
+V13 QUALITY CLOSED PASS (064dae93). Fifth whole preflight14354 naturally CLOSED139:
+raw12lines/1116bytes/3b0f6585 shows ordinary_returned then first hook_positive_enter,
+not returned; no stack/BIF result/final marker. Failure closure678088eb, exact V13
+snapshotsc58bb19d, postguardsce7c9f CLOSED0/ownedBEAMlogger absent; ordinary
+post6520af CLOSED0 EMPTY. This narrows the positive selected-entry assignment
+interval only, not a proven C fault/signal/OTP defect or original PDF cause.
+SAME Astra recovery11 read-only diagnosis CLOSED (86455b6d); independent local
+Nix source/patch metadata audit CLOSED (131db4f2: official28.5.0.3 tag/no declared
+C patch, actual C bytes unavailable). Parent primary-source follow-upaeaac7c7
+is static only; newer0.5/master fragments do not establish a fixed upgrade.
+Independent obligation assessment allows an explicitly reviewed diagnostic
+method correction, not relabeling full-positive BIF FAIL139. Exact full-negative
+BIF checks plus positive/negative projection BIF checks alone are insufficient:
+full unchanged hook specs require real-session selection/action/inheritance/
+privacy/isolation/natural-cleanup contracts. Parent method amendment737d42b6
+adds bounded six-actor/two-session contracts with all-step failure cleanup;
+actual DESIGN SPEC CLOSED PASS (edab7d53) then NEW distinct fresh DESIGN QUALITY
+CLOSED PASS (6d8c9cb9). Root6cca3f CLOSED0 all240entries/24manifests/pins/index/
+HEAD/ownedabsence/freshlogs; SAME Astra recovery11 preflight-only AUTHOR CLOSED:
+1520lines/93506bytes/8393cba7, V13delta+334/-1; observer5531f8ec unchanged.
+Root full actual EOF/diff/non-hook byte inverse CLOSED PASS (900b5ae7), V14
+seal31340a0b (87inputs)/immutable pairseal5e1a7139; fc314a all255entries/
+25manifests/pins/HEAD/index/ownedabsence/freshlogs CLOSED0. Historical full-positive
+BIF FAIL139 remains unchanged; all substantive assertions mandatory. Actual
+artifact SPEC CLOSED PASS (98a2e0aa; corrected exact inverse790929, fresh96114e
+all255/25 and4b5d81 ownedabsence/index/diff CLOSED0), THEN NEW distinct fresh actual
+QUALITY CLOSED PASS (9559cd12; fresh3cd46e all255/25, corrected e5fd4e pins/owned0/
+index/diff/logs CLOSED0). All review commands naturally CLOSED; no sessions.
+Fresh parent guard40298/ea155b CLOSED0 all255/25/receipts/owned0/index/pins/logs,
+ordinary prec59d78 CLOSED0 EMPTY; all review actors/commands CLOSED. Sixth whole
+preflight42994 naturally CLOSED1 (b92e54): new hook-action contracts and existing
+real-ExUnit integration returned/1test0failures, BUT final cleanup_beam line1263
+true=:code.purge returnedfalse. No cleanup_returned/final complete marker.
+Raw49lines/2980bytes/a7906f12 read EOFd1d466; failure closurea284f125. Post60da50
+CLOSED0 all255/25/owned0/index/pins, ordinary85037a CLOSED0 EMPTY. Whole preflight
+FAIL; partial success is not qualification. SAME Astra recovery12 read-only
+diagnosis CLOSED (13a2c22d): installed purge boolean reflects process killing,
+not generic success. Proposed strict non-killing soft_purge/current+old-code/
+owned-file/dir absence, all-step cleanup and original-exception preservation.
+Exact old residue remains untouched; exclusive bounded allocation avoids reuse.
+Parent fixture-only design/plan0956e479 received independent DESIGN SPEC
+CLOSED PASS (74d55d3e), THEN NEW distinct fresh DESIGN QUALITY CLOSED PASS
+(391b6ee0). Immediate parenta7b1dc all255/25/pair/pins/index/HEAD/owned0/newlogs/
+receipts CLOSED0; all reviewers/commands CLOSED. SAME Astra recovery12 bounded
+preflight-fixture-only AUTHOR CLOSED:1639lines/98297bytes/738211f9,+133/-14;
+observer5531f8ec unchanged. Parent actualEOFb1ce23/full difff74989 and exact
+V14 non-fixture inverse/fixtureforms/markerorder PASS (rootclosure3c238d06);
+preserved253 entries33d429 CLOSED0. V15 current97inputseal9a5af6aa/immutable
+pairsealecc5d438; root4d3866 all267entries/26manifests/pair/pins/HEAD/index/
+owned0/newlogs CLOSED0. Six new cleanup contract controls include both
+acquisition stages and injected false after real soft purge (not live-obstruction
+proof). Actual V15 SPEC CLOSED PASS (d6151d3e; c1436a exact inverse, b08de4
+all267/26 and d511c1 pins/HEAD/index/diff/owned0/logs CLOSED). THEN NEW distinct
+fresh actualQUALITY CLOSED PASS (d30c839a; 8c1f7c all267/26, bb458c inverse/
+markerorder/pins/index/owned0/logs, b6fe7b hashes CLOSED0). All review commands
+naturally CLOSED; no sessions. Parent52affe all267/26/receipts/pins/HEAD/index/
+owned0/logs and ordinarypre8ac581 CLOSED0 EMPTY. Seventh whole preflight16428
+naturally CLOSED1 (b44746): fixture_false_soft_purge_rejected at line1281;
+synthetic_beam_returned/run/cleanup/final marker absent. Full raw35lines/
+2401bytes/dbfe78b6 read EOFfae313, closure6218f801. Post0e60b8 all267/26/owned0/
+pins/index CLOSED0; ordinarypostf29ddd CLOSED0 EMPTY. Whole FAIL, no owning GO.
+Raw does not show caught result shape. SAME Astra recovery13 diagnosis CLOSED
+(eea94d88): installed Elixir1.18.4 catch retains raw badmatch rather than
+normalized MatchError; source-backed inference, not observed runtime tuple or
+original PDF cause. Unchanged reviewed Design12 governs one-line correction
+(plan300fcff9). Parentaeb18e fresh267/26/currentV15/pins/index/owned0/receipts/
+freshlogs CLOSED0; SAME Astra bounded AUTHOR CLOSED (da30eb), exactly+1/-1 at
+line1281: raw {:badmatch,false}; failed/error/exactfalse/nonempty-stack retained.
+No normalization, broad acceptance or other byte change. Current V16 preflight
+1639/98291/dbf76f44; observer unchanged. Parent fullEOF5ede8d/full dif d65072/
+unique inverse to V15 PASS, root59a2ffd7; initial parent wrong-terminal-marker
+wrapper error recorded, corrected actualEOF passes without artifact change.
+Protected265 entries96e9dc CLOSED0. V16 current105seal702f824a/immutable pair
+seala5473390; parent4b8b84 all277entries/27manifests/pair/pins/index/HEAD/owned0/
+freshlogs CLOSED0. Actual V16 SPEC CLOSED PASS (49d3799b; bothfilesEOF,
+12e21e exact inverse, 2d7926 all277/27, d80adf pins/index/owned0/logs CLOSED0).
+THEN NEW distinct fresh actualQUALITY CLOSED PASS (ab835350; full pairEOF,
+4902f2 all277/27, 99c2d8 exact inverse, cd8cb1/716eec pins/index/logs/ready,
+4fb279 owned0). Reviewer's extra ready-file checker error corrected against
+postmaster.pid; rawhash transcription corrected by parent3982fa. No artifact
+change/runtime failure. All review commands naturally CLOSED, no sessions.
+Parentb0c365 fresh277/27/currentpair/receipts/seals/pins/HEAD/index/owned0/
+freshlogs CLOSED0; ordinarypre879a15 CLOSED0 EMPTY; all actors/commands CLOSED.
+Eighth ONE whole preflight82881 naturally CLOSED0 (9332a9): all fixed phases,
+six fixture controls, realExUnit1test/0failures/seed47747/default96, strict final
+cleanup and complete marker returned. Full raw42lines/2474bytes/0d635626 read
+EOF8218e0, PASSclosure23cf4a8c. Post8d8337 all277/27/raw/owned0/index/pins/logs
+CLOSED0; ordinarypost66b566 CLOSED0 EMPTY. Whole diagnostic runtime PASS, not a
+focused-only fallback. Historical Native5FAIL139/Native6+7FAIL1 retained.
+No literal positive full-action BIF success or originalPDFcause/fix is claimed.
+Fresh parenteb434a all277/27/passreceipt/raw/pins/index/owned0/freshowninglog
+and ordinarypre8aa993 CLOSED0 EMPTY. ONE unchanged whole owning PDF file2898
+naturally CLOSED0 (37ac20):22tests/0failures/seed879520/default96/original
+deadlines; selectedCOMPLETE1/none/three numeric_exit1 routes/destroyed1/
+watchdog+collectorclosedtrue. Full raw65lines/6376bytes/273e9e89 readEOF78ccce,
+closured1efb1d7; post61d292 all277/27/owningraw/pins/index/owned0 CLOSED0,
+ordinarypostb39af9 CLOSED0 EMPTY. Nonrecurrence INCONCLUSIVE; original34963
+FAIL/causeUNKNOWN, no unfiltered README PASS or product repair.
+Observed ready/ok→ready/error→closed/error/normal with successful numeric exits
+does not establish actor authenticity/race/originalcause. Read-only source
+interpretation843c4ad1 and independent full-cohort route assessmentfa7bceee
+CLOSED: ordinary readerDOWN may overwrite state while capturednormal survives,
+but receivebranch/actoridentity are not observed; await_failure/finalreadererror
+remains conservatively INCONCLUSIVE. New contextual designf57c9f53 and
+Nativeplanbdd100a7 permit ONE original full unit-cohort characterization,
+removing ONLY owning-file operand: inner11/outer16/logger23, seven pure
+negative controls PASS, originalseed879520/defaults/assertions/deadlines and
+all seven helper integration exclusions unchanged. Extra formatter/eventcasts
+and naturally-loaded registration perturb scheduling; same seed is not an
+identical schedule. Parentcaee44 and DESIGN SPEC54c255 verified all277/27,
+pins/index/owned0/freshraw. DESIGN SPECde34cb31 CLOSED PASS, then NEW distinct
+fresh DESIGN QUALITYff745ea5 CLOSED PASS (801b09 pure route, 30cd24 all277/27,
+096713 pins/owned0). Parent876074 full guard+SPEC CLOSED0. All review commands
+CLOSED. ONE full-cohort Native1e22b4/session75917 naturally CLOSED0/2e813e:
+allseven2092executedtests+10properties/0FAIL/1874excluded, seed879520/default96.
+SelectedCOMPLETE1/none/three numeric_exit1 routes/destroyed1/watchdogcollector
+closedtrue; raw130lines/30000bytes/c281976d readcompleteEOF72444b in bounded
+literal windows after JSON presentation truncation, closure7da3c3e7. Fresh
+preGOc602d3/postd9d894 all277/27/pins/indexHEAD/owned0 PASS; ordinarypre6c5cb1
+andpost29d955 CLOSED0EMPTY. Actual apporder differs from original34963; both
+owning and full-cohort nonrecurrenceINCONCLUSIVE, originalFAIL/causeUNKNOWN,
+no productrepair or ordinary README PASS. Next ONE ordinary noargs gate6
+revalidation under existing README15plan42fee147 removes instrumentation;
+only freshlogname adaptation, no repeat-until-green. No repeated owning or
+identical cohort, assertion weakening/prewarm/runtime change; all diagnostic
+changes ignored, no product Source repair.
+Complete-pipe closes require direct matching finish; normal sizes respect cap.
+Synthetic INPUT corrections preserve every substantive assertion/COMPLETE
+baseline; reader nonregression is scoped to the established reader protocol,
+not an unconditional forged-message invariant or authenticity proof.
+Utility failures Sol2/Astra12 retained; Native preflight attempts/failures8/7,
+owning attempts1/commandFAIL0/nonrecurrenceINCONCLUSIVE1; full-cohort attempts1/
+commandFAIL0/nonrecurrenceINCONCLUSIVE1; ordinary noargs revalidation1 CLOSED0
+is fresh required-gate6 PASS only, originalcauseUNKNOWN/unfixed. Whole diagnostic PASS
+does not supersede original unit34963 FAIL or provide product/phase acceptance.
+No fresh V5/V7 QUALITY started.
+This is diagnostic recovery, not product repair or original PDF causal evidence.
+Source Sol3/Astra5 and PDF Source repair0 unchanged. Actual SPEC then NEW fresh
+QUALITY and whole isolated preflight CLOSED PASS; ONE real owning characterization
+ran successfully but did not reproduce originalFAIL. No originalcause/fix claimed.
+
+Earlier ordinary changed-Source cohort70920 naturally CLOSED0/seed151533/
+default96:2092executedtests+10properties/0failures/1874excluded NOT PASS, raw78lines/
+24429bytes/16eb26f6. Bounded actual Source SPEC then NEWdistinctfreshQUALITY
+CLOSED PASS, runtime193186be/test7f56ae34, future15Nativeplan42fee147 reviewed.
+All24/protected/indexEMPTY/HEAD unchanged/diffcheck0/worktreeBEAM+loggerabsence/
+ordinarymaintenanceEMPTY. Fresh15 permitted README gates GO, NOT STARTED at this
+receipt; finalfullSource reviews/localcommits/literalGitclean still required.
+Historical SourceSol2/Astra5 FAILs preserved; Task10/Phase5 NOT ACCEPTED,
+Task11/12 SourceNO GO, Task16strictALLleasesUNSATISFIED/UNWAIVED; E2E NOT RUN.
+
+Historical upload-stream Stage2 scoped qualification CLOSED: private stream runtime193186be,
+newtest7f56ae34; parent exact transformation/inverse PASS, format24363 CLOSED0.
+New wholefile37929 9executed/0failures/raw0af537da; unchanged original locks83808
+8executed/0failures/2excluded NOT PASS/rawfe807a67. Complete24 sealc6f13232 and
+protected guards/indexEMPTY/HEAD unchanged/diffcheck0/ordinary maintenanceEMPTY.
+Actual bounded Source SPEC CLOSED PASS; NEWdistinctfreshQUALITY in progress;
+cohort/fresh15/final
+Source reviews/local commits remain pending. Task10/Phase5 NOT ACCEPTED,
+Task11/12 Source NO GO, Task16strictALLleasesUNSATISFIED/UNWAIVED; E2E NOT RUN.
+
+Historical upload-stream Stage1: format71816 CLOSED0 then whole-file ordinary
+RED56741 CLOSED2/default96/seed338018,9tests/one intended function-handoff
+assertion failure,8 characterization PASS/raw9a517825. Original runtime8a72c25f
+unchanged; new formatted test7f56ae34, complete24/protected guards and ordinary
+maintenanceEMPTY/indexEMPTY/HEAD unchanged. Same Sol bounded Stage2 GO covers
+only private closure/verbatim reducers; GREEN/reviews/cohort/fresh15/final
+review/local commits pending. Task10/Phase5 NOT ACCEPTED; E2E NOT RUN.
+
+Latest cold-loader diagnostic Native60276 naturally CLOSED2 at2026-10-14
+04:12:03UTC:2083executedtests+10properties/1original100msfailure/1874excluded
+on unchanged Source6/seed151533/default96. Full973line/122668byte rawSHA256
+58bb34952b99fc86506641045607a80e275eb62ba93693c9c83fc8ea107a813f.
+Actual utilitySPEC→NEWfreshQUALITY/synthetic3/0 qualified; observer COMPLETE,
+3owned session barriers/destructions, natural watchdog/collector closure.
+All current guards/ordinary maintenance EMPTY/indexEMPTY/HEAD unchanged.
+Task10/Phase5 NOT ACCEPTED; Task11/12 Source NO GO; fresh15/final actual Source
+reviews/local commits/literal clean outstanding; E2E NOT RUN.
+Bounded Astra recovery CLOSED: SAME failed writer's first Enumerable.MessageStream
+dispatch is cold and waits in code_server:call/1. Undefined-to-load_ok REQUEST
+84.923395ms, last waiting sample92.975378ms; request is NOT completion, exact
+assertion-start/continuous100ms blocking and code-server wait cause UNKNOWN.
+No demonstrated dropped/premature chunk ack or causal Markdown starvation.
+Sol scope assessment allows considering narrow internal stream compatibility
+under continuous authority only after concrete reviewed design/regression, with
+unchanged public readiness/locks/custody/keys/caps/DownloadLease/ack ordering.
+Subsequent Astra/Sol assessments select a private arity2 stream constructor in
+already-loaded UploadSession at the same position, verbatim reducer helpers;
+no remote constructor failure/readiness/ack/custody change. Generic Function
+loading remains; no universal100ms promise. Actual handoff regression feasible;
+new 2026-10-14 upload-stream-compatibility design/plan independent SPEC→NEWfresh
+QUALITY CLOSED PASS; Stage1 expected RED verified, bounded Stage2 Source GO,
+not GREEN/acceptance. No larger observer implementation or unchanged-Source
+repeat first. Exact diagnostic closure is in
+`.devenv/phase5-task10-unit-loader-observer-cohort-closure.md`.
+Historical Native17632 PASS/raw1bf94e3b remains preloading-confounded diagnostic
+only, never gate acceptance. Utility/review/launcher corrections remain separate
+from SourceSol2/Astra5; freezes/assertions/deadlines/defaultV2 unchanged.
+
+Required-gate and Source-fixture evidence preceding that diagnostic:
+
+Latest Task10 state2026-10-14 NOT ACCEPTED/Task11/12 Source NO GO: Source5
+historical-isolation focused40/0 but exactnoargsunitFAIL/rawf57a07a7. Source6
+deferred-Document-fixtures metadataRED→focusedGREEN44/0/boundedindependent
+SPEC→distinctfreshQUALITYPASS, but originalwholecohortseed151533FAIL/rawf8bc17ac
+at unchanged UploadSessionLockTest303100ms. Fixture repair did not cure it;
+cause UNKNOWN. Source22seal1e49d98e/allcurrentfrozen/protected/locked checks and
+ordinary postEOFcleanup PASS. All15freshREADME/finalactual22SPEC→freshQUALITY/
+localcommits/literalclean remain required. HistoricalSol2/Astra4 plusAstra5's
+requiredunitFAIL is cumulative5 failedAstraSourcequalifications, not a reset;
+advisory/utility/tool/expectedRED/Source6diagnostic histories stay separate.
+Bounded readonly Astra recovery diagnosis has closed as summarized above;
+frozenlocktests/deadlines and all product/Vault/provenance/defaultV2/E2E/
+publication boundaries unchanged.
+See current 2026-10-14 historical-test-isolation/deferred-document-fixtures
+designs/plans and phase verification report; later paragraphs are historical.
+
+Historical Task10 boundary: complete unfiltered README integration36198 naturally
+CLOSED FAIL/exit2, 1831executed/739FAIL; final cleanup NOTEMPTY. No Task10/Phase5
+acceptance. The next bounded knowledge-test/fixture amendment is
+`2026-10-13-singularity-v0.2-phase-5-readme-compatibility-design.md` and its plan,
+actual DESIGN SPEC then NEW distinct fresh QUALITY CLOSED PASS and docs-only
+commit1c1ca7f. Design-entry failedSol2/AstraRepair0; AstraRecovery1/2 now failed
+after genuine whole callback-kill RED2 CLOSED exit2/1failure15.2s/full archive.
+Exact disposable recovery CLOSED/maintenanceEMPTY; original cleanupFAIL remains.
+Both source authors CLOSED; parent format/compile PASS. Whole lifecycle R1FAIL26/2
+plus2warnings; R2FAIL26/1 withoutthosewarnings. FailedSol2/failedAstra2; exact
+runresidues recovered, original cleanupFAIL retained. Recovery3 permission cast
+wholefourowners PASS72/0 on exact255940ad; ordinaryDROP race proven by taskPGlog9
+sessions. Narrow design4.1/planC.1 amendmentSPEC/freshQUALITY bothCLOSED PASS before
+sourceGO; authorCLOSED/rootstaticPASS/combinedseal208911e2. Whole lifecycle27/0,
+permissionrepeat72/0, historicalwhole30/0 and unchangednative sevenstate PASS,
+allpostEOF seals/exactroots/maintenanceEMPTY PASS withoutmanualrecovery. Existing
+characterizationunusedaliaswarning retained. RetainedH3/Runtime2/Base/Task9/Task8
+whole pure/SQL and static gates PASS on208911e2 with actual exclusions recorded;
+normalEMPTY/allseals. FirstfiveREADME/fullunit2082tests+10properties PASS.
+Historical complete unfiltered README integration95548 naturally CLOSED FAIL/exit2,
+Storage1491executed/3FAIL, Runtime373executed/18FAIL, total1864executed/21FAIL.
+AllpostEOF seals/normalmaintenanceEMPTY PASS; failedSol2/failedAstra3. Exact
+Fournewowner amendment actualSPEC/freshQUALITY PASS beforeboundedAstraRecovery4
+sourceGO, authorCLOSED/rootwholeinverses/staticPASS. Combinedcurrent14+retained8
+22sources; entirefournewowners172executed/0FAIL/43excluded, allseals/normalcleanup.
+OriginalACLcharacterization7/7FAIL retained; metadataonlyutilityrepair actualSPEC/
+freshQUALITY PASS beforeGO, correctedwhole7/0/seven A_B_C_D markers/normalcleanup.
+UnchangedwholeObserver16executed/0FAIL/11excluded does not explain/waive oldfull
+failure; nextfullgate mustpass unchanged. Current22retained67316 naturally
+CLOSEDexit0/all13gates PASS at14:01:21UTC, raw6278e44c/closure6301244f/allseals/
+normalcleanup; 500SQL+84pure testexecutions/0FAIL plusactualsevenstates/static
+zero cycles. Current22completeREADME50083 naturallyCLOSEDexit2 at2026-10-13
+16:03:40UTC: firstsixgates PASS, integration1864executed/2historical60000msFAIL,
+Runtime373/0; total2092excludedincludingproperties NOTPASS. Fullraw28dcff3f/parent
+53ee8b47/closure31e98728; allpostEOF seals/rootabsence/normalEMPTY PASS, gates8–15
+NOTRUN. OverallRecovery4failed, failedSol2/Astra4; cause/waits UNKNOWN, no waiver.
+Complete README GREEN/finalSOURCE reviews remain outstanding;
+Task10/Phase5 NOT ACCEPTED.
+Production/Vault/custody/defaultV2/E2ENOTRUN and all required gates stay fixed.
+
 Task9E composition/size-proof/fault-injection amendment is DRAFT FOR INDEPENDENT
 DESIGN REVIEW. Its exact contract is in the linked storage-reference
 compatibility design. Earlier reviews do not cover this amendment; parent full
@@ -936,6 +1332,33 @@ Do not force an illegal state change, extend its deadline, synthesize a live
 session or bypass custody. If historical authorization is no longer valid,
 retire work under the established provenance rules; authenticated ordinary
 retry remains necessary. Reconciliation is idempotent across saga retries.
+
+Task10's necessary knowledge-only amendment is elaborated in the
+2026-10-13 unified-restore design and detailed plan. New forward00800 replaces
+only existing scanner/recovery/retry bodies and adds one Document-only
+authorization-invalid retirement alternative; no signatures, owners, ACLs,
+fixed search paths, helper/security-definer surfaces, grants, lifecycle guards,
+Vault policy or frozen substrate change. Validate original attempt-event
+existence by UUID alone, distinguish structural corruption from historical
+authorization rejection, reject ineligible candidates before LIMIT and repeat
+authority/provenance checks under existing authorization/resource/version locks.
+Automatic recovery rejects authorization-invalid work even after reauthorization;
+ordinary authenticated retry covers both pending and expired-extracting rejected
+work, atomically advancing once through existing legal transitions. Valid
+unretired native attempts/pre-dispatch idempotence preserve legitimate submission
+absence; any present submission must match. V3 preflight/finalizer/reflected
+imported attempts retain mandatory matching submission. No fabricated session,
+new eventless V3 bypass, old-event rewrite or automatic reauthorization.
+
+Native unchanged Runtime baseline exposed the older permission case's conflict
+with accepted00500 Document SELECT. Necessary test-contract amendment is limited
+to that case's versions/fragments read expectations, with exact same/foreign
+RLS, absent/mismatched/revoked scope, independent42501 direct-write denials and
+cleanup evidence. All recovery behavior and the full restart owner remain;
+original frozen56 is unchanged and original protected Runtime receipts remain
+historical. Both design documents and this amendment require actual DESIGN SPEC
+and distinct fresh QUALITY before test/source GO. The10-test9PASS1FAIL baseline
+is recorded as FAIL, not waived or treated as Task10 acceptance.
 
 The acceptance comparison distinguishes the restored cut from later legitimate
 recovery transitions: canonical snapshot equality is checked before recovery;
