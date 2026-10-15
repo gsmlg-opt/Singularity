@@ -291,6 +291,97 @@ defmodule Singularity.Runtime.AcceptUploadTest do
     refute_received {:scope, _runtime, _session, _requirement}
   end
 
+  for media_type <- ["text/plain", "text/markdown"] do
+    test "independently admits #{media_type} selectors and custody with bounded declarations" do
+      media_type = unquote(media_type)
+      on_exit(fn -> Process.delete(:upload_grant_descriptor) end)
+
+      for size <- [0, 67_108_864] do
+        grant =
+          Map.merge(grant(), %{
+            request_content_length: size,
+            request_declared_media_type: media_type
+          })
+
+        descriptor = Map.drop(grant, [:token_digest, :csrf_token_digest])
+        Process.put(:upload_grant_descriptor, descriptor)
+
+        assert {:ok, ^descriptor} =
+                 AcceptUpload.load_grant_descriptor(
+                   %{
+                     assets: {Assets, self()},
+                     operation_scope: {Scope, self()}
+                   },
+                   session(),
+                   Map.drop(grant, [
+                     :id,
+                     :asset_id,
+                     :classification,
+                     :principal_authorization_epoch,
+                     :vault_authorization_epoch
+                   ])
+                 )
+
+        assert {:ok, upload} = AcceptUpload.begin(runtime(), session(), grant, self())
+        on_exit(fn -> Process.exit(upload, :kill) end)
+        assert_receive {:begin_upload, _runtime, _session, internal, _controller}
+        assert internal.request_content_length == size
+        assert internal.request_declared_media_type == media_type
+        refute Map.has_key?(internal, :text_validation_version)
+      end
+    end
+  end
+
+  test "text descriptors cannot bypass the independent 64 MiB custody ceiling" do
+    for media_type <- ["text/plain", "text/markdown"] do
+      oversized =
+        Map.merge(grant(), %{
+          request_content_length: 67_108_865,
+          request_declared_media_type: media_type
+        })
+
+      assert {:error, %Error{code: :upload_too_large}} =
+               AcceptUpload.begin(runtime(), session(), oversized, self())
+
+      assert {:error, %Error{code: :upload_too_large}} =
+               AcceptUpload.load_grant_descriptor(
+                 %{
+                   assets: {Assets, self()},
+                   operation_scope: {Scope, self()}
+                 },
+                 session(),
+                 Map.drop(oversized, [
+                   :id,
+                   :asset_id,
+                   :classification,
+                   :principal_authorization_epoch,
+                   :vault_authorization_epoch
+                 ])
+               )
+    end
+
+    refute_received {:scope, _runtime, _session, _requirement}
+    refute_received {:prepare_upload, _request}
+    refute_received {:begin_upload, _runtime, _session, _grant, _controller}
+  end
+
+  test "text custody rejects caller validation evidence rather than forwarding it" do
+    text =
+      Map.merge(grant(), %{request_content_length: 0, request_declared_media_type: "text/plain"})
+
+    for foreign <- [
+          %{text_validation_version: "upload_text_v1"},
+          %{"text_validation_version" => "upload_text_v1"},
+          %{metadata: %{extractor_version: "upload_text_v1"}}
+        ] do
+      assert {:error, %Error{code: :invalid}} =
+               AcceptUpload.begin(runtime(), session(), Map.merge(text, foreign), self())
+    end
+
+    refute_received {:prepare_upload, _request}
+    refute_received {:begin_upload, _runtime, _session, _grant, _controller}
+  end
+
   defp runtime do
     %{
       custodian: {Custodian, self()},

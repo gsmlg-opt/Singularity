@@ -38,6 +38,60 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
      cut: cut(fixture, seeded.outbox_high_water_mark)}
   end
 
+  for state <- ["uploaded", "verified"], media_type <- ["text/plain", "text/markdown"] do
+    test "refuses #{state} #{media_type} from every durable text signal at both entrypoints", %{
+      fixture: fixture,
+      cut: cut
+    } do
+      for signal <- [:source, :metadata, :marker] do
+        put_inflight_text_signal!(fixture, unquote(state), unquote(media_type), signal)
+
+        for version <- [:default, 2, 3], entrypoint <- [:snapshot_cut, :records] do
+          assert {:error, %Error{code: :backup_unsupported, message: nil, details: %{}}} =
+                   text_export_result(fixture, cut, version, entrypoint)
+        end
+      end
+    end
+  end
+
+  test "records alone refuses text with no stage or metadata using a truthful same-connection cut",
+       %{
+         fixture: fixture,
+         cut: cut
+       } do
+    # This is an intentionally incomplete, test-owned negative state, not a
+    # substitute for the separate genuine upload/publication positive witness.
+    put_inflight_text_signal!(fixture, "uploaded", "text/plain", :source)
+
+    for version <- [:default, 2, 3] do
+      assert {:error, %Error{code: :backup_unsupported}} =
+               text_export_result(fixture, cut, version, :records)
+    end
+  end
+
+  test "an in-flight text signal is owner-exact and excludes pre-seal and lawful deletion", %{
+    fixture: fixture,
+    raw_other: raw_other,
+    cut: cut
+  } do
+    other = load_ids(raw_other)
+    put_inflight_text_signal!(other, "uploaded", "text/markdown", :source)
+
+    for version <- [:default, 2, 3] do
+      assert {:ok, _cut} = text_export_result(fixture, cut, version, :snapshot_cut)
+      assert {:ok, _records} = text_export_result(fixture, cut, version, :records)
+    end
+
+    for state <- ["staging", "pending_delete", "deleted"] do
+      put_inflight_text_signal!(fixture, state, "text/plain", :marker)
+
+      for version <- [:default, 2, 3] do
+        assert {:ok, _cut} = text_export_result(fixture, cut, version, :snapshot_cut)
+        assert {:ok, _records} = text_export_result(fixture, cut, version, :records)
+      end
+    end
+  end
+
   test "production exporter uses only the hardened worker conflict export seam" do
     source =
       Path.expand("../../../../lib/singularity/storage/backup/exporter.ex", __DIR__)
@@ -1093,6 +1147,85 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
         end
       end
     )
+  end
+
+  defp text_export_result(fixture, cut, version, entrypoint) do
+    ScopedRepo.transact(
+      WorkerRepo,
+      %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+      [isolation: :repeatable_read],
+      fn repo ->
+        # These fixtures have no objects. Bind the actual snapshot on THIS
+        # connection and an empty actual inventory; never feed an invalid cut
+        # to records and credit an earlier invalid-cut error to the new guard.
+        cut = current_snapshot_cut(repo, %{cut | object_inventory: []})
+
+        case {entrypoint, version} do
+          {:snapshot_cut, :default} -> Exporter.snapshot_cut(repo, fixture.vault_id)
+          {:snapshot_cut, version} -> Exporter.snapshot_cut(repo, fixture.vault_id, version)
+          {:records, :default} -> Exporter.records(repo, cut)
+          {:records, version} -> Exporter.records(repo, cut, version)
+        end
+      end
+    )
+  end
+
+  defp put_inflight_text_signal!(fixture, state, media_type, signal) do
+    Fixtures.with_owner(fn ->
+      owner_query!("DELETE FROM content.source_references WHERE resource_version_id=$1", [
+        Ecto.UUID.dump!(fixture.resource_version_id)
+      ])
+
+      owner_query!("DELETE FROM content.asset_metadata WHERE asset_id=$1", [
+        Ecto.UUID.dump!(fixture.asset_id)
+      ])
+
+      %{num_rows: 1} =
+        owner_query!("UPDATE content.assets SET state=$2 WHERE id=$1 AND vault_id=$3", [
+          Ecto.UUID.dump!(fixture.asset_id),
+          state,
+          Ecto.UUID.dump!(fixture.vault_id)
+        ])
+
+      if signal == :source do
+        owner_query!(
+          """
+          INSERT INTO content.source_references
+            (id,resource_version_id,vault_id,principal_id,classification,kind,
+             observed_at,original_filename,declared_media_type,byte_size,idempotency_key_digest)
+          VALUES ($1,$2,$3,$4,'private','browser_upload',CURRENT_TIMESTAMP,$5,$6,0,$7)
+          """,
+          [
+            uuid_dump(),
+            Ecto.UUID.dump!(fixture.resource_version_id),
+            Ecto.UUID.dump!(fixture.vault_id),
+            Ecto.UUID.dump!(fixture.principal_id),
+            "private-inflight-original-canary",
+            media_type,
+            :crypto.hash(:sha256, Ecto.UUID.generate())
+          ]
+        )
+      else
+        owner_query!(
+          """
+          INSERT INTO content.asset_metadata
+            (id,asset_id,resource_version_id,vault_id,classification,projection_version,
+             original_filename,declared_media_type,plaintext_byte_size,extraction_state,
+             extractor_version)
+          VALUES ($1,$2,$3,$4,'private',1,$5,$6,0,'pending',$7)
+          """,
+          [
+            uuid_dump(),
+            Ecto.UUID.dump!(fixture.asset_id),
+            Ecto.UUID.dump!(fixture.resource_version_id),
+            Ecto.UUID.dump!(fixture.vault_id),
+            "private-inflight-original-canary",
+            if(signal == :metadata, do: media_type, else: "application/pdf"),
+            if(signal == :marker, do: "upload_text_v1", else: nil)
+          ]
+        )
+      end
+    end)
   end
 
   defp current_snapshot_cut(repo, cut) do

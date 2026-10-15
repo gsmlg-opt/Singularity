@@ -9,7 +9,7 @@ defmodule Singularity.Runtime.Assets.Download do
   alias Singularity.Storage.Postgres.AssetRepository
   alias Singularity.Storage.Postgres.AuditSink
 
-  @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
+  @safe_media_types ["application/pdf", "image/jpeg", "image/png", "text/plain", "text/markdown"]
   @download_media_types @safe_media_types ++ ["application/octet-stream"]
   @download_descriptor_keys MapSet.new([
                               :asset_id,

@@ -366,7 +366,228 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
     end)
   end
 
-  defp open_stage!(fixture) do
+  # These stored-command contracts exercise repository evidence, not native
+  # custody or validation. NativeAssetFixture supplies the independent witness.
+  for media_type <- ["text/plain", "text/markdown"] do
+    test "#{media_type} sealing persists exact pending evidence and replays without effects", %{
+      fixture: fixture
+    } do
+      media_type = unquote(media_type)
+      upload = open_stage!(fixture, declared_media_type: media_type, byte_size: 0)
+      command = text_checkpoint(upload)
+
+      assert {:ok, %{asset: %{state: :uploaded, state_revision: 1}}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      scoped(fixture, fn repo ->
+        assert %{rows: [[^media_type, 0, "pending", "upload_text_v1", nil, nil, nil, nil, nil]]} =
+                 query!(
+                   repo,
+                   """
+                   SELECT declared_media_type, plaintext_byte_size, extraction_state,
+                     extractor_version, detected_media_type, completed_at,
+                     pdf_header_version, image_width, image_height
+                   FROM content.asset_metadata WHERE asset_id = $1
+                   """,
+                   [Ecto.UUID.dump!(command.asset_id)]
+                 )
+
+        assert %{rows: [[1, 1, 1]]} = checkpoint_effect_counts(repo, command.asset_id)
+      end)
+
+      before = checkpoint_snapshot(fixture, command.asset_id)
+
+      assert {:ok, %{asset: %{state: :uploaded, state_revision: 1}}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      assert checkpoint_snapshot(fixture, command.asset_id) == before
+    end
+  end
+
+  for marker <- [:absent, nil, "upload_text_v0", "upload_text_v1 ", 1] do
+    test "text sealing rejects #{inspect(marker)} validation evidence without durable effects", %{
+      fixture: fixture
+    } do
+      upload = open_stage!(fixture, declared_media_type: "text/plain")
+      command = sealed_checkpoint(upload)
+      command = checkpoint_with_marker(command, unquote(marker))
+
+      assert {:error, %Error{retryable?: false, details: %{}}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      assert_unsealed!(fixture, upload)
+    end
+  end
+
+  test "binary sealing rejects the internal text marker without durable effects", %{
+    fixture: fixture
+  } do
+    upload = open_stage!(fixture)
+    command = text_checkpoint(upload)
+
+    assert {:error, %Error{retryable?: false, details: %{}}} =
+             scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+    assert_unsealed!(fixture, upload)
+  end
+
+  for field <- [:session_id, :principal_id, :vault_id, :asset_id, :classification] do
+    test "text sealing retains exact #{field} binding without durable effects", %{
+      fixture: fixture
+    } do
+      upload = open_stage!(fixture, declared_media_type: "text/plain")
+      field = unquote(field)
+      value = wrong_checkpoint_identity(field)
+      command = Map.put(text_checkpoint(upload), field, value)
+
+      assert {:error, %Error{retryable?: false}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      assert_unsealed!(fixture, upload)
+    end
+  end
+
+  for corruption <- [
+        :missing,
+        :legacy,
+        :marker,
+        :completed,
+        :detected,
+        :size,
+        :declaration,
+        :filename,
+        :projection,
+        :pdf,
+        :width,
+        :height
+      ] do
+    test "text sealed replay refuses #{corruption} metadata without backfill or new effects", %{
+      fixture: fixture
+    } do
+      upload = open_stage!(fixture, declared_media_type: "text/markdown")
+      command = text_checkpoint(upload)
+
+      assert {:ok, %{asset: %{state: :uploaded, state_revision: 1}}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      corrupt_checkpoint_metadata!(fixture, command.asset_id, unquote(corruption))
+      before = checkpoint_snapshot(fixture, command.asset_id)
+
+      assert {:error, %Error{retryable?: false, details: %{}}} =
+               scoped(fixture, &AssetRepository.record_sealed_stage(&1, command))
+
+      assert checkpoint_snapshot(fixture, command.asset_id) == before
+
+      scoped(fixture, fn repo ->
+        metadata_count = if unquote(corruption) == :missing, do: 0, else: 1
+
+        assert %{rows: [[^metadata_count, 1, 1]]} =
+                 checkpoint_effect_counts(repo, command.asset_id)
+      end)
+    end
+  end
+
+  test "a consumed text grant can seal after its admission expiry", %{fixture: fixture} do
+    upload = open_stage!(fixture, declared_media_type: "text/plain")
+
+    Fixtures.with_owner(fn ->
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 UPDATE content.upload_grants SET expires_at = consumed_at - interval '1 second'
+                 WHERE id = $1 AND vault_id = $2 AND consumed_at IS NOT NULL
+                 """,
+                 [Ecto.UUID.dump!(upload.grant.id), Ecto.UUID.dump!(fixture.vault_id)]
+               )
+    end)
+
+    assert {:ok, %{asset: %{state: :uploaded, state_revision: 1}}} =
+             scoped(fixture, &AssetRepository.record_sealed_stage(&1, text_checkpoint(upload)))
+
+    scoped(fixture, fn repo ->
+      assert %{rows: [["upload_text_v1"]]} =
+               query!(
+                 repo,
+                 "SELECT extractor_version FROM content.asset_metadata WHERE asset_id = $1",
+                 [Ecto.UUID.dump!(upload.grant.asset_id)]
+               )
+    end)
+  end
+
+  defp checkpoint_with_marker(command, :absent), do: command
+
+  defp checkpoint_with_marker(command, marker),
+    do: Map.put(command, :text_validation_version, marker)
+
+  defp wrong_checkpoint_identity(:classification), do: :restricted
+  defp wrong_checkpoint_identity(_field), do: Ecto.UUID.generate()
+
+  defp text_checkpoint(upload),
+    do: Map.put(sealed_checkpoint(upload), :text_validation_version, "upload_text_v1")
+
+  defp checkpoint_snapshot(fixture, asset_id) do
+    scoped(fixture, fn repo ->
+      query!(
+        repo,
+        """
+        SELECT to_jsonb(asset), to_jsonb(stage),
+          (SELECT to_jsonb(metadata) FROM content.asset_metadata metadata WHERE metadata.asset_id = asset.id),
+          (SELECT count(*) FROM audit.events WHERE target_id = asset.id),
+          (SELECT count(*) FROM core.outbox_events WHERE payload->>'asset_id' = asset.id::text)
+        FROM content.assets asset JOIN content.asset_stages stage ON stage.asset_id = asset.id
+        WHERE asset.id = $1
+        """,
+        [Ecto.UUID.dump!(asset_id)]
+      ).rows
+    end)
+  end
+
+  defp assert_unsealed!(fixture, upload) do
+    scoped(fixture, fn repo ->
+      assert %{rows: [["open", 0, "staging", 0]]} =
+               query!(
+                 repo,
+                 """
+                 SELECT stage.state, stage.state_revision, asset.state, asset.state_revision
+                 FROM content.asset_stages stage JOIN content.assets asset ON asset.id = stage.asset_id
+                 WHERE stage.id = $1
+                 """,
+                 [Ecto.UUID.dump!(upload.stage.id)]
+               )
+
+      assert %{rows: [[0, 0, 0]]} = checkpoint_effect_counts(repo, upload.grant.asset_id)
+    end)
+  end
+
+  defp corrupt_checkpoint_metadata!(fixture, asset_id, corruption) do
+    assignment =
+      case corruption do
+        :legacy -> "extractor_version = NULL"
+        :marker -> "extractor_version = 'upload_text_v0'"
+        :completed -> "extraction_state = 'completed', completed_at = statement_timestamp()"
+        :detected -> "detected_media_type = 'text/markdown'"
+        :size -> "plaintext_byte_size = plaintext_byte_size + 1"
+        :declaration -> "declared_media_type = 'text/plain'"
+        :filename -> "original_filename = 'changed-original.md'"
+        :projection -> "projection_version = 2"
+        :pdf -> "pdf_header_version = '1.7'"
+        :width -> "image_width = 1"
+        :height -> "image_height = 1"
+        :missing -> nil
+      end
+
+    statement =
+      if assignment,
+        do: "UPDATE content.asset_metadata SET #{assignment} WHERE asset_id = $1",
+        else: "DELETE FROM content.asset_metadata WHERE asset_id = $1"
+
+    scoped(fixture, fn repo ->
+      assert %{num_rows: 1} = query!(repo, statement, [Ecto.UUID.dump!(asset_id)])
+    end)
+  end
+
+  defp open_stage!(fixture, options \\ []) do
     token = :crypto.strong_rand_bytes(32)
     csrf_token = :crypto.strong_rand_bytes(32)
     observed_at = DateTime.utc_now(:microsecond)
@@ -380,8 +601,8 @@ defmodule Singularity.Storage.AssetSealedCheckpointTest do
       vault_id: fixture.vault_id,
       resource_version_id: fixture.resource_version_id,
       filename: "sealed-evidence.pdf",
-      byte_size: 12,
-      declared_media_type: "application/pdf",
+      byte_size: Keyword.get(options, :byte_size, 12),
+      declared_media_type: Keyword.get(options, :declared_media_type, "application/pdf"),
       idempotency_key: "sealed-checkpoint-#{Ecto.UUID.generate()}",
       classification: :private,
       token_digest: :crypto.hash(:sha256, token),

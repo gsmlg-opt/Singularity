@@ -320,6 +320,7 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     assert checkpoint.expected_asset_revision == 0
     assert checkpoint.plaintext_byte_size == byte_size("%PDF-pinned")
     refute Map.has_key?(checkpoint, :object_dek)
+    refute Map.has_key?(checkpoint, :text_validation_version)
 
     assert Task.yield(finish, 30) == nil
     refute_receive {:vault_lock_released, ^session, _}, 30
@@ -552,6 +553,218 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
     assert_receive {:DOWN, ^session_monitor, :process, ^session, :normal}
   end
 
+  for media_type <- ["text/plain", "text/markdown"] do
+    test "#{media_type} seals honest empty EOF with internal validation evidence" do
+      {session, writer} = ready_text_session(unquote(media_type), 0)
+
+      refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+      assert :ok = UploadSession.append(session, "")
+      refute_receive {:writer_chunk, ^writer, _chunk}, 30
+
+      checkpoint = finish_text_session(session, writer)
+      assert checkpoint.plaintext_byte_size == 0
+      assert checkpoint.text_validation_version == "upload_text_v1"
+    end
+
+    test "#{media_type} validates split Unicode and retains original chunk bytes" do
+      chunks = [
+        <<0xEF>>,
+        <<0xBB, 0xBF>>,
+        "# Cafe",
+        <<0xCC>>,
+        <<0x81>>,
+        "\r\n",
+        <<0xE4, 0xB8>>,
+        <<0xAD>>,
+        "  \n"
+      ]
+
+      bytes = IO.iodata_to_binary(chunks)
+      {session, writer} = ready_text_session(unquote(media_type), byte_size(bytes))
+
+      for chunk <- chunks do
+        append_text_chunk(session, writer, chunk)
+      end
+
+      refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+      checkpoint = finish_text_session(session, writer)
+      assert checkpoint.plaintext_byte_size == byte_size(bytes)
+      assert checkpoint.text_validation_version == "upload_text_v1"
+    end
+  end
+
+  for {name, invalid} <- [{"NUL", <<0>>}, {"malformed UTF8", <<0xFF>>}] do
+    test "rejects late #{name} after an already accepted text chunk" do
+      {session, writer} = ready_text_session("text/plain", 20)
+      append_text_chunk(session, writer, "valid first chunk")
+      monitor = Process.monitor(session)
+
+      assert {:error, %Error{code: :unsupported_media_type} = error} =
+               UploadSession.append(session, unquote(invalid))
+
+      refute retained_binary?(error, "valid first chunk")
+      refute_receive {:writer_chunk, ^writer, _invalid}, 30
+      assert_receive {:stage_abandoned, ^session, %{failure_code: "unsupported_media_type"}}
+      assert_receive {:DOWN, ^monitor, :process, ^session, :normal}
+      refute Process.alive?(writer)
+      refute_receive {:stage_synced, ^writer}, 30
+      refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+    end
+  end
+
+  test "text EOF rejects a split incomplete codepoint before writer finish" do
+    {session, writer} = ready_text_session("text/markdown", 7)
+    append_text_chunk(session, writer, "valid")
+    append_text_chunk(session, writer, <<0xE2, 0x82>>)
+
+    assert {:error, %Error{code: :unsupported_media_type}} = UploadSession.finish(session)
+    assert_receive {:stage_abandoned, ^session, %{failure_code: "unsupported_media_type"}}
+    refute_receive {:stage_synced, ^writer}, 30
+    refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+  end
+
+  test "text EOF rejects a false declared length before a writer can report a seal" do
+    {session, writer} = ready_text_session("text/plain", 6)
+    append_text_chunk(session, writer, "short")
+
+    assert {:error, %Error{code: :invalid}} = UploadSession.finish(session)
+    assert_receive {:stage_abandoned, ^session, %{failure_code: "invalid"}}
+    refute_receive {:stage_synced, ^writer}, 30
+    refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+  end
+
+  test "split leading binary magic cannot pass text admission" do
+    {session, writer} = ready_text_session("text/plain", 5)
+    append_text_chunk(session, writer, "%P")
+
+    assert {:error, %Error{code: :unsupported_media_type}} =
+             UploadSession.append(session, "DF-")
+
+    assert_receive {:stage_abandoned, ^session, %{failure_code: "unsupported_media_type"}}
+    refute_receive {:writer_chunk, ^writer, "DF-"}, 30
+    refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+  end
+
+  test "an incomplete binary signature remains ordinary text at honest EOF" do
+    {session, writer} = ready_text_session("text/plain", 2)
+    append_text_chunk(session, writer, "%P")
+
+    assert %{plaintext_byte_size: 2, text_validation_version: "upload_text_v1"} =
+             finish_text_session(session, writer)
+  end
+
+  test "session independently rejects text above 64 MiB despite an oversized upload descriptor" do
+    owner = self()
+
+    for media_type <- ["text/plain", "text/markdown"] do
+      options = text_session_options(media_type, 67_108_865)
+
+      assert {:error, %Error{code: :upload_too_large}, ^owner} =
+               UploadSession.initial_state(options)
+    end
+
+    refute_received {:grant_consumption_requested, _session, _command}
+    refute_received {:writer_started, _writer, _upload}
+  end
+
+  test "session rejects caller-supplied text validation evidence" do
+    options = text_session_options("text/plain", 0)
+    owner = self()
+
+    for foreign <- [
+          %{text_validation_version: "upload_text_v1"},
+          %{"text_validation_version" => "upload_text_v1"},
+          %{metadata: %{extractor_version: "upload_text_v1"}}
+        ] do
+      assert {:error, %Error{code: :invalid}, ^owner} =
+               UploadSession.initial_state(
+                 Keyword.update!(options, :grant, &Map.merge(&1, foreign))
+               )
+    end
+  end
+
+  @tag :tmp_dir
+  test "late invalid text removes a real partially encrypted stage before abandonment", %{
+    tmp_dir: root
+  } do
+    storage = %{
+      adapter: LocalFilesystemAdapter,
+      context: %{root: root},
+      dedup_lookup: fn _vault_id, _domain_id, _digest -> :miss end,
+      destroy_dek_wrapper: fn _wrapper -> :ok end
+    }
+
+    options =
+      text_session_options("text/plain", 18)
+      |> Keyword.put(:storage, storage)
+      |> Keyword.update!(:runtime, &Map.put(&1, :stage_writer, EncryptedStageWriter))
+
+    {:ok, session} = start_supervised({UploadSession, options})
+    assert_receive {:grant_consumption_requested, ^session, _command}
+    send(session, {:allow_grant_consumption, self()})
+    assert {:ok, ^session} = UploadSession.await_ready(session)
+    assert :ok = UploadSession.append(session, "valid first chunk")
+
+    assert {:ok, [%StageRef{stage_id: @stage_id}]} =
+             LocalFilesystemAdapter.list_staged(storage.context)
+
+    monitor = Process.monitor(session)
+
+    assert {:error, %Error{code: :unsupported_media_type}} = UploadSession.append(session, <<0>>)
+    assert_receive {:stage_abandoned, ^session, _abandonment}
+    assert_receive {:DOWN, ^monitor, :process, ^session, :normal}
+    assert {:ok, []} = LocalFilesystemAdapter.list_staged(storage.context)
+    refute_receive {:sealed_checkpoint_requested, ^session, _checkpoint}, 30
+  end
+
+  def text_session_options(media_type, size) do
+    text_grant =
+      Map.merge(grant(), %{
+        request_content_length: size,
+        request_declared_media_type: media_type,
+        byte_size: size,
+        declared_media_type: media_type,
+        filename: "original.bin"
+      })
+
+    [
+      runtime: runtime(),
+      session: session_context(),
+      grant: text_grant,
+      owner: self(),
+      storage: storage(self()),
+      upload: upload_material()
+    ]
+  end
+
+  defp ready_text_session(media_type, size) do
+    {:ok, session} = start_supervised({UploadSession, text_session_options(media_type, size)})
+    assert_receive {:grant_consumption_requested, ^session, command}
+    refute Map.has_key?(command, :text_validation_version)
+    send(session, {:allow_grant_consumption, self()})
+    assert {:ok, ^session} = UploadSession.await_ready(session)
+    assert_receive {:writer_started, writer, upload}
+    refute Map.has_key?(upload, :text_validation_version)
+    assert upload.max_bytes == 67_108_864
+    {session, writer}
+  end
+
+  defp append_text_chunk(session, writer, chunk) do
+    append = Task.async(fn -> UploadSession.append(session, chunk) end)
+    assert_receive {:writer_chunk, ^writer, ^chunk}
+    send(writer, {:continue_writer, self()})
+    assert :ok = Task.await(append)
+  end
+
+  defp finish_text_session(session, writer) do
+    finish = Task.async(fn -> UploadSession.finish(session) end)
+    assert_receive {:stage_synced, ^writer}
+    assert_receive {:sealed_checkpoint_requested, ^session, checkpoint}
+    send(session, {:allow_sealed_checkpoint, self()})
+    assert {:ok, %{asset: %{state: :uploaded}, stage: %{state: :sealed}}} = Task.await(finish)
+    checkpoint
+  end
+
   defp start_session(controller) do
     start_supervised(
       {UploadSession,
@@ -673,6 +886,92 @@ defmodule Singularity.Runtime.UploadSessionLockTest do
       domain_dedup_key: :binary.copy(<<0xFA>>, 32),
       max_bytes: 512 * 1024 * 1024
     }
+  end
+end
+
+defmodule Singularity.Runtime.TextUploadConfiguredLimitTest do
+  use ExUnit.Case, async: false
+
+  alias Singularity.Core.Error
+  alias Singularity.Runtime.AcceptUploadTest
+  alias Singularity.Runtime.Assets.AcceptUpload
+  alias Singularity.Runtime.Assets.UploadSession
+  alias Singularity.Runtime.UploadSessionLockTest
+
+  setup do
+    previous = Application.fetch_env(:singularity_runtime, :max_upload_bytes)
+    Application.put_env(:singularity_runtime, :max_upload_bytes, 3)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:singularity_runtime, :max_upload_bytes, value)
+        :error -> Application.delete_env(:singularity_runtime, :max_upload_bytes)
+      end
+    end)
+  end
+
+  test "session admission keeps the smaller existing configured ceiling despite descriptor max" do
+    owner = self()
+
+    for media_type <- ["text/plain", "text/markdown"] do
+      assert {:ok, _state} =
+               UploadSession.initial_state(
+                 UploadSessionLockTest.text_session_options(media_type, 3)
+               )
+
+      assert {:error, %Error{code: :upload_too_large}, ^owner} =
+               UploadSession.initial_state(
+                 UploadSessionLockTest.text_session_options(media_type, 4)
+               )
+    end
+
+    refute_received {:grant_consumption_requested, _session, _command}
+    refute_received {:writer_started, _writer, _upload}
+  end
+
+  test "custody and selector admission independently keep the smaller configured ceiling" do
+    for media_type <- ["text/plain", "text/markdown"] do
+      options = UploadSessionLockTest.text_session_options(media_type, 4)
+      session = Keyword.fetch!(options, :session)
+      grant = Keyword.fetch!(options, :grant)
+
+      assert {:error, %Error{code: :upload_too_large}} =
+               AcceptUpload.begin(
+                 %{
+                   custodian: {AcceptUploadTest.Custodian, self()},
+                   upload_supervisor: {AcceptUploadTest.UploadSupervisor, self()}
+                 },
+                 session,
+                 grant,
+                 self()
+               )
+
+      selector =
+        Map.take(grant, [
+          :grant_id,
+          :session_id,
+          :principal_id,
+          :vault_id,
+          :token_digest,
+          :csrf_token_digest,
+          :request_content_length,
+          :request_declared_media_type
+        ])
+
+      assert {:error, %Error{code: :upload_too_large}} =
+               AcceptUpload.load_grant_descriptor(
+                 %{
+                   assets: {AcceptUploadTest.Assets, self()},
+                   operation_scope: {AcceptUploadTest.Scope, self()}
+                 },
+                 session,
+                 selector
+               )
+    end
+
+    refute_received {:scope, _runtime, _session, _requirement}
+    refute_received {:prepare_upload, _request}
+    refute_received {:begin_upload, _runtime, _session, _grant, _controller}
   end
 end
 

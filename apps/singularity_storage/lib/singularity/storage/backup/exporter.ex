@@ -49,6 +49,7 @@ defmodule Singularity.Storage.Backup.Exporter do
          {:ok, database_snapshot} <- database_snapshot(repo),
          {:ok, outbox_high_water_mark} <- outbox_high_water_mark(repo, vault_id),
          :ok <- reject_unsupported_canonical_rows(repo, vault_id, version),
+         :ok <- reject_inflight_text_originals(repo, vault_id),
          {:ok, object_inventory} <- object_inventory(repo, vault_id, version) do
       {:ok,
        %{
@@ -79,6 +80,7 @@ defmodule Singularity.Storage.Backup.Exporter do
          {:ok, cut} <- validate_logical_cut(cut),
          :ok <- require_database_snapshot(repo, cut.database_snapshot),
          :ok <- reject_unsupported_canonical_rows(repo, cut.vault_id, version),
+         :ok <- reject_inflight_text_originals(repo, cut.vault_id),
          :ok <- require_inventory(repo, cut, version),
          {:ok, binding} <- transaction_binding(repo, cut.vault_id),
          {:ok, identity} <- identity_rows(repo, cut.vault_id, version),
@@ -847,6 +849,42 @@ defmodule Singularity.Storage.Backup.Exporter do
            repo,
            statement,
            parameters
+         ) do
+      {:ok, %{rows: [[false]]}} -> :ok
+      {:ok, %{rows: [[true]]}} -> {:error, Error.new(:backup_unsupported)}
+      {:ok, _other} -> storage_unavailable()
+      {:error, %Error{}} = error -> error
+    end
+  end
+
+  # Logical bundles omit upload grants/stages. An uploaded or verified text
+  # original cannot resume from an empty destination until its real finalization
+  # atomically completes metadata. Query this SAME repeatable-read cut at each
+  # public entrypoint, without trusting ephemeral worker or stage state.
+  defp reject_inflight_text_originals(repo, vault_id) do
+    case query(
+           repo,
+           """
+           SELECT EXISTS (
+             SELECT 1 FROM content.assets AS asset
+             WHERE asset.vault_id = $1 AND asset.state IN ('uploaded', 'verified')
+               AND (
+                 EXISTS (
+                   SELECT 1 FROM content.source_references AS source
+                   WHERE source.vault_id = asset.vault_id
+                     AND source.resource_version_id = asset.resource_version_id
+                     AND source.declared_media_type IN ('text/plain', 'text/markdown')
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM content.asset_metadata AS metadata
+                   WHERE metadata.vault_id = asset.vault_id AND metadata.asset_id = asset.id
+                     AND (metadata.declared_media_type IN ('text/plain', 'text/markdown')
+                       OR metadata.extractor_version = 'upload_text_v1')
+                 )
+               )
+           )
+           """,
+           [Ecto.UUID.dump!(vault_id)]
          ) do
       {:ok, %{rows: [[false]]}} -> :ok
       {:ok, %{rows: [[true]]}} -> {:error, Error.new(:backup_unsupported)}

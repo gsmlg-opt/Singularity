@@ -10,6 +10,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   alias Singularity.Core.Error
   alias Singularity.Core.StageRef
   alias Singularity.Ingest.UploadRequest
+  alias Singularity.Ingest.UploadText
   alias Singularity.Runtime.Authorize
   alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Storage.AuthorizationLock
@@ -20,6 +21,8 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   alias Singularity.Storage.VaultLock
 
   @default_call_timeout 30_000
+  @text_media_types ["text/plain", "text/markdown"]
+  @text_max_bytes 67_108_864
   @stage_fields [
     :stage_id,
     :candidate_object_id,
@@ -228,6 +231,10 @@ defmodule Singularity.Runtime.Assets.UploadSession do
           append_chunk(state, caller, reference, chunk)
 
         {:"$upload_call", caller, reference, :finish}
+        when not is_nil(state.text_validator) ->
+          finish_text(state, caller, reference)
+
+        {:"$upload_call", caller, reference, :finish}
         when not state.media_validated? ->
           error = Error.new(:unsupported_media_type)
           reply(caller, reference, {:error, error})
@@ -280,6 +287,35 @@ defmodule Singularity.Runtime.Assets.UploadSession do
         _other ->
           ready_loop(state)
       end
+    end
+  end
+
+  defp append_chunk(%{text_validator: validator} = state, caller, reference, chunk)
+       when not is_nil(validator) do
+    observed_bytes = state.observed_text_bytes + byte_size(chunk)
+
+    result =
+      if observed_bytes > state.text_max_bytes do
+        {:error, Error.new(:upload_too_large)}
+      else
+        UploadText.append(validator, chunk)
+      end
+
+    case result do
+      {:ok, validator} ->
+        state = %{state | text_validator: validator, observed_text_bytes: observed_bytes}
+
+        if chunk == "" do
+          reply(caller, reference, :ok)
+          ready_loop(state)
+        else
+          send(state.writer, {:"$upload_stream_chunk", self(), reference, chunk})
+          await_chunk(state, caller, reference)
+        end
+
+      {:error, %Error{} = error} ->
+        reply(caller, reference, {:error, error})
+        terminate_abandoned(state, error, nil)
     end
   end
 
@@ -353,6 +389,23 @@ defmodule Singularity.Runtime.Assets.UploadSession do
           reply(caller, reference, {:error, error})
           terminate_abandoned(state, error, nil)
       end
+    end
+  end
+
+  defp finish_text(state, caller, reference) do
+    with :ok <- UploadText.finish(state.text_validator),
+         true <- state.observed_text_bytes == state.consume_command.byte_size do
+      send(state.writer, {:"$upload_stream_finish", self()})
+      await_finish(%{state | text_validated?: true}, caller, reference)
+    else
+      false ->
+        error = Error.new(:invalid)
+        reply(caller, reference, {:error, error})
+        terminate_abandoned(state, error, nil)
+
+      {:error, %Error{} = error} ->
+        reply(caller, reference, {:error, error})
+        terminate_abandoned(state, error, nil)
     end
   end
 
@@ -790,7 +843,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
           state.consume_command.candidate_object_id
         )
         |> Map.put(:expected_bytes, state.consume_command.byte_size)
-        |> Map.put(:max_bytes, max_upload_bytes())
+        |> Map.put(:max_bytes, state.text_max_bytes || max_upload_bytes())
 
       owner = self()
       writer_adapter = state.adapters.stage_writer
@@ -970,7 +1023,8 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   defp checkpoint(state, sealed) when is_map(sealed) do
     expected_stage_ref = %StageRef{stage_id: field(state.stage, :id)}
 
-    with %StageRef{} = stage_ref <- Map.get(sealed, :stage_ref),
+    with true <- is_nil(state.text_validator) or state.text_validated?,
+         %StageRef{} = stage_ref <- Map.get(sealed, :stage_ref),
          true <- stage_ref == expected_stage_ref,
          plaintext_size when is_integer(plaintext_size) and plaintext_size >= 0 <-
            Map.get(sealed, :plaintext_byte_size),
@@ -984,25 +1038,28 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          format_version when is_integer(format_version) and format_version > 0 <-
            Map.get(sealed, :format_version),
          %DateTime{} = sealed_at <- state.adapters.clock.() do
-      {:ok,
-       %{
-         stage_ref: stage_ref,
-         storage_ref: field(state.stage, :storage_ref),
-         grant_id: state.consume_command.grant_id,
-         session_id: state.consume_command.session_id,
-         principal_id: state.consume_command.principal_id,
-         vault_id: state.consume_command.vault_id,
-         asset_id: state.consume_command.asset_id,
-         classification: state.consume_command.classification,
-         expected_stage_revision: field(state.stage, :state_revision, 0),
-         expected_asset_revision: 0,
-         format_version: format_version,
-         plaintext_byte_size: plaintext_size,
-         ciphertext_byte_size: ciphertext_size,
-         lookup_digest: lookup_digest,
-         ciphertext_hash: ciphertext_hash,
-         sealed_at: sealed_at
-       }}
+      checkpoint = %{
+        stage_ref: stage_ref,
+        storage_ref: field(state.stage, :storage_ref),
+        grant_id: state.consume_command.grant_id,
+        session_id: state.consume_command.session_id,
+        principal_id: state.consume_command.principal_id,
+        vault_id: state.consume_command.vault_id,
+        asset_id: state.consume_command.asset_id,
+        classification: state.consume_command.classification,
+        expected_stage_revision: field(state.stage, :state_revision, 0),
+        expected_asset_revision: 0,
+        format_version: format_version,
+        plaintext_byte_size: plaintext_size,
+        ciphertext_byte_size: ciphertext_size,
+        lookup_digest: lookup_digest,
+        ciphertext_hash: ciphertext_hash,
+        sealed_at: sealed_at
+      }
+
+      if state.text_validated?,
+        do: {:ok, Map.put(checkpoint, :text_validation_version, "upload_text_v1")},
+        else: {:ok, checkpoint}
     else
       _invalid -> {:error, Error.new(:integrity_failure)}
     end
@@ -1035,6 +1092,8 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          :gt <- DateTime.compare(expires_at, now),
          :ok <- validate_binding(session, grant),
          :ok <- raw_credentials_absent(grant),
+         :ok <- raw_credentials_absent(upload),
+         {:ok, text_max_bytes} <- text_upload_limit(grant),
          {:ok, signature_bytes} <-
            signature_bytes(Map.get(grant, :declared_media_type)),
          {:ok, consume_command} <- consume_command(grant, upload),
@@ -1049,6 +1108,14 @@ defmodule Singularity.Runtime.Assets.UploadSession do
          declared_media_type: Map.get(grant, :declared_media_type),
          magic_prefix: "",
          media_validated?: false,
+         text_validator:
+           if(Map.get(grant, :declared_media_type) in @text_media_types,
+             do: UploadText.new(),
+             else: nil
+           ),
+         text_validated?: false,
+         observed_text_bytes: 0,
+         text_max_bytes: text_max_bytes,
          owner: owner,
          owner_monitor: nil,
          repo: nil,
@@ -1159,7 +1226,11 @@ defmodule Singularity.Runtime.Assets.UploadSession do
            :upload_token,
            "upload_token",
            :csrf_token,
-           "csrf_token"
+           "csrf_token",
+           :text_validation_version,
+           "text_validation_version",
+           :metadata,
+           "metadata"
          ],
          &(not Map.has_key?(grant, &1))
        ),
@@ -1169,6 +1240,31 @@ defmodule Singularity.Runtime.Assets.UploadSession do
 
   defp valid_digest?(value),
     do: is_binary(value) and byte_size(value) == 32
+
+  defp text_upload_limit(grant) do
+    if Map.get(grant, :declared_media_type) in @text_media_types or
+         Map.get(grant, :request_declared_media_type) in @text_media_types do
+      maximum = max_upload_bytes()
+      size = Map.get(grant, :byte_size)
+      request_size = Map.get(grant, :request_content_length)
+
+      cond do
+        not is_integer(maximum) or maximum < 0 or
+          not is_integer(size) or size < 0 or
+          not is_integer(request_size) or request_size < 0 ->
+          {:error, Error.new(:invalid)}
+
+        size > min(maximum, @text_max_bytes) or
+            request_size > min(maximum, @text_max_bytes) ->
+          {:error, Error.new(:upload_too_large)}
+
+        true ->
+          {:ok, min(maximum, @text_max_bytes)}
+      end
+    else
+      {:ok, nil}
+    end
+  end
 
   defp requirement(session, grant) do
     %{
@@ -1260,6 +1356,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   defp signature_bytes("application/pdf"), do: {:ok, 5}
   defp signature_bytes("image/jpeg"), do: {:ok, 3}
   defp signature_bytes("image/png"), do: {:ok, 8}
+  defp signature_bytes(media_type) when media_type in @text_media_types, do: {:ok, 0}
 
   defp signature_bytes(_declared_media_type),
     do: {:error, Error.new(:unsupported_media_type)}

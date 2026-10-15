@@ -188,6 +188,67 @@ defmodule Singularity.Runtime.AssetDownloadTest do
     refute_received {:authorized_object, @asset_id}
   end
 
+  for media_type <- ["text/plain", "text/markdown"] do
+    test "describes #{media_type} through the independent inner MIME gate" do
+      media_type = unquote(media_type)
+
+      for size <- [0, 19] do
+        Process.put(:download_object, %{
+          vault_id: @vault_id,
+          object_id: @object_id,
+          plaintext_byte_size: size,
+          detected_media_type: media_type
+        })
+
+        assert {:ok, %{plaintext_byte_size: ^size, detected_media_type: ^media_type} = descriptor} =
+                 Download.describe(runtime(), session(), @asset_id)
+
+        assert map_size(descriptor) == 2
+        assert_receive {:authorized_download_descriptor, @asset_id}
+      end
+
+      refute_received {:lease, _request}
+      refute_received {:read, _lease, _range}
+    end
+
+    test "#{media_type} reads keep the established lease and audit contract" do
+      Process.put(:download_object, %{
+        vault_id: @vault_id,
+        object_id: @object_id,
+        plaintext_byte_size: 19,
+        detected_media_type: unquote(media_type)
+      })
+
+      assert {:ok, "authenticated bytes"} =
+               Download.run(runtime(), session(), @asset_id, :all, @correlation_id)
+
+      assert_receive {:lease, %{object_id: @object_id, required_capability: "asset.read"}}
+      assert_receive {:read, _opaque_lease, :all}
+      assert_receive {:audit, :scoped_repo, %{action: "asset.downloaded", metadata: %{}}}
+    end
+  end
+
+  test "descriptor MIME admission still rejects unsupported text and Office declarations" do
+    for media_type <- [
+          "text/html",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ] do
+      Process.put(:download_object, %{
+        vault_id: @vault_id,
+        object_id: @object_id,
+        plaintext_byte_size: 19,
+        detected_media_type: media_type
+      })
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               Download.describe(runtime(), session(), @asset_id)
+    end
+
+    refute_received {:lease, _request}
+    refute_received {:read, _lease, _range}
+  end
+
   test "rejects otherwise-valid download descriptors containing custody fields" do
     Process.put(:download_object, %{
       vault_id: @vault_id,

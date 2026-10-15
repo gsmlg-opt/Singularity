@@ -108,7 +108,9 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Storage.VaultLock
   alias Singularity.Storage.Jobs.ObanAdapter
 
-  @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
+  @text_media_types ["text/plain", "text/markdown"]
+  @safe_media_types ["application/pdf", "image/jpeg", "image/png"] ++ @text_media_types
+  @text_max_bytes 67_108_864
   @asset_states [
     :staging,
     :uploaded,
@@ -999,11 +1001,12 @@ defmodule Singularity.Runtime.Api do
   @doc false
   def create_upload_grant(config, %Session{} = session, attrs, csrf_token)
       when is_map(config) and is_map(attrs) and is_binary(csrf_token) do
-    with {:ok, context} <- session_context(session),
+    with :ok <- public_upload_fields(attrs),
+         {:ok, context} <- session_context(session),
          {:ok, grant} <-
            invoke(config, :create_upload_grant, [context, attrs, csrf_token]),
          {:ok, token} <- grant_token(grant),
-         {:ok, dto} <- upload_grant_dto(grant) do
+         {:ok, dto} <- upload_grant_dto(grant, config) do
       publish_asset(config, context.vault_id, dto.asset_id)
       {:ok, token, dto}
     else
@@ -1672,7 +1675,7 @@ defmodule Singularity.Runtime.Api do
 
   defp valid_failure?(_failure), do: false
 
-  defp upload_grant_dto(grant) when is_map(grant) do
+  defp upload_grant_dto(grant, config) when is_map(grant) do
     values = %{
       grant_id: Map.get(grant, :grant_id, Map.get(grant, :id)),
       asset_id: Map.get(grant, :asset_id),
@@ -1687,6 +1690,8 @@ defmodule Singularity.Runtime.Api do
       valid_uuid?(values.grant_id) and valid_uuid?(values.asset_id) and
         nonblank?(values.filename) and valid_epoch?(values.byte_size) and
         values.declared_media_type in @safe_media_types and
+        (values.declared_media_type not in @text_media_types or
+           validate_content_length(config, values.byte_size, values.declared_media_type) == :ok) and
         values.classification in [:private, :sensitive, :restricted] and
         is_struct(values.expires_at, DateTime)
 
@@ -1695,7 +1700,7 @@ defmodule Singularity.Runtime.Api do
       else: {:error, :integrity_failure}
   end
 
-  defp upload_grant_dto(_grant), do: {:error, :integrity_failure}
+  defp upload_grant_dto(_grant, _config), do: {:error, :integrity_failure}
 
   defp grant_token(grant) when is_map(grant) do
     case Map.get(grant, :token) do
@@ -1707,16 +1712,17 @@ defmodule Singularity.Runtime.Api do
   defp grant_token(_grant), do: {:error, :integrity_failure}
 
   defp upload_selector(config, context, grant_id, request) do
-    with true <- context.unlocked?,
+    with :ok <- public_upload_fields(request),
+         true <- context.unlocked?,
          true <- valid_uuid?(grant_id),
          {:ok, upload_token} <-
            decode_token(Map.get(request, :upload_token)),
          {:ok, csrf_token} <- csrf_token(Map.get(request, :csrf_token)),
          content_length when is_integer(content_length) and content_length >= 0 <-
            Map.get(request, :content_length),
-         :ok <- validate_content_length(config, content_length),
          {:ok, declared_media_type} <-
-           upload_media_type(Map.get(request, :declared_media_type)) do
+           upload_media_type(Map.get(request, :declared_media_type)),
+         :ok <- validate_content_length(config, content_length, declared_media_type) do
       {:ok,
        %{
          grant_id: grant_id,
@@ -1752,7 +1758,7 @@ defmodule Singularity.Runtime.Api do
 
   defp upload_media_type(_media_type), do: {:error, :invalid}
 
-  defp validate_content_length(config, content_length) do
+  defp validate_content_length(config, content_length, media_type) do
     max_upload_bytes =
       Map.get(
         config,
@@ -1768,7 +1774,8 @@ defmodule Singularity.Runtime.Api do
       not is_integer(max_upload_bytes) or max_upload_bytes < 0 ->
         {:error, :invalid}
 
-      content_length > max_upload_bytes ->
+      content_length > max_upload_bytes or
+          (media_type in @text_media_types and content_length > @text_max_bytes) ->
         {:error, :upload_too_large}
 
       true ->
@@ -1777,7 +1784,7 @@ defmodule Singularity.Runtime.Api do
   end
 
   defp internal_upload_grant(descriptor, selector) when is_map(descriptor) do
-    if credential_fields_absent?(descriptor) do
+    if credential_fields_absent?(descriptor) and public_upload_fields(descriptor) == :ok do
       grant =
         Map.merge(
           descriptor,
@@ -1794,7 +1801,9 @@ defmodule Singularity.Runtime.Api do
           selector.grant_id and
           grant.session_id == selector.session_id and
           grant.principal_id == selector.principal_id and
-          grant.vault_id == selector.vault_id
+          grant.vault_id == selector.vault_id and
+          Map.get(grant, :byte_size) == selector.request_content_length and
+          Map.get(grant, :declared_media_type) == selector.request_declared_media_type
 
       if exact?, do: {:ok, grant}, else: {:error, :integrity_failure}
     else
@@ -1804,6 +1813,15 @@ defmodule Singularity.Runtime.Api do
 
   defp internal_upload_grant(_descriptor, _selector),
     do: {:error, :integrity_failure}
+
+  defp public_upload_fields(value) do
+    if Enum.any?(
+         [:text_validation_version, "text_validation_version", :metadata, "metadata"],
+         &Map.has_key?(value, &1)
+       ),
+       do: {:error, :invalid},
+       else: :ok
+  end
 
   defp upload_identity(%{vault_id: vault_id, asset_id: asset_id}) do
     if valid_uuid?(vault_id) and valid_uuid?(asset_id),

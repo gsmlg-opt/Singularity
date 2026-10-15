@@ -38,6 +38,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
   alias Singularity.Storage.Postgres.AssetSearchStore
 
   @max_bigint 9_223_372_036_854_775_807
+  @upload_text_media_types ["text/plain", "text/markdown"]
+  @upload_text_validation_version "upload_text_v1"
+  @upload_text_max_bytes 67_108_864
   @metadata_result_keys ~w[
     detected_media_type plaintext_bytes width height pdf_version extractor_version
   ]
@@ -487,6 +490,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       end)
       |> Multi.run(:checkpoint_mode, fn _transaction_repo, locked ->
         validate_sealed_checkpoint_binding(locked, command)
+      end)
+      |> Multi.run(:text_evidence, fn transaction_repo, locked ->
+        validate_checkpoint_text_evidence(transaction_repo, locked, command)
       end)
       |> Multi.merge(fn locked ->
         sealed_checkpoint_effects(locked, command, correlation_id)
@@ -2444,6 +2450,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
            asset.state_revision == envelope.expected_entity_revision do
         with {:ok, stage} <- lock_verification_stage(repo, asset.id, asset.vault_id),
              :ok <- validate_stage_envelope(stage),
+             {:ok, _text_evidence} <- finalization_text_evidence(repo, asset, stage, envelope),
              {:ok, canonical} <-
                lock_live_canonical_object(repo, stage, "FOR SHARE") do
           {:ok,
@@ -2472,12 +2479,84 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
     end
   end
 
+  defp finalization_text_evidence(repo, asset, stage, envelope) do
+    # Sealing locks grant before Asset. Finalization already holds Asset, so read
+    # the lawfully consumed immutable grant binding without taking a grant lock.
+    # Admission expiry is not a new finalization deadline; job authorization is
+    # checked separately by the runtime for every finalization transaction.
+    grant =
+      if is_binary(stage.upload_grant_id) do
+        repo.one(from grant in UploadGrant, where: grant.id == ^stage.upload_grant_id)
+      end
+
+    metadata = repo.one(from metadata in AssetMetadata, where: metadata.asset_id == ^asset.id)
+
+    text_source_query =
+      from source in SourceReference,
+        where:
+          source.vault_id == ^asset.vault_id and
+            source.resource_version_id == ^asset.resource_version_id and
+            source.declared_media_type in @upload_text_media_types,
+        select: true,
+        limit: 1
+
+    # A resource version may have several Assets. Prefer this Asset's bound
+    # source; if the grant disappeared, retained source evidence still fails shut.
+    text_source_query =
+      case grant do
+        %UploadGrant{asset_id: asset_id, source_reference_id: source_id}
+        when asset_id == asset.id and is_binary(source_id) ->
+          where(text_source_query, [source], source.id == ^source_id)
+
+        _missing_binding ->
+          text_source_query
+      end
+
+    source_text? = repo.one(text_source_query) == true
+
+    text_evidence? =
+      source_text? or
+        (match?(%UploadGrant{}, grant) and grant.declared_media_type in @upload_text_media_types) or
+        upload_text_metadata?(metadata)
+
+    if text_evidence? do
+      with %UploadGrant{} <- grant,
+           true <- grant.declared_media_type in @upload_text_media_types,
+           :ok <- UUID.validate([grant.session_id, grant.source_reference_id]),
+           true <-
+             stage.asset_id == asset.id and stage.vault_id == asset.vault_id and
+               stage.classification == asset.classification and
+               grant.asset_id == asset.id and grant.vault_id == asset.vault_id and
+               grant.classification == asset.classification and
+               grant.principal_id == envelope.principal_id and
+               grant.principal_authorization_epoch == envelope.principal_authorization_epoch and
+               grant.vault_authorization_epoch == envelope.vault_authorization_epoch and
+               is_struct(grant.consumed_at, DateTime) and
+               is_struct(stage.sealed_at, DateTime) and
+               DateTime.compare(grant.consumed_at, stage.sealed_at) != :gt and
+               is_nil(grant.retired_at) and is_nil(grant.cancelled_at) and
+               stage.format_version == 1 and
+               is_integer(stage.plaintext_byte_size) and stage.plaintext_byte_size >= 0 and
+               stage.plaintext_byte_size <= @upload_text_max_bytes and
+               grant.byte_size == stage.plaintext_byte_size,
+           {:ok, _source} <- lock_upload_source(repo, asset, grant),
+           {:ok, pending_metadata} <- lock_upload_text_metadata(repo, asset, grant) do
+        {:ok, pending_metadata}
+      else
+        _mismatch -> {:error, Error.new(:conflict)}
+      end
+    else
+      {:ok, :binary}
+    end
+  end
+
   defp reserve_pending_finalization(repo, envelope, requested_object_id) do
     with {:ok, asset} <- lock_job_asset(repo, envelope) do
       if asset.state == :verified and
            asset.state_revision == envelope.expected_entity_revision do
         with {:ok, stage} <- lock_verification_stage(repo, asset.id, asset.vault_id),
              :ok <- validate_stage_envelope(stage),
+             {:ok, _text_evidence} <- finalization_text_evidence(repo, asset, stage, envelope),
              {:ok, canonical} <-
                lock_live_canonical_object(repo, stage, "FOR UPDATE") do
           reserve_canonical_object(
@@ -2650,13 +2729,15 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
                  object,
                  command
                ),
+             {:ok, text_evidence} <- finalization_text_evidence(repo, asset, stage, envelope),
              {:ok, available} <-
                persist_available_effect(
                  repo,
                  asset,
                  stage,
                  object,
-                 command
+                 command,
+                 text_evidence
                ) do
           {:ok,
            %{
@@ -2750,7 +2831,7 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
        ),
        do: {:error, Error.new(:conflict)}
 
-  defp persist_available_effect(repo, asset, stage, object, command) do
+  defp persist_available_effect(repo, asset, stage, object, command, text_evidence) do
     envelope = command.envelope
     now = DateTime.utc_now(:microsecond)
 
@@ -2786,19 +2867,38 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
                occurred_at: now
              })
            ),
-         {:ok, _outbox} <-
+         {:ok, completed_asset} <-
+           complete_available_asset(repo, available_asset, envelope, now, text_evidence),
+         {:ok, _receipt} <-
+           Progress.record_effect(repo, envelope, %{
+             effect_key: envelope.idempotency_key,
+             result: :applied,
+             entity_revision: completed_asset.state_revision
+           }) do
+      {:ok, completed_asset}
+    else
+      {:error, %Ecto.Changeset{} = changeset_error} ->
+        {:error, changeset_error(changeset_error)}
+
+      {:error, %Error{}} = error ->
+        error
+    end
+  end
+
+  defp complete_available_asset(repo, asset, envelope, now, :binary) do
+    with {:ok, _outbox} <-
            repo.insert(
              outbox_changeset(
                %{
                  event_type: "asset.metadata_requested",
-                 idempotency_key: "asset-metadata:#{asset.id}:#{available_asset.state_revision}",
+                 idempotency_key: "asset-metadata:#{asset.id}:#{asset.state_revision}",
                  vault_id: asset.vault_id,
                  principal_id: envelope.principal_id,
                  required_capability: "asset.read",
                  classification: asset.classification,
                  correlation_id: envelope.correlation_id,
                  causation_id: envelope.job_id,
-                 expected_entity_revision: available_asset.state_revision,
+                 expected_entity_revision: asset.state_revision,
                  payload: %{"asset_id" => asset.id},
                  occurred_at: now
                },
@@ -2807,21 +2907,57 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
                  vault_authorization_epoch: envelope.vault_authorization_epoch
                }
              )
-           ),
-         {:ok, _receipt} <-
-           Progress.record_effect(repo, envelope, %{
-             effect_key: envelope.idempotency_key,
-             result: :applied,
-             entity_revision: available_asset.state_revision
-           }) do
-      {:ok, available_asset}
-    else
-      {:error, %Ecto.Changeset{} = changeset_error} ->
-        {:error, changeset_error(changeset_error)}
-
-      {:error, %Error{}} = error ->
-        error
+           ) do
+      {:ok, asset}
     end
+  end
+
+  defp complete_available_asset(repo, asset, envelope, now, %AssetMetadata{} = metadata) do
+    with {:ok, processing} <- transition_finalized_text(repo, asset, :processing),
+         {:ok, _metadata} <-
+           metadata
+           |> AssetMetadata.upsert_changeset(%{
+             detected_media_type: metadata.declared_media_type,
+             plaintext_byte_size: metadata.plaintext_byte_size,
+             pdf_header_version: nil,
+             image_width: nil,
+             image_height: nil,
+             extraction_state: :completed,
+             extractor_version: @upload_text_validation_version,
+             completed_at: now
+           })
+           |> repo.update()
+           |> map_changeset_result(),
+         {:ok, ready} <- transition_finalized_text(repo, processing, :ready),
+         :ok <- rebuild_search_document(repo, ready.id),
+         {:ok, _audit} <-
+           repo.insert(
+             audit_changeset(%{
+               operation: "asset.metadata_completed",
+               vault_id: ready.vault_id,
+               principal_id: envelope.principal_id,
+               classification: ready.classification,
+               correlation_id: envelope.correlation_id,
+               target_id: ready.id,
+               metadata: %{
+                 "detected_media_type" => metadata.declared_media_type,
+                 "extractor_version" => @upload_text_validation_version,
+                 "job_id" => envelope.job_id,
+                 "state" => "ready"
+               },
+               occurred_at: now
+             })
+           ) do
+      {:ok, ready}
+    end
+  end
+
+  defp transition_finalized_text(repo, asset, state) do
+    asset
+    |> StoredAsset.transition_changeset(%{state: state, state_revision: asset.state_revision})
+    |> Ecto.Changeset.optimistic_lock(:state_revision)
+    |> repo.update()
+    |> map_changeset_result()
   end
 
   defp make_object_available(
@@ -3920,6 +4056,9 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
          true <- is_binary(lookup_digest) and byte_size(lookup_digest) == 32,
          true <- is_binary(ciphertext_hash) and byte_size(ciphertext_hash) == 32,
          {:ok, ^sealed_at} <- Types.utc_datetime(command, :sealed_at),
+         true <-
+           not Map.has_key?(command, :text_validation_version) or
+             command.text_validation_version == @upload_text_validation_version,
          false <- Map.has_key?(command, :object_dek),
          false <- Map.has_key?(command, :plaintext_sha256) do
       :ok
@@ -4090,6 +4229,83 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
       asset.state_revision == command.expected_asset_revision + 1
   end
 
+  defp validate_checkpoint_text_evidence(repo, locked, command) do
+    text? = locked.grant.declared_media_type in @upload_text_media_types
+    marker? = Map.has_key?(command, :text_validation_version)
+
+    cond do
+      text? and
+          (not marker? or command.text_validation_version != @upload_text_validation_version or
+             command.format_version != 1 or command.plaintext_byte_size > @upload_text_max_bytes or
+             not is_struct(locked.grant.consumed_at, DateTime) or
+             DateTime.compare(locked.grant.consumed_at, command.sealed_at) == :gt or
+             not is_nil(locked.grant.cancelled_at)) ->
+        {:error, Error.new(:conflict)}
+
+      not text? and marker? ->
+        {:error, Error.new(:conflict)}
+
+      text? and locked.checkpoint_mode == :replay ->
+        lock_upload_text_metadata(repo, locked.asset, locked.grant)
+
+      locked.checkpoint_mode == :replay ->
+        metadata =
+          repo.one(
+            from metadata in AssetMetadata,
+              where: metadata.asset_id == ^locked.asset.id,
+              lock: "FOR UPDATE"
+          )
+
+        if upload_text_metadata?(metadata) do
+          {:error, Error.new(:conflict)}
+        else
+          {:ok, :binary}
+        end
+
+      true ->
+        {:ok, if(text?, do: :text, else: :binary)}
+    end
+  end
+
+  defp upload_text_metadata?(%AssetMetadata{} = metadata) do
+    metadata.declared_media_type in @upload_text_media_types or
+      (is_binary(metadata.extractor_version) and
+         String.starts_with?(metadata.extractor_version, "upload_text_"))
+  end
+
+  defp upload_text_metadata?(_metadata), do: false
+
+  defp lock_upload_text_metadata(repo, asset, grant) do
+    metadata =
+      repo.one(
+        from metadata in AssetMetadata,
+          where: metadata.asset_id == ^asset.id,
+          lock: "FOR UPDATE"
+      )
+
+    case metadata do
+      %AssetMetadata{} ->
+        exact? =
+          metadata.resource_version_id == asset.resource_version_id and
+            metadata.vault_id == asset.vault_id and
+            metadata.classification == asset.classification and
+            metadata.projection_version == 1 and
+            metadata.original_filename == grant.filename and
+            metadata.declared_media_type == grant.declared_media_type and
+            metadata.plaintext_byte_size == grant.byte_size and
+            metadata.extraction_state == :pending and
+            metadata.extractor_version == @upload_text_validation_version and
+            is_nil(metadata.detected_media_type) and is_nil(metadata.completed_at) and
+            is_nil(metadata.pdf_header_version) and is_nil(metadata.image_width) and
+            is_nil(metadata.image_height)
+
+        if exact?, do: {:ok, metadata}, else: {:error, Error.new(:conflict)}
+
+      nil ->
+        {:error, Error.new(:conflict)}
+    end
+  end
+
   defp sealed_checkpoint_effects(
          %{checkpoint_mode: :replay, stage: stage, asset: asset},
          _command,
@@ -4140,7 +4356,8 @@ defmodule Singularity.Storage.Postgres.AssetRepository do
         original_filename: grant.filename,
         declared_media_type: grant.declared_media_type,
         plaintext_byte_size: grant.byte_size,
-        extraction_state: :pending
+        extraction_state: :pending,
+        extractor_version: Map.get(command, :text_validation_version)
       })
 
     audit =

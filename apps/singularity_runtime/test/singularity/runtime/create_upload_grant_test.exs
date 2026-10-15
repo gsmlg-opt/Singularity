@@ -96,6 +96,53 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
              |> length()
   end
 
+  for {media_type, filename} <- [
+        {"text/plain", "notes.txt"},
+        {"text/markdown", "notes.md"}
+      ] do
+    test "creates a grant bound to the exact #{media_type} request" do
+      owner = self()
+      now = ~U[2026-07-19 09:00:00.000000Z]
+      session = session()
+
+      request = %{
+        attrs()
+        | filename: unquote(filename),
+          declared_media_type: unquote(media_type)
+      }
+
+      runtime = %{
+        assets: {Assets, owner},
+        clock: fn -> now end,
+        id_generator: fn -> Ecto.UUID.generate() end,
+        operation_scope: {Scope, owner},
+        random_bytes: &:crypto.strong_rand_bytes/1
+      }
+
+      assert {:ok, %{state: :granted}} =
+               CreateUploadGrant.run(runtime, session, request, @csrf_token)
+
+      assert_receive {:requirement, requirement}
+
+      assert requirement == %{
+               required_capability: "asset.write",
+               classification: :private,
+               requires_unlocked?: true
+             }
+
+      assert_receive {:grant_command, command}
+      assert command.session_id == session.session_id
+      assert command.principal_id == session.principal_id
+      assert command.vault_id == session.vault_id
+      assert command.filename == request.filename
+      assert command.byte_size == request.size
+      assert command.declared_media_type == request.declared_media_type
+      assert command.idempotency_key == request.idempotency_key
+      assert command.classification == :private
+      assert command.server_owned_resource? == true
+    end
+  end
+
   test "caps the grant at the session expiry" do
     owner = self()
     now = ~U[2026-07-19 09:00:00.000000Z]
@@ -133,7 +180,7 @@ defmodule Singularity.Runtime.CreateUploadGrantTest do
              CreateUploadGrant.run(
                runtime,
                session(),
-               %{attrs() | declared_media_type: "text/plain"},
+               %{attrs() | declared_media_type: "text/csv"},
                @csrf_token
              )
 

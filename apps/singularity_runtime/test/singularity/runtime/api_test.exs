@@ -1091,12 +1091,203 @@ defmodule Singularity.Runtime.ApiTest do
                  upload_token: Base.url_encode64(@upload_token, padding: false),
                  csrf_token: @csrf_token,
                  content_length: 12,
-                 declared_media_type: "text/plain"
+                 declared_media_type: "application/octet-stream"
                },
                self()
              )
 
     refute_received :descriptor_loaded
+  end
+
+  for media_type <- ["text/plain", "text/markdown"] do
+    test "begin_upload admits #{media_type} with its immutable declaration" do
+      media_type = unquote(media_type)
+      test_pid = self()
+
+      for size <- [0, 67_108_864] do
+        descriptor = %{upload_descriptor() | byte_size: size, declared_media_type: media_type}
+
+        api =
+          api(
+            load_upload_grant_descriptor: fn _context, selector ->
+              send(test_pid, {:text_selector, selector})
+              {:ok, descriptor}
+            end,
+            begin_upload: fn _context, grant, _owner ->
+              send(test_pid, {:text_grant, grant})
+              {:ok, make_ref()}
+            end
+          )
+
+        assert {:ok, _handle} =
+                 Api.begin_upload(
+                   api,
+                   session_dto(true),
+                   @grant_id,
+                   %{
+                     upload_token: Base.url_encode64(@upload_token, padding: false),
+                     csrf_token: @csrf_token,
+                     content_length: size,
+                     declared_media_type: media_type
+                   },
+                   self()
+                 )
+
+        assert_receive {:text_selector, selector}
+        assert selector.request_content_length == size
+        assert selector.request_declared_media_type == media_type
+        assert_receive {:text_grant, grant}
+        assert grant.byte_size == size
+        assert grant.declared_media_type == media_type
+        refute Map.has_key?(grant, :text_validation_version)
+      end
+    end
+
+    test "create_upload_grant and asset summary preserve #{media_type} in safe DTOs" do
+      media_type = unquote(media_type)
+      token = Base.url_encode64(@upload_token, padding: false)
+
+      api =
+        api(
+          create_upload_grant: fn _context, _attrs, _csrf ->
+            {:ok,
+             upload_descriptor()
+             |> Map.put(:declared_media_type, media_type)
+             |> Map.put(:token, token)}
+          end,
+          asset_summary: fn _context, _id ->
+            {:ok, asset_projection(%{detected_media_type: media_type})}
+          end
+        )
+
+      assert {:ok, ^token, %UploadGrant{declared_media_type: ^media_type} = grant} =
+               Api.create_upload_grant(
+                 api,
+                 session_dto(true),
+                 %{filename: "original.bin"},
+                 @csrf_token
+               )
+
+      refute Map.has_key?(Map.from_struct(grant), :text_validation_version)
+
+      assert {:ok, %AssetSummary{detected_media_type: ^media_type}} =
+               Api.asset_summary(api, session_dto(true), @asset_id)
+    end
+
+    test "download preserves #{media_type} and exact original bytes" do
+      media_type = unquote(media_type)
+      body = <<0xEF, 0xBB, 0xBF>> <> "# Cafe\u0301\r\n中文\n"
+
+      api =
+        api(
+          download_descriptor: fn _context, @asset_id ->
+            {:ok, %{plaintext_byte_size: byte_size(body), detected_media_type: media_type}}
+          end,
+          download: fn _context, @asset_id, :all -> {:ok, body} end
+        )
+
+      assert {:ok, %{status: 200, body: ^body, detected_media_type: ^media_type}} =
+               Api.download(api, session_dto(true), @asset_id, nil)
+    end
+  end
+
+  test "text admission applies the smaller configured ceiling before descriptor lookup" do
+    test_pid = self()
+
+    for {maximum, size} <- [{512 * 1024 * 1024, 67_108_865}, {3, 4}],
+        media_type <- ["text/plain", "text/markdown"] do
+      api =
+        api(
+          max_upload_bytes: maximum,
+          load_upload_grant_descriptor: fn _context, _selector ->
+            send(test_pid, :text_descriptor_loaded)
+            {:ok, upload_descriptor()}
+          end
+        )
+
+      assert {:error, :upload_too_large} =
+               Api.begin_upload(
+                 api,
+                 session_dto(true),
+                 @grant_id,
+                 %{
+                   upload_token: Base.url_encode64(@upload_token, padding: false),
+                   csrf_token: @csrf_token,
+                   content_length: size,
+                   declared_media_type: media_type
+                 },
+                 self()
+               )
+    end
+
+    refute_received :text_descriptor_loaded
+  end
+
+  test "an oversized text descriptor cannot bypass a bounded public selector" do
+    test_pid = self()
+    descriptor = %{upload_descriptor() | byte_size: 67_108_865, declared_media_type: "text/plain"}
+
+    api =
+      api(
+        load_upload_grant_descriptor: fn _context, _selector -> {:ok, descriptor} end,
+        begin_upload: fn _context, _grant, _owner ->
+          send(test_pid, :oversized_text_custody_started)
+          {:ok, make_ref()}
+        end
+      )
+
+    assert {:error, :integrity_failure} =
+             Api.begin_upload(
+               api,
+               session_dto(true),
+               @grant_id,
+               %{
+                 upload_token: Base.url_encode64(@upload_token, padding: false),
+                 csrf_token: @csrf_token,
+                 content_length: 0,
+                 declared_media_type: "text/plain"
+               },
+               self()
+             )
+
+    refute_received :oversized_text_custody_started
+  end
+
+  test "public text upload cannot supply the internal validation marker or metadata" do
+    test_pid = self()
+
+    for foreign <- [
+          %{text_validation_version: "upload_text_v1"},
+          %{"text_validation_version" => "upload_text_v1"},
+          %{metadata: %{extractor_version: "upload_text_v1"}}
+        ] do
+      request =
+        Map.merge(
+          %{
+            upload_token: Base.url_encode64(@upload_token, padding: false),
+            csrf_token: @csrf_token,
+            content_length: 0,
+            declared_media_type: "text/plain"
+          },
+          foreign
+        )
+
+      assert {:error, :invalid} =
+               Api.begin_upload(
+                 api(
+                   load_upload_grant_descriptor: fn _context, _selector ->
+                     send(test_pid, :foreign_descriptor_loaded)
+                     {:ok, upload_descriptor()}
+                   end
+                 ),
+                 session_dto(true),
+                 @grant_id,
+                 request,
+                 self()
+               )
+    end
+
+    refute_received :foreign_descriptor_loaded
   end
 
   test "upload preflight conceals credentials but differentiates safe request mismatches" do

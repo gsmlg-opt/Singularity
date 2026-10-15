@@ -24,7 +24,9 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
     :vault_authorization_epoch,
     :classification
   ]
-  @safe_media_types ["application/pdf", "image/jpeg", "image/png"]
+  @text_media_types ["text/plain", "text/markdown"]
+  @safe_media_types ["application/pdf", "image/jpeg", "image/png"] ++ @text_media_types
+  @text_max_bytes 67_108_864
 
   @spec load_grant_descriptor(map(), SessionContext.t(), map()) ::
           {:ok, map()} | {:error, Error.t()}
@@ -34,7 +36,8 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
         selector
       )
       when is_map(runtime) and is_map(selector) do
-    with :ok <- validate_selector(session, selector),
+    with :ok <- validate_text_limit(selector),
+         :ok <- validate_selector(session, selector),
          {:ok, adapters} <- descriptor_adapters(runtime) do
       case load_descriptor(
              adapters,
@@ -91,6 +94,7 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
       )
       when is_map(runtime) and is_map(grant) and is_pid(controller) do
     with :ok <- raw_credentials_absent(grant),
+         :ok <- validate_text_limit(grant),
          {:ok, normalized_grant} <- normalize_grant(grant),
          :ok <- validate_binding(session, normalized_grant),
          {:ok, adapters} <- adapters(runtime),
@@ -161,7 +165,11 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
       valid_digest?(Map.get(grant, :token_digest)) and
         valid_digest?(Map.get(grant, :csrf_token_digest)) and
         valid_content_length?(Map.get(grant, :request_content_length)) and
-        Map.get(grant, :request_declared_media_type) in @safe_media_types
+        Map.get(grant, :request_declared_media_type) in @safe_media_types and
+        (not Map.has_key?(grant, :byte_size) or
+           grant.byte_size == grant.request_content_length) and
+        (not Map.has_key?(grant, :declared_media_type) or
+           grant.declared_media_type == grant.request_declared_media_type)
 
     if valid?, do: {:ok, grant}, else: {:error, Error.new(:invalid)}
   end
@@ -249,6 +257,7 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
   defp normalize_descriptor_result({:ok, descriptor})
        when is_map(descriptor) do
     if credential_fields_absent?(descriptor) and
+         validate_text_limit(descriptor) == :ok and
          Map.get(descriptor, :classification) in [
            :private,
            :sensitive,
@@ -279,7 +288,11 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
         :upload_token,
         "upload_token",
         :csrf_token,
-        "csrf_token"
+        "csrf_token",
+        :text_validation_version,
+        "text_validation_version",
+        :metadata,
+        "metadata"
       ],
       &(not Map.has_key?(value, &1))
     )
@@ -343,6 +356,31 @@ defmodule Singularity.Runtime.Assets.AcceptUpload do
     do:
       is_integer(value) and value >= 0 and
         value <= max_upload_bytes()
+
+  defp validate_text_limit(value) do
+    if Map.get(value, :request_declared_media_type) in @text_media_types or
+         Map.get(value, :declared_media_type) in @text_media_types do
+      maximum = max_upload_bytes()
+      size = Map.get(value, :request_content_length, Map.get(value, :byte_size))
+      declared_size = Map.get(value, :byte_size, size)
+
+      cond do
+        not is_integer(maximum) or maximum < 0 or
+          not is_integer(size) or size < 0 or
+          not is_integer(declared_size) or declared_size < 0 ->
+          {:error, Error.new(:invalid)}
+
+        size > min(maximum, @text_max_bytes) or
+            declared_size > min(maximum, @text_max_bytes) ->
+          {:error, Error.new(:upload_too_large)}
+
+        true ->
+          :ok
+      end
+    else
+      :ok
+    end
+  end
 
   defp max_upload_bytes do
     Application.get_env(
