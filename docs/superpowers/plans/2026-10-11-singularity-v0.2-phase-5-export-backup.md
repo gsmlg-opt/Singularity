@@ -24,6 +24,18 @@ Phase5 remains IN PROGRESS; Tasks11/12 are not accepted and defaultV2 stays.
 Task16 BOTH strict ALL-leases remain UNSATISFIED/UNWAIVED/BLOCKED_DESIGN.
 E2E NOT RUN; no publication, deployment, production activation or Vault feature work.
 
+### Task11 design amendment — 2026-10-15
+
+The native-text prerequisite is locally qualified at documentation commit
+`239c1c322b47c095004690154f691fcf85eeff81`; its code bytes are unchanged from
+`5f388ac88d5603b8c29df3a592d0843885a30912`. See [prerequisite evidence](../../verification/2026-10-15-phase-5-native-text-prerequisite.md).
+The [native V3 saga amendment](../specs/2026-10-15-singularity-v0.2-phase-5-knowledge-v3-saga-design.md)
+and [detailed plan](2026-10-15-singularity-v0.2-phase-5-knowledge-v3-saga.md)
+synchronize the retry wording in master design §8, §11 and Task11 together. This
+new amendment awaits actual independent SPEC then NEW distinct fresh QUALITY;
+Task11 source is not yet authorized. Other reviewed plan requirements and
+Task12/Task16 gates remain unchanged. E2E NOT RUN; defaultV2 remains.
+
 ### Historical qualification records
 
 The statuses below belong to their recorded earlier source generations. Their
@@ -1971,10 +1983,21 @@ legacy native Base compositions and every old oracle assertion remain intact.
 - [ ] Add deterministic fault barriers at authentication/preflight, canonical
   insert, staged publish, commit uncertainty, rewrap, ciphertext verification,
   durable-work reconciliation, authenticated plaintext/Document verification,
-  search rebuild and completion in the existing saga order. Assert rollback/owned
-  cleanup before/import failure and unpublished maintenance graph after import
-  failure. Resume exact-manifest retry only; verify zero duplicated rows,
-  objects, source seals/jobs. Never assert distributed transaction rollback.
+  unified search rebuild and integrity/restore completion in the existing saga
+  order. Assert rollback and owned cleanup for pre/import failures and an
+  unpublished maintenance graph after import failures, preserving every exact
+  error/retryable, custody-cleanup, dispatch/isolation and invisibility assertion.
+  Every supported native in-place retry must actually succeed on the identical
+  authenticated manifest and destination without duplicate rows, objects, source
+  seals or jobs. Qualify Storage pending/imported replay separately from complete
+  Runtime continuation. Characterize the existing no-durable-continuation boundary
+  after committed rewrap plus lost/consumed integrity custody; do not reclassify
+  transient failures or bypass custody to satisfy qualification. Separately prove
+  successful clean restore and supported disposable replacement staging while
+  active installation/data remain unchanged. Fresh disposable-target success is
+  RESTART, never successful RESUME. Retain every required barrier/assertion and
+  never claim distributed transaction rollback or authorize a frozen protocol
+  change.
 - [ ] Extend the independent restore oracle with known synthetic binary originals,
   all-state history/organization/source pins and negative corruption; reuse
   established real crypto and custody. Retain V1 golden `.backup` bytes, explicit

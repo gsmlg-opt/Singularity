@@ -17,6 +17,18 @@ Phase5 remains IN PROGRESS; Tasks11/12 are not accepted and defaultV2 stays.
 Task16 BOTH strict ALL-leases remain UNSATISFIED/UNWAIVED/BLOCKED_DESIGN.
 E2E NOT RUN; no publication, deployment, production activation or Vault feature work.
 
+## Task11 design amendment — 2026-10-15
+
+The native-text prerequisite is locally qualified at documentation commit
+`239c1c322b47c095004690154f691fcf85eeff81`; its code bytes are unchanged from
+`5f388ac88d5603b8c29df3a592d0843885a30912`. See [prerequisite evidence](../../verification/2026-10-15-phase-5-native-text-prerequisite.md).
+The [native V3 saga amendment](2026-10-15-singularity-v0.2-phase-5-knowledge-v3-saga-design.md)
+and [detailed plan](../plans/2026-10-15-singularity-v0.2-phase-5-knowledge-v3-saga.md)
+synchronize the retry wording in §8, §11 and master Task11 together. This new
+amendment awaits actual independent SPEC then NEW distinct fresh QUALITY;
+Task11 source is not yet authorized. Other reviewed design requirements and
+Task12/Task16 gates remain unchanged. E2E NOT RUN; defaultV2 remains.
+
 ## Historical qualification records
 
 The statuses below belong to their recorded earlier source generations. Their
@@ -1285,16 +1297,24 @@ alone are insufficient. Task11 still qualifies the whole actual unchanged
 lease/wrapper chain and unified rebuild through the facade for UUID/canonical/
 mixed inventories. These proposed native witnesses are currently NOT RUN.
 
-If plaintext verification or a later saga stage fails, no graph is exposed:
-maintenance remains mandatory and `complete_restore` is not reached. A
-malformed staged destination is discarded/recreated through the established
-disposable-destination procedure; it cannot be resumed with another manifest.
-Retryable interruptions resume only the identical authenticated manifest and
-destination identity. Existing active installation/data remains unchanged.
-This is atomic rejection at the published graph boundary; it does not falsely
-promise rollback of the completed import transaction, rewrap, or filesystem
-publication after a later failure. Tests assert both transaction rollback for
-pre/import failures and zero publication/visibility for post-import failures.
+If plaintext verification or a later saga stage fails, the restored graph remains
+unpublished: maintenance and dispatch barriers remain enforced and restore does
+not complete successfully. Pre/import failures must prove transaction rollback
+and owned-object cleanup; post-import failures must prove zero graph publication
+or visibility without claiming rollback of completed import, rewrap or filesystem
+publication. Every supported native in-place retry must succeed using the
+identical authenticated manifest and destination identity, without duplicate
+objects, graph rows, jobs or source seals. Qualify Storage pending/imported replay
+separately from complete Runtime saga recovery. After committed rewrap and loss
+or consumption of integrity custody, the existing interfaces provide no durable
+same-destination continuation of the complete Runtime saga. Preserve the original
+failure's exact error code and retryable flag, custody cleanup and maintenance
+isolation; do not reclassify a transient fault to satisfy qualification.
+Characterize this boundary and operational recovery through a new restore using
+the established disposable-destination procedure: RESTART, never successful
+RESUME. Malformed destinations cannot resume with another manifest. Existing
+active installation and data remain unchanged. This removes no required fault
+barrier or assertion and authorizes no Vault, custody, key or lease change.
 
 ## 9. Search and durable-work recovery
 
@@ -1433,10 +1453,17 @@ Required deterministic acceptance cases:
   accept deleted sources as new runtime links or bypass organization guards.
   Wrong manifest/backend/transaction, missing finalizer, post-validation row
   mutation, and stale admission records all fail at or before commit.
-- Fault barriers at preflight, canonical insert, staged object publish, commit
-  uncertainty, rewrap, plaintext verification, reconcile/rebuild and completion
-  prove rollback or unpublished maintenance recovery as applicable; retry the
-  exact manifest without duplicate objects, graph rows, jobs or source seals.
+- Fault barriers at authentication/preflight, canonical insert, staged object
+  publish, commit uncertainty, rewrap, ciphertext verification, durable-work
+  reconciliation, authenticated plaintext/Document verification, unified search
+  rebuild and integrity/restore completion prove rollback or unpublished
+  maintenance recovery as applicable, in the existing saga order. Supported native
+  same-manifest/same-destination in-place retries must succeed without duplicate
+  objects, graph rows, jobs or source seals. Qualify Storage pending/imported replay
+  separately from complete Runtime continuation, and separately characterize the
+  post-rewrap custody-loss boundary in §8. Disposable-destination RESTART does not
+  count as RESUME. Preserve every required error, retryable, custody, isolation,
+  invisibility and no-duplicate assertion.
 - Portable output handles duplicate titles, hostile labels/paths, version
   cycles, two pins to different historical versions, source Asset deletion,
   metadata-only tombstones, unresolved deleted sources, limits, expiry/cancel,
