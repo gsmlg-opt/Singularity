@@ -54,6 +54,13 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
 
   def close(owner), do: release(owner, :close)
 
+  def start_infrastructure(owner, children) when is_pid(owner) and is_list(children) do
+    case request(owner, {:start_infrastructure, children}) do
+      {:raised, kind, reason, stack} -> :erlang.raise(kind, reason, stack)
+      reply -> reply
+    end
+  end
+
   defp register_cleanup(owner) do
     if Code.ensure_loaded?(ExUnit) and match?({:ok, _}, ExUnit.fetch_test_supervisor()) do
       id = make_ref()
@@ -106,6 +113,10 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
 
       {{:acquire, checkpoint, options}, ^caller, ref} ->
         acquire(caller, caller_monitor, registered?, ref, checkpoint, options)
+
+      {{:start_infrastructure, _children}, from, ref} ->
+        send(from, {ref, {:error, :not_acquired}})
+        unarmed(caller, caller_monitor, registered?)
 
       {:close, from, ref} ->
         send(from, {ref, {[], registered?}})
@@ -161,6 +172,21 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
 
   defp await_release(caller, caller_monitor) do
     receive do
+      {{:start_infrastructure, children}, ^caller, ref} ->
+        reply =
+          try do
+            MigrationTestEnvironment.start_owned_infrastructure(children)
+          catch
+            kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          end
+
+        send(caller, {ref, reply})
+        await_release(caller, caller_monitor)
+
+      {{:start_infrastructure, _children}, from, ref} ->
+        send(from, {ref, {:error, :not_owner}})
+        await_release(caller, caller_monitor)
+
       {command, from, ref} when command in [:close, :finish] ->
         {command, from, ref}
 
@@ -198,6 +224,10 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
   # descriptors, destination handles or repeatable cleanup actions are retained.
   defp closed(failures) do
     receive do
+      {{:start_infrastructure, _children}, from, ref} ->
+        send(from, {ref, {:error, :not_acquired}})
+        closed(failures)
+
       {:close, from, ref} ->
         send(from, {ref, {failures, true}})
         closed(failures)

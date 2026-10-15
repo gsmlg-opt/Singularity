@@ -47,6 +47,234 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureLifecycleTest do
           "50000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(index), 12, "0")}
        end)
 
+  defmodule InfrastructureProbe do
+    use GenServer
+
+    def start_link(options), do: GenServer.start_link(__MODULE__, options)
+
+    @impl true
+    def init(options) do
+      Process.flag(:trap_exit, true)
+      {:ok, options}
+    end
+
+    @impl true
+    def terminate(_reason, %{test: test, token: token, repos: repos}) do
+      live =
+        Map.new(repos, fn {repo, pid} ->
+          {repo, Process.whereis(repo) == pid and Process.alive?(pid)}
+        end)
+
+      send(test, {token, :infrastructure_stopped, self(), live})
+      :ok
+    end
+  end
+
+  defmodule FailingInfrastructureChild do
+    def child_spec(_options),
+      do: %{id: __MODULE__, start: {__MODULE__, :start_link, [[]]}}
+
+    def start_link(_options), do: {:error, :native_fixture_startup_probe}
+  end
+
+  test "owned infrastructure startup preserves Repo PIDs and stops children before Repo cleanup" do
+    Code.ensure_loaded!(ResourceOwner)
+    assert function_exported?(ResourceOwner, :start_infrastructure, 2)
+    baseline = baseline()
+    maintenance = maintenance()
+    {owner, destination} = ResourceOwner.open(migration_pool_size: 2)
+    repos = Map.new(@repos, &{&1, Process.whereis(&1)})
+    token = make_ref()
+
+    try do
+      assert {:ok, supervisor} =
+               apply(ResourceOwner, :start_infrastructure, [
+                 owner,
+                 [{InfrastructureProbe, %{test: self(), token: token, repos: repos}}]
+               ])
+
+      assert is_pid(supervisor) and Process.alive?(supervisor)
+      assert Map.new(@repos, &{&1, Process.whereis(&1)}) == repos
+      for repo <- @repos, do: assert(current_database(repo) == destination.database)
+      assert {:error, :already_started} = apply(ResourceOwner, :start_infrastructure, [owner, []])
+
+      assert {:error, :not_owner} =
+               Task.async(fn -> apply(ResourceOwner, :start_infrastructure, [owner, []]) end)
+               |> Task.await()
+
+      Application.put_env(:singularity_runtime, :native_fixture_absent_probe, token)
+      Application.delete_env(:singularity_runtime, :key_custodian)
+      :ok = ResourceOwner.close(owner)
+      refute Process.alive?(supervisor)
+      assert_receive {^token, :infrastructure_stopped, _child, live}, 1_000
+      assert live == Map.new(@repos, &{&1, true})
+
+      assert_cleanup(
+        maintenance,
+        %{
+          database: destination.database,
+          storage_root: Path.dirname(destination.object_root),
+          repos: repos
+        },
+        baseline,
+        System.monotonic_time(:millisecond) + 10_000,
+        "owned infrastructure normal cleanup"
+      )
+    after
+      ResourceOwner.close(owner)
+    end
+  end
+
+  test "a partial infrastructure startup failure replies on its own request and remains cleanable" do
+    baseline = baseline()
+    maintenance = maintenance()
+    {owner, destination} = ResourceOwner.open(migration_pool_size: 2)
+    repos = Map.new(@repos, &{&1, Process.whereis(&1)})
+    token = make_ref()
+
+    try do
+      assert {:error, {:native_fixture_startup_probe, _child}} =
+               apply(ResourceOwner, :start_infrastructure, [
+                 owner,
+                 [
+                   {InfrastructureProbe, %{test: self(), token: token, repos: repos}},
+                   FailingInfrastructureChild
+                 ]
+               ])
+
+      assert Map.new(@repos, &{&1, Process.whereis(&1)}) == repos
+      :ok = ResourceOwner.close(owner)
+      assert_receive {^token, :infrastructure_stopped, _child, live}, 1_000
+      assert live == Map.new(@repos, &{&1, true})
+
+      assert_cleanup(
+        maintenance,
+        %{
+          database: destination.database,
+          storage_root: Path.dirname(destination.object_root),
+          repos: repos
+        },
+        baseline,
+        System.monotonic_time(:millisecond) + 10_000,
+        "partial infrastructure startup cleanup"
+      )
+    after
+      ResourceOwner.close(owner)
+    end
+  end
+
+  for outcome <- [:raise, :kill] do
+    test "owned infrastructure cleans after its original caller #{outcome}" do
+      baseline = baseline()
+      maintenance = maintenance()
+      parent = self()
+      token = make_ref()
+
+      {actor, actor_monitor} =
+        spawn_monitor(fn ->
+          parent_monitor = Process.monitor(parent)
+
+          checkpoint = fn
+            :before_arm, %{owner: owner} -> send(parent, {token, :infrastructure_owner, owner})
+            _stage, _resources -> :ok
+          end
+
+          ResourceOwner.with_checkpoint(checkpoint, fn ->
+            {owner, destination} = ResourceOwner.open(migration_pool_size: 2)
+            repos = Map.new(@repos, &{&1, Process.whereis(&1)})
+
+            try do
+              assert {:ok, supervisor} =
+                       apply(ResourceOwner, :start_infrastructure, [
+                         owner,
+                         [{InfrastructureProbe, %{test: parent, token: token, repos: repos}}]
+                       ])
+
+              send(parent, {token, :infrastructure_ready, supervisor, destination, repos})
+
+              receive do
+                {^token, :raise} -> raise "native fixture caller probe"
+                {^token, :release} -> :ok
+                {:DOWN, ^parent_monitor, :process, ^parent, _reason} -> :ok
+              end
+            after
+              ResourceOwner.close(owner)
+            end
+          end)
+        end)
+
+      ready_deadline = System.monotonic_time(:millisecond) + 30_000
+
+      try do
+        assert_receive {^token, :infrastructure_owner, owner}, 30_000
+        owner_monitor = Process.monitor(owner)
+
+        try do
+          ready_timeout = max(ready_deadline - System.monotonic_time(:millisecond), 0)
+
+          assert_receive {^token, :infrastructure_ready, supervisor, destination, repos},
+                         ready_timeout
+
+          case unquote(outcome) do
+            :raise -> send(actor, {token, :raise})
+            :kill -> Process.exit(actor, :kill)
+          end
+
+          assert_receive {:DOWN, ^actor_monitor, :process, ^actor, reason}, 15_000
+
+          if unquote(outcome) == :kill,
+            do: assert(reason == :killed),
+            else:
+              assert(
+                match?({%RuntimeError{message: "native fixture caller probe"}, _stack}, reason)
+              )
+
+          deadline = System.monotonic_time(:millisecond) + 10_000
+          assert_receive {^token, :infrastructure_stopped, _child, live}, 1_000
+          assert live == Map.new(@repos, &{&1, true})
+
+          # The probe sends from inside terminate/2. Only the owner's exit
+          # acknowledges supervisor shutdown and the rest of resource cleanup.
+          timeout = max(deadline - System.monotonic_time(:millisecond), 0)
+          assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, timeout
+          refute Process.alive?(supervisor)
+
+          assert_cleanup(
+            maintenance,
+            %{
+              database: destination.database,
+              storage_root: Path.dirname(destination.object_root),
+              repos: repos
+            },
+            baseline,
+            deadline,
+            "owned infrastructure caller cleanup"
+          )
+        after
+          send(actor, {token, :release})
+
+          assert_process_stopped(
+            owner,
+            System.monotonic_time(:millisecond) + 10_000,
+            "owned infrastructure parent bracket did not finish owner cleanup"
+          )
+
+          Process.demonitor(owner_monitor, [:flush])
+        end
+      after
+        send(actor, {token, :release})
+
+        assert_process_stopped(
+          actor,
+          System.monotonic_time(:millisecond) + 15_000,
+          "owned infrastructure parent bracket did not release its actor"
+        )
+
+        Process.demonitor(actor_monitor, [:flush])
+      end
+    end
+  end
+
   test "killing the destination callback caller cleans its resources and restores the baseline" do
     baseline = %{
       configs: application_configs(),
@@ -1411,6 +1639,18 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureLifecycleTest do
         flunk("stage actor exited: #{inspect(reason)}")
     after
       30_000 -> flunk("stage #{inspect(stage)} not reached by #{inspect(actor)}")
+    end
+  end
+
+  defp assert_process_stopped(pid, deadline, evidence) do
+    monitor = Process.monitor(pid)
+
+    try do
+      timeout = max(deadline - System.monotonic_time(:millisecond), 0)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, timeout, evidence
+      refute Process.alive?(pid), evidence
+    after
+      Process.demonitor(monitor, [:flush])
     end
   end
 

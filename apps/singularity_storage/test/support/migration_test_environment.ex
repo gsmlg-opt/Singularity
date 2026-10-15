@@ -38,6 +38,7 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
       database_status: :not_attempted,
       root_identity: nil,
       root_claimed?: false,
+      infrastructure: nil,
       owned_repos: [],
       active_repos: %{}
     }
@@ -57,6 +58,31 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
       {outcome, cleanup_owned_destination()}
     after
       Process.delete(@owned_state)
+    end
+  end
+
+  # Test-only ownership extension: record an empty supervisor before starting
+  # children so even a later partial start failure has one exact cleanup owner.
+  def start_owned_infrastructure(children) when is_list(children) do
+    case owned_state() do
+      %{infrastructure: nil} ->
+        with {:ok, supervisor} <- Supervisor.start_link([], strategy: :one_for_one) do
+          update_owned(&%{&1 | infrastructure: supervisor})
+
+          Enum.reduce_while(children, {:ok, supervisor}, fn child, success ->
+            case Supervisor.start_child(supervisor, child) do
+              {:ok, _pid} -> {:cont, success}
+              {:ok, _pid, _info} -> {:cont, success}
+              {:error, _reason} = error -> {:halt, error}
+            end
+          end)
+        end
+
+      %{infrastructure: supervisor} when is_pid(supervisor) ->
+        {:error, :already_started}
+
+      _not_acquired ->
+        {:error, :not_acquired}
     end
   end
 
@@ -214,6 +240,14 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
   defp cleanup_owned_destination do
     state = owned_state()
 
+    # Oban's notifier can hold a separate PostgreSQL connection. Stop the exact
+    # owned infrastructure before repositories or database-drain checking.
+    failures =
+      cleanup_step([], {:stop_infrastructure, state.infrastructure}, fn ->
+        if state.infrastructure && Process.alive?(state.infrastructure),
+          do: Supervisor.stop(state.infrastructure)
+      end)
+
     replacements =
       for repo <- @repos,
           pid = Process.whereis(repo),
@@ -222,7 +256,9 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
           {repo, pid} not in state.owned_repos,
           do: {repo, pid}
 
-    failures = Enum.map(replacements, fn {repo, pid} -> {:unexpected_repository, repo, pid} end)
+    failures =
+      failures ++
+        Enum.map(replacements, fn {repo, pid} -> {:unexpected_repository, repo, pid} end)
 
     failures =
       Enum.reduce(state.owned_repos, failures, fn {repo, pid}, failures ->
