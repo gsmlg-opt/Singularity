@@ -406,20 +406,23 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
     end)
   end
 
-  test "bound historical source validators reject wrong object, source identity, owner and ambiguous Asset bindings",
-       ctx do
-    source = ctx.sources.deleted_document
+  for {field, number} <- [
+        {"source_object_id", 999},
+        {"source_asset_id", 998},
+        {"source_resource_id", 997},
+        {"source_resource_version_id", 996},
+        {"vault_id", 995},
+        {"source_byte_size", nil}
+      ] do
+    test "bound historical source validators reject wrong #{field}", ctx do
+      source = ctx.sources.deleted_document
+      field = unquote(field)
 
-    faults = [
-      {"source_object_id", id(999)},
-      {"source_asset_id", id(998)},
-      {"source_resource_id", id(997)},
-      {"source_resource_version_id", id(996)},
-      {"vault_id", id(995)},
-      {"source_byte_size", byte_size(@originals.pdf) + 1}
-    ]
+      value =
+        if field == "source_byte_size",
+          do: byte_size(@originals.pdf) + 1,
+          else: id(unquote(number))
 
-    for {field, value} <- faults do
       with_destination(source, fn _destination, bundle, storage ->
         assert_statement_rejected(
           "document_versions_source_check",
@@ -441,6 +444,10 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
         assert_no_import()
       end)
     end
+  end
+
+  test "bound historical source validators reject ambiguous Asset bindings", ctx do
+    source = ctx.sources.deleted_document
 
     with_destination(source, fn _destination, bundle, storage ->
       assert_statement_rejected(
@@ -467,27 +474,30 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
     end)
   end
 
-  test "bound ready-fragment admission retains canonical digest, identity, locator and completion checks",
-       ctx do
-    source = ctx.sources.ready_fragments
+  for {name, field, value} <- [
+        {"canonical digest", "digest", <<0::256>>},
+        {"identity", "id", String.duplicate("0", 64)},
+        {"locator bounds", "locator",
+         %{
+           "version" => 1,
+           "kind" => "text",
+           "start_line" => 0,
+           "end_line" => 1
+         }},
+        {"locator shape", "locator",
+         %{
+           "version" => 1,
+           "kind" => "text",
+           "start_line" => 1,
+           "end_line" => 1,
+           "unknown" => true
+         }}
+      ] do
+    @tag ready_fragment_mutation: {field, value}
+    test "bound ready-fragment admission retains #{name} check", ctx do
+      source = ctx.sources.ready_fragments
+      {field, value} = ctx.ready_fragment_mutation
 
-    for change <- [
-          &Map.put(&1, "digest", <<0::256>>),
-          &Map.put(&1, "id", String.duplicate("0", 64)),
-          &Map.put(&1, "locator", %{
-            "version" => 1,
-            "kind" => "text",
-            "start_line" => 0,
-            "end_line" => 1
-          }),
-          &Map.put(&1, "locator", %{
-            "version" => 1,
-            "kind" => "text",
-            "start_line" => 1,
-            "end_line" => 1,
-            "unknown" => true
-          })
-        ] do
       with_destination(source, fn _destination, bundle, storage ->
         assert_statement_rejected(
           "document_extraction_input_check",
@@ -497,7 +507,9 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
             [first | rest] = source.rows["content.document_fragments"]
 
             insert_graph(
-              Map.put(source.rows, "content.document_fragments", [change.(first) | rest])
+              Map.put(source.rows, "content.document_fragments", [
+                Map.put(first, field, value) | rest
+              ])
             )
           end
         )
@@ -505,8 +517,19 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
         assert_no_import()
       end)
     end
+  end
 
-    for fragments <- [[], Enum.take(source.rows["content.document_fragments"], 1)] do
+  for completion <- [:empty, :incomplete] do
+    @tag ready_fragment_completion: completion
+    test "bound ready-fragment admission rejects #{completion} completion", ctx do
+      source = ctx.sources.ready_fragments
+
+      fragments =
+        case ctx.ready_fragment_completion do
+          :empty -> []
+          :incomplete -> Enum.take(source.rows["content.document_fragments"], 1)
+        end
+
       with_destination(source, fn _destination, bundle, storage ->
         assert_statement_rejected(
           "document_versions_completion_check",
@@ -523,16 +546,23 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
     end
   end
 
-  test "bound Note source history retains exact target identity, order, locator and natural uniqueness",
-       ctx do
-    source = ctx.sources.note_sources
+  for {field, value, constraint} <- [
+        {"target_kind", "asset", "note_attachments_source_check"},
+        {"target_resource_id", {:id, 980}, "note_attachments_source_check"},
+        {"target_resource_version_id", {:id, 981}, "note_attachments_source_check"},
+        {"ordinal", 1, "note_attachments_source_set_check"}
+      ] do
+    @tag note_source_mutation: {field, value, constraint}
+    test "bound Note source history rejects wrong #{field}", ctx do
+      source = ctx.sources.note_sources
+      {field, value, constraint} = ctx.note_source_mutation
 
-    for {field, value, constraint} <- [
-          {"target_kind", "asset", "note_attachments_source_check"},
-          {"target_resource_id", id(980), "note_attachments_source_check"},
-          {"target_resource_version_id", id(981), "note_attachments_source_check"},
-          {"ordinal", 1, "note_attachments_source_set_check"}
-        ] do
+      value =
+        case value do
+          {:id, number} -> id(number)
+          value -> value
+        end
+
       with_destination(source, fn _destination, bundle, storage ->
         phase = if field == "ordinal", do: :seal, else: :ordinary_constraints
 
@@ -554,6 +584,10 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
         assert_no_import()
       end)
     end
+  end
+
+  test "bound Note source history retains natural attachment uniqueness", ctx do
+    source = ctx.sources.note_sources
 
     with_destination(source, fn _destination, bundle, storage ->
       assert_statement_rejected(
@@ -576,7 +610,9 @@ defmodule Singularity.Storage.Backup.KnowledgeHistoricalAdmissionTest do
 
       assert_no_import()
     end)
+  end
 
+  test "bound Note source history retains the historical citation locator check", ctx do
     source = ctx.sources.complete_history
 
     with_destination(source, fn _destination, bundle, storage ->

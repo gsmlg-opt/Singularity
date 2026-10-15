@@ -718,7 +718,6 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
              "resource_id", @ids.live_note_id},
             {"content.document_import_receipts", %{"mutation_id" => @ids.ready_old_version_id},
              "request_fingerprint", <<1>>},
-            {"jobs.job_submissions", %{"id" => id(702)}, "outbox_event_id", @unknown},
             {"jobs.job_submissions", %{"id" => id(702)}, "job_type", "unknown"},
             {"jobs.job_progress", %{"id" => id(703)}, "submission_id", @unknown},
             {"jobs.effect_receipts", %{"id" => id(704)}, "submission_id", @unknown},
@@ -727,12 +726,30 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
              %{
                "resource_id" => @ids.live_note_id,
                "resource_version_id" => @ids.extracting_version_id
-             }},
-            {"content.document_versions", %{"resource_version_id" => @ids.extracting_version_id},
-             "attempt_job_id", @unknown}
+             }}
           ] do
         reject_change(fixture, storage, table, key, field, value)
       end
+
+      reject_change(
+        fixture,
+        storage,
+        "jobs.job_submissions",
+        %{"id" => id(702)},
+        "outbox_event_id",
+        @unknown,
+        :integrity_failure
+      )
+
+      reject_change(
+        fixture,
+        storage,
+        "content.document_versions",
+        %{"resource_version_id" => @ids.extracting_version_id},
+        "attempt_job_id",
+        @unknown,
+        :integrity_failure
+      )
 
       reject_rows(fixture, storage, fn rows ->
         edit(
@@ -744,6 +761,44 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
           end
         )
       end)
+    end)
+  end
+
+  test "missing extracting provenance during validation retains typed cleanup denial" do
+    with_fixture(fn fixture, storage ->
+      before = @fixtures.canonical_rows(fixture)
+      bundle = authenticated(fixture)
+
+      assert {:error, :rejected} =
+               owner_transaction(fn ->
+                 assert {:ok, staged} = stage(bundle, storage)
+
+                 schema =
+                   Enum.find(Singularity.Storage.Backup.LogicalSchemaV3.all(), fn schema ->
+                     schema.table == "core.outbox_events"
+                   end)
+
+                 relation = "pg_temp.knowledge_restore_" <> Integer.to_string(schema.ordinal)
+
+                 assert %{num_rows: 1} =
+                          sql("DELETE FROM " <> relation <> " WHERE id=$1", [
+                            Ecto.UUID.dump!(id(700))
+                          ])
+
+                 assert {:error, %Error{code: :integrity_failure, details: %{}}} =
+                          validate(staged, bundle.cut)
+
+                 assert @fixtures.canonical_rows(fixture) == before
+                 assert_no_temp_tables()
+                 assert {:ok, []} = LocalFilesystemAdapter.list_staged(storage.context)
+                 assert_no_publication(storage)
+                 MigrationRepo.rollback(:rejected)
+               end)
+
+      assert @fixtures.canonical_rows(fixture) == before
+      assert_no_temp_tables()
+      assert {:ok, []} = LocalFilesystemAdapter.list_staged(storage.context)
+      assert_no_publication(storage)
     end)
   end
 
@@ -1209,13 +1264,22 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     bundle
   end
 
-  defp reject_change(fixture, storage, table, key, field, value),
-    do:
-      reject_rows(
-        fixture,
-        storage,
-        &edit(&1, table, key, fn row -> Map.replace!(row, field, value) end)
-      )
+  defp reject_change(
+         fixture,
+         storage,
+         table,
+         key,
+         field,
+         value,
+         expected_code \\ :backup_invalid
+       ),
+       do:
+         reject_rows(
+           fixture,
+           storage,
+           &edit(&1, table, key, fn row -> Map.replace!(row, field, value) end),
+           expected_code
+         )
 
   defp add_extraction_request(rows, resource_id, version_id, generation) do
     events = rows["core.outbox_events"]
@@ -1236,19 +1300,19 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
     put_rows(rows, "core.outbox_events", events ++ [event])
   end
 
-  defp reject_rows(fixture, storage, transform) do
+  defp reject_rows(fixture, storage, transform, expected_code \\ :backup_invalid) do
     before = @fixtures.canonical_rows(fixture)
     bundle = authenticated(fixture, rows: transform)
-    reject_bundle(fixture, storage, bundle, before)
+    reject_bundle(fixture, storage, bundle, before, expected_code)
   end
 
-  defp reject_bundle(fixture, storage, bundle, before) do
+  defp reject_bundle(fixture, storage, bundle, before, expected_code \\ :backup_invalid) do
     assert {:error, :rejected} =
              owner_transaction(fn ->
                result =
                  with {:ok, staged} <- stage(bundle, storage), do: validate(staged, bundle.cut)
 
-               assert {:error, %Error{code: :backup_invalid, details: %{}} = error} = result
+               assert {:error, %Error{code: ^expected_code, details: %{}} = error} = result
                assert error.details == %{}
                # The stage owns its savepoint: even a typed SQL constraint failure must
                # leave this caller transaction queryable before our explicit rollback.

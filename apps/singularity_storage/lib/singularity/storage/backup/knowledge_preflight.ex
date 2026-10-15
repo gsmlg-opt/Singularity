@@ -180,7 +180,16 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
       rescue
         _exception -> rollback!(repo, storage, Process.get(ledger, []))
       catch
-        _kind, _reason -> rollback!(repo, storage, Process.get(ledger, []))
+        :throw, :knowledge_restore_missing_document_attempt_provenance ->
+          rollback!(
+            repo,
+            storage,
+            Process.get(ledger, []),
+            {:error, Error.new(:integrity_failure)}
+          )
+
+        _kind, _reason ->
+          rollback!(repo, storage, Process.get(ledger, []))
       after
         Process.delete(ledger)
       end
@@ -211,7 +220,16 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
       rescue
         _exception -> rollback!(repo, staged.storage, staged.artifacts)
       catch
-        _kind, _reason -> rollback!(repo, staged.storage, staged.artifacts)
+        :throw, :knowledge_restore_missing_document_attempt_provenance ->
+          rollback!(
+            repo,
+            staged.storage,
+            staged.artifacts,
+            {:error, Error.new(:integrity_failure)}
+          )
+
+        _kind, _reason ->
+          rollback!(repo, staged.storage, staged.artifacts)
       end
     else
       invalid()
@@ -416,6 +434,9 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
       rescue
         _exception -> rollback_admission!(repo, name)
       catch
+        :throw, :knowledge_restore_missing_document_attempt_provenance ->
+          rollback_admission!(repo, name, {:error, Error.new(:integrity_failure)})
+
         :throw, {:native_callback_error, %Error{} = error} ->
           rollback_admission!(repo, name, {:error, error})
 
@@ -452,7 +473,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
     {backend, transaction}
   end
 
-  defp rollback!(repo, storage, artifacts) do
+  defp rollback!(repo, storage, artifacts, error \\ invalid()) do
     # The separate ledger survives a reader error that discards its accumulator.
     # Roll back first, including an aborted SQL statement, so the caller remains
     # queryable. Only handles created by this invocation may be aborted.
@@ -466,7 +487,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
     if match?({:ok, _}, rolled_back) and match?({:ok, _}, released) and
          Enum.all?(aborted, &(&1 == :ok)),
-       do: invalid(),
+       do: error,
        else: {:error, Error.new(:storage_unavailable)}
   end
 
@@ -732,6 +753,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
 
   defp semantics!(repo, cut) do
     scope!(repo, cut)
+    document_attempt_provenance!(repo)
     references!(repo)
     scalar_checks!(repo)
     ownership!(repo)
@@ -742,6 +764,28 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
     jobs!(repo, cut)
     streamed_values!(repo)
     :ok
+  end
+
+  defp document_attempt_provenance!(repo) do
+    [[missing?]] =
+      query!(
+        repo,
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM #{relation("content.document_versions")} d
+          WHERE d.state='extracting' AND d.attempt_job_id IS NOT NULL
+            AND (NOT EXISTS (SELECT 1 FROM #{relation("core.outbox_events")} e
+                  WHERE e.id=d.attempt_job_id)
+              OR NOT EXISTS (SELECT 1 FROM #{relation("jobs.job_submissions")} s
+                  WHERE s.outbox_event_id=d.attempt_job_id))
+        )
+        """
+      ).rows
+
+    case missing? do
+      true -> throw(:knowledge_restore_missing_document_attempt_provenance)
+      false -> :ok
+    end
   end
 
   defp scope!(repo, cut) do
