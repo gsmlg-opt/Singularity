@@ -359,7 +359,8 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionWorkerTest do
     end)
   end
 
-  test "worker only definer ACL grants no canonical or projection table access", _c do
+  test "worker definer ACL retains scoped Document reads and denies canonical writes and projection access",
+       _c do
     assert %{
              rows: [
                [
@@ -392,12 +393,15 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionWorkerTest do
 
     for table <- ~w(document_versions document_fragments search_entries),
         privilege <- ~w(SELECT INSERT UPDATE DELETE) do
-      assert %{rows: [[false]]} =
+      assert %{rows: [[allowed?]]} =
                SafeSQL.query!(
                  WorkerRepo,
                  "SELECT has_table_privilege('singularity_worker',$1,$2)",
                  ["content." <> table, privilege]
                )
+
+      assert allowed? ==
+               (privilege == "SELECT" and table in ~w(document_versions document_fragments))
     end
 
     assert %{rows: [[false]]} =
@@ -406,6 +410,8 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionWorkerTest do
                "SELECT has_function_privilege('singularity_worker','content.reconcile_search_resource_internal(uuid,uuid)','EXECUTE')",
                []
              )
+
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
   end
 
   defp grant_read!(source) do

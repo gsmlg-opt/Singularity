@@ -189,13 +189,18 @@ defmodule Singularity.Runtime.KnowledgeSearchPrivacyTest do
         assert source.body == body()
       end
 
-      # Positive control: the real worker cannot read Document content directly.
-      assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
+      # Positive control: the real worker cannot read import receipt state directly.
+      assert {:error,
+              %Postgrex.Error{
+                postgres: %{code: :insufficient_privilege, pg_code: "42501"}
+              } = error} =
                SafeSQL.query(
                  WorkerRepo,
-                 "SELECT title FROM content.document_versions WHERE title=$1",
+                 "SELECT state FROM content.document_import_receipts WHERE state=$1",
                  [@canaries.title]
                )
+
+      assert_clean(error)
 
       assert_receive {:privacy_event, @denial, %{count: 1}, %{repo: :worker}} = denial_event
       assert elem(denial_event, 2) == %{count: 1}

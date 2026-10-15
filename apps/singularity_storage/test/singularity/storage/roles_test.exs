@@ -251,7 +251,7 @@ defmodule Singularity.Storage.RolesTest do
     end
   end
 
-  test "Document pin count is worker-only and direct Document reads are web-only" do
+  test "Document pin count is worker-only and Document reads are scoped for web and worker" do
     signature = "content.document_source_pin_count(uuid,uuid)"
 
     assert %{rows: [[true, ["search_path=pg_catalog, content, core"]]]} =
@@ -270,8 +270,10 @@ defmodule Singularity.Storage.RolesTest do
                )
 
       assert can_execute? == (role == "singularity_worker")
-      assert can_read? == (role == "singularity_web")
+      assert can_read? == role in ["singularity_web", "singularity_worker"]
     end
+
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
   end
 
   test "Document pin count rejects a worker without cleanup authority or matching owner" do

@@ -529,13 +529,9 @@ defmodule Singularity.Storage.Postgres.SearchProjectionReconcilerTest do
     assert {:ok, %{rows: [[-1]]}} =
              scoped_sql(source, WorkerRepo, @write_function, document.resource_id)
 
-    for table <- [
-          "content.document_versions",
-          "content.document_fragments",
-          "content.search_entries"
-        ] do
-      assert_denied(SafeSQL.query(WorkerRepo, "SELECT 1 FROM #{table} LIMIT 1"))
-    end
+    assert_denied(SafeSQL.query(WorkerRepo, "SELECT 1 FROM content.search_entries LIMIT 1"))
+
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
 
     Fixtures.with_owner(fn -> assert projection_rows(document.resource_id) == [] end)
   end

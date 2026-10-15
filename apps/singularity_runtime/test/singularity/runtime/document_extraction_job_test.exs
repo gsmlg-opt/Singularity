@@ -1643,9 +1643,10 @@ defmodule Singularity.Runtime.DocumentSourceReadyIntegrationTest do
   alias Singularity.Runtime.DocumentSourceIntegrationSupport, as: S
   setup context, do: S.setup(context)
 
-  test "actual WorkerRepo denies direct canonical Document access", %{fixture: f} do
+  test "actual WorkerRepo permits scoped Document reads and denies canonical writes", %{
+    fixture: f
+  } do
     for operation <- [
-          "SELECT resource_version_id FROM content.document_versions LIMIT 0",
           "DELETE FROM content.document_versions WHERE false",
           "UPDATE content.document_versions SET title=title WHERE false",
           "INSERT INTO content.document_versions DEFAULT VALUES"
@@ -1654,6 +1655,7 @@ defmodule Singularity.Runtime.DocumentSourceReadyIntegrationTest do
                Ecto.Adapters.SQL.query(WorkerRepo, operation, [], log: false)
     end
 
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
     S.pending!(f)
   end
 
@@ -2911,7 +2913,29 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
   alias Singularity.Runtime.DocumentSourceIntegrationSupport, as: S
   alias Singularity.Runtime.DocumentOutcomeIntegrationSupport, as: C
   alias Singularity.Storage.{Fixtures, KnowledgeFixtures, MigrationRepo}
-  setup context, do: C.setup(context)
+
+  setup context do
+    context =
+      case Map.get(context, :plaintext_fixture) do
+        :source_limit ->
+          Map.put(context, :plaintext, :binary.copy(" ", 67_108_859) <> "\ntail")
+
+        :normalized_over_limit ->
+          Map.put(context, :plaintext, :binary.copy("x", 16_777_217))
+
+        :normalized_fragment_limit ->
+          Map.put(
+            context,
+            :plaintext,
+            Enum.map_join(1..256, "\n\n", fn _ -> :binary.copy("x", 65_536) end)
+          )
+
+        _ ->
+          context
+      end
+
+    C.setup(context)
+  end
 
   @tag plaintext: <<255>>
   test "actual invalid UTF-8 persists only unsupported invalid_utf8", %{fixture: f} do
@@ -2931,7 +2955,7 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
     end
   end
 
-  @tag plaintext: :binary.copy(" ", 67_108_859) <> "\ntail"
+  @tag plaintext_fixture: :source_limit
   @tag timeout: 120_000
   test "exact 64 MiB authenticated source reaches ready without source loss", %{fixture: f} do
     assert byte_size(f.plaintext) == 67_108_864
@@ -3006,13 +3030,13 @@ defmodule Singularity.Runtime.DocumentOutcomeIntegrationTest do
     S.pending!(f)
   end
 
-  @tag plaintext: :binary.copy("x", 16_777_217)
+  @tag plaintext_fixture: :normalized_over_limit
   @tag timeout: 120_000
   test "actual normalized text above 16 MiB persists unsupported output_too_large", %{fixture: f} do
     C.outcome!(f, :unsupported, "output_too_large")
   end
 
-  @tag plaintext: Enum.map_join(1..256, "\n\n", fn _ -> :binary.copy("x", 65_536) end)
+  @tag plaintext_fixture: :normalized_fragment_limit
   @tag timeout: 120_000
   test "exact 16 MiB normalized output and 65536-byte fragments persist ready", %{fixture: f} do
     assert {:ok, %{state: :ready}} = C.run(f)
@@ -4060,6 +4084,7 @@ defmodule Singularity.Runtime.DocumentOutcomePrivacyIntegrationTest do
     do: send(owner, {token, :event, event, measurements, metadata})
 
   defp capture_private!(f, options, expected_state) do
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
     C.configure_runner!(f, options)
     assert f.envelope.causation_id == f.envelope.job_id
 
@@ -4136,7 +4161,7 @@ defmodule Singularity.Runtime.DocumentOutcomePrivacyIntegrationTest do
         assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
                  SafeSQL.query(
                    WorkerRepo,
-                   "SELECT title FROM content.document_versions WHERE title=$1",
+                   "SELECT state FROM content.document_import_receipts WHERE state=$1",
                    [C.canary()]
                  )
       end)
@@ -4292,5 +4317,37 @@ defmodule Singularity.Runtime.DocumentOutcomePrivacyIntegrationTest do
       runner_rows: runner_rows,
       audit_rows: audit_rows
     }
+  end
+end
+
+defmodule Singularity.Runtime.DocumentOutcomeFixtureMetadataTest do
+  use ExUnit.Case, async: true
+
+  test "large Document outcome fixtures are deferred without changing integration metadata" do
+    tests = Singularity.Runtime.DocumentOutcomeIntegrationTest.__ex_unit__().tests
+    assert length(tests) == 24
+
+    fixtures = [
+      {:"test exact 64 MiB authenticated source reaches ready without source loss",
+       :source_limit},
+      {:"test actual normalized text above 16 MiB persists unsupported output_too_large",
+       :normalized_over_limit},
+      {:"test exact 16 MiB normalized output and 65536-byte fragments persist ready",
+       :normalized_fragment_limit}
+    ]
+
+    metadata =
+      for {name, selector} <- fixtures do
+        assert [test] = Enum.filter(tests, &(&1.name == name))
+        {test, selector}
+      end
+
+    for {test, selector} <- metadata do
+      assert test.tags[:plaintext_fixture] == selector
+      refute Map.has_key?(test.tags, :plaintext)
+      assert test.tags[:integration] == true
+      assert test.tags[:tmp_dir] == true
+      assert test.tags[:timeout] == 120_000
+    end
   end
 end

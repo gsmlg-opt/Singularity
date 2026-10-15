@@ -19,7 +19,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
     {:ok, fixture: insert_reader_fixture!(one, outbox), other: load_identity(two)}
   end
 
-  test "worker resolves an exact Document pin without direct canonical SELECT" do
+  test "worker resolves an exact Document pin with separate scoped canonical read authority" do
     source = KnowledgeFixtures.prepared_source!()
 
     document =
@@ -89,13 +89,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
       )
     end)
 
-    assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
-             Ecto.Adapters.SQL.query(
-               WorkerRepo,
-               "SELECT resource_version_id FROM content.document_versions LIMIT 0",
-               [],
-               log: false
-             )
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
 
     signature =
       "content.document_custody_binding(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid,bigint,bigint)"
@@ -107,7 +101,7 @@ defmodule Singularity.Storage.Postgres.CustodyRepositoryTest do
                  ["search_path=pg_catalog, content, core, identity"],
                  "singularity_table_owner",
                  false,
-                 false,
+                 true,
                  true,
                  false,
                  false,

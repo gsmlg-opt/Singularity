@@ -558,13 +558,21 @@ defmodule Singularity.Runtime.DocumentImportLiveTest do
       assert_canonical_writes_denied(privileges_after)
     end
 
+    refute Map.fetch!(
+             privileges_before,
+             {"singularity_worker", "document_import_receipts", "SELECT"}
+           )
+
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
+    assert canonical_privileges() == privileges_before
+
     # This separate real denial checks the capture mechanism after grants unwind.
     # Its event is never attributed to an import invocation.
     {control_result, control_events} =
       capture_runtime_call(f, :denial_control, fn ->
         Singularity.Storage.SafeSQL.query(
           WorkerRepo,
-          "SELECT title FROM content.document_versions WHERE title=$1",
+          "SELECT state FROM content.document_import_receipts WHERE state=$1",
           [f.title]
         )
       end)

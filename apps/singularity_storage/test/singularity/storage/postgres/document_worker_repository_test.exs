@@ -580,7 +580,7 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
     assert no_fragments(c)
   end
 
-  test "worker reads only the explicit pending source descriptor without canonical grants", c do
+  test "worker reads the explicit pending source descriptor with scoped read-only access", c do
     assert {:ok, %{rows: [["singularity_worker"]]}} =
              SafeSQL.query(WorkerRepo, "SELECT current_user")
 
@@ -612,14 +612,7 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
              {c.document.resource_id, c.document.resource_version_id, c.job, c.source.object_id,
               c.source.digest}
 
-    assert_denied(
-      SafeSQL.query(
-        WorkerRepo,
-        "SELECT resource_version_id FROM content.document_versions LIMIT 0",
-        [],
-        log: false
-      )
-    )
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
   end
 
   test "four functions have exact security properties and only worker execution", _c do
@@ -649,7 +642,7 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
     end
 
     for table <- ~w(document_versions document_fragments),
-        privilege <- ~w(SELECT INSERT UPDATE DELETE) do
+        privilege <- ~w(INSERT UPDATE DELETE) do
       assert %{rows: [[false]]} =
                SafeSQL.query!(
                  WorkerRepo,
@@ -660,6 +653,8 @@ defmodule Singularity.Storage.Postgres.DocumentWorkerRepositoryTest do
                  ]
                )
     end
+
+    Singularity.Storage.WorkerDocumentReadAssertions.assert_read_only_rls!()
 
     for signature <- [
           "claim_document_extraction(uuid,bigint,uuid,text,integer)",
