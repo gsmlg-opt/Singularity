@@ -3,7 +3,8 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
 
   alias __MODULE__.FixtureCrypto
   alias Singularity.Core.DocumentFragment
-  alias Singularity.Storage.{MigrationRepo, MigrationTestEnvironment}
+  alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.Backup.KnowledgeFixtureResourceOwner
 
   alias Singularity.Storage.Backup.{
     BundleReader,
@@ -19,7 +20,6 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
   alias Singularity.Storage.Local.PathGuard
 
   @time ~U[2026-10-11 00:00:00.000000Z]
-  @apps [:singularity_storage, :singularity_runtime]
   @replays {__MODULE__, :replays}
   # This projection is intentionally independent of the new V3 registry.
   @appended [
@@ -49,34 +49,22 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
   ]
 
   def with_destination(:current, fun) when is_function(fun, 1) do
-    configs = Map.new(@apps, &{&1, Map.new(Application.get_all_env(&1))})
     previous_replays = Process.get(@replays)
     Process.put(@replays, [])
 
     try do
-      environment = MigrationTestEnvironment.open!(99_999_999_999_999)
+      {owner, destination} = KnowledgeFixtureResourceOwner.open()
 
       try do
-        root = Path.join(environment.names.storage_root, "objects")
-        File.mkdir_p!(root)
-        File.chmod!(environment.names.storage_root, 0o700)
-        File.chmod!(root, 0o700)
-        Application.put_env(:singularity_storage, :storage_root, root)
-        {:ok, pid} = MigrationRepo.start_link()
-        Process.unlink(pid)
-        fun.(%{repo: MigrationRepo, database: environment.database, object_root: root})
+        fun.(destination)
       after
         try do
           Enum.each(Process.get(@replays, []), &BundleReader.discard_verified/1)
         after
-          # Restore the complete environment before the existing helper restarts Runtime.
-          restore_configs(configs)
-          MigrationTestEnvironment.close!(environment)
+          KnowledgeFixtureResourceOwner.close(owner)
         end
       end
     after
-      restore_configs(configs)
-
       if is_nil(previous_replays),
         do: Process.delete(@replays),
         else: Process.put(@replays, previous_replays)
@@ -838,7 +826,13 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
   defp canonical_value(_key, value), do: value
 
   defp bundle(fixture, rows, logical_version, mode) do
-    originals = object_payloads(fixture, canonical_rows(fixture)["content.asset_objects"])
+    asset_projection =
+      Enum.filter(prefix_projection(), fn {table, _columns, _primary_key} ->
+        table == "content.asset_objects"
+      end)
+
+    canonical_assets = select_rows(fixture.owner, asset_projection)["content.asset_objects"]
+    originals = object_payloads(fixture, canonical_assets)
     {:ok, result} = build_bundle(fixture, rows, logical_version, mode, [], originals)
     result
   end
@@ -1180,14 +1174,4 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
 
   defp id(number),
     do: "60000000-0000-4000-8000-" <> String.pad_leading(Integer.to_string(number), 12, "0")
-
-  defp restore_configs(configs) do
-    Enum.each(configs, fn {app, saved} ->
-      for {key, _value} <- Application.get_all_env(app),
-          not Map.has_key?(saved, key),
-          do: Application.delete_env(app, key)
-
-      Enum.each(saved, fn {key, value} -> Application.put_env(app, key, value) end)
-    end)
-  end
 end

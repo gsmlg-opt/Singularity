@@ -74,6 +74,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
     Singularity.Storage.DispatcherRepo,
     Singularity.Storage.WorkerRepo
   ]
+  @canonical_query_tables LogicalSchemaV3.tables()
 
   test "the fixture support exposes every bounded test-only seam without compile-time stubs" do
     assert Code.ensure_loaded?(@fixtures), "missing independent KnowledgeBackupFixtures support"
@@ -883,44 +884,143 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
       before = call(:canonical_rows, [fixture])
       expected_objects = call(:source_bytes, [fixture]) |> Map.keys() |> Enum.sort()
 
-      for mode <- [:records, :replay] do
-        bundle = call(:verified_bundle, [fixture, [logical_version: 3, mode: mode]])
+      reads_by_mode =
+        for mode <- [:records, :replay] do
+          counter = prepare_canonical_query_counter()
 
-        assert %BundleReader.Verified{
-                 manifest: %{version: 1},
-                 manifest_hash: <<_::256>>,
-                 manifest_tag: <<_::128>>
-               } = bundle.verified
+          {bundle, reads} =
+            with_canonical_query_counts(counter, fn ->
+              call(:verified_bundle, [fixture, [logical_version: 3, mode: mode]])
+            end)
 
-        assert bundle.cut.logical_version == 3
-        assert Enum.map(bundle.cut.object_inventory, & &1.asset_object_id) == expected_objects
+          assert %BundleReader.Verified{
+                   manifest: %{version: 1},
+                   manifest_hash: <<_::256>>,
+                   manifest_tag: <<_::128>>
+                 } = bundle.verified
 
-        case mode do
-          :records ->
-            assert {:ok, cut} = LogicalBundleVerifier.verify(bundle.verified, bundle.binding)
-            assert cut == bundle.cut
-            assert Enum.all?(decoded_rows(bundle.verified.records), &(&1.logical_version == 3))
+          assert bundle.cut.logical_version == 3
+          assert Enum.map(bundle.cut.object_inventory, & &1.asset_object_id) == expected_objects
 
-          :replay ->
-            assert %BundleReader.Replay{} = bundle.verified.replay
-            assert bundle.verified.records == []
-            assert bundle.verified.cut == bundle.cut
+          case mode do
+            :records ->
+              assert {:ok, cut} = LogicalBundleVerifier.verify(bundle.verified, bundle.binding)
+              assert cut == bundle.cut
+              assert Enum.all?(decoded_rows(bundle.verified.records), &(&1.logical_version == 3))
 
-            assert {:ok, events} =
-                     BundleReader.reduce_verified(bundle.verified, [], fn event, acc ->
-                       {:ok, [event | acc]}
-                     end)
+            :replay ->
+              assert %BundleReader.Replay{} = bundle.verified.replay
+              assert bundle.verified.records == []
+              assert bundle.verified.cut == bundle.cut
 
-            assert events != []
+              assert {:ok, events} =
+                       BundleReader.reduce_verified(bundle.verified, [], fn event, acc ->
+                         {:ok, [event | acc]}
+                       end)
 
-            assert Enum.count(events, &match?({:record_start, 0x0002, _size}, &1)) ==
-                     Enum.sum(Enum.map(before, fn {_table, rows} -> length(rows) end))
+              assert events != []
+
+              assert Enum.count(events, &match?({:record_start, 0x0002, _size}, &1)) ==
+                       Enum.sum(Enum.map(before, fn {_table, rows} -> length(rows) end))
+          end
+
+          {mode, reads}
         end
-      end
 
       assert LogicalRecordCodec.default_version() == 2
       assert call(:canonical_rows, [fixture]) == before
+
+      expected_reads =
+        Map.new(@canonical_query_tables, fn table ->
+          {table, if(table == "content.asset_objects", do: 2, else: 1)}
+        end)
+
+      assert map_size(expected_reads) == 38
+
+      for {mode, reads} <- reads_by_mode do
+        assert reads == expected_reads, "canonical SELECT counts for #{mode}"
+      end
     end)
+  end
+
+  test "canonical query counters detach only their handler and restore local state on return and exception" do
+    survivor = prepare_canonical_query_counter()
+
+    with_canonical_query_counts(survivor, fn ->
+      for outcome <- [:return, :exception] do
+        counter = prepare_canonical_query_counter()
+        previous = %{"identity.people" => 7}
+        Process.put(counter.key, previous)
+
+        try do
+          case outcome do
+            :return ->
+              assert {:returned, counts} =
+                       with_canonical_query_counts(counter, fn -> :returned end)
+
+              assert counts == Map.new(@canonical_query_tables, &{&1, 0})
+
+            :exception ->
+              assert_raise RuntimeError, "query counter failure", fn ->
+                with_canonical_query_counts(counter, fn -> raise "query counter failure" end)
+              end
+          end
+
+          assert Process.get(counter.key) == previous
+          refute query_counter_attached?(counter)
+          assert query_counter_attached?(survivor)
+          assert :ok = counter.cleanup.()
+          refute query_counter_attached?(counter)
+          assert query_counter_attached?(survivor)
+        after
+          Process.delete(counter.key)
+        end
+      end
+    end)
+
+    refute query_counter_attached?(survivor)
+  end
+
+  test "the registered query counter fallback detaches a killed caller's exact handler idempotently" do
+    survivor = prepare_canonical_query_counter()
+    counter = prepare_canonical_query_counter()
+    parent = self()
+    token = make_ref()
+
+    with_canonical_query_counts(survivor, fn ->
+      {actor, monitor} =
+        spawn_monitor(fn ->
+          parent_monitor = Process.monitor(parent)
+
+          with_canonical_query_counts(counter, fn ->
+            send(parent, {token, :counter_attached})
+
+            receive do
+              {:DOWN, ^parent_monitor, :process, ^parent, _reason} -> :ok
+            end
+          end)
+        end)
+
+      try do
+        assert_receive {^token, :counter_attached}, 5_000
+        assert query_counter_attached?(counter)
+        Process.exit(actor, :kill)
+        assert_receive {:DOWN, ^monitor, :process, ^actor, :killed}, 5_000
+        assert query_counter_attached?(counter)
+
+        # This is the same closure registered by the test parent before attach.
+        assert :ok = counter.cleanup.()
+        refute query_counter_attached?(counter)
+        assert query_counter_attached?(survivor)
+        assert :ok = counter.cleanup.()
+        refute query_counter_attached?(counter)
+        assert query_counter_attached?(survivor)
+      after
+        if Process.alive?(actor), do: Process.exit(actor, :kill)
+      end
+    end)
+
+    refute query_counter_attached?(survivor)
   end
 
   test "single-field semantic malformations remain authenticated and do not mutate the source graph" do
@@ -966,6 +1066,45 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
     end)
   end
 
+  test "malformed asset lookup metadata keeps authenticated original ciphertext and canonical source" do
+    with_fixture(fn fixture ->
+      before = call(:canonical_rows, [fixture])
+      originals = call(:verified_bundle, [fixture, [logical_version: 3, mode: :records]])
+
+      [asset] = Enum.filter(before["content.asset_objects"], &(&1["id"] == @ids.pdf_object_id))
+      <<first, rest::binary>> = asset["lookup_digest"]
+      changed_lookup = <<rem(first + 1, 256), rest::binary>>
+
+      malformed =
+        call(:malformed_bundle, [
+          fixture,
+          %{
+            table: "content.asset_objects",
+            primary_key: @ids.pdf_object_id,
+            field: "lookup_digest",
+            value: changed_lookup,
+            mode: :records
+          }
+        ])
+
+      assert %BundleReader.Verified{manifest_hash: <<_::256>>, manifest_tag: <<_::128>>} =
+               malformed.verified
+
+      assert {:ok, cut} = LogicalBundleVerifier.verify(malformed.verified, malformed.binding)
+      assert cut == malformed.cut
+
+      assert logical_field_changes(originals.verified.records, malformed.verified.records) ==
+               [{"content.asset_objects", @ids.pdf_object_id, "lookup_digest", changed_lookup}]
+
+      original_ciphertexts = Enum.filter(originals.verified.records, &(&1.type == 0x8000))
+      malformed_ciphertexts = Enum.filter(malformed.verified.records, &(&1.type == 0x8000))
+      assert length(original_ciphertexts) == 5
+      assert malformed_ciphertexts == original_ciphertexts
+      assert malformed.verified.manifest_hash != originals.verified.manifest_hash
+      assert call(:canonical_rows, [fixture]) == before
+    end)
+  end
+
   test "fixed V2 remains explicitly selected and the genuine pre-Notes V1 golden stays byte identical" do
     golden =
       Path.expand("../../../fixtures/backup/logical-v1-pre-notes.backup", __DIR__) |> File.read!()
@@ -991,6 +1130,76 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
 
     assert LogicalRecordCodec.default_version() == 2
   end
+
+  defp prepare_canonical_query_counter do
+    id = {__MODULE__, :canonical_queries, make_ref()}
+    cleanup = fn -> detach_query_counter(id) end
+    on_exit(id, cleanup)
+
+    %{
+      id: id,
+      event: Keyword.fetch!(MigrationRepo.config(), :telemetry_prefix) ++ [:query],
+      key: {__MODULE__, :canonical_queries, id},
+      cleanup: cleanup
+    }
+  end
+
+  defp with_canonical_query_counts(counter, fun) do
+    missing = make_ref()
+    previous = Process.get(counter.key, missing)
+    Process.put(counter.key, Map.new(@canonical_query_tables, &{&1, 0}))
+
+    try do
+      :ok =
+        :telemetry.attach(counter.id, counter.event, &__MODULE__.count_canonical_query/4, {
+          self(),
+          counter.key
+        })
+
+      result = fun.()
+      {result, Process.get(counter.key)}
+    after
+      counter.cleanup.()
+
+      if previous == missing,
+        do: Process.delete(counter.key),
+        else: Process.put(counter.key, previous)
+    end
+  end
+
+  def count_canonical_query(
+        _event,
+        _measurements,
+        %{repo: MigrationRepo, query: query},
+        {caller, key}
+      )
+      when caller == self() and is_binary(query) do
+    # Only classify the first FROM. SQL and other event metadata never escape.
+    case Regex.run(~r/\ASELECT\s+.*?\sFROM\s+([a-z_]+\.[a-z_]+)\b/s, query,
+           capture: :all_but_first
+         ) do
+      [table] ->
+        case Enum.find(@canonical_query_tables, &(&1 == table)) do
+          nil -> :ok
+          known_table -> Process.put(key, Map.update!(Process.get(key), known_table, &(&1 + 1)))
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  def count_canonical_query(_event, _measurements, _metadata, _config), do: :ok
+
+  defp detach_query_counter(id) do
+    case :telemetry.detach(id) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+    end
+  end
+
+  defp query_counter_attached?(counter),
+    do: Enum.any?(:telemetry.list_handlers(counter.event), &(&1.id == counter.id))
 
   defp call(function, args) do
     assert Code.ensure_loaded?(@fixtures), "missing independent KnowledgeBackupFixtures support"

@@ -16,10 +16,11 @@ defmodule Singularity.Storage.Fixtures do
   end
 
   def two_vaults! do
-    with_owner(fn ->
-      %{one: vault_fixture!("one"), two: vault_fixture!("two")}
-    end)
+    with_owner(&insert_two_vaults!/0)
   end
+
+  def two_vaults!(expected_pid) when is_pid(expected_pid),
+    do: with_borrowed_owner(expected_pid, &insert_two_vaults!/0)
 
   def revoke_membership!(%{principal_id: principal_id, vault_id: vault_id}) do
     with_owner(fn ->
@@ -65,75 +66,104 @@ defmodule Singularity.Storage.Fixtures do
     end)
   end
 
-  def outbox_event!(fixture) do
-    with_owner(fn ->
-      event_id = uuid()
-      correlation_id = uuid()
+  def outbox_event!(fixture), do: with_owner(fn -> insert_outbox_event!(fixture) end)
 
-      SQL.query!(
-        MigrationRepo,
-        """
-        INSERT INTO core.outbox_events (
-          id,
-          event_type,
-          idempotency_key,
-          vault_id,
-          principal_id,
-          required_capability,
-          principal_authorization_epoch,
-          vault_authorization_epoch,
-          classification,
-          correlation_id,
-          expected_entity_revision,
-          envelope_version,
-          payload,
-          occurred_at
-        ) VALUES (
-          $1,
-          'asset.verify_requested',
-          $2,
-          $3,
-          $4,
-          'asset.write',
-          7,
-          23,
-          'private',
-          $5,
-          0,
-          1,
-          $6::text::jsonb,
-          CURRENT_TIMESTAMP
-        )
-        """,
-        [
-          event_id,
-          "asset-retry:#{Ecto.UUID.load!(fixture.asset_id)}:0:#{System.unique_integer([:positive])}",
-          fixture.vault_id,
-          fixture.principal_id,
-          correlation_id,
-          JSON.encode!(%{"asset_id" => Ecto.UUID.load!(fixture.asset_id)})
-        ],
-        log: false
-      )
-
-      %{id: event_id, correlation_id: correlation_id}
-    end)
-  end
+  def outbox_event!(fixture, expected_pid) when is_pid(expected_pid),
+    do: with_borrowed_owner(expected_pid, fn -> insert_outbox_event!(fixture) end)
 
   def with_owner(fun) do
     {:ok, pid} = MigrationRepo.start_link(pool_size: 2)
 
     try do
-      {:ok, result} =
-        MigrationRepo.transaction(fn ->
-          SQL.query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner", [], log: false)
-          fun.()
-        end)
-
-      result
+      owner_transaction(fun)
     after
       Supervisor.stop(pid)
     end
+  end
+
+  defp with_borrowed_owner(expected_pid, fun) do
+    assert_borrowed_owner!(expected_pid)
+    previous = MigrationRepo.put_dynamic_repo(expected_pid)
+
+    try do
+      owner_transaction(fn ->
+        assert_borrowed_owner!(expected_pid)
+        fun.()
+      end)
+    after
+      MigrationRepo.put_dynamic_repo(previous)
+    end
+  end
+
+  defp assert_borrowed_owner!(expected_pid) do
+    unless Process.whereis(MigrationRepo) == expected_pid and Process.alive?(expected_pid),
+      do: raise(ArgumentError, "fixture requires the exact live MigrationRepo PID")
+  end
+
+  defp owner_transaction(fun) do
+    {:ok, result} =
+      MigrationRepo.transaction(fn ->
+        SQL.query!(MigrationRepo, "SET LOCAL ROLE singularity_table_owner", [], log: false)
+        fun.()
+      end)
+
+    result
+  end
+
+  defp insert_two_vaults!,
+    do: %{one: vault_fixture!("one"), two: vault_fixture!("two")}
+
+  defp insert_outbox_event!(fixture) do
+    event_id = uuid()
+    correlation_id = uuid()
+
+    SQL.query!(
+      MigrationRepo,
+      """
+      INSERT INTO core.outbox_events (
+        id,
+        event_type,
+        idempotency_key,
+        vault_id,
+        principal_id,
+        required_capability,
+        principal_authorization_epoch,
+        vault_authorization_epoch,
+        classification,
+        correlation_id,
+        expected_entity_revision,
+        envelope_version,
+        payload,
+        occurred_at
+      ) VALUES (
+        $1,
+        'asset.verify_requested',
+        $2,
+        $3,
+        $4,
+        'asset.write',
+        7,
+        23,
+        'private',
+        $5,
+        0,
+        1,
+        $6::text::jsonb,
+        CURRENT_TIMESTAMP
+      )
+      """,
+      [
+        event_id,
+        "asset-retry:#{Ecto.UUID.load!(fixture.asset_id)}:0:#{System.unique_integer([:positive])}",
+        fixture.vault_id,
+        fixture.principal_id,
+        correlation_id,
+        JSON.encode!(%{"asset_id" => Ecto.UUID.load!(fixture.asset_id)})
+      ],
+      log: false
+    )
+
+    %{id: event_id, correlation_id: correlation_id}
   end
 
   defp vault_fixture!(label) do

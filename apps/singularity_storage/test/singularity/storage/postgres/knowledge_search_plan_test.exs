@@ -19,6 +19,7 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
   alias Singularity.Storage.KnowledgeSearchPlanObserver.Repo, as: ObserverRepo
 
   @fixture_size 8_192
+  @canonical_batch_size 512
   @fts_query "needle bridge"
   @trigram_query "postgreql"
   @summary_keys ~w(backend parameter_count candidate_calls nested_statements executed_nodes actual_rows actual_loops buffer_nodes indexes entry_rows_inspected entry_access)a
@@ -386,51 +387,117 @@ defmodule Singularity.Storage.Postgres.KnowledgeSearchPlanTest do
     owner = Ecto.UUID.load!(source.vault_id)
     fixture = Map.put(source, :owner_scope_id, owner)
 
-    Fixtures.with_owner(fn ->
-      assert %{num_rows: @fixture_size} =
-               SafeSQL.query!(
-                 MigrationRepo,
-                 """
-                 INSERT INTO content.resources
-                   (id,vault_id,classification,kind,current_version_id,title)
-                 SELECT md5($1::uuid::text || ':knowledge-plan:resource:' || ordinal)::uuid,
-                        $1, 'private', 'note',
-                        md5($1::uuid::text || ':knowledge-plan:version:' || ordinal)::uuid,
-                        CASE ordinal WHEN 1 THEN 'Neutral heading'
-                                     WHEN 2 THEN 'postgresql'
-                                     ELSE 'Archive folio ' || ordinal END
-                 FROM generate_series(1,$2::integer) AS fixture(ordinal)
-                 """,
-                 [source.vault_id, @fixture_size]
-               )
+    for ordinals <- Enum.chunk_every(1..@fixture_size, @canonical_batch_size) do
+      ids = Enum.map(ordinals, &(fixture |> resource_id(&1) |> Ecto.UUID.dump!()))
+      batch_size = length(ids)
+      first = hd(ordinals)
+      last = List.last(ordinals)
 
-      assert %{num_rows: @fixture_size} =
+      Fixtures.with_owner(fn ->
+        assert %{num_rows: ^batch_size} =
+                 inserted_resources =
+                 SafeSQL.query!(
+                   MigrationRepo,
+                   """
+                   INSERT INTO content.resources
+                     (id,vault_id,classification,kind,current_version_id,title)
+                   SELECT md5($1::uuid::text || ':knowledge-plan:resource:' || ordinal)::uuid,
+                          $1, 'private', 'note',
+                          md5($1::uuid::text || ':knowledge-plan:version:' || ordinal)::uuid,
+                          CASE ordinal WHEN 1 THEN 'Neutral heading'
+                                       WHEN 2 THEN 'postgresql'
+                                       ELSE 'Archive folio ' || ordinal END
+                   FROM generate_series($2::integer,$3::integer) AS fixture(ordinal)
+                   """,
+                   [source.vault_id, first, last]
+                 )
+
+        assert inserted_resources.num_rows <= @canonical_batch_size
+
+        assert %{num_rows: ^batch_size} =
+                 SafeSQL.query!(
+                   MigrationRepo,
+                   """
+                   INSERT INTO content.resource_versions
+                     (id,resource_id,vault_id,classification,revision,inserted_at)
+                   SELECT current_version_id,id,vault_id,classification,0,
+                          '2026-10-09T00:00:00Z'::timestamptz
+                   FROM content.resources
+                   WHERE vault_id=$1 AND kind='note' AND id=ANY($2::uuid[])
+                   """,
+                   [source.vault_id, ids]
+                 )
+
+        assert %{num_rows: ^batch_size} =
+                 SafeSQL.query!(
+                   MigrationRepo,
+                   """
+                   INSERT INTO content.note_versions
+                     (resource_version_id,resource_id,vault_id,classification,title,markdown,
+                      created_by_principal_id,inserted_at)
+                   SELECT current_version_id,id,vault_id,classification,title,
+                          CASE WHEN title='Neutral heading' THEN 'needle disconnected bridge'
+                               ELSE 'routine catalog material' END,
+                          $2, '2026-10-09T00:00:00Z'::timestamptz
+                   FROM content.resources
+                   WHERE vault_id=$1 AND kind='note' AND id=ANY($3::uuid[])
+                   """,
+                   [source.vault_id, source.principal_id, ids]
+                 )
+      end)
+
+      # Read only after COMMIT has finalized each complete Note's empty source set.
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[^batch_size]]} =
+                 SafeSQL.query!(
+                   MigrationRepo,
+                   """
+                   SELECT count(*)
+                   FROM generate_series($2::integer,$3::integer) AS fixture(ordinal)
+                   JOIN content.resources r
+                     ON r.id=md5($1::uuid::text || ':knowledge-plan:resource:' || ordinal)::uuid
+                    AND r.vault_id=$1 AND r.kind='note' AND r.classification='private'
+                    AND r.current_version_id=md5($1::uuid::text || ':knowledge-plan:version:' || ordinal)::uuid
+                    AND r.title=CASE ordinal WHEN 1 THEN 'Neutral heading'
+                                             WHEN 2 THEN 'postgresql'
+                                             ELSE 'Archive folio ' || ordinal END
+                   JOIN content.resource_versions v
+                     ON (v.id,v.resource_id,v.vault_id,v.classification)=
+                        (r.current_version_id,r.id,r.vault_id,r.classification)
+                    AND v.revision=0 AND v.inserted_at='2026-10-09T00:00:00Z'::timestamptz
+                   JOIN content.note_versions n
+                     ON (n.resource_version_id,n.resource_id,n.vault_id,n.classification)=
+                        (v.id,v.resource_id,v.vault_id,v.classification)
+                    AND n.title=r.title AND n.created_by_principal_id=$4
+                    AND n.inserted_at='2026-10-09T00:00:00Z'::timestamptz
+                    AND n.markdown=CASE ordinal WHEN 1 THEN 'needle disconnected bridge'
+                                               ELSE 'routine catalog material' END
+                   JOIN content.note_source_set_seals s
+                     ON (s.note_resource_version_id,s.note_resource_id,s.vault_id,s.classification)=
+                        (n.resource_version_id,n.resource_id,n.vault_id,n.classification)
+                    AND s.attachment_count=0 AND s.citation_count=0
+                   """,
+                   [source.vault_id, first, last, source.principal_id]
+                 )
+      end)
+    end
+
+    Fixtures.with_owner(fn ->
+      assert %{rows: [[@fixture_size, @fixture_size, @fixture_size, @fixture_size, 0, 0]]} =
                SafeSQL.query!(
                  MigrationRepo,
                  """
-                 INSERT INTO content.resource_versions
-                   (id,resource_id,vault_id,classification,revision,inserted_at)
-                 SELECT current_version_id,id,vault_id,classification,0,
-                        '2026-10-09T00:00:00Z'::timestamptz
-                 FROM content.resources WHERE vault_id=$1 AND kind='note'
+                 SELECT
+                   (SELECT count(*) FROM content.resources WHERE vault_id=$1 AND kind='note'),
+                   (SELECT count(*) FROM content.resource_versions v
+                     JOIN content.resources r ON r.id=v.resource_id
+                     WHERE v.vault_id=$1 AND r.kind='note'),
+                   (SELECT count(*) FROM content.note_versions WHERE vault_id=$1),
+                   (SELECT count(*) FROM content.note_source_set_seals WHERE vault_id=$1),
+                   (SELECT count(*) FROM content.note_attachments WHERE vault_id=$1),
+                   (SELECT count(*) FROM content.note_citations WHERE vault_id=$1)
                  """,
                  [source.vault_id]
-               )
-
-      assert %{num_rows: @fixture_size} =
-               SafeSQL.query!(
-                 MigrationRepo,
-                 """
-                 INSERT INTO content.note_versions
-                   (resource_version_id,resource_id,vault_id,classification,title,markdown,
-                    created_by_principal_id,inserted_at)
-                 SELECT current_version_id,id,vault_id,classification,title,
-                        CASE WHEN title='Neutral heading' THEN 'needle disconnected bridge'
-                             ELSE 'routine catalog material' END,
-                        $2, '2026-10-09T00:00:00Z'::timestamptz
-                 FROM content.resources WHERE vault_id=$1 AND kind='note'
-                 """,
-                 [source.vault_id, source.principal_id]
                )
     end)
 

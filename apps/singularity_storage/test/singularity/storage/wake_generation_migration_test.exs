@@ -4,7 +4,9 @@ defmodule Singularity.Storage.WakeGenerationMigrationTest do
   @moduletag :integration
 
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.Backup.KnowledgeFixtureResourceOwner, as: ResourceOwner
   alias Singularity.Storage.MigrationRepo
+  alias Singularity.Storage.RequestRepo
   alias Singularity.Storage.Schema.Jobs.JobSubmission
 
   @version 20_260_901_000_200
@@ -13,32 +15,20 @@ defmodule Singularity.Storage.WakeGenerationMigrationTest do
   @reconciler "Singularity.Storage.Jobs.WakeReconciler"
 
   setup do
-    %{one: fixture} = Fixtures.two_vaults!()
-    event = Fixtures.outbox_event!(fixture)
-    runtime_started? = runtime_started?()
+    %{rows: [[baseline_database]]} = query!(RequestRepo, "SELECT current_database()")
 
-    {:ok, migration_repo} = MigrationRepo.start_link(pool_size: 2)
-    Process.unlink(migration_repo)
+    {_owner, destination} = ResourceOwner.open(migration_pool_size: 2)
+    migration_repo = Process.whereis(MigrationRepo)
+    assert Keyword.fetch!(Ecto.Repo.Registry.lookup(migration_repo).opts, :pool_size) == 2
 
-    on_exit(fn ->
-      try do
-        cleanup_test_state!(event.id)
+    %{one: fixture} = Fixtures.two_vaults!(migration_repo)
+    assert Process.whereis(MigrationRepo) == migration_repo
+    event = Fixtures.outbox_event!(fixture, migration_repo)
+    assert Process.whereis(MigrationRepo) == migration_repo
 
-        if Code.ensure_loaded?(@migration) and not migration_up?() do
-          assert :ok = Ecto.Migrator.up(MigrationRepo, @version, @migration, log: false)
-        end
-
-        if Code.ensure_loaded?(@migration), do: assert(migration_up?())
-      after
-        if Process.alive?(migration_repo), do: Supervisor.stop(migration_repo)
-      end
-
-      if runtime_started? do
-        assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
-      end
-    end)
-
-    if runtime_started?, do: assert(:ok == Application.stop(:singularity_runtime))
+    %{rows: [[fixture_database]]} = query!(MigrationRepo, "SELECT current_database()")
+    assert fixture_database == destination.database
+    refute fixture_database == baseline_database
 
     if migration_up?() do
       assert :ok = Ecto.Migrator.down(MigrationRepo, @version, @migration, log: false)
@@ -481,12 +471,6 @@ defmodule Singularity.Storage.WakeGenerationMigrationTest do
     end
   end
 
-  defp runtime_started? do
-    Enum.any?(Application.started_applications(), fn {app, _description, _version} ->
-      app == :singularity_runtime
-    end)
-  end
-
   defp migration_up? do
     %{rows: rows} =
       query!(
@@ -504,35 +488,6 @@ defmodule Singularity.Storage.WakeGenerationMigrationTest do
 
   defp migrate_down! do
     assert :ok = Ecto.Migrator.down(MigrationRepo, @version, @migration, log: false)
-  end
-
-  defp cleanup_test_state!(event_id) do
-    test_id = Ecto.UUID.load!(event_id)
-
-    owner_transaction(fn ->
-      query!(
-        MigrationRepo,
-        "DELETE FROM jobs.oban_jobs WHERE meta->>'wake_migration_test_id' = $1",
-        [test_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "DELETE FROM jobs.job_submissions WHERE outbox_event_id = $1",
-        [event_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "DELETE FROM core.outbox_events WHERE id = $1",
-        [event_id]
-      )
-
-      query!(
-        MigrationRepo,
-        "DELETE FROM jobs.oban_peers WHERE name = 'wake-migration-test'"
-      )
-    end)
   end
 
   defp insert_legacy_submission!(fixture, event, meta, reconcilers \\ []) do
