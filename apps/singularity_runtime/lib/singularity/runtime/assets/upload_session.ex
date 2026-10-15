@@ -1,56 +1,3 @@
-defmodule Singularity.Runtime.Assets.UploadSession.MessageStream do
-  @moduledoc false
-
-  @enforce_keys [:owner]
-  defstruct [:owner]
-end
-
-defimpl Enumerable,
-  for: Singularity.Runtime.Assets.UploadSession.MessageStream do
-  alias Singularity.Runtime.Assets.UploadSession.MessageStream
-
-  def reduce(%MessageStream{owner: owner}, accumulator, reducer) do
-    reduce_messages(owner, accumulator, reducer)
-  end
-
-  def count(_stream), do: {:error, __MODULE__}
-  def member?(_stream, _value), do: {:error, __MODULE__}
-  def slice(_stream), do: {:error, __MODULE__}
-
-  defp reduce_messages(_owner, {:halt, accumulator}, _reducer),
-    do: {:halted, accumulator}
-
-  defp reduce_messages(owner, {:suspend, accumulator}, reducer) do
-    {:suspended, accumulator, &reduce_messages(owner, &1, reducer)}
-  end
-
-  defp reduce_messages(owner, {:cont, accumulator}, reducer) do
-    receive do
-      {:"$upload_stream_chunk", ^owner, reference, chunk} ->
-        reduce_chunk(owner, reference, chunk, accumulator, reducer)
-
-      {:"$upload_stream_finish", ^owner} ->
-        {:done, accumulator}
-    end
-  end
-
-  defp reduce_chunk(owner, reference, chunk, accumulator, reducer) do
-    case reducer.(chunk, accumulator) do
-      {:cont, next} ->
-        send(owner, {:upload_chunk_applied, self(), reference})
-        reduce_messages(owner, {:cont, next}, reducer)
-
-      {:halt, next} ->
-        send(owner, {:upload_chunk_halted, self(), reference})
-        {:halted, next}
-
-      {:suspend, next} ->
-        send(owner, {:upload_chunk_applied, self(), reference})
-        {:suspended, next, &reduce_messages(owner, &1, reducer)}
-    end
-  end
-end
-
 defmodule Singularity.Runtime.Assets.UploadSession do
   @moduledoc """
   Owns one short-lived, lock-pinned encrypted upload.
@@ -64,7 +11,6 @@ defmodule Singularity.Runtime.Assets.UploadSession do
   alias Singularity.Core.StageRef
   alias Singularity.Ingest.UploadRequest
   alias Singularity.Runtime.Authorize
-  alias Singularity.Runtime.Assets.UploadSession.MessageStream
   alias Singularity.Runtime.Observability.Telemetry
   alias Singularity.Storage.AuthorizationLock
   alias Singularity.Storage.EncryptedStageWriter
@@ -849,7 +795,7 @@ defmodule Singularity.Runtime.Assets.UploadSession do
       owner = self()
       writer_adapter = state.adapters.stage_writer
       storage = state.storage
-      stream = %MessageStream{owner: owner}
+      stream = message_stream(owner)
 
       {writer, monitor} =
         spawn_monitor(fn ->
@@ -879,6 +825,45 @@ defmodule Singularity.Runtime.Assets.UploadSession do
           Process.demonitor(monitor, [:flush])
           {:error, error, claimed_state}
       end
+    end
+  end
+
+  defp message_stream(owner) do
+    fn accumulator, reducer ->
+      reduce_messages(owner, accumulator, reducer)
+    end
+  end
+
+  defp reduce_messages(_owner, {:halt, accumulator}, _reducer),
+    do: {:halted, accumulator}
+
+  defp reduce_messages(owner, {:suspend, accumulator}, reducer) do
+    {:suspended, accumulator, &reduce_messages(owner, &1, reducer)}
+  end
+
+  defp reduce_messages(owner, {:cont, accumulator}, reducer) do
+    receive do
+      {:"$upload_stream_chunk", ^owner, reference, chunk} ->
+        reduce_chunk(owner, reference, chunk, accumulator, reducer)
+
+      {:"$upload_stream_finish", ^owner} ->
+        {:done, accumulator}
+    end
+  end
+
+  defp reduce_chunk(owner, reference, chunk, accumulator, reducer) do
+    case reducer.(chunk, accumulator) do
+      {:cont, next} ->
+        send(owner, {:upload_chunk_applied, self(), reference})
+        reduce_messages(owner, {:cont, next}, reducer)
+
+      {:halt, next} ->
+        send(owner, {:upload_chunk_halted, self(), reference})
+        {:halted, next}
+
+      {:suspend, next} ->
+        send(owner, {:upload_chunk_applied, self(), reference})
+        {:suspended, next, &reduce_messages(owner, &1, reducer)}
     end
   end
 
