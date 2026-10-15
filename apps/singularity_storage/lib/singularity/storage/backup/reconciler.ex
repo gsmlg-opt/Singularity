@@ -16,6 +16,8 @@ defmodule Singularity.Storage.Backup.Reconciler do
   ]
   @note_conflict_events ~w[note.conflict_created note.conflict_resolved]
   @note_resource_events @note_lifecycle_events -- @note_conflict_events
+  @document_events ~w[document.extraction_requested document.ready document.deleted document.restored]
+  @document_authorization_invalid "restore_document_authorization_invalid"
 
   @retirement_reasons [
     "legacy_missing_principal_authorization_epoch_provenance",
@@ -141,6 +143,48 @@ defmodule Singularity.Storage.Backup.Reconciler do
         {:error, %Error{}} = error -> {:halt, error}
       end
     end)
+  end
+
+  defp reconcile_event(
+         repo,
+         [event_id, event_type, key, classification, revision, payload, retired_at, reason],
+         vault_id,
+         _manifest_id
+       )
+       when event_type in @document_events do
+    with true <- bigint?(revision),
+         true <- classification == "private",
+         true <- document_retirement?(event_type, retired_at, reason),
+         {:ok, resource_id, version_id} <- document_ids(payload),
+         {:ok, job_type} <- event_job_type(event_type),
+         {:ok, raw} <- document_provenance(repo, event_id, vault_id),
+         {:ok, document} <- document_state(repo, resource_id, version_id, vault_id),
+         true <- raw.principal_id == document.creator,
+         true <- document_revision?(event_type, event_id, revision, document),
+         :ok <- document_envelope(event_id, key, revision, payload, job_type, raw),
+         :ok <- require_document_submission(repo, event_id, vault_id, key, job_type) do
+      cond do
+        retired_at != nil ->
+          clean_document_work(repo, event_id)
+
+        job_type == "document_projection" ->
+          clean_document_work(repo, event_id)
+
+        document.deleted? or document.head != version_id or
+          (document.state == "pending" and revision != document.generation) or
+            (document.state != "pending" and event_id != document.attempt_job_id) ->
+          retire_document(repo, event_id, "restore_stale_destructive")
+
+        document.state in ["ready", "failed", "unsupported"] ->
+          retire_document(repo, event_id, "restore_effect_already_reflected")
+
+        true ->
+          reconcile_current_document(repo, event_id, raw, document)
+      end
+    else
+      {:error, %Error{}} = error -> error
+      _invalid -> integrity_failure()
+    end
   end
 
   defp reconcile_event(
@@ -596,6 +640,253 @@ defmodule Singularity.Storage.Backup.Reconciler do
     end
   end
 
+  defp document_ids(%{"resource_id" => resource, "resource_version_id" => version} = payload)
+       when map_size(payload) == 2 do
+    with {:ok, resource} <- dumped_uuid(resource),
+         {:ok, version} <- dumped_uuid(version) do
+      {:ok, resource, version}
+    end
+  end
+
+  defp document_ids(_payload), do: integrity_failure()
+
+  defp document_provenance(repo, event_id, owner) do
+    case SQL.query(
+           repo,
+           """
+           SELECT id, vault_id, principal_id, envelope_version, required_capability,
+             principal_authorization_epoch, vault_authorization_epoch, correlation_id, causation_id
+           FROM core.outbox_events WHERE id = $1 FOR UPDATE
+           """,
+           [event_id],
+           log: false
+         ) do
+      {:ok,
+       %{rows: [[^event_id, ^owner, principal, 1, "asset.read", pe, ve, correlation, cause]]}} ->
+        with {:ok, _} <- restored_uuid(event_id),
+             {:ok, _} <- restored_uuid(owner),
+             {:ok, _} <- restored_uuid(principal),
+             {:ok, _} <- restored_uuid(correlation),
+             {:ok, _} <- optional_restored_uuid(cause),
+             true <- bigint?(pe) and bigint?(ve) do
+          {:ok,
+           %{
+             vault_id: owner,
+             principal_id: principal,
+             principal_epoch: pe,
+             owner_epoch: ve,
+             correlation: correlation,
+             cause: cause
+           }}
+        else
+          _invalid -> integrity_failure()
+        end
+
+      {:error, _reason} ->
+        storage_unavailable()
+
+      _invalid ->
+        integrity_failure()
+    end
+  end
+
+  defp document_state(repo, resource, version, owner) do
+    case SQL.query(
+           repo,
+           """
+           SELECT d.created_by_principal_id, d.state, d.attempt_generation, d.attempt_job_id,
+             r.current_version_id, r.deleted_at IS NOT NULL, v.revision
+           FROM content.resources r
+           JOIN content.resource_versions v ON v.resource_id = r.id
+             AND v.vault_id = r.vault_id AND v.classification = r.classification
+           JOIN content.document_versions d ON d.resource_version_id = v.id
+             AND d.resource_id = r.id AND d.vault_id = r.vault_id
+             AND d.classification = r.classification
+           WHERE r.id = $1 AND v.id = $2 AND r.vault_id = $3
+             AND r.kind = 'document' AND r.classification = 'private'
+           FOR UPDATE OF r, v, d
+           """,
+           [resource, version, owner],
+           log: false
+         ) do
+      {:ok, %{rows: [[creator, state, generation, job, head, deleted?, revision]]}}
+      when state in ["pending", "extracting", "ready", "failed", "unsupported"] and
+             is_boolean(deleted?) ->
+        with {:ok, _} <- restored_uuid(creator),
+             {:ok, _} <- optional_restored_uuid(job),
+             {:ok, _} <- optional_restored_uuid(head),
+             true <- bigint?(generation) and bigint?(revision) do
+          {:ok,
+           %{
+             creator: creator,
+             state: state,
+             generation: generation,
+             attempt_job_id: job,
+             head: head,
+             deleted?: deleted?,
+             revision: revision
+           }}
+        else
+          _invalid -> integrity_failure()
+        end
+
+      {:error, _reason} ->
+        storage_unavailable()
+
+      _invalid ->
+        integrity_failure()
+    end
+  end
+
+  defp document_revision?("document.extraction_requested", event, revision, document) do
+    revision <= document.generation and
+      (event != document.attempt_job_id or revision == document.generation - 1)
+  end
+
+  defp document_revision?(_projection, _event, revision, document),
+    do: revision == document.revision
+
+  defp document_retirement?(_type, nil, nil), do: true
+
+  defp document_retirement?(type, %DateTime{}, reason),
+    do:
+      reason in @retirement_reasons or
+        (type == "document.extraction_requested" and reason == @document_authorization_invalid)
+
+  defp document_retirement?(_type, _at, _reason), do: false
+
+  defp document_envelope(event, key, revision, payload, job_type, raw) do
+    attrs = %{
+      version: 1,
+      job_id: Ecto.UUID.load!(event),
+      job_type: job_type,
+      idempotency_key: key,
+      vault_id: Ecto.UUID.load!(raw.vault_id),
+      principal_id: Ecto.UUID.load!(raw.principal_id),
+      required_capability: "asset.read",
+      principal_authorization_epoch: raw.principal_epoch,
+      vault_authorization_epoch: raw.owner_epoch,
+      classification: :private,
+      correlation_id: Ecto.UUID.load!(raw.correlation),
+      causation_id: Ecto.UUID.load!(raw.cause || event),
+      expected_entity_revision: revision,
+      attempt: 0,
+      payload: payload
+    }
+
+    with {:ok, %JobEnvelope{} = envelope} <- JobEnvelope.new(attrs),
+         {:ok, encoded} <- EnvelopeCodec.encode(envelope),
+         {:ok, ^envelope} <- EnvelopeCodec.decode(encoded) do
+      :ok
+    else
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp require_document_submission(repo, event, owner, key, type) do
+    case SQL.query(
+           repo,
+           """
+           SELECT id, vault_id, outbox_event_id, classification, idempotency_key, job_type
+           FROM jobs.job_submissions WHERE outbox_event_id = $1 FOR UPDATE
+           """,
+           [event],
+           log: false
+         ) do
+      {:ok, %{rows: [[^event, ^owner, ^event, "private", ^key, ^type]]}} -> :ok
+      {:error, _reason} -> storage_unavailable()
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp reconcile_current_document(repo, event, raw, document) do
+    case SQL.query(
+           repo,
+           """
+           SELECT p.authorization_epoch, v.authorization_epoch,
+             p.kind = 'owner' AND p.revoked_at IS NULL AND a.status = 'active'
+             AND EXISTS (SELECT 1 FROM core.vault_members m
+               WHERE m.principal_id = p.id AND m.vault_id = v.id AND m.revoked_at IS NULL)
+             AND EXISTS (SELECT 1 FROM core.principal_capabilities pc
+               JOIN core.capabilities c ON c.id = pc.capability_id
+               WHERE pc.principal_id = p.id AND pc.vault_id = v.id
+                 AND pc.revoked_at IS NULL AND c.name = 'asset.read')
+           FROM identity.principals p JOIN identity.accounts a ON a.id = p.account_id
+           CROSS JOIN core.vaults v WHERE p.id = $1 AND v.id = $2
+           """,
+           [raw.principal_id, raw.vault_id],
+           log: false
+         ) do
+      {:ok, %{rows: [[pe, ve, true]]}}
+      when pe == raw.principal_epoch and ve == raw.owner_epoch ->
+        if document.state == "pending",
+          do: clean_document_work(repo, event),
+          else: retire_document(repo, event, "restore_effect_already_reflected")
+
+      {:ok, %{rows: [[pe, ve, authorized?]]}}
+      when is_integer(pe) and is_integer(ve) and is_boolean(authorized?) ->
+        retire_document(repo, event, @document_authorization_invalid)
+
+      {:error, _reason} ->
+        storage_unavailable()
+
+      _invalid ->
+        integrity_failure()
+    end
+  end
+
+  defp clean_document_work(repo, event) do
+    with {:ok, %{num_rows: count}} when count in [0, 1] <-
+           SQL.query(
+             repo,
+             """
+             UPDATE core.outbox_events SET claim_token = NULL, claimed_until = NULL,
+               runner_job_id = NULL, delivered_at = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND (claim_token IS NOT NULL OR claimed_until IS NOT NULL
+               OR runner_job_id IS NOT NULL OR delivered_at IS NOT NULL)
+             """,
+             [event],
+             log: false
+           ),
+         {:ok, %{num_rows: count}} when count in [0, 1] <-
+           SQL.query(
+             repo,
+             """
+             UPDATE jobs.job_submissions SET runner_job_id = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE outbox_event_id = $1 AND runner_job_id IS NOT NULL
+             """,
+             [event],
+             log: false
+           ) do
+      :ok
+    else
+      {:error, _reason} -> storage_unavailable()
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp retire_document(repo, event, reason) do
+    with {:ok, %{num_rows: 1}} <-
+           SQL.query(
+             repo,
+             """
+             UPDATE core.outbox_events SET retired_at = CURRENT_TIMESTAMP,
+               retirement_reason = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND retired_at IS NULL AND retirement_reason IS NULL
+             """,
+             [event, reason],
+             log: false
+           ) do
+      clean_document_work(repo, event)
+    else
+      {:error, _reason} -> storage_unavailable()
+      _invalid -> integrity_failure()
+    end
+  end
+
+  defp bigint?(value),
+    do: is_integer(value) and value >= 0 and value <= 9_223_372_036_854_775_807
+
   defp asset_state(repo, asset_id) do
     case SQL.query(
            repo,
@@ -953,6 +1244,10 @@ defmodule Singularity.Storage.Backup.Reconciler do
   defp event_job_type("asset.cleanup_requested"), do: {:ok, "asset_cleanup"}
   defp event_job_type("object.cleanup_requested"), do: {:ok, "object_cleanup"}
   defp event_job_type("backup.requested"), do: {:ok, "backup"}
+  defp event_job_type("document.extraction_requested"), do: {:ok, "document_extract"}
+
+  defp event_job_type(event_type) when event_type in @document_events,
+    do: {:ok, "document_projection"}
 
   defp event_job_type(event_type) when event_type in @note_lifecycle_events,
     do: {:ok, "note_projection"}

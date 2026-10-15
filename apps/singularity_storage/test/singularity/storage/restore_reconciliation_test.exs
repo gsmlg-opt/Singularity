@@ -7,6 +7,7 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
   alias Singularity.Core.NoteSnapshot
   alias Singularity.Storage.Backup.Reconciler
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.KnowledgeFixtures
   alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.NoteFixtures
   alias Singularity.Storage.Postgres.NoteRepository
@@ -580,6 +581,918 @@ defmodule Singularity.Storage.RestoreReconciliationTest do
 
     assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(cut)
     assert_restored_runner_unchanged(event.id)
+  end
+
+  for {event_type, job_type} <- [
+        {"document.extraction_requested", "document_extract"},
+        {"document.ready", "document_projection"},
+        {"document.deleted", "document_projection"},
+        {"document.restored", "document_projection"}
+      ],
+      cause <- [:null, :uuid] do
+    test "reconciles #{event_type} as #{job_type} with raw #{cause} causation" do
+      source = KnowledgeFixtures.source!()
+      document = KnowledgeFixtures.document!(source)
+      event_type = unquote(event_type)
+      job_type = unquote(job_type)
+      cause = if unquote(cause) == :null, do: nil, else: Ecto.UUID.dump!(Ecto.UUID.generate())
+      event = document_event!(source, document, event_type, job_type, cause)
+      canonical = document_canonical_rows!(source.vault_id)
+
+      assert :ok = reconcile(event.cut)
+      assert document_canonical_rows!(source.vault_id) === canonical
+
+      after_first = document_work_rows!(source.vault_id)
+      assert :ok = reconcile(event.cut)
+      assert document_work_rows!(source.vault_id) === after_first
+      assert document_canonical_rows!(source.vault_id) === canonical
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[^cause, nil, nil, nil, nil, nil, nil, ^job_type]]} =
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT e.causation_id,e.claim_token,e.claimed_until,e.runner_job_id,
+                     e.delivered_at,e.retired_at,s.runner_job_id,s.job_type
+                   FROM core.outbox_events e JOIN jobs.job_submissions s ON s.id=e.id
+                   WHERE e.id=$1
+                   """,
+                   [event.id]
+                 )
+      end)
+
+      event_id = Ecto.UUID.load!(event.id)
+      expected_cause = Ecto.UUID.load!(cause || event.id)
+
+      attrs =
+        Fixtures.with_owner(fn ->
+          %{rows: [[key, principal_epoch, owner_epoch]]} =
+            query!(
+              MigrationRepo,
+              "SELECT idempotency_key,principal_authorization_epoch,vault_authorization_epoch FROM core.outbox_events WHERE id=$1",
+              [event.id]
+            )
+
+          %{
+            version: 1,
+            job_id: event_id,
+            job_type: job_type,
+            idempotency_key: key,
+            vault_id: Ecto.UUID.load!(source.vault_id),
+            principal_id: Ecto.UUID.load!(source.principal_id),
+            required_capability: "asset.read",
+            principal_authorization_epoch: principal_epoch,
+            vault_authorization_epoch: owner_epoch,
+            classification: :private,
+            correlation_id: event_id,
+            causation_id: expected_cause,
+            expected_entity_revision: 0,
+            attempt: 0,
+            payload: %{
+              "resource_id" => Ecto.UUID.load!(document.resource_id),
+              "resource_version_id" => Ecto.UUID.load!(document.resource_version_id)
+            }
+          }
+        end)
+
+      assert {:ok, envelope} = Singularity.Core.JobEnvelope.new(attrs)
+      assert {:ok, encoded} = Singularity.Storage.Jobs.EnvelopeCodec.encode(envelope)
+      assert encoded["causation_id"] == expected_cause
+      assert {:ok, ^envelope} = Singularity.Storage.Jobs.EnvelopeCodec.decode(encoded)
+      assert document_work_rows!(source.vault_id) === after_first
+    end
+  end
+
+  for state <- ~w(extracting ready failed unsupported deleted_pending obsolete_generation) do
+    test "Document #{state} work is retired without rewriting canonical history or waking twice" do
+      source = KnowledgeFixtures.source!()
+      document = KnowledgeFixtures.document!(source)
+
+      event =
+        document_event!(
+          source,
+          document,
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      state = unquote(state)
+
+      Fixtures.with_owner(fn ->
+        if state in ~w(extracting ready failed unsupported) do
+          query!(
+            MigrationRepo,
+            "SELECT set_config('singularity.principal_id',$1,true),set_config('singularity.vault_id',$2,true)",
+            [Ecto.UUID.load!(source.principal_id), Ecto.UUID.load!(source.vault_id)]
+          )
+
+          assert %{rows: [[1]]} =
+                   query!(
+                     MigrationRepo,
+                     "SELECT (content.claim_document_extraction($1,0,$2,'plain_text',1)).attempt_generation",
+                     [document.resource_version_id, event.id]
+                   )
+
+          if state == "ready" do
+            locator = %{"version" => 1, "kind" => "text", "start_line" => 1, "end_line" => 1}
+
+            {:ok, fragment} =
+              Singularity.Core.DocumentFragment.new(%{
+                resource_id: Ecto.UUID.load!(document.resource_id),
+                resource_version_id: Ecto.UUID.load!(document.resource_version_id),
+                owner_scope_id: Ecto.UUID.load!(source.vault_id),
+                classification: :private,
+                ordinal: 0,
+                text: "restored document",
+                locator: locator
+              })
+
+            query!(
+              MigrationRepo,
+              """
+              INSERT INTO content.document_fragments
+                (id,resource_id,resource_version_id,vault_id,classification,ordinal,text,digest,locator,inserted_at)
+              VALUES($1,$2,$3,$4,'private',0,$5,$6,$7,clock_timestamp())
+              """,
+              [
+                fragment.fragment_id,
+                document.resource_id,
+                document.resource_version_id,
+                source.vault_id,
+                fragment.text,
+                fragment.digest,
+                locator
+              ]
+            )
+
+            query!(
+              MigrationRepo,
+              """
+              UPDATE content.document_versions SET state='ready',extracted_text_digest=$2,
+                attempt_finished_at=clock_timestamp() WHERE resource_version_id=$1
+              """,
+              [document.resource_version_id, fragment.digest]
+            )
+          end
+
+          if state in ~w(failed unsupported) do
+            query!(
+              MigrationRepo,
+              """
+              UPDATE content.document_versions SET state=$2,failure_code=$3,
+                attempt_finished_at=clock_timestamp() WHERE resource_version_id=$1
+              """,
+              [
+                document.resource_version_id,
+                state,
+                if(state == "failed", do: "extractor_failed", else: "no_extractable_text")
+              ]
+            )
+          end
+        end
+
+        if state == "deleted_pending",
+          do:
+            query!(
+              MigrationRepo,
+              "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1",
+              [document.resource_id]
+            )
+
+        if state == "obsolete_generation",
+          do:
+            query!(
+              MigrationRepo,
+              "UPDATE content.document_versions SET attempt_generation=1 WHERE resource_version_id=$1",
+              [document.resource_version_id]
+            )
+      end)
+
+      canonical = document_canonical_rows!(source.vault_id)
+      assert :ok = reconcile(event.cut)
+
+      reason =
+        if state in ~w(deleted_pending obsolete_generation),
+          do: "restore_stale_destructive",
+          else: "restore_effect_already_reflected"
+
+      assert_event_retired(event.id, reason)
+      first = document_work_rows!(source.vault_id)
+      assert :ok = reconcile(event.cut)
+      assert document_work_rows!(source.vault_id) === first
+      assert document_canonical_rows!(source.vault_id) === canonical
+    end
+  end
+
+  for retired? <- [false, true],
+      {field, invalid} <- [
+        {:event_type, "document.unknown"},
+        {:required_capability, "asset.write"},
+        {:classification, "sensitive"},
+        {:envelope_version, 2},
+        {:idempotency_key, "document-extraction:wrong"},
+        {:expected_entity_revision, 99},
+        {:payload, %{"resource_id" => "foreign", "resource_version_id" => "foreign"}},
+        {:payload, %{"resource_id" => "extra", "resource_version_id" => "extra", "extra" => true}}
+      ] do
+    test "invalid #{field}=#{inspect(invalid)} is checked before retired=#{retired?} shortcut and rolls back earlier work" do
+      source = KnowledgeFixtures.source!()
+
+      earlier =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.ready",
+          "document_projection",
+          nil
+        )
+
+      later =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      field = unquote(field)
+      invalid = unquote(Macro.escape(invalid))
+
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "UPDATE core.outbox_events SET #{field}=$2 WHERE id=$1", [
+          later.id,
+          invalid
+        ])
+
+        mirror_document_submission!(field, later.id, invalid)
+
+        if unquote(retired?),
+          do:
+            query!(
+              MigrationRepo,
+              """
+              UPDATE core.outbox_events SET retired_at=clock_timestamp(),
+                retirement_reason='restore_effect_already_reflected' WHERE id=$1
+              """,
+              [later.id]
+            )
+      end)
+
+      canonical = document_canonical_rows!(source.vault_id)
+      work = document_work_rows!(source.vault_id)
+      assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(later.cut)
+      assert document_work_rows!(source.vault_id) === work
+      assert document_canonical_rows!(source.vault_id) === canonical
+      assert_restored_runner_unchanged(earlier.id)
+    end
+  end
+
+  test "an exact old-head extraction is destructive even though its own generation and authority are valid" do
+    source = KnowledgeFixtures.source!()
+    document = KnowledgeFixtures.document!(source)
+
+    event =
+      document_event!(source, document, "document.extraction_requested", "document_extract", nil)
+
+    Fixtures.with_owner(fn ->
+      successor = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.resource_versions(id,resource_id,vault_id,classification,revision)
+        VALUES($1,$2,$3,'private',1)
+        """,
+        [successor, document.resource_id, source.vault_id]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO content.document_versions SELECT (jsonb_populate_record(NULL::content.document_versions,
+          to_jsonb(d)||jsonb_build_object('resource_version_id',$2::uuid))).*
+        FROM content.document_versions d WHERE resource_version_id=$1
+        """,
+        [document.resource_version_id, successor]
+      )
+
+      query!(MigrationRepo, "UPDATE content.resources SET current_version_id=$2 WHERE id=$1", [
+        document.resource_id,
+        successor
+      ])
+    end)
+
+    canonical = document_canonical_rows!(source.vault_id)
+    assert :ok = reconcile(event.cut)
+    assert_event_retired(event.id, "restore_stale_destructive")
+    first = document_work_rows!(source.vault_id)
+    assert :ok = reconcile(event.cut)
+    assert document_work_rows!(source.vault_id) === first
+    assert document_canonical_rows!(source.vault_id) === canonical
+  end
+
+  for type <- ~w(document.ready document.deleted document.restored) do
+    test "#{type} projection wake uses final deleted state rather than resurrecting its serialized state" do
+      source = KnowledgeFixtures.source!()
+      {document, _fragment} = KnowledgeFixtures.ready_document!(source)
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[ready_event_id]]} =
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT id FROM core.outbox_events
+                   WHERE event_type='document.ready' AND vault_id=$1
+                     AND payload=jsonb_build_object('resource_id',$2::uuid::text,'resource_version_id',$3::uuid::text)
+                   """,
+                   [source.vault_id, document.resource_id, document.resource_version_id]
+                 )
+
+        assert %{num_rows: 1} = insert_submission!(ready_event_id, "document_projection")
+      end)
+
+      event = document_event!(source, document, unquote(type), "document_projection", nil)
+
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE content.resources SET deleted_at=clock_timestamp() WHERE id=$1",
+          [document.resource_id]
+        )
+      end)
+
+      canonical = document_canonical_rows!(source.vault_id)
+      assert :ok = reconcile(event.cut)
+
+      Fixtures.with_owner(fn ->
+        assert %{rows: [[nil, nil, nil, nil, nil, "document_projection"]]} =
+                 query!(
+                   MigrationRepo,
+                   """
+                   SELECT e.runner_job_id,e.delivered_at,e.retired_at,e.retirement_reason,s.runner_job_id,s.job_type
+                   FROM core.outbox_events e JOIN jobs.job_submissions s ON s.id=e.id WHERE e.id=$1
+                   """,
+                   [event.id]
+                 )
+
+        # The established projection reconciler reads final canonical state;
+        # all three valid wake labels remove a deleted head's derived rows.
+        assert %{rows: [[0]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT content.reconcile_search_resource_internal($1,$2)",
+                   [source.vault_id, document.resource_id]
+                 )
+
+        assert %{rows: [[0]]} =
+                 query!(
+                   MigrationRepo,
+                   "SELECT count(*) FROM content.search_entries WHERE resource_id=$1",
+                   [document.resource_id]
+                 )
+      end)
+
+      first = document_work_rows!(source.vault_id)
+      assert :ok = reconcile(event.cut)
+      assert document_work_rows!(source.vault_id) === first
+      assert document_canonical_rows!(source.vault_id) === canonical
+    end
+  end
+
+  for retired? <- [false, true] do
+    test "restored Document missing submission retired=#{retired?} rolls back earlier projection work" do
+      source = KnowledgeFixtures.source!()
+
+      earlier =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.ready",
+          "document_projection",
+          nil
+        )
+
+      later =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      Fixtures.with_owner(fn ->
+        query!(MigrationRepo, "DELETE FROM jobs.job_submissions WHERE id=$1", [later.id])
+
+        if unquote(retired?),
+          do:
+            query!(
+              MigrationRepo,
+              "UPDATE core.outbox_events SET retired_at=clock_timestamp(),retirement_reason='restore_effect_already_reflected' WHERE id=$1",
+              [later.id]
+            )
+      end)
+
+      canonical = document_canonical_rows!(source.vault_id)
+      work = document_work_rows!(source.vault_id)
+      assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(later.cut)
+      assert document_work_rows!(source.vault_id) === work
+      assert document_canonical_rows!(source.vault_id) === canonical
+      assert_restored_runner_unchanged(earlier.id)
+    end
+  end
+
+  test "mismatched Document submission type or creator cannot reset any earlier event" do
+    for fault <- [:job_type, :creator] do
+      source = KnowledgeFixtures.source!()
+
+      earlier =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.ready",
+          "document_projection",
+          nil
+        )
+
+      later =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      Fixtures.with_owner(fn ->
+        case fault do
+          :job_type ->
+            query!(
+              MigrationRepo,
+              "UPDATE jobs.job_submissions SET job_type='document_projection' WHERE id=$1",
+              [later.id]
+            )
+
+          :creator ->
+            alternate = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+            query!(
+              MigrationRepo,
+              """
+              INSERT INTO identity.principals(id,account_id,kind,authorization_epoch)
+              SELECT $2,account_id,'owner',authorization_epoch FROM identity.principals WHERE id=$1
+              """,
+              [source.principal_id, alternate]
+            )
+
+            query!(
+              MigrationRepo,
+              "INSERT INTO core.vault_members(principal_id,vault_id) VALUES($1,$2)",
+              [alternate, source.vault_id]
+            )
+
+            query!(MigrationRepo, "UPDATE core.outbox_events SET principal_id=$2 WHERE id=$1", [
+              later.id,
+              alternate
+            ])
+        end
+      end)
+
+      before = document_work_rows!(source.vault_id)
+      assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(later.cut)
+      assert document_work_rows!(source.vault_id) === before
+      assert_restored_runner_unchanged(earlier.id)
+    end
+  end
+
+  defmodule RawContractSQL do
+    alias Ecto.Adapters.Postgres.Connection, as: Native
+    alias Singularity.Storage.RestoreReconciliationTest, as: Owner
+
+    for {name, arity} <- Native.__info__(:functions), {name, arity} != {:query, 4} do
+      args = Macro.generate_arguments(arity, __MODULE__)
+
+      def unquote(name)(unquote_splicing(args)),
+        do: apply(Native, unquote(name), [unquote_splicing(args)])
+    end
+
+    def query(connection, statement, parameters, options) do
+      # UUID and nonnegative-epoch storage cannot natively return these bad
+      # values. This is an INJECTED_CONTRACT_FAULT after the actual native SQL.
+      native = Native.query(connection, statement, parameters, options)
+      config = Process.get({Owner, :raw_fault})
+
+      case {config, native} do
+        {%{event: event, field: field, value: value},
+         {:ok, %{columns: columns, rows: rows} = result}}
+        when is_list(columns) and is_list(rows) ->
+          position = Enum.find_index(columns, &(&1 == field))
+          identity = Enum.find_index(columns, &(&1 == "id"))
+          query = IO.iodata_to_binary(statement)
+
+          selected? =
+            position != nil and
+              String.contains?(query, Map.get(config, :table, "core.outbox_events")) and
+              (event in parameters or
+                 (identity != nil and Enum.any?(rows, &(Enum.at(&1, identity) == event))))
+
+          if selected? do
+            changed =
+              Enum.map(rows, fn row ->
+                if identity == nil or Enum.at(row, identity) == event,
+                  do: List.replace_at(row, position, value),
+                  else: row
+              end)
+
+            {:ok, %{rows: witness}} =
+              Native.query(
+                connection,
+                """
+                SELECT pg_backend_pid(),session_user,current_user,
+                  NULLIF(current_setting('singularity.principal_id',true),''),
+                  NULLIF(current_setting('singularity.vault_id',true),'')
+                """,
+                [],
+                options
+              )
+
+            {:ok, %{rows: earlier}} =
+              Native.query(
+                connection,
+                "SELECT runner_job_id,delivered_at FROM core.outbox_events WHERE id=$1",
+                [config.earlier],
+                options
+              )
+
+            Process.put({Owner, :raw_observed}, %{
+              native: native,
+              injected: changed,
+              field: field,
+              witness: witness,
+              earlier: earlier
+            })
+
+            {:ok, %{result | rows: changed}}
+          else
+            native
+          end
+
+        _ ->
+          native
+      end
+    end
+  end
+
+  defmodule RawContractRepo do
+    alias Singularity.Storage.MigrationRepo
+    alias Singularity.Storage.RestoreReconciliationTest.RawContractSQL
+    def __adapter__, do: MigrationRepo.__adapter__()
+    def get_dynamic_repo, do: MigrationRepo.get_dynamic_repo()
+    def in_transaction?, do: MigrationRepo.in_transaction?()
+    def rollback(reason), do: MigrationRepo.rollback(reason)
+    def checkout(callback, options \\ []), do: MigrationRepo.checkout(callback, options)
+
+    def transaction(callback, options \\ []) do
+      {:ok, address} = Agent.start_link(fn -> nil end, name: __MODULE__)
+
+      try do
+        native = Ecto.Adapter.lookup_meta(MigrationRepo.get_dynamic_repo())
+        true = native.sql == Ecto.Adapters.Postgres.Connection
+        :ok = Ecto.Repo.Registry.associate(address, __MODULE__, %{native | sql: RawContractSQL})
+        true = Map.delete(Ecto.Adapter.lookup_meta(__MODULE__), :sql) === Map.delete(native, :sql)
+
+        MigrationRepo.checkout(fn ->
+          result = MigrationRepo.transaction(callback, options)
+
+          witness =
+            Singularity.Storage.SafeSQL.query!(MigrationRepo, """
+            SELECT pg_backend_pid(),session_user,current_user,
+              NULLIF(current_setting('singularity.principal_id',true),''),
+              NULLIF(current_setting('singularity.vault_id',true),'')
+            """).rows
+
+          Process.put({Singularity.Storage.RestoreReconciliationTest, :raw_exit}, witness)
+          result
+        end)
+      after
+        Agent.stop(address)
+        await_cleanup(address, System.monotonic_time(:millisecond) + 5_000)
+      end
+    end
+
+    defp await_cleanup(address, deadline) do
+      if :ets.lookup(Ecto.Repo.Registry, address) != [] do
+        if System.monotonic_time(:millisecond) >= deadline,
+          do: raise("raw SQL alias cleanup timed out")
+
+        receive do
+        after
+          1 -> await_cleanup(address, deadline)
+        end
+      end
+
+      :ok
+    end
+  end
+
+  for {field, value} <- [
+        {"correlation_id", nil},
+        {"correlation_id", "not-a-uuid"},
+        {"causation_id", false},
+        {"causation_id", "not-a-uuid"},
+        {"principal_authorization_epoch", -1},
+        {"vault_authorization_epoch", "0"},
+        {"retired_at", nil},
+        {"retirement_reason", nil}
+      ] do
+    test "INJECTED_CONTRACT_FAULT raw #{field}=#{inspect(value)} validates the native result before codec or retirement" do
+      source = KnowledgeFixtures.source!()
+
+      earlier =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.ready",
+          "document_projection",
+          nil
+        )
+
+      later =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      Fixtures.with_owner(fn ->
+        query!(
+          MigrationRepo,
+          "UPDATE core.outbox_events SET retired_at=clock_timestamp(),retirement_reason='restore_effect_already_reflected' WHERE id=$1",
+          [later.id]
+        )
+      end)
+
+      work = document_work_rows!(source.vault_id)
+      canonical = document_canonical_rows!(source.vault_id)
+      {:ok, repo} = MigrationRepo.start_link(pool_size: 2)
+      refute Process.get({__MODULE__, :raw_fault})
+
+      Process.put({__MODULE__, :raw_fault}, %{
+        event: later.id,
+        earlier: earlier.id,
+        field: unquote(field),
+        value: unquote(value)
+      })
+
+      try do
+        assert {:error, %Singularity.Core.Error{code: :integrity_failure}} =
+                 Reconciler.reconcile(RawContractRepo, later.cut)
+
+        assert %{native: {:ok, %{rows: native}}, injected: injected, field: field} =
+                 Process.get({__MODULE__, :raw_observed})
+
+        assert field == unquote(field)
+        refute native === injected
+        assert_raw_native_exit!()
+      after
+        Process.delete({__MODULE__, :raw_fault})
+        Process.delete({__MODULE__, :raw_observed})
+        Process.delete({__MODULE__, :raw_exit})
+        Supervisor.stop(repo)
+      end
+
+      refute Process.whereis(RawContractRepo)
+      assert document_work_rows!(source.vault_id) === work
+      assert document_canonical_rows!(source.vault_id) === canonical
+      assert_restored_runner_unchanged(earlier.id)
+    end
+  end
+
+  for {field, value} <- [
+        {"id", <<0::128>>},
+        {"vault_id", <<0::128>>},
+        {"outbox_event_id", <<0::128>>},
+        {"classification", "sensitive"},
+        {"idempotency_key", "foreign-request"},
+        {"job_type", "document_projection"}
+      ] do
+    test "INJECTED_CONTRACT_FAULT matching Document submission checks #{field} on a genuine native row" do
+      source = KnowledgeFixtures.source!()
+
+      earlier =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.ready",
+          "document_projection",
+          nil
+        )
+
+      later =
+        document_event!(
+          source,
+          KnowledgeFixtures.document!(source),
+          "document.extraction_requested",
+          "document_extract",
+          nil
+        )
+
+      work = document_work_rows!(source.vault_id)
+      canonical = document_canonical_rows!(source.vault_id)
+      {:ok, repo} = MigrationRepo.start_link(pool_size: 2)
+
+      Process.put({__MODULE__, :raw_fault}, %{
+        event: later.id,
+        earlier: earlier.id,
+        field: unquote(field),
+        value: unquote(value),
+        table: "jobs.job_submissions"
+      })
+
+      try do
+        assert {:error, %Singularity.Core.Error{code: :integrity_failure}} =
+                 Reconciler.reconcile(RawContractRepo, later.cut)
+
+        assert %{native: {:ok, %{rows: native}}, injected: injected, earlier: [[nil, nil]]} =
+                 Process.get({__MODULE__, :raw_observed})
+
+        refute native === injected
+        assert_raw_native_exit!()
+      after
+        Process.delete({__MODULE__, :raw_fault})
+        Process.delete({__MODULE__, :raw_observed})
+        Process.delete({__MODULE__, :raw_exit})
+        Supervisor.stop(repo)
+      end
+
+      refute Process.whereis(RawContractRepo)
+      assert document_work_rows!(source.vault_id) === work
+      assert document_canonical_rows!(source.vault_id) === canonical
+      assert_restored_runner_unchanged(earlier.id)
+    end
+  end
+
+  test "real foreign Document UUID payload is not a malformed-string substitute for cross-owner denial" do
+    source = KnowledgeFixtures.source!()
+    foreign = KnowledgeFixtures.source!()
+    foreign_document = KnowledgeFixtures.document!(foreign)
+
+    earlier =
+      document_event!(
+        source,
+        KnowledgeFixtures.document!(source),
+        "document.ready",
+        "document_projection",
+        nil
+      )
+
+    later =
+      document_event!(
+        source,
+        KnowledgeFixtures.document!(source),
+        "document.extraction_requested",
+        "document_extract",
+        nil
+      )
+
+    Fixtures.with_owner(fn ->
+      query!(MigrationRepo, "UPDATE core.outbox_events SET payload=$2 WHERE id=$1", [
+        later.id,
+        %{
+          "resource_id" => Ecto.UUID.load!(foreign_document.resource_id),
+          "resource_version_id" => Ecto.UUID.load!(foreign_document.resource_version_id)
+        }
+      ])
+    end)
+
+    canonical = document_canonical_rows!(source.vault_id)
+    foreign_canonical = document_canonical_rows!(foreign.vault_id)
+    work = document_work_rows!(source.vault_id)
+    assert {:error, %Singularity.Core.Error{code: :integrity_failure}} = reconcile(later.cut)
+    assert document_work_rows!(source.vault_id) === work
+    assert document_canonical_rows!(source.vault_id) === canonical
+    assert document_canonical_rows!(foreign.vault_id) === foreign_canonical
+    assert_restored_runner_unchanged(earlier.id)
+  end
+
+  defp mirror_document_submission!(:idempotency_key, event, value) do
+    query!(MigrationRepo, "UPDATE jobs.job_submissions SET idempotency_key=$2 WHERE id=$1", [
+      event,
+      value
+    ])
+  end
+
+  defp mirror_document_submission!(:classification, event, value) do
+    query!(MigrationRepo, "UPDATE jobs.job_submissions SET classification=$2 WHERE id=$1", [
+      event,
+      value
+    ])
+  end
+
+  defp mirror_document_submission!(_field, _event, _value), do: :ok
+
+  defp assert_raw_native_exit! do
+    assert %{witness: [[backend, login, "singularity_table_owner", nil, nil]]} =
+             Process.get({__MODULE__, :raw_observed})
+
+    assert [[^backend, ^login, ^login, nil, nil]] = Process.get({__MODULE__, :raw_exit})
+    refute MigrationRepo.in_transaction?()
+  end
+
+  defp document_event!(source, document, type, job_type, cause) do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        "INSERT INTO core.capabilities(id,name) VALUES($1,'asset.read') ON CONFLICT(name) DO NOTHING",
+        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+      )
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.principal_capabilities(principal_id,vault_id,capability_id)
+        SELECT $1,$2,id FROM core.capabilities WHERE name='asset.read'
+        ON CONFLICT (principal_id,vault_id,capability_id) DO NOTHING
+        """,
+        [source.principal_id, source.vault_id]
+      )
+
+      id = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+      key =
+        if type == "document.extraction_requested",
+          do: "document-extraction:#{Ecto.UUID.load!(document.resource_version_id)}",
+          else: "document-projection:#{Ecto.UUID.load!(id)}"
+
+      query!(
+        MigrationRepo,
+        """
+        INSERT INTO core.outbox_events(id,event_type,idempotency_key,vault_id,principal_id,
+          required_capability,principal_authorization_epoch,vault_authorization_epoch,
+          classification,correlation_id,causation_id,expected_entity_revision,envelope_version,payload,occurred_at)
+        SELECT $1,$2,$3,$4,$5,'asset.read',p.authorization_epoch,v.authorization_epoch,
+          'private',$1,$6,0,1,$7,clock_timestamp()
+        FROM identity.principals p CROSS JOIN core.vaults v WHERE p.id=$5 AND v.id=$4
+        """,
+        [
+          id,
+          type,
+          key,
+          source.vault_id,
+          source.principal_id,
+          cause,
+          %{
+            "resource_id" => Ecto.UUID.load!(document.resource_id),
+            "resource_version_id" => Ecto.UUID.load!(document.resource_version_id)
+          }
+        ]
+      )
+
+      mark_restored_runner!(id)
+      insert_submission!(id, job_type)
+      %{id: id, cut: restored_cut!(source.vault_id, id)}
+    end)
+  end
+
+  defp document_canonical_rows!(owner) do
+    Fixtures.with_owner(fn ->
+      Map.new(
+        [
+          {"content.resources", "id"},
+          {"content.resource_versions", "id"},
+          {"content.document_versions", "resource_version_id"},
+          {"content.document_fragments", "id"},
+          {"content.document_import_receipts", "principal_id,mutation_id"}
+        ],
+        fn {table, order} ->
+          {table,
+           query!(MigrationRepo, "SELECT * FROM #{table} WHERE vault_id=$1 ORDER BY #{order}", [
+             owner
+           ]).rows}
+        end
+      )
+    end)
+  end
+
+  defp document_work_rows!(owner) do
+    Fixtures.with_owner(fn ->
+      Map.new(
+        [
+          "core.outbox_events",
+          "jobs.job_submissions",
+          "jobs.job_progress",
+          "jobs.effect_receipts"
+        ],
+        fn table ->
+          {table,
+           query!(MigrationRepo, "SELECT * FROM #{table} WHERE vault_id=$1 ORDER BY id", [owner]).rows}
+        end
+      )
+    end)
   end
 
   defp reconcile(cut) do
