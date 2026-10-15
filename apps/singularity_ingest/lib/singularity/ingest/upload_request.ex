@@ -3,9 +3,12 @@ defmodule Singularity.Ingest.UploadRequest do
 
   alias Singularity.Core.Error
   alias Singularity.Core.Types
+  alias Singularity.Ingest.UploadText
 
   @default_max_bytes 512 * 1024 * 1024
-  @media_types ["application/pdf", "image/jpeg", "image/png"]
+  @text_max_bytes 67_108_864
+  @text_media_types ["text/plain", "text/markdown"]
+  @media_types ["application/pdf", "image/jpeg", "image/png"] ++ @text_media_types
   @fields [:filename, :size, :declared_media_type, :idempotency_key]
   @internal_fields [:max_bytes]
 
@@ -38,7 +41,7 @@ defmodule Singularity.Ingest.UploadRequest do
          :ok <- supported_media_type(declared_media_type),
          {:ok, idempotency_key} <- Types.opaque_string(attrs, :idempotency_key),
          :ok <- safe_text(idempotency_key),
-         {:ok, max_bytes} <- max_bytes(attrs),
+         {:ok, max_bytes} <- max_bytes(attrs, declared_media_type),
          :ok <- within_limit(size, max_bytes) do
       {:ok,
        %__MODULE__{
@@ -64,6 +67,13 @@ defmodule Singularity.Ingest.UploadRequest do
 
   @spec validate_magic(t(), binary()) :: :ok | {:error, Error.t()}
   def validate_magic(%__MODULE__{declared_media_type: expected}, bytes)
+      when expected in @text_media_types and is_binary(bytes) do
+    with {:ok, state} <- UploadText.append(UploadText.new(), bytes) do
+      UploadText.finish(state)
+    end
+  end
+
+  def validate_magic(%__MODULE__{declared_media_type: expected}, bytes)
       when is_binary(bytes) do
     with {:ok, detected} <- detect_media_type(bytes),
          true <- detected == expected do
@@ -80,10 +90,13 @@ defmodule Singularity.Ingest.UploadRequest do
   @spec default_max_bytes() :: pos_integer()
   def default_max_bytes, do: @default_max_bytes
 
-  defp max_bytes(attrs) do
+  defp max_bytes(attrs, media_type) do
     case Map.get(attrs, :max_bytes, @default_max_bytes) do
-      max when is_integer(max) and max >= 0 -> {:ok, max}
-      _invalid -> {:error, Error.new(:invalid)}
+      max when is_integer(max) and max >= 0 ->
+        {:ok, if(media_type in @text_media_types, do: min(max, @text_max_bytes), else: max)}
+
+      _invalid ->
+        {:error, Error.new(:invalid)}
     end
   end
 
