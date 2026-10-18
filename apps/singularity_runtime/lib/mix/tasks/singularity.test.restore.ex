@@ -294,6 +294,14 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
         previous_env
       )
     end
+
+    oracle = :"Elixir.Singularity.Runtime.KnowledgeRestoreOracle"
+
+    unless Code.ensure_loaded?(oracle) and function_exported?(oracle, :run!, 0) do
+      Mix.raise("knowledge restore oracle is unavailable in the required test environment")
+    end
+
+    :ok = apply(oracle, :run!, [])
   end
 
   def run(_arguments) do
