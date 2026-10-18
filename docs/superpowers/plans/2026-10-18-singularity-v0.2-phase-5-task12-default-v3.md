@@ -17,7 +17,8 @@ codex/v0.2-phase-5-export-backup in the existing project-local Phase5 worktree.
 Task11 actual closure receipt and qualified source hashes are in design authority;
 they are prerequisites, not a claim that changed Task12 bytes have passed.
 Root owns this design/plan, guidance, fresh ignored GO/pins/raw/ledgers and Git.
-One fresh Sol implementer owns the16 source/test paths listed in design section4.
+One Sol implementer owns the17 persistent source/test paths in design section4;
+the additional sole-restore task owner is restricted to one reviewed binding.
 No parallel implementation writers; independent read-only work may be disjoint.
 The worker must not mutate production selectors until root supplies meaningful
 actual RED evidence. Root alone runs VMs and commits after actual reviews.
@@ -285,7 +286,60 @@ mix singularity.test.integration apps/singularity_storage/test/singularity/stora
   restore and later architecture/static gates. Do not update default guidance
   or claim Task12 acceptance while a required gate fails.
 
-- [ ] After actual meaningful RED, change only:
+### Sole-restore fixture compatibility after final restore failure
+
+Final noninstrumented292/293 unit64 actual/258 excluded and294/295 integration
+258 actual/64 excluded passed, covering322 registered cases. Original three-owner
+296/297 passed103 actual, confirmation only. Sole restore298 then failed at
+restore_vault :invalid, natural1, own post2990/EMPTY. Full safe raw377lines,
+29343bytes, SHA256c493dbc42e55bc6c2792283068e9f6d2d5e1d025b201baa81dd716cbac3e5018
+was read through its footer. Later destination/V1/knowledge families were
+NOT REACHED. Do not infer bad password argv from the generic public CLI message.
+
+- [ ] Actual amendment SPEC then NEW distinct QUALITY inspect complete design/
+  plan, genuine production-default producer, existing Runtime V3 callback rule,
+  genuine knowledge adapter and unchanged task contracts. No VM/source change
+  before both closed PASS; make a docs-only planning commit and actual binding.
+- [ ] One Sol worker changes ONLY search_rebuilder in the existing test-only
+  apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex:
+
+```elixir
+search_rebuilder: {Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}
+```
+
+  Preserve audit/ciphertext adapters, genuine authentication and leases, default
+  producer, V1 fixture/assertions, single cleanup, dynamic oracle and public CLI.
+  No producer pin toV2 or assertion/deadline/selection change. Read-only baseline
+  whole-file SHA320b5ae99d6687692d8bf39daaade648c7bb5733717367b83ef5c43f3bad1cac
+  and inverse single-line substitution prove the exact delta.
+- [ ] Root seals26 current paths (original24, restored diagnostic and new Mix
+  task), all1860 old rows unfiltered with named transition, frozen56/control
+  invariants, HEAD/index/status/toolchain/privatePG/owned0. The immutable17-owner
+  test-selection control is unchanged; the new Mix task is not a new test owner.
+- [ ] Run the WHOLE existing task contract owner, then WHOLE sole restore:
+
+```sh
+mix test apps/singularity_runtime/test/mix/tasks/singularity.test.restore_test.exs --seed 215378 --warnings-as-errors
+```
+
+```sh
+mix singularity.test.restore
+```
+
+  Each has its own direct launch, complete safe raw/footer, natural closure,
+  ordinary residual post0/EMPTY and current integrity guard. A successful first
+  restore stage does not qualify the task: default destination comparison,
+  genuineV1 and all downstream knowledge positive/negative families must pass.
+- [ ] Record actual causal result without erasing298FAIL or module warnings.
+  Starts Sol0/Astra0. On failure diagnose/count actual failed causal rounds;
+  retain full-task requirement and established escalation, no approval loop.
+- [ ] Rerun final complete17 unit route after this source change. Preserve
+  prior full17 integration/original-three-owner byte-bound evidence only for
+  unaffected paths; run all remaining architecture/static gates on final bytes.
+  Any broader delta requires relevant reruns. Combined qualification and later
+  actual SOURCE SPEC/NEW QUALITY precede guidance/commit claims as specified.
+
+- [ ] After actual meaningful RED, the production transition remains only:
 
 ```elixir
 # apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex
@@ -326,8 +380,9 @@ line-only, tag-only or max_cases substitution qualifies these complete gates.
 mix singularity.test.restore
 ```
 
-Keep real V1/V2 restoration and all UUID/canonical/mixed knowledge positives/
-late-corruption negative. The guarded oracle now exercises real defaults.
+Keep genuine current-default and historicalV1 restoration, existing explicitV2
+coverage in the complete17 routes, and every UUID/canonical/mixed knowledge
+positive/late-corruption negative. The guarded oracle exercises real defaults.
 No separate fake restore task, browser run or double-counted restore credit.
 
 ## Task 4: Current authority and architecture-contract synchronization

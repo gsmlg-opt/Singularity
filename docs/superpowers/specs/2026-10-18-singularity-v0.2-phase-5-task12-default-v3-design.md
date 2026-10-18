@@ -6,8 +6,11 @@ The original design passed independent DESIGN SPEC and NEW distinct QUALITY
 before planning commit e5c0915943214f9f6c7e0bbb650347203e5ac1bc and test-only RED.
 The native V3 fixture-composition amendment passed independent SPEC and NEW
 distinct QUALITY before planning commit f2e0899fa15bdf7b313d568ea9c23a05a4a8fe55.
-The fresh large-import diagnostic amendment below is a review candidate;
-independent SPEC then NEW distinct QUALITY must pass before instrumentation.
+The large-import diagnostic amendment passed independent SPEC and NEW distinct
+QUALITY before planning commit9a198ace64809ecec0e302b5e4fbe771e3e13387.
+Its temporary observation was removed by exact inverse/original whole-file SHA.
+The sole-restore fixture-composition amendment below is a review candidate;
+independent SPEC then NEW distinct QUALITY must pass before its one-line repair.
 Task12 default writer/restore qualification has not passed.
 Continuous local development authorization applies; no renewed routine human
 approval is needed. E2E remains NOT RUN/manual-deferred and is not authorized.
@@ -231,9 +234,66 @@ do not increase60000ms, lower the large-input threshold, weaken assertions,
 change test selection or classify this failure away. This independent issue
 starts with zero failed causal repairs; successful native repair1 is unrelated.
 
+### Sole restore default-V3 composition — fresh compatibility amendment
+
+Final noninstrumented complete17-owner unit292/293 passed64 actual cases,
+258 excluded; integration294/295 passed258 actual cases,64 excluded. Together
+they cover322 registered cases with zero failures. Original three-owner
+confirmation296/297 passed103 actual cases, not additional unique coverage.
+Each closed naturally0 and had its own ordinary post0/EMPTY. The diagnostic290
+was GREEN but did not reproduce or establish a cause for timeout288; the final
+noninstrumented large-input contract also passed without relaxing60000ms or input.
+
+The required sole restore298 then failed naturally1 at its first destination:
+maintenance and empty-destination checks passed, restore_vault returned :invalid.
+Own ordinary post299 was natural0/EMPTY. Complete377-line/29343-byte safe raw
+SHA256c493dbc42e55bc6c2792283068e9f6d2d5e1d025b201baa81dd716cbac3e5018
+was read unfiltered through its footer. Migration module-redefinition warnings
+are retained, not an established cause. Task12 remains FAIL/unqualified.
+The terminal password-argument message maps any downstream :invalid in the
+public restore task; it is not evidence of bad argv and does not justify a CLI fix.
+The first destination snapshot/comparison, historicalV1 fixture and dynamic
+knowledge UUID/canonical/mixed/late-corruption families were NOT REACHED.
+
+Two disjoint read-only investigations establish a composition incompatibility:
+the established Mix.Tasks.Singularity.Test.Restore creates a genuine production
+default backup, nowV3, yet restore_context/1 binds search_rebuilder to
+{StorageIntegrityAudit, MigrationRepo}. This legacy adapter lacks the genuine
+verify_document_sources/4 callback that Runtime.IntegrityAudit requires for
+EVERY tuple-bound V3 cut. No explicitV2 logical contract exists in this oracle;
+pinning its producer back to2 would evade current-default restoration.
+
+Recommended repair: change ONLY the search_rebuilder value in
+apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex to
+{Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}.
+This existing genuine adapter verifies V3 source commitments and delegates
+legacy search rebuilding. Preserve the audit/ciphertext bindings, original
+authentication/leases, all generated-default and historicalV1 assertions,
+single legacy try/after cleanup and guarded dynamic knowledge-oracle entry.
+This is test-only oracle composition in an existing Mix task, NOT a public
+CLI or production Runtime/restore semantic change. No no-op callback, V2 pin,
+new option, deadline, fixture bypass or assertion relaxation is permitted.
+
+Native298 is the actual failing characterization; the precise runtime failing
+site remains source-supported, not controlled causal proof until whole-task
+GREEN. After independent amendment SPEC then NEW distinct QUALITY and a
+docs-only planning commit, one Sol worker makes this exact one-line delta.
+Root seals a fresh26-path current manifest and all1860 unfiltered historical
+rows, naming this additional owner transition. Frozen56, legacy-helper and
+all existing controls stay exact. Run the complete restore-task contract
+owner with seed215378/WAE, then the unchanged complete sole restore, each
+with its own ordinary post and current guard. Require actual downstream
+default restore/comparison, genuineV1 and all knowledge families; early-stage
+GREEN is insufficient. Relevant final gates must bind final bytes. Existing
+full17 U/I and original-three-owner results retain byte-bound scoped credit
+only where unaffected; the final complete unit route rechecks compilation
+and task contracts after this Mix-task source change. Architecture/static
+gates remain mandatory. This independent repair starts Sol0/Astra0; ordinary
+failure follows diagnosis/escalation, not a new routine approval request.
+
 ## 4. Exact ownership and authority transition
 
-Only the following16 existing source/test paths may change for this task:
+Only the following17 existing source/test paths may persistently change:
 
 - apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex
 - apps/singularity_storage/lib/singularity/storage/backup/exporter.ex
@@ -251,11 +311,14 @@ Only the following16 existing source/test paths may change for this task:
 - apps/singularity_runtime/test/support/knowledge_restore_oracle.ex
 - apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs
 - apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs
+- apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex (one search_rebuilder binding only, after amendment review)
 
 Runtime native Asset fixture, storage knowledge builders/resource owner,
-canonical SQL oracle and restore task remain unchanged. Tests in frozen Vault
+canonical SQL oracle remain unchanged. The test-only restore task has only the
+one-binding composition allowance above; the public restore CLI is unchanged.
+Tests in frozen Vault
 owners remain unchanged; relevant existing compatibility gates may run without
-modifying them. The temporary17th owner above is diagnostic-only, restored
+modifying them. The additional temporary diagnostic owner above is restored
 byte-for-byte before final qualification; it does not expand production scope.
 Disjoint guidance/docs are parent-owned:
 
