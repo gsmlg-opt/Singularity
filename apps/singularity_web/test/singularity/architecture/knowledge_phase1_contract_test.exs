@@ -90,7 +90,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
             "Later phases require designs, detailed plans, required verification, and independent review, without renewed routine human approval.",
             "Advance automatically only after the preceding phase's required gates pass.",
             "New canonical writes remain unavailable to production runtime roles.",
-            "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together.",
+            "New backups use logical V3 after combined writer and restore qualification. Explicit V2 retains its fail-closed unsupported-canonical guard.",
             "Public import, extraction workers, search, Note Save integration, backup V3, and browser behavior remain in their designated later phases.",
             "E2E",
             "NOT RUN",
@@ -104,7 +104,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end
   end
 
-  test "Phase 5 authority keeps production writes closed and V3 preparation on default V2" do
+  test "Phase 5 authority keeps production writes closed and selects qualified default V3" do
     plan_authority =
       phase5_plan_authority!(read_source("docs/superpowers/plans/#{@phase5_plan}"))
 
@@ -130,7 +130,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     end
 
     assert plan_authority =~
-             "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together in Tasks 11 and 12."
+             "New backups use logical V3 after combined writer and restore qualification. Explicit V2 retains its fail-closed unsupported-canonical guard."
 
     assert plan_authority =~
              "It does not permit Vault feature work, custody/key/capability/policy/crypto semantic changes, merge, push, version bump, tag, release, deployment, production activation or production backfill."
@@ -1822,9 +1822,9 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
            "bump, tag, release, deployment, production activation or production backfill.\n"},
         {"production writes prohibition",
          "New canonical writes remain unavailable to production runtime roles.\n"},
-        {"default V2 and closed guard",
-         "Logical V3 preparation keeps default V2 and the current unsupported-canonical\n" <>
-           "guard closed until writer and restore qualify together in Tasks 11 and 12.\n"},
+        {"qualified default V3 and explicit V2 closed guard",
+         "New backups use logical V3 after combined writer and restore qualification.\n" <>
+           "Explicit V2 retains its fail-closed unsupported-canonical guard.\n"},
         {"manual E2E and final acceptance",
          "No browser/archive UI is added. E2E is manual-only **NOT RUN**, explicitly\n" <>
            "deferred for local phase advancement; final browser/release acceptance remains\n" <>
@@ -1898,7 +1898,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
           "manual-only",
           "NOT RUN",
           "final browser/release acceptance",
-          "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together in Tasks 11 and 12.",
+          "New backups use logical V3 after combined writer and restore qualification. Explicit V2 retains its fail-closed unsupported-canonical guard.",
           "It does not permit Vault feature work, custody/key/capability/policy/crypto semantic changes, merge, push, version bump, tag, release, deployment, production activation or production backfill."
         ] do
       assert section =~ marker

@@ -426,7 +426,7 @@ defmodule Singularity.Web.Architecture.NotesScopeContractTest do
       assert source =~ @phase4_handoff
 
       assert source =~
-               "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together."
+               "New backups use logical V3 after combined writer and restore qualification. Explicit V2 retains its fail-closed unsupported-canonical guard."
     end
 
     assert normalize_markdown(readme_scope) =~
