@@ -235,6 +235,56 @@ mix singularity.test.integration apps/singularity_runtime/test/singularity/runti
   owner/restore/architecture/static gates below on final bytes; focused success
   alone never substitutes for them.
 
+### Fresh large-import diagnostic after complete-owner failure
+
+Native284/285 established the one-binding native repair with one actual test,
+zero failures and own ordinary postEMPTY. Complete unit286/287 executed64 of322
+registered cases,258 excluded, zero failures. Complete integration288 executed
+258 of322,64 excluded, with one large-import60000ms timeout; own post289 was
+natural0/EMPTY. Raw447lines/29767bytes SHA256
+282788d13da7e1878b6e8fc3c71cf5fc48ab84927a4f8dc0c2e3cb820c705f31 was read
+unfiltered through its natural2 footer. Task12 qualification remains FAIL.
+Cleanup stack alone does not establish destination callback success or cause.
+
+- [ ] Independent SPEC then NEW distinct QUALITY review the complete amended
+  design/plan and actual failing source/evidence. All reviewer commands close
+  before instrumentation or any VM. Record actual verdicts, not forecasts.
+- [ ] Record clean baseline SHA and exact inverse of ONLY
+  apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs.
+  One Sol worker owns the temporary observation; all other source stays exact.
+  Do not change shared fixtures, resource-owner protocol or production code.
+- [ ] Wrap only the large test's existing source/destination calls with existing
+  ResourceOwner.with_checkpoint/2 and fixed source/destination labels. Mark
+  source entry/return, callback entry/empty/import/full-oracle/dimensions/return,
+  and original exception KIND before the existing cleanup can mask it.
+  Preserve original return and re-raise original kind/reason/stack unchanged.
+  A monitored writer receives only static phase/stage atoms and elapsed time,
+  terminates on test death or wrapper completion, and never delays checkpoints
+  or takes resource ownership. No content, identifiers, exception text, sampling,
+  sleep, barrier, signals, forced cleanup or timeout/selection changes.
+- [ ] Root seals all25 current paths (original24 plus diagnostic-only owner),
+  exact named historical transitions, frozen56, HEAD/index/status/environment.
+  Root launches this whole owner ONCE, unchanged seed and warnings policy:
+
+```sh
+mix singularity.test.integration apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs --seed 215378 --warnings-as-errors
+```
+
+- [ ] Wait for natural closure, read complete safe raw/footer, record actual
+  counts and static phase evidence. Run its own unchanged ordinary residual
+  post and closing current/frozen/HEAD/index/status/owned0 guard. A GREEN
+  diagnostic is not proof of a repair or a replacement for complete gates.
+- [ ] Remove instrumentation by exact inverse and require original whole-file
+  SHA before qualification. Preserve any observed failure honestly. Diagnose
+  actual phase evidence; if insufficient, amend a bounded next observation.
+  Any necessary causal repair receives source-backed design/plan and actual
+  independent review, not another routine approval request. This issue starts
+  at zero failed causal repair rounds. No deadline or input-size relaxation.
+- [ ] Rerun relevant complete gates on FINAL noninstrumented bytes, including
+  full17 unit/integration routes, original three-owner confirmation, sole
+  restore and later architecture/static gates. Do not update default guidance
+  or claim Task12 acceptance while a required gate fails.
+
 - [ ] After actual meaningful RED, change only:
 
 ```elixir

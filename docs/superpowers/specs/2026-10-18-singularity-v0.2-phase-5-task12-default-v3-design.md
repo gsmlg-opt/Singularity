@@ -4,8 +4,10 @@
 
 The original design passed independent DESIGN SPEC and NEW distinct QUALITY
 before planning commit e5c0915943214f9f6c7e0bbb650347203e5ac1bc and test-only RED.
-The native V3 fixture-composition amendment below is a review candidate; its
-independent SPEC then NEW distinct QUALITY must pass before that repair.
+The native V3 fixture-composition amendment passed independent SPEC and NEW
+distinct QUALITY before planning commit f2e0899fa15bdf7b313d568ea9c23a05a4a8fe55.
+The fresh large-import diagnostic amendment below is a review candidate;
+independent SPEC then NEW distinct QUALITY must pass before instrumentation.
 Task12 default writer/restore qualification has not passed.
 Continuous local development authorization applies; no renewed routine human
 approval is needed. E2E remains NOT RUN/manual-deferred and is not authorized.
@@ -165,6 +167,70 @@ After review, root runs the complete native owner with the same seed/WAE, its ow
 ordinary post and current integrity guard. Only focused GREEN can establish the
 causal repair; then rerun the original three-owner vector and all complete gates.
 
+### Large-import timeout — fresh bounded diagnostic amendment
+
+The one-binding native fixture repair passed its complete one-test owner in
+Native284, natural0, with own post285 natural0/EMPTY. The complete17-owner unit
+route286 reported322 registered/64 executed/258 excluded, zero failures; its
+own post287 was natural0/EMPTY. These are scoped results, not Task12 acceptance.
+The complete integration route288 then reported Storage264 registered/205
+executed/59 excluded/one failure and Runtime58 registered/53 executed/five
+excluded/zero failures:258 executed, one failure,64 excluded overall. Native288
+closed naturally2; own post289 closed0/EMPTY. Complete raw447lines/29767bytes,
+SHA256282788d13da7e1878b6e8fc3c71cf5fc48ab84927a4f8dc0c2e3cb820c705f31,
+was read unfiltered through its footer. No compiler warning was reported.
+
+The sole failure is LogicalV3ImportTest's legal wire JSON/typed native row
+beyond16MiB contract, at its unchanged60000ms test deadline. The captured stack
+is waiting for KnowledgeFixtureResourceOwner.close from the destination
+fixture's unconditional after. Source preparation and its wire/native-size,
+literal114-row counts and38-digest assertions had returned. It is UNKNOWN
+whether the destination callback returned or raised before cleanup; no claim
+that import assertions passed, that cleanup alone is defective, or that an
+environment problem caused this failure is supported. Source inspection found
+no implicit-selector dependency explaining this already-explicitV3 path.
+
+Recommended next step is one fresh diagnostic campaign, not a causal repair or
+automatic repeat-until-green. Temporarily change ONLY
+apps/singularity_storage/test/singularity/storage/backup/logical_v3_import_test.exs.
+Before editing, record its complete clean baseline SHA and an exact inverse
+patch; preserve all existing expressions, assertions, input sizes, deadlines,
+tags, ordering and resource ownership. No shared fixture, resource-owner,
+MigrationTestEnvironment or production change is authorized by this diagnostic.
+
+Wrap only the failing test's existing source preparation and destination call
+with test-local observation. Use the EXISTING ResourceOwner.with_checkpoint/2
+hook with separate fixed source/destination labels. Add fixed phase markers
+before/after source preparation and callback entry, empty-check completion,
+real import completion, full oracle completion, dimensions assertion completion,
+and callback return or exception KIND. Re-raise the original kind/reason/stack
+unchanged BEFORE the fixture's existing after cleanup. Observe the outer call
+return/exception category separately; do not catch a timeout to convert it into
+success or move any test/cleanup work outside the timed test.
+
+Checkpoint callbacks send only fixed stage/phase atoms and monotonic elapsed
+milliseconds to a test-local diagnostic writer without waiting. Never output
+resources, PIDs, refs, paths, SQL, keys, rows, JSON, exception messages/reasons,
+mailboxes, dictionaries or stack arguments. The writer monitors the test caller
+and stops on caller death or the wrapper's normal/error completion; it neither
+owns nor changes fixture cleanup. No sampling loop, arbitrary sleep, barrier,
+deadline extension, signal, forced database drop or service change is permitted.
+If existing stage evidence is insufficient, design a separately bounded next
+observation instead of silently adding it to this allowance.
+
+After actual independent SPEC then NEW distinct QUALITY, seal the temporary
+17th source owner alongside all original24 current pins and every historical
+row/frozen control. Root runs the WHOLE LogicalV3ImportTest with the existing
+seed215378 and warnings-as-errors, direct approved route and its OWN ordinary
+post; complete raw/footer and exact observed/excluded counts remain required.
+Whether GREEN or FAIL, interpret actual phase evidence without inventing a
+cause. Remove the temporary diagnostic by exact inverse and prove its original
+SHA before final gates. A necessary causal repair requires a source-backed
+amendment, failing characterization, independent review and relevant reruns;
+do not increase60000ms, lower the large-input threshold, weaken assertions,
+change test selection or classify this failure away. This independent issue
+starts with zero failed causal repairs; successful native repair1 is unrelated.
+
 ## 4. Exact ownership and authority transition
 
 Only the following16 existing source/test paths may change for this task:
@@ -189,7 +255,9 @@ Only the following16 existing source/test paths may change for this task:
 Runtime native Asset fixture, storage knowledge builders/resource owner,
 canonical SQL oracle and restore task remain unchanged. Tests in frozen Vault
 owners remain unchanged; relevant existing compatibility gates may run without
-modifying them. Disjoint guidance/docs are parent-owned:
+modifying them. The temporary17th owner above is diagnostic-only, restored
+byte-for-byte before final qualification; it does not expand production scope.
+Disjoint guidance/docs are parent-owned:
 
 - AGENTS.md
 - README.md
