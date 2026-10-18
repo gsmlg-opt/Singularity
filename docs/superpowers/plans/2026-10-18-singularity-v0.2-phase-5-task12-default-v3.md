@@ -202,6 +202,38 @@ mix singularity.test.integration apps/singularity_storage/test/singularity/stora
 ## Task 3: Minimal production transition and scoped GREEN qualification
 
 **Modify:** LogicalRecordCodec and Exporter only. No migration/grant/config.
+The following native fixture repair changes an already-owned test path, not
+another production owner.
+
+### Native fixture compatibility repair after candidate failure
+
+Native280/281 passed30 pure cases. Native282 executed the exact three-owner
+integration vector: Storage51/0, Runtime52/1; natural2, own post283 natural0/EMPTY.
+The sole no-Document restore returned :invalid with unchanged native test bytes.
+Full raw SHA256 is f70fa11822e4848dfd51b430deddff37d6d6109058b53c9c60d408b5d8cd1235.
+This failed candidate does not qualify the default or authorize guidance changes.
+
+- [ ] Independently review the design's native fixture-composition amendment:
+  actual SPEC then NEW distinct QUALITY before repair; record both real verdicts.
+- [ ] In NativeTextBackupRestoreLiveTest.restore_context/3, replace only the
+  search_rebuilder binding {StorageIntegrityAudit, MigrationRepo} with
+  {Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}.
+  Preserve the genuine ciphertext/completion auditors and every original assertion.
+  Runtime requires the real verify_document_sources callback even for zero
+  Document rows; do not weaken that rule or invent a no-op test callback.
+- [ ] Root seals the one-test-context delta and runs this complete focused owner
+  with its own ordinary post and closing source/frozen/HEAD/index/status/owned0:
+
+```sh
+mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/native_text_backup_restore_live_test.exs --seed 215378 --warnings-as-errors
+```
+
+  Native282 is the actual failing characterization; focused GREEN must establish
+  this source-supported causal hypothesis. Preserve FAIL if it does not pass,
+  diagnose the next boundary, and count actual failed Sol causal repair attempts.
+  Then rerun the exact original three-owner integration vector and all complete
+  owner/restore/architecture/static gates below on final bytes; focused success
+  alone never substitutes for them.
 
 - [ ] After actual meaningful RED, change only:
 

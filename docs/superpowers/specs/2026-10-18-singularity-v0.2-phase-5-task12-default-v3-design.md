@@ -2,8 +2,11 @@
 
 ## Status and authority
 
-DESIGN CANDIDATE; no Task12 implementation or new Native has started. Independent
-DESIGN SPEC then NEW distinct QUALITY must pass before test-only RED GO.
+The original design passed independent DESIGN SPEC and NEW distinct QUALITY
+before planning commit e5c0915943214f9f6c7e0bbb650347203e5ac1bc and test-only RED.
+The native V3 fixture-composition amendment below is a review candidate; its
+independent SPEC then NEW distinct QUALITY must pass before that repair.
+Task12 default writer/restore qualification has not passed.
 Continuous local development authorization applies; no renewed routine human
 approval is needed. E2E remains NOT RUN/manual-deferred and is not authorized.
 
@@ -27,7 +30,7 @@ docs/superpowers/plans/2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md.
 
 ## 1. Inspected source and selected approach
 
-LogicalRecordCodec has @default_version2 and a literal2 default_version typespec.
+At the Task11 baseline LogicalRecordCodec has @default_version2 and a literal2 default_version typespec.
 Exporter.snapshot_cut/2 and records/2 separately hardcode2; explicit2/3 paths
 already exist. The existing Task8 version-aware guard supports V3, retains the
 one-argument V2 guard, and rejects all new V1/unknown/nil selections. Existing
@@ -129,6 +132,38 @@ Keep the Document graph's stronger independent same-cut SQL oracle separately.
 No second authentication, replay preview/consumption, fake AEAD/lease, global
 single-finish assumption, original-byte/identity relaxation or infrastructure
 overlap is permitted. The original sequentially owned restore remains real.
+
+### Native V3 fixture-composition amendment — observed candidate failure
+
+The first four-semantic-line selector candidate passed the same30 pure contracts
+and all51 Storage integration cases, but the complete52 Runtime cases retained
+one failure: the no-Document native restore returned :invalid. Native282 ran the
+exact original three-owner integration vector with seed215378, exited naturally2,
+and its own ordinary post283 exited0/EMPTY. Full raw445lines/26169bytes SHA256
+f70fa11822e4848dfd51b430deddff37d6d6109058b53c9c60d408b5d8cd1235 was read
+through its footer. All other102 executed integration cases passed; this candidate
+is FAIL, not combined qualification. The native test bytes were identical to RED.
+
+Two disjoint read-only investigations found the native test restore_context
+still binds search_rebuilder to the legacy Storage.Backup.IntegrityAudit, which
+lacks verify_document_sources. Runtime.IntegrityAudit deliberately requires that
+callback for EVERY logical3 cut, including zero Document rows, and returns
+:invalid when this tuple adapter lacks arity4. The existing working Document
+fixture instead binds Storage.Backup.KnowledgeIntegrityAudit with MigrationRepo;
+it supplies genuine source verification and retains the legacy rebuild delegate.
+This is source-supported attribution of Native282, not yet a controlled runtime
+repair proof. No production empty-table defect was found or production fix justified.
+
+Recommended repair: change only the native test's search_rebuilder value to
+{Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}. Keep its
+original ciphertext/completion auditors, observer, genuine Restorer calls,
+authenticated38-count witness, original bytes/identities and lifecycle assertions.
+Do not bypass the V3 callback for zero Documents or add a fake callback. This is
+one necessary test-fixture compatibility change inside an already-owned path;
+the production transition remains exactly the four selector changes above.
+After review, root runs the complete native owner with the same seed/WAE, its own
+ordinary post and current integrity guard. Only focused GREEN can establish the
+causal repair; then rerun the original three-owner vector and all complete gates.
 
 ## 4. Exact ownership and authority transition
 
