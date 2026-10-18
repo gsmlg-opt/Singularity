@@ -2,6 +2,24 @@
 
 ## Current status
 
+Task11 source/gate qualification is complete on local source
+`4a2e007649ab2d7c62aa72ee84bf1d2de0a93802`: all26 required non-E2E campaign rows and their26 separate
+ordinary posts PASS, including2215 unit tests+10properties,2086 integration tests,
+197 JS tests and the sole independent V1/V2/V3 restore. Combined final21 actual
+SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
+blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
+raw hashes, warnings, historical failures and documentation closure conditions
+are in [Task11 handoff](2026-10-18-phase-5-task11-handoff.md).
+Documentation review/commit and literal clean handoff remain closure conditions;
+this status records source/gates, not Phase5 acceptance or Task12 source GO.
+DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
+E2E NOT RUN; no publication, production activation or Vault feature work.
+Dated Task10 and earlier amendment/preparation paragraphs below are historical;
+their old pending/source-NO-GO language does not replace this current record.
+
+### Historical Task10 qualification
+
 Task10 source/gate qualification is complete on local source commit
 `d1a8d4f73c570daa7177468b246a25819a2cdd39`: all15 permitted README gates PASS,
 including2092 unit tests+10properties,1882 integration tests and197 JS tests.

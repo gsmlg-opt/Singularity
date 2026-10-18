@@ -1,5 +1,60 @@
 # Phase 5 Task 11 Native Knowledge V3 Saga Implementation Plan
 
+## Current source/gate qualification — 2026-10-18
+
+Task11 source/gate qualification is complete on local source
+`4a2e007649ab2d7c62aa72ee84bf1d2de0a93802`: all26 required non-E2E campaign rows and their26 separate
+ordinary posts PASS, including2215 unit tests+10properties,2086 integration tests,
+197 JS tests and the sole independent V1/V2/V3 restore. Combined final21 actual
+SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
+blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
+raw hashes, warnings, historical failures and documentation closure conditions
+are in [Task11 handoff](../../verification/2026-10-18-phase-5-task11-handoff.md).
+Documentation review/commit and literal clean handoff remain closure conditions;
+this status records source/gates, not Phase5 acceptance or Task12 source GO.
+DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
+E2E NOT RUN; no publication, production activation or Vault feature work.
+Dated Task10 and earlier amendment/preparation paragraphs below are historical;
+their old pending/source-NO-GO language does not replace this current record.
+
+## Historical Native174 qualification result — 2026-10-18
+
+The preparation narrative below is historical; Task11/Phase5 remain UNQUALIFIED.
+The separately recorded ONE literal `mix singularity.test.integration`
+qualification was Native174: natural2,2083actual/3FAIL,seed32026/max_cases96.
+Storage1621actual/2FAIL; Runtime462actual/1FAIL. Exclusions are NOT passes.
+Root read all1136 unfiltered safe raw lines through the actual03:08:19+08 exit2
+footer and verified SHAfcf617f2f8b32eb5bebb4b5d3c359001f1b2e414892664049676fb3d6a6c3fdb.
+Native175 fresh separate ordinary residual was natural0/EMPTY; complete4line raw,
+actual03:12:19+08 footer/hash and ORIGINAL closing guard1574/status42/owned0 PASS.
+No source or observer changes occurred during174; restored Runtime860295eb and
+ingestionc52d71d7 remain exact. The final-qualification allowance is CONSUMED.
+
+Actual failures: BackupConcurrency outbox claim received3events rather than1;
+LogicalV3Exporter initial fixture seed checkout queue dropped4998ms before its
+exporter/cut/oracle assertions; NativeTextAuthorization60000ms watchdog sampled
+ResourceOwner.release, with cleanup incomplete. Causes are NOT yet established.
+Separate read-only assessments identified omitted Document retirement in3
+knowledge test owners; exact174UUID attribution remains unproved. Its bounded
+2026-10-18 repair now has meaningful RED180(43actual/3teardownFAIL) and SAME
+vector18843actualPASS, separate helper unit182/1901actualPASS each, all own
+ordinary posts0EMPTY through191, and SOURCE SPEC->NEW distinct QUALITY191PASS.
+Existing-helper retirement adds only33lines; no assertions or production change.
+The final saga source map is previous18 plus all3 Document test owners listed in
+the retirement design section2: all21 require combined final source review.
+Checkout/release causes remain unresolved. The separately proposed2026-10-18
+lifecycle-boundary-observation design/plan is a candidate, not execution permission
+or a new qualification allowance. No automatic retry/successor from those results.
+
+Native154 literalFAIL, Native166fullcontextFAIL2 and their unreachables remain.
+Native17258actualPASS is scoped diagnostic-only, not repair/qualification.
+QuestionA metrics remain WITHDRAWN/UNOBSERVED; no finite new budget is justified.
+Document retirement actual round1 focusedGREEN/failedSol0/Astra0; checkout/release
+actual repairs0/no technicalimpasse. All final vectors/timer locks/reviews remain.
+DefaultV2, Task16UNSATISFIED/UNWAIVED/BLOCKED_DESIGN,Task17NOTGO and E2ENOTRUN stay.
+No assertions, failed history, frozen boundary or publication scope changes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Qualify explicit V3 through genuine public original publication, public backup, authenticated native restore/rewrap/integrity, exact canonical history, unified public search, and observed decrypted bytes of every retained original, with complete malformed/fault/retry and V1/V2 regression evidence.
@@ -38,8 +93,8 @@ updated Task11 design, this plan, and all three amendments. Design review does
 not replace later source review. The continuous authorization selects the
 recommended real-publication/graph-only approach; it does not remove these gates.
 
-Default logical version stays **2**. Task 12 still requires Tasks 8–11 GREEN and
-combined-boundary review. Task 16 BOTH strict ALL-leases remains independently
+Default logical version stays **2**. Master Task 12 (default switch) still requires
+master Tasks 8–11 GREEN and combined-boundary review. Task 16 BOTH strict ALL-leases remains independently
 UNSATISFIED / UNWAIVED / BLOCKED_DESIGN. There is no Vault feature/semantic work,
 new key/custody authority, production reference rewrite, migration, dependency,
 role/grant change, journal, new unwrap, key bridge, distributed rollback claim,
@@ -59,6 +114,7 @@ and serialized. This draft author performs no delegation or implementation.
 | --- | --- |
 | NEW `apps/singularity_runtime/test/support/knowledge_backup_restore_fixture.ex` | Source/destination lifecycle, real bootstrap/publication, graph construction call, V3 worker adapter, transparent restore/integrity observers, native fault closures |
 | NEW `apps/singularity_runtime/test/support/knowledge_restore_oracle.ex` | Independent task entry and explicit expected identity/cardinality, canonical, search, original-byte and corruption assertions; no ExUnit-file invocation |
+| NEW `apps/singularity_runtime/test/mix/tasks/singularity.test.restore_test.exs` | Focused oracle export and guarded dynamic-entry ordering contract; actual native execution remains separately required |
 | NEW `apps/singularity_storage/test/support/knowledge_canonical_oracle.ex` | Literal independent 38-table/367-column/PK projection, read-only worker-snapshot import, committed destination observation |
 | MODIFY `apps/singularity_storage/test/support/knowledge_backup_fixtures.ex` | Add graph-only public entry and private work parameterization only; preserve old `seed!/1` and every existing caller |
 | NEW `apps/singularity_runtime/test/singularity/runtime/knowledge_backup_restore_live_test.exs` | Native UUID/canonical/mixed full sagas, exact cuts, all original bytes/public search, native material negatives and Runtime barrier/retry cases |
@@ -67,8 +123,14 @@ and serialized. This draft author performs no delegation or implementation.
 | Parent-owned eventual Task 11 design/plan, master design/master plan and verification handoff | Reviewed requirements, three synchronized retry amendments, actual commands/results and acceptance boundaries |
 
 All Runtime/Storage support modules above except `KnowledgeBackupFixtures` are
-NEW proposed test APIs. Existing `NativeAssetFixture`, ResourceOwner, production
+NEW proposed test APIs. Existing `NativeAssetFixture`, production
 crypto/custody/lease/search/backup/restore files and all old tests remain intact.
+The necessary ResourceOwner compatibility exception, new separate nested
+lifecycle test owner and two Task11 nested destination callsites are governed by
+`2026-10-16-singularity-v0.2-phase-5-nested-fixture-lifecycle.md` and its matching
+design. Its design SPEC then fresh QUALITY and fresh affected qualification
+precede acceptance. MTE, the existing lifecycle owner and frozen56 remain exact;
+historical source seals remain historical rather than regenerated evidence.
 Runtime and Storage support compile only in MIX_ENV=test. No new production
 module may depend statically on those support modules.
 
@@ -83,7 +145,7 @@ module may depend statically on those support modules.
 - [ ] Apply all three exact replacement paragraphs/checklist text from design
   §13 in the parent-owned tracked documents, including the distinction between
   successful supported SAME-destination retry and RESTART into a fresh target.
-  Do not edit Task 12 dependencies or Task 16.
+  Do not edit master Task 12 dependencies or Task 16.
 - [ ] Obtain independent SPEC then new distinct QUALITY on the full updated
   design, plan and three amendments. Resolve findings before source GO. Record
   review scope/SHA; no source implementation on a partial design pass.
@@ -761,14 +823,41 @@ for original <- retained_objects do
     vault_authorization_epoch: session.vault_authorization_epoch,
     object_id: original.object_id, object_generation: original.object_generation}
   {:ok, lease} = Singularity.Runtime.KeyCustodian.lease(Singularity.Runtime.KeyCustodian, command)
-  try do
-    {:ok, observed_bytes} = Singularity.Runtime.DownloadLease.read(lease, :all)
-    true = observed_bytes == original.bytes
+  monitor = Process.monitor(lease)
+  {:ok, observed_bytes} = Singularity.Runtime.DownloadLease.read(lease, :all)
+  true = observed_bytes == original.bytes
+  receive do
+    {:DOWN, ^monitor, :process, ^lease, :normal} -> :ok
   after
-    Singularity.Runtime.DownloadLease.revoke(lease)
+    1_000 -> raise ArgumentError, "original one-use lease did not close normally"
   end
+  {:error, %Singularity.Core.Error{code: :storage_unavailable, retryable?: true}} =
+    Singularity.Runtime.DownloadLease.read(lease, :all)
 end
 ```
+
+  The complete read is an ordinary one-use lease: existing DownloadLease
+  consumes authority and stops normally after returning its result. Monitor
+  BEFORE reading; require exact bytes, bounded normal DOWN and the precise typed
+  dead-PID denial. Do not revoke the already-consumed PID. The example above
+  shows the success contract; the actual oracle must also own failure cleanup:
+  retain every returned PID/monitor, revoke any still-live authority through the
+  existing API, tolerate only the specifically verified normal-consumption
+  revoke-call race, prove actual denial, and tear down a retained revoked PID
+  through its actual owning fixture supervisor. Unexpected termination or
+  cleanup failure remains FAIL; preserve the original read/equality error and
+  stack rather than replacing it with cleanup noproc. Do not suppress primary
+  or cleanup failures or sleep. Capturing a primary failure solely to rethrow
+  its identical kind/reason/stack after explicitly checked cleanup is permitted.
+  Separately acquire a fresh real lease from the SAME command, explicitly revoke
+  BEFORE any read, require :ok and exact {:error, :waiting_for_unlock}, then close
+  that fixture-owned revoked process. This preserves explicit revocation-denial
+  coverage without inventing a second read on a consumed capability.
+  This factual lifecycle erratum follows the actual two-case failure recorded
+  in .devenv/phase5-task11-v3-owned-algorithm-runtime1-failure.md and independent
+  read-only API/oracle diagnoses. It changes no production behavior, permissions
+  or design scope; design lines434–435 already require the established lifecycle.
+  Five returned-original leases do not prove Task16 strict ALL-leases.
 
   Use current registered KeyCustodian identity from actual fixture, not a fake
   material port. Query actual available object's current native envelope
@@ -839,6 +928,25 @@ true = File.stat!(canonical_path).size == old_size
   Source/import `content.asset_objects.storage_ref` retains I. Do not normalize
   production database rows. Keep actual LocalFilesystemAdapter in canonical
   positive paths; a wrapper that loses adapter identity is not equivalent.
+- [ ] Use optional Task7-only transparent observers at the existing authenticator,
+  issuer, material-loader, ciphertext-auditor and Runtime integrity facade seams
+  to capture actual arguments/results. Task6 UUID's default native issuer stays
+  unchanged. The optional issuer synchronously calls actual RestoreIntegrityLease
+  issue exactly once in the original caller, preserves owner/binding/inventory/
+  object_storage/key_wrapper/TTL/vault_key options, and returns its exact result.
+  Only replace material_loader with a transparent tuple that delegates the exact
+  prepared native loader/context once and returns actual material unchanged;
+  observe positioned entry/binding/result identity without retaining or logging
+  key/material secrets. Forward native revoke. Do not fabricate material,
+  capabilities or summaries, forward through a Task, or trace key-bearing calls.
+  Observe actual I in authenticated/Imported/Rewrapped/saga arguments and actual
+  N(I) at native issue/material and ciphertext calls; compare all9 fields/order,
+  never infer use merely by calculating projection. Native typed-summary digest
+  binds N(I), while persisted saga commitment binds original I. Match each
+  independently. The actual local object_storage adapter is never wrapped.
+  This concrete test composition follows independent primary-API diagnosis in
+  .devenv/phase5-task11-v3-task7-inventory-seams.md and design section9's existing
+  transparent-observer allowance; it changes no production interface or scope.
 - [ ] For all three full sagas require exact38 cut, typed native summary,
   every object's postlogin native decrypted bytes, public unified search,
   cleanup and all completion order. Run complete owner. Expected GREEN is three
@@ -848,7 +956,15 @@ true = File.stat!(canonical_path).size == old_size
 
 **Files:** NEW Runtime fixture/owner/oracle. Existing frozen readers unchanged.
 
-- [ ] Add RED wrong-size native case starting from genuine UUID publication.
+- [ ] First qualify a fixture-only observer-wiring RED: request a
+  `before_documents` hook through existing `restore_context/4`, run a genuine
+  unmodified UUID saga through import, rewrap, native typed success and completion,
+  then require the callback's exact binding, original I and native plaintext
+  hashes. The currently ignored hook must fail that final assertion after real
+  native work, not compilation or a fabricated error. Label this observer-wiring
+  RED, not wrong-metadata or native crypto proof; wire the transparent contextual
+  observer to make it GREEN.
+- [ ] Add wrong-size native case starting from genuine UUID publication.
   Use actual PDF plaintext byte length P and genuine unchanged ciphertext with
   `C(P)=66+P+24*ceil(P/4194304)+68`; set disposable Object plaintext size and all
   three corresponding immutable Document source sizes to P+1 BEFORE graph
@@ -927,6 +1043,9 @@ end
 - [ ] Run complete Runtime owner and all Document integrity owners. Expected
   GREEN includes successful native read before Document size/digest denial and
   actual latecipher denial, never an earlier accidentally failing admission.
+  The production verifier already implements these denials; a native negative
+  may pass on its first complete fixture composition. Record actual results,
+  never invent a production defect or count observer RED as native proof.
 
 ## Task 9: Independent malformed V3 matrix with stage/error contracts
 
@@ -1122,7 +1241,15 @@ defdelegate list_staged(context), to: Singularity.Storage.LocalFilesystemAdapter
 
 ## Task 11: Full Runtime fault order and honest continuation boundary
 
-**Files:** NEW Runtime fixture/owner/oracle, no production changes.
+**Files:** NEW Runtime fixture/owner/oracle, no production changes. The narrow
+test-helper nested-lifecycle compatibility amendment above additionally owns
+ResourceOwner and its new separate contract file; it does not relax this task's
+native work, assertions or complete qualification vectors. Original timers stay
+unchanged except the one case-local aggregate ExUnit watchdog governed by the
+reviewed [sentinel budget amendment](../specs/2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget-design.md)
+and [plan](2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget.md), effective
+only after design SPEC -> NEW QUALITY and root source GO. All other deadlines
+remain unchanged; historical60s FAILs remain FAIL, not latency-repair evidence.
 
 - [ ] Add RED case rows for each boundary below. Transparent contextual
   adapters call the actual native delegate until the selected fault; return
@@ -1184,13 +1311,34 @@ defdelegate list_staged(context), to: Singularity.Storage.LocalFilesystemAdapter
 - [ ] Run full Runtime andStorageowners plus existing restore_vault_test.
   Expected GREEN includes supported same-dest actualsuccess, precise unchanged
   unsupported continuation, successful newdest RESTART and unchanged active
-  installation, with no arbitrary sleep/process signal/deadline relaxation.
+  installation, with no arbitrary sleep or process signal. No deadline change
+  beyond the single reviewed sentinel aggregate ExUnit watchdog is permitted;
+  every semantic assertion/native operation and all other deadlines remain.
 
 ## Task 12: Add the sole independent restore oracle and run exact gates
 
+This internal saga task completes part of master Task 11. It does not wait for
+master Task 11 acceptance or authorize master Task 12's default-V3 switch.
+
 **Create:** Runtime `test/support/knowledge_restore_oracle.ex`.
+**Create:** Runtime `test/mix/tasks/singularity.test.restore_test.exs`.
 **Modify:** Runtime lib `mix/tasks/singularity.test.restore.ex`, additive only.
 
+- [ ] Retain Native76's initial standalone FAIL. Add no-connection focused RED
+  contracts for oracle-owned five-role socket/port materialization, preservation
+  of unrelated repository options, exact restoration including absence on return
+  and callback failure, and invalid-port rejection before the callback/mutation.
+  Preserve every existing export/AST assertion. Add only the test-only
+  `with_postgres_transport!/1` scope inside the appended oracle block and wrap
+  all four cases in it; no extra database, early runtime startup, shared fixture
+  change or native-work reduction. Match established TestEnvironment role/socket
+  semantics without changing its private API. Follow with focused GREEN and the
+  full exact sole native task; wiring/configuration tests cannot replace it.
+- [ ] Add a focused no-fixture export/AST contract: require oracle `run!/0`,
+  exactly one top-level guarded dynamic invocation after the complete legacy
+  try/after cleanup, and hard failure when unavailable. Retain its meaningful
+  pre-implementation RED. This is source-wiring evidence only, never a substitute
+  for the full sole task's three native positive runs and late corruption denial.
 - [ ] Add RED that the independent task must load NEW oracle and run its actual
   knowledge checks after ALL existing legacy cleanup. NEW oracle `run!/0` owns
   its own sequential native fixture construction; it must not execute ExUnit
@@ -1230,6 +1378,97 @@ end
   author. Current frozen56 registry expected SHA-256 is
   `d0296d241c66e382baa09a0a092fe8add6df66364d5f2d5644f4f4ea1963a050`;
   never regenerate it from changedfiles. Preserve acceptedsource/native seals.
+
+### Native97 architecture compatibility repair
+
+**Additional source owner:** Web
+`test/singularity/architecture/knowledge_phase1_contract_test.exs` only.
+**Parent documents:** this plan, the saga design amendment and the master
+Phase5 plan's Task0 exact title reference. No production API or frozen change.
+
+- [ ] Preserve ordinary Native97 as FAIL: seven Web architecture failures,
+  with unchanged accepted API bytes and an obsolete Draft section anchor.
+  Archive/pin the original architecture owner before changing it. Obtain
+  independent review of this bounded design/plan amendment before author work.
+- [ ] Introduce non-vacuous per-hunk mutation/removal/duplication/relocation/
+  preceding/following-context contracts for all eleven accepted native-text
+  hunks, plus unchanged-source/pre-native-text/original-baseline positives and
+  an unrelated legacy-byte negative. Freeze literal old/new contexts and their
+  independently derived digests; never repin the original baseline hashes.
+- [ ] Add actual-plan structural and active-prose counterproofs before replacing
+  the stale Phase5-only slice with exact unique ordered first/second level-two
+  headings. Preserve every existing authority/registration/byte assertion and
+  historical helper behavior. Synchronize only Task0's obsolete title reference.
+- [ ] Parent records meaningful RED before normalizer/section implementation,
+  then runs the complete three owning files, not selected test names:
+
+```text
+mix test apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs apps/singularity_web/test/singularity/architecture/dependency_graph_test.exs --seed 215378 --warnings-as-errors
+```
+
+- [ ] Require whole-owner GREEN, complete permitted README verification and
+  final combined independent SOURCE SPEC then NEW distinct QUALITY on exact
+  final bytes. Keep Native97 FAIL, focused RED/GREEN and full-gate outcomes
+  separate. This repair neither accepts Task11 nor switches the default to V3.
+
+### Native107 prerequisite fixture compatibility and private recovery
+
+Follow the independently reviewed matching design and plan at
+`docs/superpowers/specs/2026-10-17-singularity-v0.2-phase-5-prerequisite-fixture-compatibility-design.md`
+and
+`docs/superpowers/plans/2026-10-17-singularity-v0.2-phase-5-prerequisite-fixture-compatibility.md`.
+Only knowledge_asset_lifecycle_guards_test.exs and outbox_test.exs are additional
+source owners. Preserve the incomplete Native107/five failures; require actual
+controlled RED, local fixture repair, whole-owner GREEN and complete final-source
+saga/README qualification. Recover only the exact original private cluster and
+derive the new guard by two literal PID replacements; keep old evidence intact.
+All existing freeze, exclusive Native and final review/commit gates remain.
+
+### Native134 upload-stage controller-exit observation
+
+Follow the matching independently reviewed diagnostic design and plan at
+`docs/superpowers/specs/2026-10-17-singularity-v0.2-phase-5-upload-stage-exit-observation-design.md`
+and
+`docs/superpowers/plans/2026-10-17-singularity-v0.2-phase-5-upload-stage-exit-observation.md`.
+Temporary owner is upload_session_lock_test.exs's named real-file controller-exit
+and late-invalid-text cases under the Native142 amendment. Preserve Native134 and
+Native142 FAIL and Native136 standalone PASS separately. Keep all
+real operations, assertions and original100ms windows; narrowly derive and review
+diagnostic guards, then restore exact original source/guard before qualification.
+This is observation, not behavioral repair or an additional accepted source owner.
+
+### Native154 admission acquisition observation
+
+Follow the matching independently reviewed diagnostic design and plan at
+`docs/superpowers/specs/2026-10-17-singularity-v0.2-phase-5-task11-admission-observation-design.md`
+and
+`docs/superpowers/plans/2026-10-17-singularity-v0.2-phase-5-task11-admission-observation.md`.
+Temporary ownership is only the Runtime live owner's NEW Task11 block.
+Preserve Native154 NOARGS full-integration FAIL and Native155 post0/EMPTY.
+Keep original60000ms admission watchdog, the ONE existing120s sentinel tag,
+all assertions/real work and other source unchanged. Existing checkpoints plus
+fixed content-free stage/elapsed markers receive diagnostic credit only.
+Run one whole-owner seed97250/WAE measurement after actual source reviews,
+then restore exact4167/860295eb source before causal repair or qualification.
+No automatic budget amendment, full-context retry, acceptance or guard exception.
+
+### Native160 admission full-context observation successor
+
+The first ONE whole-owner measurement is consumed:51actual/0FAIL, admission
+23165ms, no reproduced timeout,161post0/EMPTY and exact4167/860295eb restoration.
+Native154 literal NOARGS integration remains FAIL. Two independent causal/contract
+assessments require full-workload stage evidence before choosing a repair/budget.
+Follow the separate candidate design
+`docs/superpowers/specs/2026-10-17-singularity-v0.2-phase-5-task11-admission-full-context-observation-design.md`
+and matching detailed plan. NEW design SPEC -> NEW QUALITY and actual SOURCE
+SPEC -> NEW QUALITY plus root GO precede exactly ONE full-scope seeded diagnostic:
+`mix singularity.test.integration --seed 97250`. No file/name filter or WAE addition;
+original native workload/concurrency/all60s/one sentinel120s and assertions remain.
+Preserve both ExUnit body/on_exit and native internal deadlines. Full natural
+raw/footer/hash, separate ordinary0/EMPTY/postguard and exact observer removal
+are mandatory. No automatic repeat/budget amendment/qualification/guard exception.
+This separately bounded successor does not renew the first allowance or
+replace later literal NOARGS verification and unchanged exact final vectors.
 
 ### Native execution protocol (parent only)
 
@@ -1299,10 +1538,12 @@ test apps/singularity_storage/test/singularity/storage/backup/logical_record_cod
 
 ## Task 13: Source reviews, small local commits and evidence handoff
 
-**Files:** Exact seven source/test paths in locked map, parent-owned documents.
+**Files:** Exact eight source/test paths in locked map, parent-owned documents,
+plus the explicitly reviewed nested-lifecycle, Native97 architecture and
+Native107 two-owner prerequisite-fixture compatibility exceptions above.
 
 - [ ] Freeze exact changedsource bytes/index/diff and check no forbiddenpath,
-  frozenmodule,prerequisitefixture,productionreference,default2,Task16 orVault
+  frozenmodule,unamendedprerequisitefixture,productionreference,default2,Task16 orVault
   behavior changed. Record allnewtestnames/counts/exactcommands,typedsummary and
   fullcut/everybinary/nativevariant/fault/retry results,private raw hashes,
   cleanup/source SHA and remaininglimits. No content/secrets in handoff.
@@ -1324,7 +1565,7 @@ test apps/singularity_storage/test/singularity/storage/backup/logical_record_cod
   NEWdocQUALITY; commit separately. Parent verifies final HEAD/index/source/seals,
   clean ownedresources,allcommandtermination and unchanged controls.
 - [ ] Hand off Task11 explicit3 qualified only when EVERYrequiredacceptance item
-  truly passes; leave default2/Task12gate and Task16 BOTHstrictALLleases unchanged.
+  truly passes; leave default2/masterTask12gate and Task16 BOTHstrictALLleases unchanged.
   No merge/push/tag/version/release/deploy/production/E2E claim. No completion
   claim based solely on this draft or a source-only preparation report.
 
@@ -1397,3 +1638,56 @@ capability cleanup. Parent correction1 fixes all three above and submits a new
 immutable review generation. Review1 remains FAIL; correction validation and
 distinct QUALITY remain required before source GO. No production repair or
 Task11 native check occurred, and no frozen authority/assertion was relaxed.
+
+## Native166 failure-boundary observation successor — 2026-10-17
+
+The admission full-context diagnostic is complete/natural2 (2083actual/2FAIL):
+admission UNREPRODUCED24877ms; initial native-asset bootstrap checkout and genuine
+foreign-header first password verify failed before their required assertions.
+Native167 ordinarypost0/EMPTY; separate exact observer removal restored Runtime
+owner860295eb, then original guard1526/status40/indexEMPTY/owned0 PASS.
+Both admission measurement allowances are CONSUMED;154FAIL remains.
+
+A NEW independent read-only causal/contract decision recommends no admission
+retry or budget change. The initial two-failure observation proposal is now
+amended to retain only foreign-case observation under:
+`docs/superpowers/specs/2026-10-17-singularity-v0.2-phase-5-task11-native-failures-observation-design.md`
+and `docs/superpowers/plans/2026-10-17-singularity-v0.2-phase-5-task11-native-failures-observation.md`.
+Before any source GO these receive independent DESIGN SPEC -> NEW QUALITY.
+Temporary ownership is NOW limited ONLY to foreign-header case/necessary reversible
+observation wrappers in Runtime live Task9/shared password helper. Ingestion remains
+EXACT264/11320/c52d71d7; no connection metrics/callback markers were executed.
+The Runtime observer lies
+outside NEWTask11, so its strict temporary inverse must first restore original
+860295eb before wholeNEWTask11 inverse e897f3e6 is asserted.
+This is the ONLY temporary old-test observational exception here; existing
+NativeAssetFixture/MTE/RuntimeFixture/production/frozen56 remain exact.
+No genuine operation, assertion, timeout, crypto cost or semantic contract changes.
+The ONE later diagnostic selects BOTH complete files (expected58actual), seed97250,
+without addedWAE; it is not fullsuite/master/retained qualification.
+Exact restoration, ordinary closure and fresh independent continuation are mandatory.
+All final required gates, defaultV2, Task16 unwaived/Task17NOTGO and E2E NOTRUN remain.
+
+## Pre-Native source-pin discovery and narrower successor — 2026-10-17
+
+The initial successor's two static observers were authored and root-verified,
+but ORIGINALguard27566dfd correctly rejected ingestionA238e0e1c against TWO
+immutable historical qualified-code/native-common originalc52d71d7 pins.
+Current-generation repinning did not and cannot replace those assertions.
+No formatter/VM/measurement was launched; no checksum or guard was bypassed.
+A NEW independent contract decision recommended explicit diagnostic reduction.
+
+A fresh bounded author withdrew ONLY A's3hunks; root complete-source equality and
+inverse restored264/11320/c52d71d7, B stayed4280/164028/be501963,
+other1538/status43->42/HEAD/indexEMPTY passed, then ORIGINALguard1542/owned0 PASS.
+AuthoredA and original archives remain immutable0600. This is withdrawal, not
+repair or measured success: initial-checkout QuestionA stays UNOBSERVED/unresolved.
+
+The matching successor design/plan above now permit ONLY Runtime observerB.
+NEW amended DESIGN SPEC -> NEW distinct QUALITY, formatter/check with ordinary
+closure, then actual SOURCE SPEC -> NEW distinct QUALITY are mandatory.
+The SAME ONE complete-two-file vector58actual/seed97250 remains, ingestion exact
+and uninstrumented. B removal must restore860295eb before wholeNEWTask11 inverse
+e897f3e6; exactstatus42/originalguard/historical/frozen manifests stay enforced.
+All failed evidence, assertion/timer/final gates, Solrepair0/Astra0, defaultV2,
+Task16 unwaived/Task17NOTGO and E2E NOTRUN remain unchanged.

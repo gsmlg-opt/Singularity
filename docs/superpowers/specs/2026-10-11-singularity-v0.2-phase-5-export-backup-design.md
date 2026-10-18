@@ -5,6 +5,24 @@ SPEC followed by separate fresh QUALITY review have closed. Phase 5 remains
 IN PROGRESS; this document is not implementation acceptance. The reviewed
 snapshots and bounded corrections are recorded in the Phase 5 report.
 
+## Current Task11 source/gate qualification — 2026-10-18
+
+Task11 source/gate qualification is complete on local source
+`4a2e007649ab2d7c62aa72ee84bf1d2de0a93802`: all26 required non-E2E campaign rows and their26 separate
+ordinary posts PASS, including2215 unit tests+10properties,2086 integration tests,
+197 JS tests and the sole independent V1/V2/V3 restore. Combined final21 actual
+SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
+blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
+raw hashes, warnings, historical failures and documentation closure conditions
+are in [Task11 handoff](../../verification/2026-10-18-phase-5-task11-handoff.md).
+Documentation review/commit and literal clean handoff remain closure conditions;
+this status records source/gates, not Phase5 acceptance or Task12 source GO.
+DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
+E2E NOT RUN; no publication, production activation or Vault feature work.
+Dated Task10 and earlier amendment/preparation paragraphs below are historical;
+their old pending/source-NO-GO language does not replace this current record.
+
 ## Current Task10 qualification — 2026-10-15
 
 Task10 source/gate qualification is complete on local source commit
@@ -28,6 +46,19 @@ synchronize the retry wording in §8, §11 and master Task11 together. This new
 amendment awaits actual independent SPEC then NEW distinct fresh QUALITY;
 Task11 source is not yet authorized. Other reviewed design requirements and
 Task12/Task16 gates remain unchanged. E2E NOT RUN; defaultV2 remains.
+
+## Task11 case-local execution-budget amendment — 2026-10-16
+
+The [sentinel budget design](2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget-design.md)
+and [detailed plan](../plans/2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget.md)
+govern an explicit independently reviewed exception: only the original continuous
+sentinel/failed-target/fresh-RESTART case may use `@tag timeout: 120_000`.
+This supersedes originaltimer wording only for its aggregate ExUnit watchdog,
+not any product assertion, native work, other deadline or qualification vector.
+It takes effect only after design SPEC -> NEW distinct QUALITY and root source GO.
+Native60/64 remain FAIL; Native63 remains diagnostic. No latency speedup or
+Task11/Phase5 acceptance is claimed. Frozen56/Vault/Task16 remain unchanged;
+E2E NOT RUN and publication/production restrictions remain in force.
 
 ## Historical qualification records
 

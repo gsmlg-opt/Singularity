@@ -12,6 +12,24 @@
 
 ## Status, evidence and execution boundary
 
+### Current Task11 source/gate qualification — 2026-10-18
+
+Task11 source/gate qualification is complete on local source
+`4a2e007649ab2d7c62aa72ee84bf1d2de0a93802`: all26 required non-E2E campaign rows and their26 separate
+ordinary posts PASS, including2215 unit tests+10properties,2086 integration tests,
+197 JS tests and the sole independent V1/V2/V3 restore. Combined final21 actual
+SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
+blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
+raw hashes, warnings, historical failures and documentation closure conditions
+are in [Task11 handoff](../../verification/2026-10-18-phase-5-task11-handoff.md).
+Documentation review/commit and literal clean handoff remain closure conditions;
+this status records source/gates, not Phase5 acceptance or Task12 source GO.
+DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
+E2E NOT RUN; no publication, production activation or Vault feature work.
+Dated Task10 and earlier amendment/preparation paragraphs below are historical;
+their old pending/source-NO-GO language does not replace this current record.
+
 ### Current Task10 qualification — 2026-10-15
 
 Task10 source/gate qualification is complete on local source commit
@@ -35,6 +53,19 @@ synchronize the retry wording in master design §8, §11 and Task11 together. Th
 new amendment awaits actual independent SPEC then NEW distinct fresh QUALITY;
 Task11 source is not yet authorized. Other reviewed plan requirements and
 Task12/Task16 gates remain unchanged. E2E NOT RUN; defaultV2 remains.
+
+### Task11 case-local execution-budget amendment — 2026-10-16
+
+The [sentinel budget design](../specs/2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget-design.md)
+and [detailed plan](2026-10-16-singularity-v0.2-phase-5-task11-sentinel-budget.md)
+govern an explicit independently reviewed exception: only the original continuous
+sentinel/failed-target/fresh-RESTART case may use `@tag timeout: 120_000`.
+This supersedes originaltimer wording only for its aggregate ExUnit watchdog,
+not any product assertion, native work, other deadline or qualification vector.
+It takes effect only after design SPEC -> NEW distinct QUALITY and root source GO.
+Native60/64 remain FAIL; Native63 remains diagnostic. No latency speedup or
+Task11/Phase5 acceptance is claimed. Frozen56/Vault/Task16 remain unchanged;
+E2E NOT RUN and publication/production restrictions remain in force.
 
 ### Historical qualification records
 
@@ -622,7 +653,7 @@ assert section =~ "New canonical writes remain unavailable to production runtime
 ```
 
   Add an authority-contract test reading this plan between
-  `## Draft status, evidence and execution boundary` and
+  `## Status, evidence and execution boundary` and
   `## Source map and parent-owned execution discipline`, design §1 between
   `## 1. Baseline, scope, and fixed boundaries` and `## 2. Evidence and selected approach`,
   and design §6 between `## 6. Logical V3 wire schema and inventory` and
@@ -1949,7 +1980,9 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 ## Task 11: Qualify complete V3 saga, malformed rejection and legacy restoration
 
 **Create:** `apps/singularity_runtime/test/singularity/runtime/knowledge_backup_restore_live_test.exs`,
-`apps/singularity_storage/test/singularity/storage/backup/logical_v3_failure_test.exs`.
+`apps/singularity_storage/test/singularity/storage/backup/logical_v3_failure_test.exs`,
+`apps/singularity_runtime/test/mix/tasks/singularity.test.restore_test.exs`
+  (focused oracle export/dynamic-entry/cleanup ordering only, not native proof).
 **Modify:** `apps/singularity_runtime/lib/mix/tasks/singularity.test.restore.ex`
   only knowledge fixture/oracle stages; preserve existing crypto/operator tests.
 **Retain owners:** Runtime backup/restore files and all legacy restore fixtures.
@@ -1957,30 +1990,33 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
 
 Task9E local authenticated-reader/helper/import qualification is not this task's
 native RestoreIntegrityLease, actual wrapper-chain or normal-publication proof.
-All actual lease/normal-publication witnesses remain NOT RUN until executed.
+Actual Task11 native lease/normal-publication witnesses are recorded in the
+[final-source handoff](../../verification/2026-10-18-phase-5-task11-handoff.md);
+they are not inferred from Task9E. Source/gate reviews and six local commits
+are complete; documentation-review/commit/clean closure remains separate.
 V3 uses `{KnowledgeIntegrityAudit, MigrationRepo}` with Task10's unified rebuild;
 legacy native Base compositions and every old oracle assertion remain intact.
 
-- [ ] Add RED live composition through established backup, authenticated bundle,
+- [x] Add RED live composition through established backup, authenticated bundle,
   Restorer, existing rewrap/integrity lease and completion in disposable databases.
   The explicit writer version 3 is the test adapter; production default stays 2.
   Compare every canonical row at the cut before recovery, all IDs/source sets/
   locators/digests/receipts/conflicts/tombstones and original binary bytes; then
   compare public search after lawful recovery. Test empty clean destination and
   supported disposable replacement staging while active source data is unchanged.
-- [ ] Include normal Asset finalization with actual UUID persisted reference,
+- [x] Include normal Asset finalization with actual UUID persisted reference,
   plus retained canonical-path and mixed inventories, exact original I/N(I) and
   actual typed native PlaintextSummary through the unchanged frozen lease.
   Qualify the E size-mutation barrier with the actual native lease when E used
   only a local reader; fixture-known hashes/recording issuer/material ports
   cannot prove the lease used P. Preserve helper -> unified rebuild -> completion
   order and wrong-size/digest denial after successful genuine import/read.
-- [ ] Add independent malformed cases for duplicate PK/unique keys, extra/missing
+- [x] Add independent malformed cases for duplicate PK/unique keys, extra/missing
   rows/objects, mixed versions, classification/owner/kind/head/ancestry/conflict
   errors, ordinal gaps, locator/fragment/digest tampering, unsupported format,
   receipt disagreement, ambiguous source association, foreign object and
   truncated/changed ciphertext/plaintext source mismatch.
-- [ ] Add deterministic fault barriers at authentication/preflight, canonical
+- [x] Add deterministic fault barriers at authentication/preflight, canonical
   insert, staged publish, commit uncertainty, rewrap, ciphertext verification,
   durable-work reconciliation, authenticated plaintext/Document verification,
   unified search rebuild and integrity/restore completion in the existing saga
@@ -1998,11 +2034,11 @@ legacy native Base compositions and every old oracle assertion remain intact.
   RESTART, never successful RESUME. Retain every required barrier/assertion and
   never claim distributed transaction rollback or authorize a frozen protocol
   change.
-- [ ] Extend the independent restore oracle with known synthetic binary originals,
+- [x] Extend the independent restore oracle with known synthetic binary originals,
   all-state history/organization/source pins and negative corruption; reuse
   established real crypto and custody. Retain V1 golden `.backup` bytes, explicit
   V2 fixtures and every old assertion. No new Vault lifecycle behavior/test.
-- [ ] Run full focused saga/legacy owners, then the sole independent restore task:
+- [x] Run full focused saga/legacy owners, then the sole independent restore task:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix singularity.test.integration apps/singularity_runtime/test/singularity/runtime/knowledge_backup_restore_live_test.exs apps/singularity_storage/test/singularity/storage/backup/logical_v3_failure_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_import_test.exs apps/singularity_storage/test/singularity/storage/backup/restore_rewrap_test.exs --seed 215378 --warnings-as-errors
