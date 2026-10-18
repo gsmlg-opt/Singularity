@@ -1040,7 +1040,7 @@ defmodule Singularity.Storage.Backup.KnowledgePreflight do
           {"core.vault_members", "clearance IN ('private','sensitive','restricted')"},
           {"core.key_domains", "state IN ('active','retired')"},
           {"core.vault_key_versions",
-           "generation>0 AND state IN ('pending','active','retired') AND algorithm='aes_256_gcm'"},
+           "generation>0 AND state IN ('pending','active','retired') AND algorithm IN ('aes_256_gcm','aes-256-gcm')"},
           {"core.vault_key_wrappers", "generation>0"},
           {"core.domain_key_versions",
            "generation>0 AND state IN ('pending','active','retired') AND algorithm='aes_256_gcm' AND octet_length(wrapped_key)>0"},

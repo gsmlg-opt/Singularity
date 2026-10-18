@@ -56,6 +56,82 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
   FROM pg_index i WHERE i.indrelid=to_regclass($1) AND i.indisunique
   """
 
+  for algorithm <- ["aes_256_gcm", "aes-256-gcm"] do
+    test "V3 stages exact established owner algorithm metadata #{algorithm}" do
+      algorithm = unquote(algorithm)
+
+      with_fixture(fn fixture, storage ->
+        before = @fixtures.canonical_rows(fixture)
+
+        expected =
+          put_rows(
+            before,
+            "core.vault_key_versions",
+            Enum.map(before["core.vault_key_versions"], &Map.replace!(&1, "algorithm", algorithm))
+          )
+
+        bundle = authenticated(fixture, rows: fn _rows -> expected end)
+
+        assert {:error, :algorithm_qualified} =
+                 owner_transaction(fn ->
+                   assert {:ok, staged} = stage(bundle, storage)
+                   assert {:ok, summary} = validate(staged, bundle.cut)
+
+                   assert summary.counts ==
+                            Map.new(expected, fn {table, rows} -> {table, length(rows)} end)
+
+                   for schema <- LogicalSchemaV3.all(),
+                       do: assert(staged_rows(schema) == expected[schema.table])
+
+                   {:ok, schema} = LogicalSchemaV3.fetch_table("core.vault_key_versions")
+                   assert Enum.map(staged_rows(schema), & &1["algorithm"]) == [algorithm]
+                   MigrationRepo.rollback(:algorithm_qualified)
+                 end)
+
+        assert @fixtures.canonical_rows(fixture) == before
+        assert_no_temp_tables()
+        cleanup_stages(storage)
+        assert_no_publication(storage)
+      end)
+    end
+  end
+
+  for algorithm <- ["", "unknown", "aes-128-gcm", "AES-256-GCM", "aes-256-gcm ", "aes_256_gcm "] do
+    test "V3 rejects unestablished owner algorithm #{inspect(algorithm)}" do
+      algorithm = unquote(algorithm)
+
+      with_fixture(fn fixture, storage ->
+        reject_rows(fixture, storage, fn rows ->
+          put_rows(
+            rows,
+            "core.vault_key_versions",
+            Enum.map(rows["core.vault_key_versions"], &Map.replace!(&1, "algorithm", algorithm))
+          )
+        end)
+      end)
+    end
+  end
+
+  for table <- [
+        "core.domain_key_versions",
+        "core.domain_dedup_key_wrappers",
+        "content.asset_key_envelopes"
+      ] do
+    test "V3 keeps hyphenated algorithm metadata denied in #{table}" do
+      table = unquote(table)
+
+      with_fixture(fn fixture, storage ->
+        reject_rows(fixture, storage, fn rows ->
+          put_rows(
+            rows,
+            table,
+            Enum.map(rows[table], &Map.replace!(&1, "algorithm", "aes-256-gcm"))
+          )
+        end)
+      end)
+    end
+  end
+
   test "the complete historical graph stages privately into typed, keyed transaction-local tables" do
     with_fixture(fn fixture, storage ->
       before = @fixtures.canonical_rows(fixture)
@@ -1312,7 +1388,10 @@ defmodule Singularity.Storage.Backup.KnowledgePreflightTest do
                result =
                  with {:ok, staged} <- stage(bundle, storage), do: validate(staged, bundle.cut)
 
-               assert {:error, %Error{code: ^expected_code, details: %{}} = error} = result
+               assert {:error,
+                       %Error{code: ^expected_code, retryable?: false, details: %{}} = error} =
+                        result
+
                assert error.details == %{}
                # The stage owns its savepoint: even a typed SQL constraint failure must
                # leave this caller transaction queryable before our explicit rollback.

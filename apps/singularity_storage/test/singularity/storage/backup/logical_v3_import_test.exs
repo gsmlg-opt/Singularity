@@ -266,6 +266,78 @@ defmodule Singularity.Storage.Backup.LogicalV3ImportTest do
     %{source: source, legacy: legacy}
   end
 
+  for algorithm <- ["aes_256_gcm", "aes-256-gcm"] do
+    @tag :tmp_dir
+    test "structural V3 full import preserves established owner algorithm #{algorithm}",
+         %{tmp_dir: tmp_dir} do
+      algorithm = unquote(algorithm)
+      portable = Path.join(tmp_dir, "algorithm")
+      File.mkdir!(portable)
+      File.chmod!(portable, 0o700)
+      source = prepare_source(portable, vault_algorithm: algorithm)
+
+      with_destination(source, fn destination ->
+        assert {:ok, %Restorer.Imported{} = imported} = import_bundle(source, destination)
+        assert imported.cut.logical_version == 3
+        assert Enum.map(source.rows["core.vault_key_versions"], & &1["algorithm"]) == [algorithm]
+
+        assert owner_value(fn -> rows("SELECT algorithm FROM core.vault_key_versions") end) ==
+                 [[algorithm]]
+
+        assert_complete(source, destination)
+        before = snapshot(destination.object_root)
+        assert {:ok, ^imported} = import_bundle(source, destination, ReadOnlyStorage)
+        assert snapshot(destination.object_root) == before
+        assert_complete(source, destination)
+      end)
+    end
+  end
+
+  test "owned V3 graph keeps malformed and adjacent algorithm metadata denied",
+       %{source: source} do
+    vectors =
+      Enum.map(
+        ["", "unknown", "aes-128-gcm", "AES-256-GCM", "aes-256-gcm ", "aes_256_gcm "],
+        &{"core.vault_key_versions", &1}
+      ) ++
+        Enum.map(
+          [
+            "core.domain_key_versions",
+            "core.domain_dedup_key_wrappers",
+            "content.asset_key_envelopes"
+          ],
+          &{&1, "aes-256-gcm"}
+        )
+
+    with_destination(source, fn destination ->
+      assert {:ok, %Restorer.Imported{}} = import_bundle(source, destination)
+      before = snapshot(destination.object_root)
+
+      for {table, algorithm} <- vectors do
+        assert {:error, :algorithm_rejected} =
+                 owner(fn ->
+                   assert %{num_rows: count} =
+                            sql("UPDATE #{table} SET algorithm=$1", [algorithm])
+
+                   assert count > 0
+
+                   assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
+                            Singularity.Storage.SafeSQL.query(
+                              MigrationRepo,
+                              "SELECT audit.assert_knowledge_restore_graph($1)",
+                              [dump(@ids.vault_id)]
+                            )
+
+                   MigrationRepo.rollback(:algorithm_rejected)
+                 end)
+
+        assert snapshot(destination.object_root) == before
+      end
+
+      assert_complete(source, destination)
+    end)
+  end
+
   test "public import restores the literal 114-row complete V3 cut into a different empty database",
        %{source: source} do
     with_destination(source, fn destination ->
@@ -1009,6 +1081,13 @@ defmodule Singularity.Storage.Backup.LogicalV3ImportTest do
     KnowledgeBackupFixtures.with_destination(:current, fn destination ->
       fixture =
         KnowledgeBackupFixtures.seed!(Map.merge(destination, %{ids: @ids, originals: @originals}))
+
+      if algorithm = Keyword.get(options, :vault_algorithm) do
+        owner(fn ->
+          assert %{num_rows: 1} =
+                   sql("UPDATE core.vault_key_versions SET algorithm=$1", [algorithm])
+        end)
+      end
 
       large? = Keyword.get(options, :large_json, false)
 
