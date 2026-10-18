@@ -1242,6 +1242,37 @@ defmodule Singularity.Storage.Postgres.KnowledgeAssetLifecycleGuardsTest do
     end
   end
 
+  test "synthetic finalization storage fixture reserves the existing stage and object for reuse" do
+    source = prepared_source!()
+    envelope = finalization_fixture!(source)
+
+    assert %{rows: [[stage]]} =
+             scoped(source, fn repo ->
+               query!(repo, "SELECT id FROM content.asset_stages WHERE asset_id=$1", [
+                 source.asset_id
+               ])
+             end)
+
+    stage_id = text(stage)
+    object_id = text(source.object_id)
+
+    assert {:ok,
+            %{
+              status: :reserved,
+              action: :reuse,
+              stage_id: ^stage_id,
+              stage_ref: %Singularity.Core.StageRef{stage_id: ^stage_id},
+              object_id: ^object_id,
+              object_ref: %Singularity.Core.ObjectRef{object_id: ^object_id}
+            }} =
+             scoped(source, fn repo ->
+               AssetRepository.reserve_finalization(repo, %{
+                 envelope: envelope,
+                 object_id: object_id
+               })
+             end)
+  end
+
   for first <- [:organization, :finalization] do
     @first first
     test "real finalization reservation and organization preserve Asset order with #{@first} first" do
@@ -1632,40 +1663,66 @@ defmodule Singularity.Storage.Postgres.KnowledgeAssetLifecycleGuardsTest do
 
     grant = KnowledgeFixtures.uuid()
     stage = KnowledgeFixtures.uuid()
+    source_reference = KnowledgeFixtures.uuid()
+    idempotency_key = "lifecycle-finalization:" <> text(grant)
 
     Fixtures.with_owner(fn ->
-      query!(
-        MigrationRepo,
-        "INSERT INTO content.upload_grants(id,vault_id,session_id,principal_id,asset_id,classification,token_digest,csrf_token_digest,filename,byte_size,declared_media_type,idempotency_key,principal_authorization_epoch,vault_authorization_epoch,expires_at,consumed_at) VALUES($1,$2,$3,$4,$5,'private',$6,$6,'lifecycle.txt',12,'text/plain',$7,$8,$9,CURRENT_TIMESTAMP+interval '5 minutes',CURRENT_TIMESTAMP)",
-        [
-          grant,
-          source.vault_id,
-          source.session_id,
-          source.principal_id,
-          source.asset_id,
-          :crypto.hash(:sha256, grant),
-          "lifecycle-finalization:" <> text(grant),
-          principal_epoch,
-          owner_epoch
-        ]
-      )
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "INSERT INTO content.source_references(id,vault_id,resource_version_id,principal_id,classification,kind,observed_at,original_filename,declared_media_type,byte_size,idempotency_key_digest) VALUES($1,$2,$3,$4,'private','browser_upload',CURRENT_TIMESTAMP,'lifecycle.txt','text/plain',12,$5)",
+                 [
+                   source_reference,
+                   source.vault_id,
+                   source.resource_version_id,
+                   source.principal_id,
+                   :crypto.hash(:sha256, idempotency_key)
+                 ]
+               )
 
-      query!(
-        MigrationRepo,
-        """
-        INSERT INTO content.asset_stages(id,asset_id,vault_id,key_domain_id,classification,storage_ref,state,state_revision,format_version,plaintext_byte_size,ciphertext_byte_size,lookup_digest,ciphertext_hash,sealed_at,upload_grant_id,candidate_object_id,domain_key_version_id,wrapper_algorithm,key_generation,dek_wrapper)
-        SELECT $1::uuid,$2,o.vault_id,o.key_domain_id,o.classification,$1::uuid::text,'sealed',1,o.format_version,o.plaintext_byte_size,o.ciphertext_byte_size,o.lookup_digest,o.ciphertext_hash,CURRENT_TIMESTAMP,$3,$4,e.domain_key_version_id,e.algorithm,e.key_generation,e.wrapped_dek
-        FROM content.asset_objects o JOIN content.asset_key_envelopes e ON e.asset_object_id=o.id AND e.vault_id=o.vault_id
-        WHERE o.id=$5
-        """,
-        [stage, source.asset_id, grant, KnowledgeFixtures.uuid(), source.object_id]
-      )
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "INSERT INTO content.upload_grants(id,vault_id,session_id,principal_id,asset_id,classification,token_digest,csrf_token_digest,filename,byte_size,declared_media_type,idempotency_key,principal_authorization_epoch,vault_authorization_epoch,expires_at,consumed_at,source_reference_id) VALUES($1,$2,$3,$4,$5,'private',$6,$6,'lifecycle.txt',12,'text/plain',$7,$8,$9,CURRENT_TIMESTAMP+interval '5 minutes',CURRENT_TIMESTAMP,$10)",
+                 [
+                   grant,
+                   source.vault_id,
+                   source.session_id,
+                   source.principal_id,
+                   source.asset_id,
+                   :crypto.hash(:sha256, grant),
+                   idempotency_key,
+                   principal_epoch,
+                   owner_epoch,
+                   source_reference
+                 ]
+               )
 
-      query!(
-        MigrationRepo,
-        "UPDATE content.assets SET state='verified',state_revision=2 WHERE id=$1",
-        [source.asset_id]
-      )
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "UPDATE content.asset_metadata SET projection_version=1,original_filename='lifecycle.txt',declared_media_type='text/plain',plaintext_byte_size=12,extraction_state='pending',extractor_version='upload_text_v1',detected_media_type=NULL,completed_at=NULL,pdf_header_version=NULL,image_width=NULL,image_height=NULL WHERE asset_id=$1 AND resource_version_id=$2 AND vault_id=$3 AND classification='private'",
+                 [source.asset_id, source.resource_version_id, source.vault_id]
+               )
+
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 """
+                 INSERT INTO content.asset_stages(id,asset_id,vault_id,key_domain_id,classification,storage_ref,state,state_revision,format_version,plaintext_byte_size,ciphertext_byte_size,lookup_digest,ciphertext_hash,sealed_at,upload_grant_id,candidate_object_id,domain_key_version_id,wrapper_algorithm,key_generation,dek_wrapper)
+                 SELECT $1::uuid,$2,o.vault_id,o.key_domain_id,o.classification,$1::uuid::text,'sealed',1,o.format_version,o.plaintext_byte_size,o.ciphertext_byte_size,o.lookup_digest,o.ciphertext_hash,CURRENT_TIMESTAMP,$3,$4,e.domain_key_version_id,e.algorithm,e.key_generation,e.wrapped_dek
+                 FROM content.asset_objects o JOIN content.asset_key_envelopes e ON e.asset_object_id=o.id AND e.vault_id=o.vault_id
+                 WHERE o.id=$5
+                 """,
+                 [stage, source.asset_id, grant, KnowledgeFixtures.uuid(), source.object_id]
+               )
+
+      assert %{num_rows: 1} =
+               query!(
+                 MigrationRepo,
+                 "UPDATE content.assets SET state='verified',state_revision=2 WHERE id=$1",
+                 [source.asset_id]
+               )
     end)
 
     assert {:ok, envelope} =

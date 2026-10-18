@@ -10,7 +10,7 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionEventsTest do
 
   @projection_types ~w(document.ready document.deleted document.restored)
 
-  setup do
+  setup test_context do
     source = KnowledgeFixtures.prepared_source!()
 
     binary_source =
@@ -79,12 +79,31 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionEventsTest do
         envelope
       end)
 
-    %{
+    fixture = %{
       source: binary_source,
       document: document,
       envelope: envelope,
       scope: %{principal_id: source.principal_id, vault_id: source.vault_id}
     }
+
+    if test_context[:document_retirement_contract] do
+      # Register before fixture retirement so ExUnit's LIFO verifies its result.
+      on_exit(fn -> assert_extracting_fixture(fixture, true) end)
+    end
+
+    KnowledgeFixtures.retire_document_on_exit!(%{
+      resource_id: document.resource_id,
+      vault_id: binary_source.vault_id
+    })
+
+    fixture
+  end
+
+  @tag :document_retirement_contract
+  test "teardown retires a genuine extracting fixture without changing its canonical source", c do
+    claimed = claim!(c)
+    assert claimed.attempt.generation == 1
+    assert_extracting_fixture(c, false)
   end
 
   test "real worker completion emits one exact ready envelope and terminal replay emits none",
@@ -491,6 +510,69 @@ defmodule Singularity.Storage.Postgres.DocumentProjectionEventsTest do
       send(blocker.pid, {reference, :release})
       drain_task(blocker)
     end
+  end
+
+  defp assert_extracting_fixture(c, deleted?) do
+    expected = [
+      c.document.resource_id,
+      c.document.resource_version_id,
+      c.source.vault_id,
+      "document",
+      "private",
+      0,
+      c.source.asset_id,
+      c.source.resource_id,
+      c.source.resource_version_id,
+      c.source.object_id,
+      c.source.digest,
+      c.source.byte_size,
+      "text/plain",
+      "extracting",
+      1,
+      Ecto.UUID.dump!(c.envelope.job_id),
+      "plain",
+      1,
+      180,
+      true,
+      "available",
+      0,
+      deleted?
+    ]
+
+    Fixtures.with_owner(fn ->
+      assert %{rows: [^expected]} =
+               query!(
+                 MigrationRepo,
+                 """
+                 SELECT resource.id, resource.current_version_id, resource.vault_id,
+                   resource.kind, resource.classification, version.revision,
+                   document.source_asset_id, document.source_resource_id,
+                   document.source_resource_version_id, document.source_object_id,
+                   document.source_digest, document.source_byte_size, document.media_type,
+                   document.state, document.attempt_generation, document.attempt_job_id,
+                   document.extraction_adapter, document.extraction_format,
+                   EXTRACT(EPOCH FROM (document.attempt_deadline_at-document.attempt_started_at))::bigint,
+                   binding.released_at IS NULL, object.lifecycle,
+                   (SELECT count(*) FROM content.document_fragments AS fragment
+                     WHERE fragment.resource_version_id=document.resource_version_id
+                       AND fragment.vault_id=document.vault_id),
+                   resource.deleted_at IS NOT NULL
+                 FROM content.document_versions AS document
+                 JOIN content.resource_versions AS version
+                   ON version.id=document.resource_version_id AND version.resource_id=document.resource_id
+                     AND version.vault_id=document.vault_id
+                 JOIN content.resources AS resource
+                   ON resource.id=document.resource_id AND resource.vault_id=document.vault_id
+                 JOIN content.resource_assets AS binding
+                   ON binding.resource_version_id=document.source_resource_version_id
+                     AND binding.asset_id=document.source_asset_id AND binding.vault_id=document.vault_id
+                 JOIN content.asset_objects AS object
+                   ON object.id=document.source_object_id AND object.vault_id=document.vault_id
+                 WHERE document.resource_id=$1 AND document.resource_version_id=$2 AND document.vault_id=$3
+                 """,
+                 [c.document.resource_id, c.document.resource_version_id, c.source.vault_id]
+               )
+    end)
   end
 
   defp claim!(c) do

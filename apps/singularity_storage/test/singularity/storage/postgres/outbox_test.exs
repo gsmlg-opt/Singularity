@@ -6,12 +6,95 @@ defmodule Singularity.Storage.Postgres.OutboxTest do
   alias Singularity.Core.Error
   alias Singularity.Core.OutboxEvent
   alias Singularity.Storage.Fixtures
+  alias Singularity.Storage.MigrationRepo
   alias Singularity.Storage.Postgres.Outbox
   alias Singularity.Storage.ScopedRepo
 
   setup do
-    %{one: fixture, two: other_fixture} = Fixtures.two_vaults!()
-    {:ok, fixture: load_ids(fixture), other_fixture: load_ids(other_fixture)}
+    {:ok, queue_fixture!()}
+  end
+
+  test "fresh queue fixture isolates its target from 100 earlier eligible events", %{
+    fixture: fixture
+  } do
+    mark_existing_events_delivered!()
+
+    earlier_events =
+      for index <- 1..100 do
+        assert {:ok, event} =
+                 outbox_event(Ecto.UUID.generate(), fixture, "earlier-eligible-#{index}")
+
+        assert {:ok, ^event} =
+                 ScopedRepo.transact(
+                   RequestRepo,
+                   %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
+                   fn repo -> Outbox.append(repo, event) end
+                 )
+
+        event
+      end
+
+    earlier_ids = Enum.map(earlier_events, & &1.outbox_event_id)
+
+    assert %{num_rows: 100, rows: eligible_rows} =
+             Fixtures.with_owner(fn ->
+               query!(
+                 MigrationRepo,
+                 """
+                 SELECT id::text
+                 FROM core.outbox_events
+                 WHERE delivered_at IS NULL
+                   AND retired_at IS NULL
+                   AND claimed_until IS NULL
+                 ORDER BY sequence
+                 """
+               )
+             end)
+
+    assert ^earlier_ids = Enum.map(eligible_rows, fn [id] -> id end)
+
+    %{fixture: fresh_fixture} = queue_fixture!()
+
+    assert {:ok, target} =
+             outbox_event(Ecto.UUID.generate(), fresh_fixture, "fresh-queue-target")
+
+    assert {:ok, ^target} =
+             ScopedRepo.transact(
+               RequestRepo,
+               %{principal_id: fresh_fixture.principal_id, vault_id: fresh_fixture.vault_id},
+               fn repo -> Outbox.append(repo, target) end
+             )
+
+    claim_token = Ecto.UUID.generate()
+
+    assert {:ok, claimed_events} =
+             Outbox.claim(DispatcherRepo, %{
+               limit: 100,
+               lease_seconds: 60,
+               claim_token: claim_token
+             })
+
+    claimed_ids = Enum.map(claimed_events, & &1.outbox_event_id)
+
+    assert claimed_ids == [target.outbox_event_id],
+           "claimed_count=#{length(claimed_ids)} " <>
+             "controlled_earlier_ids_match=#{MapSet.new(claimed_ids) == MapSet.new(earlier_ids)} " <>
+             "claimed_ids=#{inspect(claimed_ids, limit: :infinity)}"
+
+    assert [^target] = claimed_events
+
+    assert :ok =
+             Outbox.acknowledge(DispatcherRepo, target.outbox_event_id, %{
+               claim_token: claim_token,
+               runner_job_id: "fresh-queue-job"
+             })
+
+    assert {:ok, []} =
+             Outbox.claim(DispatcherRepo, %{
+               limit: 100,
+               lease_seconds: 60,
+               claim_token: Ecto.UUID.generate()
+             })
   end
 
   test "appends in scope and claims and acknowledges only through dispatcher functions", %{
@@ -168,6 +251,25 @@ defmodule Singularity.Storage.Postgres.OutboxTest do
                  runner_job_id: "job-1"
                })
     end
+  end
+
+  defp queue_fixture! do
+    mark_existing_events_delivered!()
+    %{one: fixture, two: other_fixture} = Fixtures.two_vaults!()
+    %{fixture: load_ids(fixture), other_fixture: load_ids(other_fixture)}
+  end
+
+  defp mark_existing_events_delivered! do
+    Fixtures.with_owner(fn ->
+      query!(
+        MigrationRepo,
+        """
+        UPDATE core.outbox_events
+        SET delivered_at = CURRENT_TIMESTAMP
+        WHERE delivered_at IS NULL
+        """
+      )
+    end)
   end
 
   defp outbox_event(event_id, fixture, key) do
