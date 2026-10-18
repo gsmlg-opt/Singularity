@@ -12,6 +12,33 @@
 
 ## Status, evidence and execution boundary
 
+### Current Task12 source/gate qualification — 2026-10-18
+
+The Task12 source now writes logical3 through the genuine production default.
+Final complete17 unit304 executed64 cases; integration294 executed258, together
+covering322 registered cases with zero failures. Original three-owner296 passed
+103 confirmation cases, not extra unique coverage. Sole restore302 passed
+generated-default and genuineV1, three knowledge-reference variants and
+late-corruption rejection; all had separate ordinary posts0/EMPTY. Earlier
+failed candidates remain evidence, and timeout288 has no established cause.
+Architecture306 passed131 cases; format308, devcompileWAE310 and xref0cycles312
+passed, each with its own ordinary post0/EMPTY. Actual complete17 combined SOURCE
+SPEC then NEW distinct QUALITY both CLOSED PASS before four verified local
+source commits, ending at 4d832e91a5cf093ecd081be7b4fd515426b21f7d.
+The [actual source/gate handoff](../../verification/2026-10-18-phase-5-task12-handoff.md)
+records all commands, hashes, commits and historical failures. Final documentation
+contract check, documentation reviews/commit and literal clean closure remain
+PENDING at this snapshot; later facts belong in its separate ignored actual
+closure receipt. This is not complete Task12 or Phase5 acceptance.
+The [Task12 design](../specs/2026-10-18-singularity-v0.2-phase-5-task12-default-v3-design.md)
+and [detailed plan](2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md)
+govern the transition and its two genuine fixture-composition repairs.
+ExplicitV2 retains unsupported-content denial; production writes stay closed.
+Task16 BOTH strict ALL-leases remains UNSATISFIED/UNWAIVED/BLOCKED_DESIGN,
+Task17NOTGO and Task18 dependencies remain; E2E NOT RUN and no publication,
+deployment, production activation or Vault work. Dated Task11 and earlier
+defaultV2/preparation statuses below are historical, not current selection.
+
 ### Current Task11 source/gate qualification — 2026-10-18
 
 Task11 source/gate qualification is complete on local source
@@ -22,9 +49,12 @@ SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
 blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
 raw hashes, warnings, historical failures and documentation closure conditions
 are in [Task11 handoff](../../verification/2026-10-18-phase-5-task11-handoff.md).
-Documentation review/commit and literal clean handoff remain closure conditions;
-this status records source/gates, not Phase5 acceptance or Task12 source GO.
-DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+Task11 documentation SPEC/NEW QUALITY, docs-only handoff
+`e24b2b2b10f4bb2d21d7600ad8bdc2f931237d56` and literal clean closure passed;
+actual receipt SHA25648a250ce5defba52410fbef62894d5fb5721611574a678da03296806f62e24b7
+is recorded separately from the unchanged reviewed handoff snapshot.
+This is historical Task11 qualification, not Phase5 acceptance. Its then-current
+defaultV2/closed unsupported guard and Task16 BOTH strict ALL-leases
 UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
 E2E NOT RUN; no publication, production activation or Vault feature work.
 Dated Task10 and earlier amendment/preparation paragraphs below are historical;
@@ -521,8 +551,8 @@ small local commits after review. It does not permit Vault feature work,
 custody/key/capability/policy/crypto semantic changes, merge, push, version
 bump, tag, release, deployment, production activation or production backfill.
 New canonical writes remain unavailable to production runtime roles.
-Logical V3 preparation keeps default V2 and the current unsupported-canonical
-guard closed until writer and restore qualify together in Tasks 11 and 12.
+New backups use logical V3 after combined writer and restore qualification.
+Explicit V2 retains its fail-closed unsupported-canonical guard.
 Do not change frozen leases, use extraction authority for export, disable
 triggers/RLS, synthesize sessions or use runtime commands to replay history.
 The sole trigger exception is Task9E's review-gated, one-case
@@ -2056,7 +2086,14 @@ devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Sin
   existing legacy guard tests; active backup operator guidance.
 **Depends on:** Tasks 8–11 GREEN and independent SPEC/QUALITY for the combined boundary.
 
-- [ ] Add RED default-backup test asserting logical 3 with and without Document
+Execution follows the [Task12 design](../specs/2026-10-18-singularity-v0.2-phase-5-task12-default-v3-design.md)
+and [detailed plan](2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md).
+Default writer/restore, architecture/static and actual combined SOURCE SPEC/
+NEW QUALITY passed; all four source commits and exact blobs are verified.
+Final documentation-contract verification, independent documentation reviews,
+docs-only commit and literal clean closure remain pending at this snapshot.
+
+- [x] Add RED default-backup test asserting logical 3 with and without Document
   content, full 38-table vector and qualified restore. Retain the Task 1 V2
   default characterization as historical evidence; amend the current-default
   test only now and add explicit legacy-version writer rejection cases. The
@@ -2073,22 +2110,22 @@ for version <- [1, 2] do
 end
 ```
 
-- [ ] Reuse the complete Task 8 version-aware guard after its explicit V3 writer
+- [x] Reuse the complete Task 8 version-aware guard after its explicit V3 writer
   and Tasks 9–11 integrity/live-restore qualification pass. Retain the original
   one-argument legacy V2 content guard, unconditional new-V1-writer denial and
   all unknown/incomplete V3 negatives; V1 codec/golden/decoder/restore stay intact.
   This task creates no duplicate or no-op guard migration. Default selection
   switches only now; production canonical writes/grants remain closed.
-- [ ] Change codec/default writer selector and typespec to 3 together; production
+- [x] Change codec/default writer selector and typespec to 3 together; production
   BackupVault still calls the same Storage adapter interface and receives the
   same outer cut/bundle/crypto structures. Add all default new-write round trips.
   Update tests asserting absent worker SELECT only for the precise new approved
   read grants, retaining denial of other roles and all mutation/custody grants.
-- [ ] Run full codec/verifier/exporter/unified legacy files and live saga/oracle
+- [x] Run full codec/verifier/exporter/unified legacy files and live saga/oracle
   again because default selection changed. Add unknown/incomplete V3 negatives
   as well as explicit legacy unsupported positives/negatives. Record guard
   behavior before/after and frozen source hashes.
-- [ ] SPEC then QUALITY, commit `feat(backup): select qualified logical v3 for new backups`.
+- [x] SPEC then QUALITY, commit `feat(backup): select qualified logical v3 for new backups`.
   This changes backup output only; production canonical write guards remain closed.
 
 ## Task 13: Authenticated snapshot, promoted source closure and bounded text spool

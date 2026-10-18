@@ -9,9 +9,26 @@ distinct QUALITY before planning commit f2e0899fa15bdf7b313d568ea9c23a05a4a8fe55
 The large-import diagnostic amendment passed independent SPEC and NEW distinct
 QUALITY before planning commit9a198ace64809ecec0e302b5e4fbe771e3e13387.
 Its temporary observation was removed by exact inverse/original whole-file SHA.
-The sole-restore fixture-composition amendment below is a review candidate;
-independent SPEC then NEW distinct QUALITY must pass before its one-line repair.
-Task12 default writer/restore qualification has not passed.
+The sole-restore fixture-composition amendment passed independent SPEC and NEW
+distinct QUALITY before planning commit5ec326d11267b4a3ecb9fdda88197054b874e9fc.
+Required scoped writer/restore, architecture131, format, devcompileWAE and
+xref0 gates now PASS. Actual combined17-owner SOURCE SPEC then NEW distinct
+SOURCE QUALITY both CLOSED PASS before these four local source commits:
+
+- 3205a9616b275ef3162b0543a70b8e9da44e6135 — Storage contracts
+- 427381875f7c2b27938bf79b5779f6e45c990515 — Runtime contracts/test-only oracle
+- 35db21e0971374b768794afab5585ecf0e78d056 — architecture contracts
+- 4d832e91a5cf093ecd081be7b4fd515426b21f7d — default selectors
+
+The [actual source/gate handoff](../../verification/2026-10-18-phase-5-task12-handoff.md)
+records complementary64 unit+258 integration cases,103 confirmation cases,
+complete sole restore, all40 raw bindings and preserved historical failures.
+This is source/gate qualification, not complete Task12 documentation closure
+or Phase5 acceptance. Final documentation-contract check, documentation SPEC/
+NEW QUALITY, docs-only commit and literal clean handoff are PENDING at this
+snapshot. Actual later results belong in the separate ignored closure receipt,
+not a self-predicted verdict in these reviewed bytes. Earlier candidate/failure
+narratives below are preserved historical evidence, not current verdicts.
 Continuous local development authorization applies; no renewed routine human
 approval is needed. E2E remains NOT RUN/manual-deferred and is not authorized.
 

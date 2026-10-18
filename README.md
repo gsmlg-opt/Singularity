@@ -37,8 +37,16 @@ non-secret manifest, complete V3 backups, V1/V2/V3 restore with source integrity
 and search reconstruction, and a historical `0.1.0` upgrade. Its implementation
 and acceptance remain unqualified; no browser features or production activation
 are enabled.
-Logical V3 preparation keeps default V2 and the current unsupported-canonical
-guard closed until writer and restore qualify together.
+New backups use logical V3 after combined writer and restore qualification.
+Explicit V2 retains its fail-closed unsupported-canonical guard.
+See the [Task12 default-transition design](docs/superpowers/specs/2026-10-18-singularity-v0.2-phase-5-task12-default-v3-design.md) and
+[detailed plan](docs/superpowers/plans/2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md).
+Task12's tested/reviewed local source is `4d832e91a5cf093ecd081be7b4fd515426b21f7d`;
+see its [actual source/gate handoff](docs/verification/2026-10-18-phase-5-task12-handoff.md)
+for evidence and the documentation-closure boundary.
+Task11's local documentation handoff is `e24b2b2b10f4bb2d21d7600ad8bdc2f931237d56`;
+its [source/gate handoff](docs/verification/2026-10-18-phase-5-task11-handoff.md)
+remains the historical qualification snapshot.
 Under the [continuous development authorization](AGENTS.md#continuous-development-authorization--2026-10-10):
 Later phases require designs, detailed plans, required verification, and
 independent review, without renewed routine human approval.

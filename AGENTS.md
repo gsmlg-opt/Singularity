@@ -46,8 +46,16 @@ Phase 5 covers portable Markdown, retained originals, extracted text and a
 non-secret manifest, complete logical V3 history, V1/V2/V3 restore with source
 integrity and search reconstruction, and a reproducible historical `0.1.0`
 upgrade. It adds no browser features or production activation.
-Logical V3 preparation keeps default V2 and the current unsupported-canonical
-guard closed until writer and restore qualify together.
+New backups use logical V3 after combined writer and restore qualification.
+Explicit V2 retains its fail-closed unsupported-canonical guard.
+The default transition follows
+`docs/superpowers/specs/2026-10-18-singularity-v0.2-phase-5-task12-default-v3-design.md` and
+`docs/superpowers/plans/2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md`.
+Task12's tested/reviewed local source is `4d832e91a5cf093ecd081be7b4fd515426b21f7d`;
+see `docs/verification/2026-10-18-phase-5-task12-handoff.md` for its actual
+gates and documentation-closure boundary.
+Task11's local documentation handoff is `e24b2b2b10f4bb2d21d7600ad8bdc2f931237d56`;
+see `docs/verification/2026-10-18-phase-5-task11-handoff.md` for its source/gates.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
 database `pg_trgm` provisioning/hardening through the existing external

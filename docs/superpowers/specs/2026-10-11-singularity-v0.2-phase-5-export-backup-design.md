@@ -5,6 +5,34 @@ SPEC followed by separate fresh QUALITY review have closed. Phase 5 remains
 IN PROGRESS; this document is not implementation acceptance. The reviewed
 snapshots and bounded corrections are recorded in the Phase 5 report.
 
+## Current Task12 source/gate qualification — 2026-10-18
+
+The Task12 source now writes logical3 through the genuine production default
+and passes the required scoped writer/restore routes, including no-Document
+native restoration, complete Document history and the sole independent oracle.
+Final complete17 unit304 executed64 cases; integration294 executed258, together
+covering322 registered cases with zero failures. Original three-owner296 passed
+103 confirmation cases. Sole restore302 passed generated-default and genuineV1,
+three knowledge-reference variants and late-corruption rejection. Each invocation
+had its own ordinary post0/EMPTY. Earlier failed candidates remain evidence.
+Architecture306 passed131 cases; format308, devcompileWAE310 and xref0cycles312
+passed, each with its own ordinary post0/EMPTY. Actual complete17 combined SOURCE
+SPEC then NEW distinct QUALITY both CLOSED PASS before four verified local
+source commits, ending at 4d832e91a5cf093ecd081be7b4fd515426b21f7d.
+The [actual source/gate handoff](../../verification/2026-10-18-phase-5-task12-handoff.md)
+records all commands, hashes, commits and historical failures. Final documentation
+contract check, documentation reviews/commit and literal clean closure remain
+PENDING at this snapshot; later facts belong in its separate ignored actual
+closure receipt. This is not complete Task12 or Phase5 acceptance.
+The [Task12 design](2026-10-18-singularity-v0.2-phase-5-task12-default-v3-design.md)
+and [detailed plan](../plans/2026-10-18-singularity-v0.2-phase-5-task12-default-v3.md)
+govern this transition and its two genuine fixture-composition repairs.
+The current default is logical3; explicitV2 keeps its unsupported-content guard.
+Production writes remain closed; Task16 BOTH strict ALL-leases stays
+UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
+E2E NOT RUN; no publication, deployment, production activation or Vault work.
+Dated Task11 and earlier defaultV2/preparation statuses below are historical.
+
 ## Current Task11 source/gate qualification — 2026-10-18
 
 Task11 source/gate qualification is complete on local source
@@ -15,9 +43,12 @@ SOURCE SPEC then NEW distinct SOURCE QUALITY both CLOSED PASS; committed source
 blobs21/21 match the tested/reviewed bytes. Exact commands, six source commits,
 raw hashes, warnings, historical failures and documentation closure conditions
 are in [Task11 handoff](../../verification/2026-10-18-phase-5-task11-handoff.md).
-Documentation review/commit and literal clean handoff remain closure conditions;
-this status records source/gates, not Phase5 acceptance or Task12 source GO.
-DefaultV2/closed unsupported guard, Task16 BOTH strict ALL-leases
+Task11 documentation SPEC/NEW QUALITY, docs-only handoff
+`e24b2b2b10f4bb2d21d7600ad8bdc2f931237d56` and literal clean closure passed;
+actual receipt SHA25648a250ce5defba52410fbef62894d5fb5721611574a678da03296806f62e24b7
+is recorded separately from the unchanged reviewed handoff snapshot.
+This is historical Task11 qualification, not Phase5 acceptance. Its then-current
+defaultV2/closed unsupported guard and Task16 BOTH strict ALL-leases
 UNSATISFIED/UNWAIVED/BLOCKED_DESIGN, Task17NOTGO and Task18 dependencies remain.
 E2E NOT RUN; no publication, production activation or Vault feature work.
 Dated Task10 and earlier amendment/preparation paragraphs below are historical;

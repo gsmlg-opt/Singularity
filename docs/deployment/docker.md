@@ -323,8 +323,14 @@ consistent PostgreSQL plus complete filesystem backup, run the new image's
 migrations, and start that exact image with the existing mounts and secrets.
 Migrations are forward-only; reverting an image is not a database rollback.
 Recovery may require restoring the matching database and asset snapshot together.
-Application backup/export does not replace this operator backup while canonical
-backup V3 support or its required fail-closed guard remains unaccepted.
+New application backups use logical V3; historical logical V1/V2 backups remain
+readable. Explicit V2 writes retain their fail-closed unsupported-canonical guard.
+Application backup/export does not replace the consistent PostgreSQL plus
+filesystem recovery snapshot, even after local writer/restore qualification.
+Local verification does not constitute production or release acceptance.
+The [Task12 local handoff](../verification/2026-10-18-phase-5-task12-handoff.md)
+records the tested default transition and its remaining acceptance boundaries;
+it does not authorize an image build, publication, or deployment.
 
 Do not delete storage volumes during replacement or cleanup. Remove temporary
 admin images only after administrative work is complete. Publication, production
