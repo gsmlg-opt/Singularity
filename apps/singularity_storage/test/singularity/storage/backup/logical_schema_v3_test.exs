@@ -152,8 +152,8 @@ defmodule Singularity.Storage.Backup.LogicalSchemaV3Test do
              LogicalSchemaV2.tables() ++ Enum.map(@definitions, &elem(&1, 0))
 
     assert LogicalRecordCodec.tables(3) == v3(:tables)
-    assert LogicalRecordCodec.default_version() == 2
-    assert LogicalRecordCodec.tables() == LogicalSchemaV2.tables()
+    assert LogicalRecordCodec.default_version() == 3
+    assert LogicalRecordCodec.tables() == LogicalSchemaV3.tables()
 
     for schema <- schemas do
       assert {:ok, ^schema} = v3(:fetch_table, [schema.table])
@@ -249,11 +249,12 @@ defmodule Singularity.Storage.Backup.LogicalSchemaV3Test do
     end
   end
 
-  test "V3-only rows remain unavailable to default V2 and both explicit legacy codecs" do
+  test "V3-only rows use the default V3 and remain unavailable to both explicit legacy codecs" do
     for {table, columns, key_slots} <- @definitions do
       values = Enum.map(columns, fn {_name, tag, _nullable?} -> value(tag) end)
       primary_key = Enum.map(key_slots, fn {position, _tag} -> Enum.at(values, position) end)
-      assert_invalid(LogicalRecordCodec.encode_row(table, primary_key, values))
+      assert {:ok, row} = LogicalRecordCodec.encode_row(table, primary_key, values)
+      assert {:ok, ^row} = LogicalRecordCodec.encode_row(table, primary_key, values, 3)
 
       for version <- [1, 2] do
         assert_invalid(LogicalRecordCodec.encode_row(table, primary_key, values, version))

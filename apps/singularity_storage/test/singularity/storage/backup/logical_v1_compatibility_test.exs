@@ -112,7 +112,7 @@ defmodule Singularity.Storage.Backup.LogicalV1CompatibilityTest do
     assert LogicalSchemaV2.version() == 2
     assert LogicalSchemaV2.count() == 30
     assert LogicalSchemaV2.column_count() == 280
-    assert LogicalRecordCodec.default_version() == 2
+    assert LogicalRecordCodec.default_version() == 3
 
     for v1 <- LogicalSchema.all() do
       assert {:ok, v2} = LogicalSchemaV2.fetch_ordinal(v1.ordinal)

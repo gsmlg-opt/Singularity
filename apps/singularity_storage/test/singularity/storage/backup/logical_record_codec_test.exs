@@ -4,6 +4,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   alias Singularity.Storage.Backup.LogicalRecordCodec
   alias Singularity.Storage.Backup.LogicalSchema
   alias Singularity.Storage.Backup.LogicalSchemaV2
+  alias Singularity.Storage.Backup.LogicalSchemaV3
   alias Singularity.Core.Error
 
   @manifest_id "00000000-0000-4000-8000-000000000a01"
@@ -70,14 +71,45 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     "jobs.effect_receipts"
   ]
 
-  test "publishes versioned logical restore table order with version two as the default" do
-    assert LogicalRecordCodec.default_version() == 2
+  test "publishes versioned logical restore table order with version three as the default" do
+    assert LogicalRecordCodec.default_version() == 3
     assert LogicalRecordCodec.tables(1) == @logical_v1_tables
 
     assert LogicalRecordCodec.tables(2) ==
              @logical_v1_tables ++ ["content.note_versions", "content.note_conflicts"]
 
-    assert LogicalRecordCodec.tables() == LogicalRecordCodec.tables(2)
+    assert LogicalRecordCodec.tables() == LogicalSchemaV3.tables()
+  end
+
+  test "default V3 encodes the complete schema and rejects a legacy-size cut" do
+    assert LogicalRecordCodec.default_version() == 3
+    assert LogicalRecordCodec.tables() == LogicalSchemaV3.tables()
+    counts = List.duplicate(0, 38)
+    attrs = cut_attrs(table_count_vector: counts)
+    assert {:ok, cut} = LogicalRecordCodec.encode_cut(attrs)
+    assert {:ok, ^cut} = LogicalRecordCodec.encode_cut(attrs, 3)
+
+    assert {:ok, %{logical_version: 3, table_count_vector: ^counts}} =
+             LogicalRecordCodec.decode(cut.type, cut.payload)
+
+    for schema <- LogicalSchemaV3.all() do
+      {primary_key, values} = valid_row(schema)
+      assert {:ok, row} = LogicalRecordCodec.encode_row(schema.table, primary_key, values)
+      assert {:ok, ^row} = LogicalRecordCodec.encode_row(schema.table, primary_key, values, 3)
+
+      assert {:ok, %{logical_version: 3, table: table}} =
+               LogicalRecordCodec.decode(row.type, row.payload)
+
+      assert table == schema.table
+    end
+
+    assert {:ok, object} = LogicalRecordCodec.encode_object(object_attrs())
+    assert {:ok, ^object} = LogicalRecordCodec.encode_object(object_attrs(), 3)
+
+    assert {:ok, %{logical_version: 3}} =
+             LogicalRecordCodec.decode(object.type, object.payload)
+
+    assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs()))
   end
 
   test "publishes the exact version-one schema registry and sanitized key slots" do
@@ -254,7 +286,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     }
 
     assert {:ok, %{type: 0x0001, payload: payload, payload_length: payload_length} = record} =
-             LogicalRecordCodec.encode_cut(attrs)
+             LogicalRecordCodec.encode_cut(attrs, 2)
 
     assert payload_length == byte_size(payload)
     refute match?(<<131, 80, _::binary>>, payload)
@@ -283,7 +315,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     assert {:ok, _record} =
              LogicalRecordCodec.encode_cut(
-               cut_attrs(database_snapshot: exact_snapshot, table_count_vector: exact_counts)
+               cut_attrs(database_snapshot: exact_snapshot, table_count_vector: exact_counts),
+               2
              )
 
     over_snapshot =
@@ -291,18 +324,19 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     assert byte_size(over_snapshot) == 4_097
 
-    assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(database_snapshot: over_snapshot)))
+    assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(database_snapshot: over_snapshot), 2))
 
     assert_invalid(
       LogicalRecordCodec.encode_cut(
-        cut_attrs(table_count_vector: [999_999 | List.duplicate(0, 29)])
+        cut_attrs(table_count_vector: [999_999 | List.duplicate(0, 29)]),
+        2
       )
     )
 
     assert {:ok, _record} =
-             LogicalRecordCodec.encode_cut(cut_attrs(object_count: 499_999))
+             LogicalRecordCodec.encode_cut(cut_attrs(object_count: 499_999), 2)
 
-    assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(object_count: 500_000)))
+    assert_invalid(LogicalRecordCodec.encode_cut(cut_attrs(object_count: 500_000), 2))
   end
 
   test "round trips explicitly requested version-one cut, row, and object records" do
@@ -351,12 +385,12 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     v2_cut_attrs = cut_attrs()
     object_attrs = object_attrs()
 
-    assert {:ok, cut_record} = LogicalRecordCodec.encode_cut(v2_cut_attrs)
+    assert {:ok, cut_record} = LogicalRecordCodec.encode_cut(v2_cut_attrs, 2)
 
     assert {:ok, row_record} =
-             LogicalRecordCodec.encode_row("content.resources", v2_primary_key, v2_values)
+             LogicalRecordCodec.encode_row("content.resources", v2_primary_key, v2_values, 2)
 
-    assert {:ok, object_record} = LogicalRecordCodec.encode_object(object_attrs)
+    assert {:ok, object_record} = LogicalRecordCodec.encode_object(object_attrs, 2)
 
     for invalid_version <- [
           0,
@@ -437,14 +471,16 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              LogicalRecordCodec.encode_row(
                "identity.people",
                primary_key_values,
-               values
+               values,
+               2
              )
 
     assert {:ok, reverse_record} =
              LogicalRecordCodec.encode_row(
                "identity.people",
                primary_key_values,
-               reverse_values
+               reverse_values,
+               2
              )
 
     assert record.payload == reverse_record.payload
@@ -482,7 +518,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
                LogicalRecordCodec.encode_row(
                  schema.table,
                  primary_key_values,
-                 ordered_column_values
+                 ordered_column_values,
+                 2
                )
 
       assert {:ok,
@@ -501,7 +538,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
         LogicalRecordCodec.encode_row(
           schema.table,
           primary_key_values,
-          Enum.drop(ordered_column_values, -1)
+          Enum.drop(ordered_column_values, -1),
+          2
         )
       )
 
@@ -509,7 +547,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
         LogicalRecordCodec.encode_row(
           schema.table,
           primary_key_values,
-          ordered_column_values ++ [{"null"}]
+          ordered_column_values ++ [{"null"}],
+          2
         )
       )
 
@@ -518,17 +557,17 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
           List.replace_at(ordered_column_values, position, wrong_tag_value(column.tag))
 
         assert_invalid(
-          LogicalRecordCodec.encode_row(schema.table, primary_key_values, wrong_tag_values)
+          LogicalRecordCodec.encode_row(schema.table, primary_key_values, wrong_tag_values, 2)
         )
 
         null_values = List.replace_at(ordered_column_values, position, {"null"})
 
         if column.nullable? do
           assert {:ok, _record} =
-                   LogicalRecordCodec.encode_row(schema.table, primary_key_values, null_values)
+                   LogicalRecordCodec.encode_row(schema.table, primary_key_values, null_values, 2)
         else
           assert_invalid(
-            LogicalRecordCodec.encode_row(schema.table, primary_key_values, null_values)
+            LogicalRecordCodec.encode_row(schema.table, primary_key_values, null_values, 2)
           )
         end
       end
@@ -543,7 +582,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
           LogicalRecordCodec.encode_row(
             schema.table,
             null_primary_key,
-            null_primary_columns
+            null_primary_columns,
+            2
           )
         )
 
@@ -554,7 +594,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
           LogicalRecordCodec.encode_row(
             schema.table,
             mismatched_primary_key,
-            ordered_column_values
+            ordered_column_values,
+            2
           )
         )
       end
@@ -610,7 +651,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
 
     for {table, primary_key_values, ordered_column_values} <- invalid_rows do
       assert_invalid(
-        LogicalRecordCodec.encode_row(table, primary_key_values, ordered_column_values)
+        LogicalRecordCodec.encode_row(table, primary_key_values, ordered_column_values, 2)
       )
     end
   end
@@ -618,7 +659,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   test "encodes and decodes canonical object evidence" do
     attrs = object_attrs()
 
-    assert {:ok, %{type: 0x0003} = record} = LogicalRecordCodec.encode_object(attrs)
+    assert {:ok, %{type: 0x0003} = record} = LogicalRecordCodec.encode_object(attrs, 2)
     assert record.payload_length == byte_size(record.payload)
 
     assert {:ok, %{kind: :object, logical_version: 2} = decoded} =
@@ -650,7 +691,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
     ]
 
     for attrs <- invalid_objects do
-      assert_invalid(LogicalRecordCodec.encode_object(attrs))
+      assert_invalid(LogicalRecordCodec.encode_object(attrs, 2))
     end
   end
 
@@ -668,7 +709,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              LogicalRecordCodec.encode_row(
                "identity.people",
                primary_key_values,
-               compressible_values
+               compressible_values,
+               2
              )
 
     row_term = :erlang.binary_to_term(row.payload, [:safe])
@@ -708,7 +750,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              LogicalRecordCodec.encode_row(
                "identity.people",
                primary_key_values,
-               ordered_column_values
+               ordered_column_values,
+               2
              )
 
     row_term = :erlang.binary_to_term(row.payload, [:safe])
@@ -758,11 +801,12 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
       LogicalRecordCodec.encode_row(
         "content.asset_objects",
         primary_key_values,
-        oversized_values
+        oversized_values,
+        2
       )
     )
 
-    assert_invalid(LogicalRecordCodec.encode_object(object_attrs(storage_ref: oversized)))
+    assert_invalid(LogicalRecordCodec.encode_object(object_attrs(storage_ref: oversized), 2))
     assert_invalid(LogicalRecordCodec.decode(0x0002, oversized <> <<0>>))
     assert_invalid(LogicalRecordCodec.decode(0x0001, :binary.copy(<<0>>, 65_537)))
   end
@@ -780,7 +824,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
       LogicalRecordCodec.encode_row(
         "identity.credentials",
         credential_primary_key,
-        List.insert_at(credential_values, 3, {"text", verifier})
+        List.insert_at(credential_values, 3, {"text", verifier}),
+        2
       )
     )
 
@@ -795,7 +840,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
         LogicalRecordCodec.encode_row(
           "core.vault_key_wrappers",
           wrapper_primary_key,
-          wrapper_values ++ [secret]
+          wrapper_values ++ [secret],
+          2
         )
       )
     end
@@ -804,14 +850,16 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
              LogicalRecordCodec.encode_row(
                "identity.credentials",
                credential_primary_key,
-               credential_values
+               credential_values,
+               2
              )
 
     assert {:ok, wrapper} =
              LogicalRecordCodec.encode_row(
                "core.vault_key_wrappers",
                wrapper_primary_key,
-               wrapper_values
+               wrapper_values,
+               2
              )
 
     for canary <- canaries do
@@ -823,17 +871,19 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
   test "does not accept secret-bearing fields outside non-row record contracts" do
     canary = "never-serialize-this-passphrase"
 
-    assert_invalid(LogicalRecordCodec.encode_cut(Map.put(cut_attrs(), :passphrase, canary)))
+    assert_invalid(LogicalRecordCodec.encode_cut(Map.put(cut_attrs(), :passphrase, canary), 2))
 
-    assert_invalid(LogicalRecordCodec.encode_object(Map.put(object_attrs(), :backup_key, canary)))
+    assert_invalid(
+      LogicalRecordCodec.encode_object(Map.put(object_attrs(), :backup_key, canary), 2)
+    )
 
-    assert {:ok, cut} = LogicalRecordCodec.encode_cut(cut_attrs())
-    assert {:ok, object} = LogicalRecordCodec.encode_object(object_attrs())
+    assert {:ok, cut} = LogicalRecordCodec.encode_cut(cut_attrs(), 2)
+    assert {:ok, object} = LogicalRecordCodec.encode_object(object_attrs(), 2)
     assert :binary.match(cut.payload, canary) == :nomatch
     assert :binary.match(object.payload, canary) == :nomatch
   end
 
-  test "explicit V3 selection adds exactly the eight knowledge tables without changing defaults" do
+  test "V3 selection adds exactly the eight knowledge tables and is the default" do
     assert LogicalRecordCodec.tables(3) ==
              LogicalRecordCodec.tables(2) ++
                [
@@ -847,8 +897,8 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodecTest do
                  "content.relationships"
                ]
 
-    assert LogicalRecordCodec.default_version() == 2
-    assert LogicalRecordCodec.tables() == LogicalRecordCodec.tables(2)
+    assert LogicalRecordCodec.default_version() == 3
+    assert LogicalRecordCodec.tables() == LogicalRecordCodec.tables(3)
 
     for version <- [0, 4, "3", nil, {:logical_version, 3}, %{logical_version: 3}] do
       assert LogicalRecordCodec.tables(version) == []

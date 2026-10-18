@@ -103,11 +103,12 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     refute source =~ "FROM content.note_conflicts AS source"
   end
 
-  test "refuses a Document owner without exposing its title, while other owners export", %{
-    fixture: fixture,
-    seeded: seeded,
-    cut: cut
-  } do
+  test "explicit V2 refuses a Document owner without exposing its title, while other owners export",
+       %{
+         fixture: fixture,
+         seeded: seeded,
+         cut: cut
+       } do
     source = KnowledgeFixtures.prepared_source!()
 
     Fixtures.with_owner(fn ->
@@ -157,7 +158,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                WorkerRepo,
                %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
                [isolation: :repeatable_read],
-               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id, 2) end
              )
 
     assert vault_id == fixture.vault_id
@@ -187,7 +188,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                             []
                           )
 
-                 Exporter.snapshot_cut(repo, source.vault_id)
+                 Exporter.snapshot_cut(repo, source.vault_id, 2)
                end
              )
 
@@ -210,7 +211,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                WorkerRepo,
                %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
                [isolation: :repeatable_read],
-               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id, 2) end
              )
 
     assert {:error, %Error{code: :backup_unsupported}} = run_export(fixture, cut)
@@ -255,8 +256,8 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
             [isolation: :repeatable_read],
             fn repo ->
               case entrypoint do
-                :snapshot_cut -> Exporter.snapshot_cut(repo, requested_vault_id)
-                :records -> Exporter.records(repo, current_snapshot_cut(repo, requested_cut))
+                :snapshot_cut -> Exporter.snapshot_cut(repo, requested_vault_id, 2)
+                :records -> Exporter.records(repo, current_snapshot_cut(repo, requested_cut), 2)
               end
             end
           )
@@ -360,7 +361,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
       ] do
     @inventory_table table
     @expected_inventory inventory
-    test "refuses legal #{@inventory_table} inventory at both entrypoints and isolates its owner",
+    test "explicit V2 refuses legal #{@inventory_table} inventory at both entrypoints and isolates its owner",
          %{
            fixture: control,
            cut: control_cut
@@ -430,10 +431,10 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                        []
                      )
 
-                   assert {:ok, first_cut} = Exporter.snapshot_cut(repo, fixture.vault_id)
+                   assert {:ok, first_cut} = Exporter.snapshot_cut(repo, fixture.vault_id, 2)
                    first_cut = Map.put(first_cut, :manifest_id, Ecto.UUID.generate())
                    assert first_cut.database_snapshot == snapshot
-                   assert {:ok, first_export} = Exporter.records(repo, first_cut)
+                   assert {:ok, first_export} = Exporter.records(repo, first_cut, 2)
                    first_records = Enum.to_list(first_export.records)
 
                    send(writer.pid, {reference, :write})
@@ -443,12 +444,12 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                    assert %{rows: [[^snapshot]]} =
                             SafeSQL.query!(repo, "SELECT txid_current_snapshot()::text", [])
 
-                   assert {:ok, second_cut} = Exporter.snapshot_cut(repo, fixture.vault_id)
+                   assert {:ok, second_cut} = Exporter.snapshot_cut(repo, fixture.vault_id, 2)
 
                    assert Map.drop(second_cut, [:snapshot_id]) ==
                             Map.drop(first_cut, [:snapshot_id, :manifest_id])
 
-                   assert {:ok, second_export} = Exporter.records(repo, first_cut)
+                   assert {:ok, second_export} = Exporter.records(repo, first_cut, 2)
                    second_records = Enum.to_list(second_export.records)
                    assert second_records == first_records
                    assert second_export.inventory == first_export.inventory
@@ -479,7 +480,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
     assert_unsupported_export(fixture, valid_cut, %{bytes: [canary], values: []})
   end
 
-  test "exports deterministic lazy logical records with exact counts, ordering, and descriptors",
+  test "explicit V2 exports deterministic lazy logical records with exact counts, ordering, and descriptors",
        %{fixture: fixture, raw_fixture: raw_fixture, seeded: seeded, cut: cut} do
     handler_id = {__MODULE__, self(), make_ref()}
 
@@ -502,7 +503,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                  export_cut = current_snapshot_cut(repo, cut)
 
                  assert {:ok, %{records: records, inventory: inventory}} =
-                          Exporter.records(repo, export_cut)
+                          Exporter.records(repo, export_cut, 2)
 
                  refute_receive :raw_worker_query
                  assert [%{type: 0x0001}] = Enum.take(records, 1)
@@ -867,7 +868,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
         %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
         [isolation: :repeatable_read],
         fn repo ->
-          assert {:ok, export} = Exporter.records(repo, current_snapshot_cut(repo, cut))
+          assert {:ok, export} = Exporter.records(repo, current_snapshot_cut(repo, cut), 2)
           export.records
         end
       )
@@ -904,7 +905,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
                WorkerRepo,
                %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
                [isolation: :repeatable_read],
-               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id, 2) end
              )
 
     assert vault_id == fixture.vault_id
@@ -933,7 +934,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
         WorkerRepo,
         %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
         [isolation: :repeatable_read],
-        fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+        fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id, 2) end
       )
 
     # Bind an independently valid cut so refusal at snapshot_cut cannot mask records.
@@ -1131,7 +1132,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
       [isolation: :repeatable_read],
       fn repo ->
         cut = if bind_snapshot?, do: current_snapshot_cut(repo, cut), else: cut
-        Exporter.records(repo, cut)
+        Exporter.records(repo, cut, 2)
       end
     )
   end
@@ -1142,7 +1143,7 @@ defmodule Singularity.Storage.Backup.LogicalExporterTest do
       %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
       [isolation: :repeatable_read],
       fn repo ->
-        with {:ok, export} <- Exporter.records(repo, current_snapshot_cut(repo, cut)) do
+        with {:ok, export} <- Exporter.records(repo, current_snapshot_cut(repo, cut), 2) do
           {:ok, Enum.to_list(export.records)}
         end
       end

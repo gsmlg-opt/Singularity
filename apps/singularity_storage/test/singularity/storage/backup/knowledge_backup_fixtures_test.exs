@@ -927,7 +927,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
           {mode, reads}
         end
 
-      assert LogicalRecordCodec.default_version() == 2
+      assert LogicalRecordCodec.default_version() == 3
       assert call(:canonical_rows, [fixture]) == before
 
       expected_reads =
@@ -1128,7 +1128,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixturesTest do
              &(&1.table in LogicalSchemaV2.tables())
            )
 
-    assert LogicalRecordCodec.default_version() == 2
+    assert LogicalRecordCodec.default_version() == 3
   end
 
   defp prepare_canonical_query_counter do

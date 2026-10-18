@@ -272,10 +272,14 @@ defmodule Singularity.Storage.Backup.LogicalV3ExporterTest do
 
                  assert {:error, %Error{code: :backup_unsupported}} = records(repo, logical, 1)
                  assert {:ok, explicit} = records(repo, logical, 2)
-                 assert {:ok, default} = Exporter.records(repo, logical)
                  explicit_rows = decode(Enum.to_list(explicit.records))
-                 assert decode(Enum.to_list(default.records)) == explicit_rows
                  assert Enum.all?(explicit_rows, &(&1.logical_version == 2))
+
+                 assert {:ok, v3} = records(repo, logical, 3)
+                 assert {:ok, default} = records(repo, logical, :default)
+                 default_rows = decode(Enum.to_list(default.records))
+                 assert default_rows == decode(Enum.to_list(v3.records))
+                 assert Enum.all?(default_rows, &(&1.logical_version == 3))
 
                  actual =
                    explicit_rows
@@ -308,14 +312,14 @@ defmodule Singularity.Storage.Backup.LogicalV3ExporterTest do
                    assert {"timestamp", _deleted_at} = Enum.at(resource.ordered_column_values, 4)
                  end
 
-                 assert {:ok, default_cut} = Exporter.snapshot_cut(repo, note.vault_id)
+                 assert {:ok, default_cut} = snapshot(repo, note.vault_id, :default)
                  assert Map.drop(default_cut, [:snapshot_id]) == Map.drop(cut, [:snapshot_id])
                  {:ok, :checked}
                end)
     end
   end
 
-  test "explicit V3 emits the exact 38-table SQL oracle, complete history and original closure" do
+  test "default and explicit V3 emit the exact 38-table SQL oracle, complete history and original closure" do
     with_fixture(fn fixture ->
       oracle = source_oracle(fixture.owner)
       assert Enum.map(@tables, &length(oracle[&1])) == @counts
@@ -335,64 +339,66 @@ defmodule Singularity.Storage.Backup.LogicalV3ExporterTest do
 
       assert Enum.count(expected_inventory, &(&1.asset_object_id == @ids.pdf_object_id)) == 1
 
-      assert {:ok, :checked} =
-               scoped(fixture.owner, fn repo ->
-                 assert {:ok, capture} = snapshot(repo, fixture.owner.vault_id, 3)
-                 assert Enum.sort(Map.keys(capture)) == Enum.sort(@capture_keys)
-                 assert capture.object_inventory == expected_inventory
-                 logical = Map.put(capture, :manifest_id, Ecto.UUID.generate())
-                 assert Enum.sort(Map.keys(logical)) == @logical_keys
-                 assert {:ok, export} = records(repo, logical, 3)
-                 first = Enum.to_list(export.records)
-                 assert Enum.to_list(export.records) == first
-                 assert Enum.map(first, &LogicalRecordCodec.descriptor/1) == export.inventory
-                 [header | body] = decode(first)
+      for selector <- [:default, 3] do
+        assert {:ok, :checked} =
+                 scoped(fixture.owner, fn repo ->
+                   assert {:ok, capture} = snapshot(repo, fixture.owner.vault_id, selector)
+                   assert Enum.sort(Map.keys(capture)) == Enum.sort(@capture_keys)
+                   assert capture.object_inventory == expected_inventory
+                   logical = Map.put(capture, :manifest_id, Ecto.UUID.generate())
+                   assert Enum.sort(Map.keys(logical)) == @logical_keys
+                   assert {:ok, export} = records(repo, logical, selector)
+                   first = Enum.to_list(export.records)
+                   assert Enum.to_list(export.records) == first
+                   assert Enum.map(first, &LogicalRecordCodec.descriptor/1) == export.inventory
+                   [header | body] = decode(first)
 
-                 assert %{
-                          kind: :cut,
-                          logical_version: 3,
-                          table_count_vector: @counts,
-                          object_count: 5
-                        } = header
+                   assert %{
+                            kind: :cut,
+                            logical_version: 3,
+                            table_count_vector: @counts,
+                            object_count: 5
+                          } = header
 
-                 assert header.manifest_id == logical.manifest_id
-                 assert header.database_snapshot == capture.database_snapshot
-                 assert header.outbox_high_water_mark == capture.outbox_high_water_mark
-                 assert Enum.all?(body, &(&1.logical_version == 3))
-                 rows = Enum.filter(body, &(&1.kind == :row))
-                 assert_source_rows(rows, oracle)
-                 evidence = Enum.filter(body, &(&1.kind == :object))
+                   assert header.manifest_id == logical.manifest_id
+                   assert header.database_snapshot == capture.database_snapshot
+                   assert header.outbox_high_water_mark == capture.outbox_high_water_mark
+                   assert Enum.all?(body, &(&1.logical_version == 3))
+                   rows = Enum.filter(body, &(&1.kind == :row))
+                   assert_source_rows(rows, oracle)
+                   evidence = Enum.filter(body, &(&1.kind == :object))
 
-                 assert Enum.map(evidence, & &1.asset_object_id) ==
-                          Enum.map(expected_inventory, & &1.asset_object_id)
+                   assert Enum.map(evidence, & &1.asset_object_id) ==
+                            Enum.map(expected_inventory, & &1.asset_object_id)
 
-                 for {object, entry} <- Enum.zip(evidence, expected_inventory) do
-                   assert Map.drop(object, [:kind, :logical_version, :object_index]) ==
-                            entry
-                            |> Map.delete(:inventory_position)
-                            |> Map.update!(:classification, &Atom.to_string/1)
+                   for {object, entry} <- Enum.zip(evidence, expected_inventory) do
+                     assert Map.drop(object, [:kind, :logical_version, :object_index]) ==
+                              entry
+                              |> Map.delete(:inventory_position)
+                              |> Map.update!(:classification, &Atom.to_string/1)
 
-                   assert object.object_index == entry.inventory_position
-                 end
+                     assert object.object_index == entry.inventory_position
+                   end
 
-                 assert_retained_history(rows)
-                 assert {:ok, raw} = raw_inventory(repo, storage(fixture), capture)
+                   assert_retained_history(rows)
+                   assert {:ok, raw} = raw_inventory(repo, storage(fixture), capture)
 
-                 assert {:ok, delegated} =
-                          Exporter.stream_inventory(
-                            %{repo: repo, storage: storage(fixture)},
-                            capture
-                          )
+                   assert {:ok, delegated} =
+                            Exporter.stream_inventory(
+                              %{repo: repo, storage: storage(fixture)},
+                              capture
+                            )
 
-                 assert raw.inventory == delegated.inventory
-                 assert_raw_ciphertext(raw, fixture, expected_inventory)
-                 assert_raw_ciphertext(delegated, fixture, expected_inventory)
-                 {:ok, :checked}
-               end)
+                   assert raw.inventory == delegated.inventory
+                   assert_raw_ciphertext(raw, fixture, expected_inventory)
+                   assert_raw_ciphertext(delegated, fixture, expected_inventory)
+                   {:ok, :checked}
+                 end)
+      end
     end)
   end
 
-  test "default and explicit V2 still deny both live and tombstoned V3 graphs" do
+  test "default V3 exports live and tombstoned V3 graphs while explicit V1/V2 deny both" do
     with_fixture(fn fixture ->
       assert_legacy_denied(fixture)
 
@@ -1801,7 +1807,9 @@ defmodule Singularity.Storage.Backup.LogicalV3ExporterTest do
   def capture_query(event, _measurements, metadata, observer),
     do: send(observer, {:raw_worker_query, event, metadata})
 
+  defp snapshot(repo, owner, :default), do: Exporter.snapshot_cut(repo, owner)
   defp snapshot(repo, owner, version), do: apply(Exporter, :snapshot_cut, [repo, owner, version])
+  defp records(repo, cut, :default), do: Exporter.records(repo, cut)
   defp records(repo, cut, version), do: apply(Exporter, :records, [repo, cut, version])
 
   defp raw_inventory(repo, storage, cut),
@@ -2275,19 +2283,22 @@ defmodule Singularity.Storage.Backup.LogicalV3ExporterTest do
   defp assert_legacy_denied(fixture) do
     assert {:ok, :checked} =
              scoped(fixture.owner, fn repo ->
-               assert {:ok, capture} = snapshot(repo, fixture.owner.vault_id, 3)
+               assert {:ok, capture} = snapshot(repo, fixture.owner.vault_id, :default)
                logical = Map.put(capture, :manifest_id, Ecto.UUID.generate())
+               assert {:ok, export} = records(repo, logical, :default)
+               [header | body] = decode(Enum.to_list(export.records))
+               assert header.logical_version == 3
+               assert length(header.table_count_vector) == 38
+               assert Enum.all?(body, &(&1.logical_version == 3))
 
-               assert {:error, %Error{code: :backup_unsupported}} =
-                        Exporter.snapshot_cut(repo, fixture.owner.vault_id)
+               for version <- [1, 2] do
+                 assert {:error, %Error{code: :backup_unsupported}} =
+                          snapshot(repo, fixture.owner.vault_id, version)
 
-               assert {:error, %Error{code: :backup_unsupported}} =
-                        Exporter.records(repo, logical)
+                 assert {:error, %Error{code: :backup_unsupported}} =
+                          records(repo, logical, version)
+               end
 
-               assert {:error, %Error{code: :backup_unsupported}} =
-                        snapshot(repo, fixture.owner.vault_id, 2)
-
-               assert {:error, %Error{code: :backup_unsupported}} = records(repo, logical, 2)
                {:ok, :checked}
              end)
   end

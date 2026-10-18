@@ -566,7 +566,7 @@ defmodule Singularity.Storage.BackupConcurrencyTest do
                WorkerRepo,
                %{principal_id: fixture.principal_id, vault_id: fixture.vault_id},
                [isolation: :repeatable_read],
-               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id) end
+               fn repo -> Exporter.snapshot_cut(repo, fixture.vault_id, 2) end
              )
 
     assert cut.vault_id == fixture.vault_id

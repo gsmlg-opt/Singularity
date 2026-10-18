@@ -136,7 +136,7 @@ defmodule Singularity.Storage.UnifiedSearchRestoreTest do
       WorkerRepo,
       %{principal_id: Ecto.UUID.load!(source.principal_id), vault_id: owner},
       [isolation: :repeatable_read],
-      fn repo -> Exporter.snapshot_cut(repo, owner) end
+      fn repo -> Exporter.snapshot_cut(repo, owner, 2) end
     )
   end
 
