@@ -134,6 +134,29 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     }
   end
 
+  def seed_graph!(%{owner: owner, ids: ids, sources: sources, work: work} = input) do
+    true =
+      Enum.sort(Map.keys(sources)) ==
+        Enum.sort([:pdf, :pdf_duplicate, :empty, :plain, :unicode, :markdown])
+
+    true =
+      Enum.all?(sources, fn {_name, source} ->
+        Enum.all?(
+          [:resource_id, :resource_version_id, :asset_id, :object_id, :digest, :byte_size],
+          &Map.has_key?(source, &1)
+        )
+      end)
+
+    owner_query(fn ->
+      fragments = seed_documents(owner, ids, sources)
+      seed_notes(owner, ids, sources, fragments)
+      seed_organization(owner, ids)
+      seed_work(owner, ids, work)
+    end)
+
+    Map.take(input, [:owner, :ids, :sources, :work])
+  end
+
   def canonical_rows(fixture), do: select_rows(fixture.owner, prefix_projection() ++ @appended)
 
   def source_bytes(fixture) do
@@ -686,6 +709,14 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
   end
 
   defp seed_work(owner, ids) do
+    seed_work(owner, ids, %{
+      submission_id: id(702),
+      principal_authorization_epoch: 0,
+      vault_authorization_epoch: 0
+    })
+  end
+
+  defp seed_work(owner, ids, work) do
     insert("core.outbox_events",
       id: id(700),
       event_type: "document.extraction_requested",
@@ -693,8 +724,8 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
       vault_id: owner.vault_id,
       principal_id: owner.principal_id,
       required_capability: "asset.read",
-      principal_authorization_epoch: 0,
-      vault_authorization_epoch: 0,
+      principal_authorization_epoch: work.principal_authorization_epoch,
+      vault_authorization_epoch: work.vault_authorization_epoch,
       classification: "private",
       correlation_id: id(701),
       expected_entity_revision: 0,
@@ -707,7 +738,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     )
 
     insert("jobs.job_submissions",
-      id: id(702),
+      id: work.submission_id,
       vault_id: owner.vault_id,
       outbox_event_id: id(700),
       classification: "private",
@@ -718,7 +749,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     insert("jobs.job_progress",
       id: id(703),
       vault_id: owner.vault_id,
-      submission_id: id(702),
+      submission_id: work.submission_id,
       classification: "private",
       state: "waiting_for_unlock",
       checkpoint_version: 1
@@ -727,7 +758,7 @@ defmodule Singularity.Storage.Backup.KnowledgeBackupFixtures do
     insert("jobs.effect_receipts",
       id: id(704),
       vault_id: owner.vault_id,
-      submission_id: id(702),
+      submission_id: work.submission_id,
       classification: "private",
       effect_key: "fixture-extraction-claimed",
       result: "applied",
