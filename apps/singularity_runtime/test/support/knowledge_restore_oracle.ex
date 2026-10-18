@@ -1306,7 +1306,8 @@ defmodule Singularity.Runtime.KnowledgeRestoreOracle do
     end
 
     require!(
-      source.reference_mode == mode and source.default_backup_error == :backup_unsupported and
+      source.reference_mode == mode and
+        source.legacy_backup_errors == %{1 => :backup_unsupported, 2 => :backup_unsupported} and
         observation.worker_role == "singularity_worker" and
         observation.worker_backend != observation.observer_backend and
         observation.database == source.lifecycle.database and

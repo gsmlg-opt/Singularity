@@ -47,7 +47,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
     alias Singularity.Storage.Backup.{Exporter, KnowledgeCanonicalOracle}
 
     def snapshot_cut(repo, vault_id) do
-      with {:ok, cut} <- Exporter.snapshot_cut(repo, vault_id, 3) do
+      with {:ok, cut} <- Exporter.snapshot_cut(repo, vault_id) do
         %{owner: owner, receive_cut: receive_cut} =
           Application.fetch_env!(:singularity_runtime, :knowledge_v3_test_observer)
 
@@ -57,7 +57,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
       end
     end
 
-    def records(repo, cut), do: Exporter.records(repo, cut, 3)
+    def records(repo, cut), do: Exporter.records(repo, cut)
   end
 
   defmodule V3JobHandler do
@@ -898,7 +898,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
           "Document-only PDF retention scheduled orphan cleanup or retained an Asset pointer"
         )
 
-        default_error = default_backup_guard!(session)
+        legacy_errors = legacy_backup_guards!(session)
         passphrase = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
         requested =
@@ -1012,7 +1012,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
           orphan_cleanup_events: orphan_events,
           bootstrap_hierarchy_unchanged?: hierarchy_unchanged?,
           pdf_retention_unchanged?: retention_unchanged?,
-          default_backup_error: default_error
+          legacy_backup_errors: legacy_errors
         }
       end)
 
@@ -1783,7 +1783,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
     end)
   end
 
-  defp default_backup_guard!(session) do
+  defp legacy_backup_guards!(session) do
     result =
       Singularity.Storage.ScopedRepo.transact(
         Singularity.Storage.WorkerRepo,
@@ -1791,13 +1791,30 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
         [isolation: :repeatable_read],
         fn repo ->
           authorize_asset_write!(repo, session)
-          Singularity.Storage.Backup.Exporter.snapshot_cut(repo, session.vault_id)
+
+          with {:ok, cut} <-
+                 Singularity.Storage.Backup.Exporter.snapshot_cut(repo, session.vault_id) do
+            cut = Map.put(cut, :manifest_id, Ecto.UUID.generate())
+
+            Map.new([1, 2], fn version ->
+              {:error, %{code: :backup_unsupported}} =
+                Singularity.Storage.Backup.Exporter.snapshot_cut(repo, session.vault_id, version)
+
+              {:error, %{code: :backup_unsupported}} =
+                Singularity.Storage.Backup.Exporter.records(repo, cut, version)
+
+              {version, :backup_unsupported}
+            end)
+          end
         end
       )
 
     case result do
-      {:error, %{code: :backup_unsupported}} -> :backup_unsupported
-      _other -> raise "default V2 backup did not reject unsupported canonical rows"
+      %{1 => :backup_unsupported, 2 => :backup_unsupported} = errors when map_size(errors) == 2 ->
+        errors
+
+      _other ->
+        raise "default V3 cut or explicit V1/V2 unsupported-canonical guards failed"
     end
   end
 

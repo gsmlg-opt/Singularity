@@ -10,7 +10,6 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
   alias Singularity.Storage.Backup.{
     BundleReader,
     LocalDestination,
-    LogicalBundleVerifier,
     Reconciler
   }
 
@@ -18,12 +17,43 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
   alias Singularity.Storage.Crypto.{BackupKeyDeriver, ChunkedAEAD, RecoveredVaultKey}
   alias Singularity.Storage.MigrationRepo
 
+  defmodule ObservedLogicalVerifier do
+    @moduledoc false
+
+    alias Singularity.Storage.Backup.LogicalBundleVerifier
+
+    def init(_context, binding), do: LogicalBundleVerifier.init(binding)
+
+    def handle_event(_context, state, event),
+      do: LogicalBundleVerifier.handle_event(state, event)
+
+    def finish(context, state, manifest) do
+      result = LogicalBundleVerifier.finish(state, manifest)
+
+      case result do
+        {:ok, _cut} -> send(context.observer, {context.reference, :wire_cut, state.cut})
+        _error -> :ok
+      end
+
+      result
+    end
+  end
+
   defmodule ObservedRestorer do
     @moduledoc false
+
+    import ExUnit.Assertions
 
     alias Singularity.Storage.Backup.Restorer
 
     def import(%{restorer: context, observer: observer, reference: reference}, repo, input) do
+      assert_received {^reference, :wire_cut, wire_cut}
+      assert wire_cut.logical_version == 3
+      assert wire_cut.manifest_id == input.cut.manifest_id
+      assert wire_cut.vault_id == input.cut.vault_id
+      assert length(wire_cut.table_count_vector) == 38
+      assert Enum.drop(wire_cut.table_count_vector, 30) == List.duplicate(0, 8)
+
       result = Restorer.import(context, repo, input)
 
       case result do
@@ -50,7 +80,7 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
   end
 
   @tag :tmp_dir
-  test "default V2 restores genuine text originals into an empty sequentially owned destination",
+  test "default V3 restores genuine text originals into an empty sequentially owned destination",
        %{
          tmp_dir: tmp_dir
        } do
@@ -86,7 +116,7 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
                  })
 
         assert manifest_id == source.operation_id
-        assert_received {^reference, :imported, 2, ^manifest_id}
+        assert_received {^reference, :imported, 3, ^manifest_id}
 
         # No destination bootstrap or runtime worker starts before completion.
         Application.put_env(:singularity_runtime, :maintenance_mode, false)
@@ -288,7 +318,7 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
       backup_key_lease: Singularity.Runtime.BackupKeyLease,
       bundle_reader: BundleReader,
       destination: {LocalDestination, %{backup_root: backup_root}},
-      logical_verifier: LogicalBundleVerifier,
+      logical_verifier: {ObservedLogicalVerifier, %{observer: self(), reference: reference}},
       recovered_vault_key: RecoveredVaultKey,
       restore_crypto_adapter: Singularity.Runtime.BackupKeyLease.StorageAdapter,
       restore_key_ttl_ms: :timer.minutes(5)
@@ -313,7 +343,7 @@ defmodule Singularity.Runtime.NativeTextBackupRestoreLiveTest do
       ciphertext_auditor: StorageIntegrityAudit,
       object_storage: object_storage,
       restore_integrity_lease: Singularity.Runtime.RestoreIntegrityLease,
-      search_rebuilder: {StorageIntegrityAudit, MigrationRepo}
+      search_rebuilder: {Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}
     }
 
     %{

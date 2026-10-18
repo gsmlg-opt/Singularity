@@ -459,7 +459,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreLiveTest do
       same_configuration? = fixture_configuration() == saved
       assert same_configuration?, "genuine publication did not restore application settings"
       assert source.reference_mode == :uuid
-      assert source.default_backup_error == :backup_unsupported
+      assert source.legacy_backup_errors == %{1 => :backup_unsupported, 2 => :backup_unsupported}
       assert source.observation.worker_role == "singularity_worker"
       assert source.observation.worker_backend != source.observation.observer_backend
       assert source.observation.database == source.lifecycle.database

@@ -1010,7 +1010,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
       ciphertext_auditor: StorageIntegrityAudit,
       object_storage: object_storage,
       restore_integrity_lease: RestoreIntegrityLease,
-      search_rebuilder: {StorageIntegrityAudit, MigrationRepo}
+      search_rebuilder: {Singularity.Storage.Backup.KnowledgeIntegrityAudit, MigrationRepo}
     }
 
     %{
