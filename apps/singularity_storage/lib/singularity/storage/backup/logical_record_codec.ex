@@ -12,7 +12,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
   @cut_tag "singularity.backup.logical.cut"
   @row_tag "singularity.backup.logical.row"
   @object_tag "singularity.backup.logical.object"
-  @default_version 2
+  @default_version 3
   @header_payload_limit 64 * 1024
   @record_payload_limit 16 * 1024 * 1024
   @database_snapshot_limit 4 * 1024
@@ -28,7 +28,7 @@ defmodule Singularity.Storage.Backup.LogicalRecordCodec do
     lookup_digest object_index storage_ref vault_id
   ]a
   @classifications ~w[private sensitive restricted]
-  @spec default_version() :: 2
+  @spec default_version() :: 3
   def default_version, do: @default_version
 
   @spec tables() :: [binary()]

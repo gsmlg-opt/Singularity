@@ -38,7 +38,8 @@ defmodule Singularity.Storage.Backup.Exporter do
   @logical_stream_rows 500
 
   @spec snapshot_cut(module(), Ecto.UUID.t()) :: {:ok, map()} | {:error, Error.t()}
-  def snapshot_cut(repo, vault_id), do: snapshot_cut(repo, vault_id, 2)
+  def snapshot_cut(repo, vault_id),
+    do: snapshot_cut(repo, vault_id, LogicalRecordCodec.default_version())
 
   def snapshot_cut(_repo, _vault_id, version) when version not in [2, 3],
     do: {:error, Error.new(:backup_unsupported)}
@@ -70,7 +71,7 @@ defmodule Singularity.Storage.Backup.Exporter do
 
   @spec records(module(), map()) ::
           {:ok, %{records: Enumerable.t(), inventory: [map()]}} | {:error, Error.t()}
-  def records(repo, cut), do: records(repo, cut, 2)
+  def records(repo, cut), do: records(repo, cut, LogicalRecordCodec.default_version())
 
   def records(_repo, _cut, version) when version not in [2, 3],
     do: {:error, Error.new(:backup_unsupported)}
