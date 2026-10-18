@@ -106,11 +106,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
   test "Phase 5 authority keeps production writes closed and V3 preparation on default V2" do
     plan_authority =
-      active_section!(
-        "docs/superpowers/plans/#{@phase5_plan}",
-        "## Draft status, evidence and execution boundary",
-        "## Source map and parent-owned execution discipline"
-      )
+      phase5_plan_authority!(read_source("docs/superpowers/plans/#{@phase5_plan}"))
 
     design_authority =
       active_section!(
@@ -619,6 +615,13 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     for {path, expected} <- files do
       assert_digest!(path, read_source(path), expected)
     end
+  end
+
+  defp normalize_phase5!(@api, source) do
+    Enum.reduce(native_text_hunks(), source, fn hunk, remaining ->
+      {before, old, _new, after_bytes, prefix, suffix} = assert_native_text_hunk!(remaining, hunk)
+      prefix <> before <> old <> after_bytes <> suffix
+    end)
   end
 
   defp normalize_phase5!(path, source), do: undo_phase5_task8!(path, source)
@@ -1191,6 +1194,10 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
   defp active_section!(path, start, finish) do
     source = @repo_root |> Path.join(path) |> File.read!()
+    active_section_source!(source, start, finish)
+  end
+
+  defp active_section_source!(source, start, finish) do
     assert [_, rest] = String.split(source, start <> "\n", parts: 2)
     assert [section, _] = String.split(rest, finish <> "\n", parts: 2)
     refute section =~ ~r/```|~~~|<!--|-->|^(?: {4,}| {0,3}\t)\S/m
@@ -1409,4 +1416,494 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   # END Task8 exact test attribution.
+
+  # Native-text fixtures come from all eleven original context-bearing hunks of
+  # 6fd422a6987121d02e54a8cc6395061880ec903f, not from normalized current bytes.
+  test "accepted native-text inverse recovers exact pre-native and original API bytes" do
+    source = read_source(@api)
+
+    assert_digest!(
+      @api <> " accepted native-text source",
+      source,
+      "8557685c2415c5ee3b30e33be6dfaab6e4ee25b0772bb3123a92384a914c33b4"
+    )
+
+    Enum.each(native_text_hunks(), &assert_native_text_hunk!(source, &1))
+    normalized = normalize_phase5!(@api, source)
+
+    assert_digest!(
+      @api <> " pre-native-text inverse",
+      normalized,
+      "6212a126be413c4b19bc0e24e8cc3c86f1e8ce776ebd2e8a7427ee2e2695fda1"
+    )
+
+    assert_historical_runtime_baseline!(@api, normalized, @runtime_baselines[@api])
+  end
+
+  for id <- 1..11 do
+    test "native-text hunk #{id} rejects all actual-source byte and context mutations" do
+      source = read_source(@api)
+      hunk = Enum.at(native_text_hunks(), unquote(id) - 1)
+
+      for mutation <- [:altered, :removed, :reverted, :duplicate, :relocated, :before, :after] do
+        mutated = native_text_mutation!(source, hunk, mutation)
+
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(@api, mutated, @runtime_baselines[@api])
+        end
+      end
+    end
+  end
+
+  test "native-text attribution retains an unrelated legacy-byte counterproof" do
+    source = read_source(@api)
+    original = "  The sole application-facing runtime facade.\n"
+    replacement = "  The unauthorized application-facing runtime facade.\n"
+    assert [prefix, suffix] = String.split(source, original)
+    mutated = prefix <> replacement <> suffix
+    refute mutated == source
+    assert [^prefix, ^suffix] = String.split(mutated, replacement)
+    refute String.contains?(mutated, original)
+    Enum.each(native_text_hunks(), &assert_native_text_hunk!(mutated, &1))
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_runtime_baseline!(@api, mutated, @runtime_baselines[@api])
+    end
+  end
+
+  defp native_text_hunks do
+    [
+      {1,
+       "  alias Singularity.Storage.VaultLock\n  alias Singularity.Storage.Jobs.ObanAdapter\n\n",
+       "  @safe_media_types [\"application/pdf\", \"image/jpeg\", \"image/png\"]\n",
+       "  @text_media_types [\"text/plain\", \"text/markdown\"]\n" <>
+         "  @safe_media_types [\"application/pdf\", \"image/jpeg\", \"image/png\"] ++ @text_media_types\n" <>
+         "  @text_max_bytes 67_108_864\n", "  @asset_states [\n    :staging,\n    :uploaded,\n",
+       "3314ab6561a150a4604c7950ae544186b705dde3fadc698fa86d0d9b424d4aa4",
+       "1e54ba3b7f84aa3ff69c381df58d84bc7594922c446db92e1e59347c3b507540",
+       "066dbac52c38eb1b7c063440c722f39c7481eb0e82247b20fe78ea91a4f50126",
+       "47056bf6be4efafc4561d21507b56ae36b913518077e45bb511a4390b39c3a25"},
+      {2,
+       "  @doc false\n  def create_upload_grant(config, %Session{} = session, attrs, csrf_token)\n" <>
+         "      when is_map(config) and is_map(attrs) and is_binary(csrf_token) do\n",
+       "    with {:ok, context} <- session_context(session),\n" <>
+         "         {:ok, grant} <-\n" <>
+         "           invoke(config, :create_upload_grant, [context, attrs, csrf_token]),\n" <>
+         "         {:ok, token} <- grant_token(grant),\n" <>
+         "         {:ok, dto} <- upload_grant_dto(grant) do\n",
+       "    with :ok <- public_upload_fields(attrs),\n" <>
+         "         {:ok, context} <- session_context(session),\n" <>
+         "         {:ok, grant} <-\n" <>
+         "           invoke(config, :create_upload_grant, [context, attrs, csrf_token]),\n" <>
+         "         {:ok, token} <- grant_token(grant),\n" <>
+         "         {:ok, dto} <- upload_grant_dto(grant, config) do\n",
+       "      publish_asset(config, context.vault_id, dto.asset_id)\n      {:ok, token, dto}\n    else\n",
+       "51e6926067fbdaeb5a7b0b9704744a878003683babd0212df0cd039eb85c190a",
+       "c319bc2876676ebec170fa80e5a8590ceb1f9376ecf74987a7ddca03120b0b32",
+       "f3e60f044a9a4216748d0788ce7ded9566bb973a0770a9fe6e97f2996eefc091",
+       "3c0049bd5dc246b4986be8922c8cd8193985155c6738d4e3740d2fd1ff376f1a"},
+      {3, "\n  defp valid_failure?(_failure), do: false\n\n",
+       "  defp upload_grant_dto(grant) when is_map(grant) do\n",
+       "  defp upload_grant_dto(grant, config) when is_map(grant) do\n",
+       "    values = %{\n      grant_id: Map.get(grant, :grant_id, Map.get(grant, :id)),\n" <>
+         "      asset_id: Map.get(grant, :asset_id),\n",
+       "de1d54d1498ab99f8edbb4d54cd5f7987ca58082d071a4622ab9012bcc24eaff",
+       "ce02a390064cd9d77657a5dd415d4172880591f742ff197f9f6dbcb3b22abed2",
+       "3dcf5a28b1e94ea271d93d2a8c3e86633bf1d456aa94c32ccc9ac5ab3aeee28b",
+       "367defd3751a88d47722935f2a675677195f6556b44bc987b8f7027845894260"},
+      {4,
+       "      valid_uuid?(values.grant_id) and valid_uuid?(values.asset_id) and\n" <>
+         "        nonblank?(values.filename) and valid_epoch?(values.byte_size) and\n" <>
+         "        values.declared_media_type in @safe_media_types and\n", "",
+       "        (values.declared_media_type not in @text_media_types or\n" <>
+         "           validate_content_length(config, values.byte_size, values.declared_media_type) == :ok) and\n",
+       "        values.classification in [:private, :sensitive, :restricted] and\n" <>
+         "        is_struct(values.expires_at, DateTime)\n\n",
+       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "09830167134ac2541f13e54bf74ed7117c9645b0bd06430068a592218e35ee3d",
+       "77287937e3240da69cc62b97b3ae0132d7def8e364902a4cce53ae5e58f91d16",
+       "f304d0348c717cd1a3d845e6610937d6f8f53d6b3b7dfc418d2066e793525065"},
+      {5, "      else: {:error, :integrity_failure}\n  end\n\n",
+       "  defp upload_grant_dto(_grant), do: {:error, :integrity_failure}\n",
+       "  defp upload_grant_dto(_grant, _config), do: {:error, :integrity_failure}\n",
+       "\n  defp grant_token(grant) when is_map(grant) do\n    case Map.get(grant, :token) do\n",
+       "fedbfd2fb76f88957106a8d8bffa138f008b29684a5f4054c83cf199b64c80a0",
+       "97e4504b80d0027908899b67b51c793bd39fb501e9bfe6a32045d6c5579a917b",
+       "c1913388f1a2b01a962420651ddfaa379fbc344413c2cc2b164c993c7b1e8f91",
+       "b5ba5475de20e1abd8ddaa7408de14d0f2364682806cfca13a78ca80c25f1b91"},
+      {6,
+       "  defp grant_token(_grant), do: {:error, :integrity_failure}\n\n" <>
+         "  defp upload_selector(config, context, grant_id, request) do\n",
+       "    with true <- context.unlocked?,\n" <>
+         "         true <- valid_uuid?(grant_id),\n" <>
+         "         {:ok, upload_token} <-\n" <>
+         "           decode_token(Map.get(request, :upload_token)),\n" <>
+         "         {:ok, csrf_token} <- csrf_token(Map.get(request, :csrf_token)),\n" <>
+         "         content_length when is_integer(content_length) and content_length >= 0 <-\n" <>
+         "           Map.get(request, :content_length),\n" <>
+         "         :ok <- validate_content_length(config, content_length),\n" <>
+         "         {:ok, declared_media_type} <-\n" <>
+         "           upload_media_type(Map.get(request, :declared_media_type)) do\n",
+       "    with :ok <- public_upload_fields(request),\n" <>
+         "         true <- context.unlocked?,\n" <>
+         "         true <- valid_uuid?(grant_id),\n" <>
+         "         {:ok, upload_token} <-\n" <>
+         "           decode_token(Map.get(request, :upload_token)),\n" <>
+         "         {:ok, csrf_token} <- csrf_token(Map.get(request, :csrf_token)),\n" <>
+         "         content_length when is_integer(content_length) and content_length >= 0 <-\n" <>
+         "           Map.get(request, :content_length),\n" <>
+         "         {:ok, declared_media_type} <-\n" <>
+         "           upload_media_type(Map.get(request, :declared_media_type)),\n" <>
+         "         :ok <- validate_content_length(config, content_length, declared_media_type) do\n",
+       "      {:ok,\n       %{\n         grant_id: grant_id,\n",
+       "a603cd71b590d69b421a38cbf6c7dd2824272ae63d84a478141752f866548772",
+       "e15350abeb0b4d466d026654c7339296a4ca3b2941bf75aab9d00cda732c0c83",
+       "b6c1552b25cbca86efbbf889ae693c74306ac9d9cdccdb5132f9552c940c6e40",
+       "3c54ab19fb0d4b248462735cb0e35b6242beea9610443a22c1dfd28a9fb2194d"},
+      {7, "\n  defp upload_media_type(_media_type), do: {:error, :invalid}\n\n",
+       "  defp validate_content_length(config, content_length) do\n",
+       "  defp validate_content_length(config, content_length, media_type) do\n",
+       "    max_upload_bytes =\n      Map.get(\n        config,\n",
+       "5068dc9cff3ee648cacd0ccf6d324d7a32edc9fe26115a618d0d6e4b652b60f7",
+       "e0d938c85db1aba96c0dbe10df05a131ba3fea93bc090fbb678ae2b55ea8ae7f",
+       "e369b9d7df511cdb6ba06218559ba9ca1f539eb2390b9735efd2dafbe8f9f561",
+       "c8fb7da28000d12b5906097321b7acae615a59985ba2f8782ca7e2917c68a526"},
+      {8,
+       "      not is_integer(max_upload_bytes) or max_upload_bytes < 0 ->\n" <>
+         "        {:error, :invalid}\n\n", "      content_length > max_upload_bytes ->\n",
+       "      content_length > max_upload_bytes or\n" <>
+         "          (media_type in @text_media_types and content_length > @text_max_bytes) ->\n",
+       "        {:error, :upload_too_large}\n\n      true ->\n",
+       "f4ccbc1abf5f4b8286d6a4ba90cea87dad99e91c75318b6b5d22a581f173d4e5",
+       "d2513a64e43ed82c413d61474b9e634ac958642958531b3a6f29741b081de638",
+       "b0158803336248d525a6048240db623a8b4503e5ea6a60109490818cda472e6f",
+       "cdf86a2f652014e52b0d96f4cce1e904df3e728039fe0883b375573d7a02c243"},
+      {9,
+       "  end\n\n  defp internal_upload_grant(descriptor, selector) when is_map(descriptor) do\n",
+       "    if credential_fields_absent?(descriptor) do\n",
+       "    if credential_fields_absent?(descriptor) and public_upload_fields(descriptor) == :ok do\n",
+       "      grant =\n        Map.merge(\n          descriptor,\n",
+       "d674bc525fcbae6eab150f27ba62933887e7eccbc139a726aa4a8cd200e8b038",
+       "a5716f0134fb4731843c7458d2b0af49c1c2730f67e04bb5c6d02d072b4119ee",
+       "640e19c17fbc20007f49c821546869a391f1616978039cc5df9b0a1dab75142d",
+       "4c564f1db34dda0c0da69247214d9fd50a090396820d08b2973113aa05e3a73d"},
+      {10,
+       "          selector.grant_id and\n          grant.session_id == selector.session_id and\n" <>
+         "          grant.principal_id == selector.principal_id and\n",
+       "          grant.vault_id == selector.vault_id\n",
+       "          grant.vault_id == selector.vault_id and\n" <>
+         "          Map.get(grant, :byte_size) == selector.request_content_length and\n" <>
+         "          Map.get(grant, :declared_media_type) == selector.request_declared_media_type\n",
+       "\n      if exact?, do: {:ok, grant}, else: {:error, :integrity_failure}\n    else\n",
+       "8be90fa1c62d8dd4fa3cc350c4d26ece720327a137579caddf01d179d2beeb4b",
+       "cdb8eeff58cf2b76c2f0ca948262e5a814cc00139d4c29346dbb8ff829c63410",
+       "7bd5f81f20003d0604911b0894f74b25a1044933a8b2ba7ac56e0f8895bedace",
+       "a2c11a49c063696f50c071fb7859fff47a88966b57fb504d2dac430425eb4416"},
+      {11,
+       "  defp internal_upload_grant(_descriptor, _selector),\n" <>
+         "    do: {:error, :integrity_failure}\n\n", "",
+       "  defp public_upload_fields(value) do\n" <>
+         "    if Enum.any?(\n" <>
+         "         [:text_validation_version, \"text_validation_version\", :metadata, \"metadata\"],\n" <>
+         "         &Map.has_key?(value, &1)\n" <>
+         "       ),\n" <>
+         "       do: {:error, :invalid},\n" <>
+         "       else: :ok\n" <>
+         "  end\n\n",
+       "  defp upload_identity(%{vault_id: vault_id, asset_id: asset_id}) do\n" <>
+         "    if valid_uuid?(vault_id) and valid_uuid?(asset_id),\n" <>
+         "      do: {:ok, vault_id, asset_id},\n",
+       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "f26aef2a5342cf4f1cff02515c5a3397f1c10ca159b916a1ee77ed8581dc9cff",
+       "e4e1e48decac6d0243c371b66148fe8abb2732406a6aee6a0516e0f47599f856",
+       "38528d15cb36960d6210e05947001b1f82679f101a2c4e7b4aebbda9897b1d5d"}
+    ]
+  end
+
+  defp assert_native_text_hunk!(source, hunk) do
+    {id, before, old, new, after_bytes, old_hash, new_hash, old_context_hash, new_context_hash} =
+      hunk
+
+    assert_digest!(@api <> " native-text #{id} old", old, old_hash)
+    assert_digest!(@api <> " native-text #{id} new", new, new_hash)
+
+    assert_digest!(
+      @api <> " native-text #{id} old context",
+      before <> old <> after_bytes,
+      old_context_hash
+    )
+
+    assert_digest!(
+      @api <> " native-text #{id} new context",
+      before <> new <> after_bytes,
+      new_context_hash
+    )
+
+    assert [prefix, suffix] = String.split(source, before <> new <> after_bytes)
+    {before, old, new, after_bytes, prefix, suffix}
+  end
+
+  defp native_text_mutation!(source, hunk, mutation) do
+    {before, old, new, after_bytes, prefix, suffix} = assert_native_text_hunk!(source, hunk)
+    context = before <> new <> after_bytes
+
+    replacement =
+      case mutation do
+        :altered ->
+          altered =
+            String.replace(new, "\n", " # unauthorized native-text bytes\n", global: false)
+
+          refute altered == new
+          before <> altered <> after_bytes
+
+        :removed ->
+          before <> after_bytes
+
+        :reverted ->
+          before <> old <> after_bytes
+
+        :duplicate ->
+          before <> new <> new <> after_bytes
+
+        :relocated ->
+          before <> old <> after_bytes
+
+        :before ->
+          before <> "  # changed preceding context\n" <> new <> after_bytes
+
+        :after ->
+          before <> new <> "  # changed following context\n" <> after_bytes
+      end
+
+    refute replacement == context
+    changed = prefix <> replacement <> suffix
+    assert String.replace(changed, replacement, context, global: false) == source
+    assert String.starts_with?(changed, prefix)
+    assert String.ends_with?(changed, suffix)
+
+    mutated =
+      if mutation == :relocated do
+        destination = "  alias Singularity.Core.Error\n"
+        assert [destination_prefix, destination_suffix] = String.split(changed, destination)
+        relocated = destination_prefix <> destination <> new <> destination_suffix
+
+        assert String.replace(relocated, destination <> new, destination, global: false) ==
+                 changed
+
+        assert [_, _] = String.split(relocated, destination <> new)
+        refute String.contains?(relocated, context)
+        relocated
+      else
+        changed
+      end
+
+    refute mutated == source
+    mutated
+  end
+
+  test "current Phase 5 plan title selects its unchanged active authority" do
+    source = read_source("docs/superpowers/plans/#{@phase5_plan}")
+    section = phase5_plan_authority!(source)
+    assert section =~ "Current Task10 qualification"
+    refute section =~ "## Source map and parent-owned execution discipline"
+  end
+
+  for {label, heading} <- [
+        {"start", "## Status, evidence and execution boundary"},
+        {"end", "## Source map and parent-owned execution discipline"}
+      ],
+      mutation <- [
+        :missing,
+        :altered,
+        :duplicate,
+        :duplicate_outside,
+        :relocated,
+        :quoted,
+        :commented,
+        :fenced,
+        :tilde_fenced,
+        :indented
+      ] do
+    test "Phase 5 actual-plan #{label} heading rejects #{mutation}" do
+      source = read_source("docs/superpowers/plans/#{@phase5_plan}")
+      heading = unquote(heading)
+      assert [prefix, suffix] = String.split(source, heading <> "\n")
+
+      replacement =
+        case unquote(mutation) do
+          :missing -> ""
+          :altered -> heading <> " altered\n"
+          :duplicate -> heading <> "\n" <> heading <> "\n"
+          :duplicate_outside -> heading <> "\n"
+          :relocated -> ""
+          :quoted -> "> " <> heading <> "\n"
+          :commented -> "<!--\n" <> heading <> "\n"
+          :fenced -> "```\n" <> heading <> "\n"
+          :tilde_fenced -> "~~~\n" <> heading <> "\n"
+          :indented -> "    " <> heading <> "\n"
+        end
+
+      replaced = prefix <> replacement <> suffix
+      assert String.starts_with?(replaced, prefix)
+      assert String.ends_with?(replaced, suffix)
+
+      mutated =
+        case unquote(mutation) do
+          :duplicate_outside ->
+            assert replaced == source
+            outside = replaced <> "\n" <> heading <> "\n"
+            assert [_, _, _] = String.split(outside, heading <> "\n")
+            outside
+
+          :relocated ->
+            refute String.contains?(replaced, heading <> "\n")
+            heading <> "\n" <> replaced
+
+          :commented ->
+            replaced <> "\n-->\n"
+
+          :fenced ->
+            replaced <> "\n```\n"
+
+          :tilde_fenced ->
+            replaced <> "\n~~~\n"
+
+          _ ->
+            replaced
+        end
+
+      refute mutated == source
+
+      assert_raise ExUnit.AssertionError, fn ->
+        phase5_plan_authority!(mutated)
+      end
+    end
+  end
+
+  test "Phase 5 actual-plan authority rejects reversed boundary order" do
+    source = read_source("docs/superpowers/plans/#{@phase5_plan}")
+    start = "## Status, evidence and execution boundary\n"
+    finish = "## Source map and parent-owned execution discipline\n"
+    assert [prefix, rest] = String.split(source, start)
+    assert [body, suffix] = String.split(rest, finish)
+    mutated = prefix <> finish <> body <> start <> suffix
+    refute mutated == source
+    assert [^prefix, ^suffix] = String.split(mutated, finish <> body <> start)
+
+    assert_raise ExUnit.AssertionError, fn -> phase5_plan_authority!(mutated) end
+  end
+
+  for {label, anchor} <- [
+        {"first", "## Status, evidence and execution boundary\n"},
+        {"second", "## Source map and parent-owned execution discipline\n"}
+      ] do
+    test "Phase 5 actual-plan authority boundaries must be the #{label} level-two heading" do
+      source = read_source("docs/superpowers/plans/#{@phase5_plan}")
+      anchor = unquote(anchor)
+      assert [prefix, suffix] = String.split(source, anchor)
+      insertion = "## Unauthorized intervening authority\n\n"
+      mutated = prefix <> insertion <> anchor <> suffix
+      refute mutated == source
+      assert [^prefix, ^suffix] = String.split(mutated, insertion <> anchor)
+
+      assert_raise ExUnit.AssertionError, fn -> phase5_plan_authority!(mutated) end
+    end
+  end
+
+  for {label, raw} <- [
+        {"qualified source and handoff",
+         "`5f7e6363be534dbfb4dfa1475538fddcbd29cf32`. Phase 4's tested implementation\n" <>
+           "source is `42c01a5c99b1df3d1e4284d277c6ea48046875cb`; the handoff is not a\n" <>
+           "new implementation qualification. Preserve main, other worktrees and unrelated\n" <>
+           "untracked files. The design and acceptance report are coordinator-owned.\n"},
+        {"frozen semantics and publication prohibition",
+         "small local commits after review. It does not permit Vault feature work,\n" <>
+           "custody/key/capability/policy/crypto semantic changes, merge, push, version\n" <>
+           "bump, tag, release, deployment, production activation or production backfill.\n"},
+        {"production writes prohibition",
+         "New canonical writes remain unavailable to production runtime roles.\n"},
+        {"default V2 and closed guard",
+         "Logical V3 preparation keeps default V2 and the current unsupported-canonical\n" <>
+           "guard closed until writer and restore qualify together in Tasks 11 and 12.\n"},
+        {"manual E2E and final acceptance",
+         "No browser/archive UI is added. E2E is manual-only **NOT RUN**, explicitly\n" <>
+           "deferred for local phase advancement; final browser/release acceptance remains\n" <>
+           "required. All other required gates and actual independent review must pass.\n"}
+      ],
+      mutation <- [:outside, :quoted, :commented, :fenced, :indented] do
+    test "Phase 5 actual-plan #{label} must remain active prose: #{mutation}" do
+      source = read_source("docs/superpowers/plans/#{@phase5_plan}")
+      raw = unquote(raw)
+      assert [prefix, suffix] = String.split(source, raw)
+
+      replacement =
+        case unquote(mutation) do
+          :outside -> ""
+          :quoted -> "> " <> raw
+          :commented -> "<!--\n" <> raw <> "-->\n"
+          :fenced -> "```text\n" <> raw <> "```\n"
+          :indented -> "    " <> String.replace(raw, "\n", "\n    ") <> "\n"
+        end
+
+      refute replacement == raw
+      replaced = prefix <> replacement <> suffix
+      assert String.starts_with?(replaced, prefix)
+      assert String.ends_with?(replaced, suffix)
+
+      mutated =
+        if unquote(mutation) == :outside do
+          refute String.contains?(replaced, raw)
+          moved = replaced <> "\n" <> raw
+          assert [_, _] = String.split(moved, raw)
+          assert String.starts_with?(moved, replaced)
+          moved
+        else
+          assert [^prefix, ^suffix] = String.split(replaced, replacement)
+          replaced
+        end
+
+      refute mutated == source
+
+      assert_raise ExUnit.AssertionError, fn -> phase5_plan_authority!(mutated) end
+    end
+  end
+
+  # Only the current Phase 5 plan uses complete heading and active-prose boundaries.
+  defp phase5_plan_authority!(source) do
+    start = "## Status, evidence and execution boundary"
+    finish = "## Source map and parent-owned execution discipline"
+    headings = Regex.scan(~r/^## .+$/m, source) |> List.flatten()
+    assert [^start, ^finish | _] = headings
+    assert [prefix, rest] = String.split(source, start <> "\n")
+    assert [section, _suffix] = String.split(rest, finish <> "\n")
+
+    assert String.starts_with?(
+             prefix,
+             "# Singularity v0.2 Phase 5 Export and Backup Implementation Plan\n"
+           )
+
+    for marker <- ["**Goal:**", "**Architecture:**", "**Tech Stack:**"] do
+      assert prefix =~ marker
+    end
+
+    refute prefix =~ ~r/```|~~~|<!--|-->/
+    refute section =~ ~r/```|~~~|<!--|-->|^ {0,3}>|^(?: {4,}| {0,3}\t)\S/m
+    section = section |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    for marker <- [
+          @phase4,
+          @phase4_handoff,
+          "New canonical writes remain unavailable to production runtime roles.",
+          "E2E",
+          "manual-only",
+          "NOT RUN",
+          "final browser/release acceptance",
+          "Logical V3 preparation keeps default V2 and the current unsupported-canonical guard closed until writer and restore qualify together in Tasks 11 and 12.",
+          "It does not permit Vault feature work, custody/key/capability/policy/crypto semantic changes, merge, push, version bump, tag, release, deployment, production activation or production backfill."
+        ] do
+      assert section =~ marker
+    end
+
+    section
+  end
 end
