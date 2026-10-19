@@ -12,6 +12,20 @@
 
 ## Status, evidence and execution boundary
 
+### Qualified Task16 native prerequisite — 2026-10-19
+
+Local native source acceptance is `6c7f867309470e23e8f34c06a8f53af0b496d48d`;
+the [actual handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+records 132 unit,90 integration,254 architecture executions/zero failures,
+format/devcompileWAE/xref0, independent SPEC then NEW distinct QUALITY and two
+verified local commits. Original56 remains54 raw matches and2 exact inverses;
+the original manifest and prior failed/P2 receipts remain unchanged.
+Both native identifier-loss boundaries have component evidence; the original
+Task16 strict end-to-end ALL-leases checkboxes remain unchecked until actual
+companion/artifact integration. Resume that implementation, preserving accepted
+Task8 and native-text attribution. Task17/18 dependencies and Task19 remain;
+no wholeTask16/Phase5 acceptance, E2E run or publication is claimed.
+
 ### Task16 native ownership exception — 2026-10-19
 
 The user explicitly approved the minimal native export-request ownership and
@@ -2635,12 +2649,14 @@ parent factual records are `.devenv/phase5-task15-repair1-source-spec.md` and
 
 ## Task 16: Runtime orchestration, session-bound handles and public API
 
-The 2026-10-19 approved native ownership prerequisite above supersedes only the
-frozen-interface blocker for the two strict gaps, not their assertions. Source
-and native acceptance remain pending its actual review/test gates. After it
-qualifies, the original companion acquisition adapter uses `export_lease/2`;
-all startup, exact Task8 attribution, handle, artifact and independent-review
-requirements below remain. No general custody/Vault expansion is authorized.
+The 2026-10-19 native prerequisite above is source-qualified; its original
+frozen-interface blocker is resolved only for the approved native seam.
+Wire the original companion acquisition adapter to `export_lease/2` when resuming
+its implementation. Both
+strict end-to-end assertions and all startup, exact Task8/native-text
+attribution, handle, artifact and independent-review requirements below remain.
+The older documentary NO-GO snapshots below are historical, not a renewed
+routine approval requirement. No general custody/Vault expansion is authorized.
 
 **Create:** `apps/singularity_runtime/lib/singularity/runtime/knowledge/export.ex`,
 `apps/singularity_runtime/lib/singularity/runtime/knowledge/export_artifact.ex`,

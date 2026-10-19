@@ -168,6 +168,13 @@ only for that lifecycle seam and its focused export tests and exact attribution.
   fresh QUALITY review and small local commits follow continuing authority.
   E2E, publication/deployment and production-data restrictions remain unchanged.
 
+The native prerequisite has qualified local source acceptance at
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`; see
+`docs/verification/2026-10-19-phase-5-export-lease-ownership-handoff.md`.
+Resume original Task16 using `KeyCustodian.export_lease/2` only in its companion
+adapter. Native component acceptance does not accept Task16's artifact/startup
+composition, either end-to-end ALL-leases assertion, Task17 or Phase5.
+
 The active invariant is:
 
 > Every user-owned object belongs to an authenticated owner scope, and every

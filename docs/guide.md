@@ -2095,8 +2095,11 @@ permits only native Asset/Document export-request lease ownership and cleanup
 in `KeyCustodian`/`DownloadLease`, with focused native regressions and exact
 inverse source attribution. Ordinary downloads/workers and every existing
 source/session/owner/unlock/capability/epoch/crypto check remain unchanged.
-The rest of Vault stays frozen; native qualification is still required, E2E
-is NOT RUN, and no publication or production activation is authorized.
+The rest of Vault stays frozen. The native prerequisite now has
+[qualified local source acceptance](verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+at `6c7f867309470e23e8f34c06a8f53af0b496d48d`; original Task16 artifact/API/startup
+composition and its end-to-end ALL-leases assertions remain unaccepted.
+E2E is NOT RUN, and no publication or production activation is authorized.
 
 Embeddings, semantic retrieval, RAG, Agents, OCR, photos, media,
 subscriptions, finance, health, synchronization, and external connectors are

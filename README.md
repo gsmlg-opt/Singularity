@@ -83,7 +83,11 @@ The user's [2026-10-19 minimal exception](docs/superpowers/specs/2026-10-19-sing
 permits only native Asset/Document export-request lease ownership and cleanup
 in `KeyCustodian`/`DownloadLease`, with focused native regressions. Ordinary
 downloads/workers, all authorization/source/crypto checks and the rest of Vault
-remain frozen. Implementation and native qualification are not yet claimed.
+remain frozen. That design-stage authorization did not itself qualify source.
+The native prerequisite now has [qualified local source acceptance](docs/verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+at `6c7f867309470e23e8f34c06a8f53af0b496d48d`. Original Task16 artifact/API/startup
+composition and its end-to-end ALL-leases assertions remain unaccepted; Phase5
+is still in progress. E2E remains NOT RUN.
 
 > Every user-owned object belongs to an authenticated owner scope, and every
 > projection points to an immutable source version.

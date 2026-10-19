@@ -2,6 +2,20 @@
 
 ## Status and authority
 
+### Qualified native prerequisite — 2026-10-19
+
+The native component now has qualified local source acceptance at
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`; its
+[actual handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+records complete scoped gates and independent SPEC then NEW distinct QUALITY.
+Resume this design's original orchestration using `KeyCustodian.export_lease/2`
+inside its companion adapter. Do not modify existing ExportRead/Download or
+borrow worker mode. Both strict ALL-leases end-to-end assertions, actual artifact
+ownership, startup serialization, handles and public API remain unaccepted.
+The older frozen-native BLOCKED_DESIGN/NO-GO statements below are preserved
+historical findings, not a waiver or a current prohibition of this implementation.
+E2E NOT RUN; publication/production restrictions remain unchanged.
+
 ### Dated native lifecycle exception — 2026-10-19
 
 The user explicitly approved the minimal KeyCustodian/DownloadLease native

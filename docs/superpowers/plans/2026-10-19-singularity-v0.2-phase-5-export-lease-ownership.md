@@ -13,7 +13,15 @@ gaps without broadening any authority or ordinary lease semantics.
 **Stack:** existing OTP/Elixir, atomics, native monotonic clock, PostgreSQL and
 genuine encrypted storage fixtures. No dependencies, migration or configuration.
 
-Status: design self-reviewed; independent design gates PENDING; implementation
+Current source snapshot: Tasks A–E have actual scoped verification and independent
+SOURCE SPEC then NEW distinct QUALITY at local source
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`. Task F's
+[handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+is the documentation-review candidate; its review/commit/clean closure and the
+resumption of original Task16 follow as subsequent actual facts. No wholeTask16/
+Phase5 acceptance. The historical design-stage status below is retained.
+
+Historical design-stage status: design self-reviewed; independent design gates PENDING; implementation
 NOT STARTED; both strict Task16 guarantees UNSATISFIED/UNWAIVED. This plan records
 expected checks, not executed results. E2E NOT RUN/manual-deferred. No publication,
 deployment or production activation. The original Task16 startup, Task8 exact
@@ -21,15 +29,15 @@ attribution and artifact requirements remain in force after this prerequisite.
 
 ## Task A: close design and preserve baseline
 
-- [ ] Root captures branch, HEAD, index, literal status, original56 manifest and
+- [x] Root captures branch, HEAD, index, literal status, original56 manifest and
   two original source hashes; preserve Task12 actual closure and prior assessment.
-- [ ] Root updates AGENTS, ADR0003, README, guide, release master, Phase5 design/
+- [x] Root updates AGENTS, ADR0003, README, guide, release master, Phase5 design/
   plan and original Task16 design/plan with the dated sole exception. Preserve
   historical failures, strict assertions and fixed historical source literals.
-- [ ] Actual independent nonauthor DESIGN SPEC; resolve findings. Then NEW
+- [x] Actual independent nonauthor DESIGN SPEC; resolve findings. Then NEW
   distinct QUALITY reviews the full current design/plan plus actual governance
   diffs. Source GO only after both close PASS. Architecture author is not reviewer.
-- [ ] Exact docs-only local commit after `git diff --check`, link and scope checks.
+- [x] Exact docs-only local commit after `git diff --check`, link and scope checks.
   Record commit and literal clean status. No source/test edits before source GO.
 
 Governance paths: `AGENTS.md`, `README.md`, `docs/guide.md`,
@@ -58,20 +66,20 @@ apps/singularity_runtime/test/singularity/runtime/knowledge_export_read_test.exs
 apps/singularity_runtime/test/singularity/runtime/knowledge_export_custody_live_test.exs
 ```
 
-- [ ] Characterize these whole owners on unchanged production source; record
+- [x] Characterize these whole owners on unchanged production source; record
   actual selected/excluded counts separately. An integration-tagged file in a
   pure run is not native qualification.
-- [ ] Sol test author owns only NEW
+- [x] Sol test author owns only NEW
   `apps/singularity_runtime/test/singularity/runtime/export_lease_ownership_test.exs`
   and additive cases/observers in the existing live custody owner. It may read
   source, not edit production, old assertions, fixtures, native tooling or Git.
-- [ ] New unit tests use real KeyCustodian/DownloadLease processes and private
+- [x] New unit tests use real KeyCustodian/DownloadLease processes and private
   supervisors, existing unlock setup and deterministic delegating loader/clock/
   reader barriers. Doubled authorization/reader cases are explicitly unit scope.
-- [ ] New live cases reuse the actual fixture, retained encrypted Document and
+- [x] New live cases reuse the actual fixture, retained encrypted Document and
   genuine CustodyReader/authority/storage. Add a fixed export custodian adapter
   at the existing runtime seam; keep AuthorizationDependencies on real custodian.
-- [ ] Parent executes genuine focused RED with full failure sections, source
+- [x] Parent executes genuine focused RED with full failure sections, source
   fingerprints and ordinary post0/EMPTY before native edits. Missing API RED
   is expected, not a failed implementation repair. Preserve all failed output.
 
@@ -105,26 +113,26 @@ apps/singularity_runtime/lib/singularity/runtime/key_custodian.ex
 apps/singularity_runtime/lib/singularity/runtime/download_lease.ex
 ```
 
-- [ ] Add internal `DownloadLease.ExportOwnership` helper in its existing source:
+- [x] Add internal `DownloadLease.ExportOwnership` helper in its existing source:
   immutable native deadline, atomics pending0/accepted1/cancelled2, terminal cancel,
   CAS expiry, pre/post acceptance time checks. No public request time overrides.
-- [ ] Add `KeyCustodian.export_lease/2`: allocate before enqueue, remaining native
+- [x] Add `KeyCustodian.export_lease/2`: allocate before enqueue, remaining native
   timeout, sanitize exits, cancel on all failure paths, accept only successful
   returned lease before deadline; known-PID failed acceptance synchronously
   revokes/awaits termination. Do not lose a cancelled lease if acquisition timer
   already observed accepted. Preserve ordinary `lease/2` byte-identically.
-- [ ] Add Asset and request-Document export handlers with actual caller from
+- [x] Add Asset and request-Document export handlers with actual caller from
   `from`, exact old auth/load pipelines, cancellation/liveness checks surrounding
   loader and private ownership option to unchanged lease-supervisor seam.
   Reject other purposes/access/extra fields. Keep registration and errors.
-- [ ] Install export owner monitor and acquisition timer before init clock/key
+- [x] Install export owner monitor and acquisition timer before init clock/key
   state; validate before/after clock. Pending never performs reads. Timer, owner
   DOWN, revoke, expiry/custodian death perform real cleanup. Accepted keeps60s TTL.
-- [ ] Export-only guards run before I/O and after blocking work before delivery.
+- [x] Export-only guards run before I/O and after blocking work before delivery.
   Retain authority checks and existing key deletion/reader kill+await mechanics.
   Export readers link/monitor to lease under trap_exit so hard death cannot
   orphan them. No change to worker mode or ordinary handlers' behavior.
-- [ ] Worker closes author window. Parent runs focused GREEN; diagnose ordinary
+- [x] Worker closes author window. Parent runs focused GREEN; diagnose ordinary
   failures, preserve assertions and exact raw evidence. Track actual Sol repair
   rounds; escalate after2 failed rounds/evidenced impasse, allow3 Astra attempts
   if recovery is needed. Architecture advisory consumes no repair attempt.
@@ -144,18 +152,18 @@ Create only:
 `apps/singularity_web/test/singularity/architecture/export_lease_ownership_contract_test.exs`.
 Root owns this source-attribution task separately from the native author.
 
-- [ ] Before patch, retain original raw source56 hashes, full sources and unchanged
+- [x] Before patch, retain original raw source56 hashes, full sources and unchanged
   `Assets.Download`/`ExportRead` pins in ignored immutable baseline evidence.
-- [ ] On actual GREEN source, inventory every exact old/new hunk, unique two-sided
+- [x] On actual GREEN source, inventory every exact old/new hunk, unique two-sided
   contexts and hunk/context SHA256 in a literal reviewed test transition table.
   An insertion uses explicit unchanged surrounding anchors, never a module-wide
   regex. Inverse reconstructs exact old raw source and original pinned hashes.
-- [ ] Write mutation counterproofs first: missing/reverted/changed hunk, duplicate,
+- [x] Write mutation counterproofs first: missing/reverted/changed hunk, duplicate,
   relocated, either context edge changed, old/new coexistence, extra clauses or
   fields/registration and unrelated legacy mutation must reject. Execute RED
   of the checker/counterproof as appropriate, then implement exact checker and
   rerun whole owner. No replacement of existing architecture source contracts.
-- [ ] Execute original manifest literally and preserve expected exactly2 raw
+- [x] Execute original manifest literally and preserve expected exactly2 raw
   mismatches as such; assert remaining54 raw identical and both inverses exact.
   Verify manifest's own immutable original hash. Do not update/rebaseline it.
 
@@ -185,28 +193,28 @@ profile, privatePG and toolchain hashes remain attributable; never rewrite old
 Task12 guard to accept current changes. Derive a separately named new guard with
 explicit reviewed doc/source/test transitions and unchanged historical receipts.
 
-- [ ] Complete all five unchanged regression owners on appropriate whole-file
+- [x] Complete all five unchanged regression owners on appropriate whole-file
   pure/integration routes; new owner fully executed, not excluded.
-- [ ] Run both complete existing architecture owners above plus the new owner.
+- [x] Run both complete existing architecture owners above plus the new owner.
   No weakened old literals.
-- [ ] `mix format --check-formatted` on every actual changed Elixir file;
+- [x] `mix format --check-formatted` on every actual changed Elixir file;
   development `mix compile --warnings-as-errors`; `mix xref graph --format cycles`
   must report zero cycles. Same wrapper/raw/post discipline, MIX_ENV=dev only
   for development checks via explicit `env MIX_ENV=dev` after wrapper.
-- [ ] `git diff --check`, original56 literal/inverse proof and exact source pins.
-- [ ] Root self-review full source/test owners against design. Actual independent
+- [x] `git diff --check`, original56 literal/inverse proof and exact source pins.
+- [x] Root self-review full source/test owners against design. Actual independent
   SOURCE SPEC closes, then NEW distinct QUALITY reviews all changed owners and
   raw results. Resolve findings and rerun affected gates before commit.
-- [ ] Small conventional local source/test commits stage exact paths only.
+- [x] Small conventional local source/test commits stage exact paths only.
   Verify committed blobs equal qualified/reviewed source. No publication.
 
 ## Task F: handoff and continue original Task16
 
-- [ ] Record actual commits, files, migrations(NONE), commands, exits, counts,
+- [x] Record actual commits, files, migrations(NONE), commands, exits, counts,
   complete raw hashes, reviews/findings, repair counters, limitations, frozen54
   and2 inverses, source SHA, no broader Vault work and E2E NOT RUN in a dated
   `docs/verification/2026-10-19-phase-5-export-lease-ownership-handoff.md`.
-- [ ] Update the two strict original Task16 conditions only to their actual
+- [x] Update the two strict original Task16 conditions only to their actual
   qualified extent. Native prerequisite PASS is not artifact/orchestration PASS.
   Preserve all previous failed/BLOCKED_DESIGN snapshots as historical evidence.
 - [ ] Fresh independent documentation SPEC then NEW distinct QUALITY, exact

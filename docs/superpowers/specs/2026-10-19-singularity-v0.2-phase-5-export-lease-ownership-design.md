@@ -1,6 +1,14 @@
 # Phase 5 Task16: native export-request lease ownership
 
-Status: approved product boundary; implementation NOT STARTED. Coordinator
+Current source snapshot: native prerequisite locally qualified at
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`, after actual independent SOURCE SPEC
+then NEW distinct QUALITY. See the
+[handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+for gates, source commits, the preserved P2 finding and evidence limits.
+Original Task16/Phase5 remain unaccepted. Documentation reviews/commit/clean
+closure are subsequent actual facts, not proven by this snapshot.
+
+Historical design-stage status: approved product boundary; implementation NOT STARTED. Coordinator
 self-review is complete; independent DESIGN SPEC then NEW distinct QUALITY
 remain required before source GO. This document is not native qualification.
 

@@ -22,6 +22,21 @@ No new dependency, registry, queue, domain process or migration.
 
 ## Execution boundary and unresolved requirement
 
+### Qualified native prerequisite and resumed source GO — 2026-10-19
+
+The native component is source-qualified at
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`; its
+[actual handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+records 132 unit,90 integration,254 architecture executions/zero failures and
+independent SPEC then NEW distinct QUALITY. Resume Steps1–8 with companion
+acquisition delegated to `KeyCustodian.export_lease/2`. Keep both original strict
+timeout/pre-recording-death artifact tests and all startup/handle assertions.
+Step7a is already accepted at `9f91c97eb392b4c49c888ed31795d520d15bb8dd`;
+preserve it and the later native-text inverse when adding Step7b, never replace
+the normalization body with an older snippet that loses native-text attribution.
+All older NO-GO/BLOCKED_DESIGN statuses below are historical snapshots.
+Native component acceptance does not accept this task or Phase5. E2E NOT RUN.
+
 ### Dated native lifecycle exception — 2026-10-19
 
 The user explicitly approved the minimal native export-request ownership

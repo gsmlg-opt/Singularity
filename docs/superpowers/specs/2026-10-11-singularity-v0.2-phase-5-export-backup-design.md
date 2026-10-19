@@ -5,6 +5,21 @@ SPEC followed by separate fresh QUALITY review have closed. Phase 5 remains
 IN PROGRESS; this document is not implementation acceptance. The reviewed
 snapshots and bounded corrections are recorded in the Phase 5 report.
 
+## Qualified Task16 native prerequisite — 2026-10-19
+
+The native component has qualified local source acceptance at
+`6c7f867309470e23e8f34c06a8f53af0b496d48d`: 132 unit, 90 integration and254
+architecture executions, zero failures; format/devcompileWAE/xref0 and actual
+independent SOURCE SPEC then NEW distinct QUALITY passed. The
+[handoff](../../verification/2026-10-19-phase-5-export-lease-ownership-handoff.md)
+records the original P2 evidence finding and its additive behavioral repair.
+Original56 remains54 raw matches plus2 authorized raw mismatches with exact
+inverse proofs, not a new all56-raw-PASS baseline. Resume original Task16 with
+the dedicated native adapter. Its strict end-to-end ALL-leases, artifact/API/
+startup and Phase5 acceptance remain unchecked; Task17/18/19 gates are unchanged.
+Older UNSATISFIED/BLOCKED_DESIGN snapshots below remain historical evidence.
+E2E NOT RUN; no publication, production activation or broader Vault work.
+
 ## Task16 native ownership exception — 2026-10-19
 
 The user explicitly approved the minimal export-request native lifecycle
