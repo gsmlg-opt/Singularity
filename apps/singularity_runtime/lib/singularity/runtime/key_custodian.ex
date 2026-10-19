@@ -10,6 +10,8 @@ defmodule Singularity.Runtime.KeyCustodian do
   alias Singularity.Core.Error
   alias Singularity.Runtime.Assets.UploadReconciler
   alias Singularity.Runtime.BackupKeyLease
+  alias Singularity.Runtime.DownloadLease
+  alias Singularity.Runtime.DownloadLease.ExportOwnership
   alias Singularity.Runtime.KeyLease
   alias Singularity.Runtime.KeyLeaseSupervisor
   alias Singularity.Storage.Crypto.BackupRecoveryWrapper
@@ -243,6 +245,39 @@ defmodule Singularity.Runtime.KeyCustodian do
   @spec lease(GenServer.server(), map()) ::
           {:ok, KeyLease.ref()} | {:error, :waiting_for_unlock | Error.t()}
   def lease(server, request), do: GenServer.call(server, {:lease, request})
+
+  @spec export_lease(GenServer.server(), map()) ::
+          {:ok, pid()} | {:error, :waiting_for_unlock | Error.t()}
+  def export_lease(server, request) do
+    ticket = ExportOwnership.new()
+
+    try do
+      case GenServer.call(
+             server,
+             {:export_lease, request, ticket},
+             ExportOwnership.remaining_ms(ticket)
+           ) do
+        {:ok, lease} when is_pid(lease) ->
+          case ExportOwnership.accept(ticket) do
+            :ok ->
+              {:ok, lease}
+
+            :cancelled ->
+              ExportOwnership.cancel(ticket)
+              revoke_failed_export(lease)
+              {:error, Error.new(:storage_unavailable, retryable?: true)}
+          end
+
+        {:error, _reason} = error ->
+          ExportOwnership.cancel(ticket)
+          error
+      end
+    catch
+      :exit, _reason ->
+        ExportOwnership.cancel(ticket)
+        {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
 
   @spec prepare_upload(GenServer.server(), map()) ::
           {:ok, map()} | {:error, Error.t()}
@@ -772,6 +807,87 @@ defmodule Singularity.Runtime.KeyCustodian do
         {:reply, {:error, Error.new(:invalid)}, state}
     end
   end
+
+  def handle_call(
+        {:export_lease, %{purpose: :download} = request, ticket},
+        {owner, _tag},
+        state
+      ) do
+    with :ok <- validate_export_download_request(request),
+         :ok <- export_acquisition_status(owner, ticket),
+         binding = Map.take(request, @request_fields),
+         %{
+           principal_id: principal_id,
+           vault_id: vault_id,
+           principal_authorization_epoch: principal_authorization_epoch,
+           vault_authorization_epoch: vault_authorization_epoch
+         } = session <-
+           Map.get(state.sessions, binding.session_id),
+         false <- matching_revocation?(state, session),
+         true <- vault_id == binding.vault_id,
+         true <- principal_id == binding.principal_id,
+         true <-
+           principal_authorization_epoch ==
+             binding.principal_authorization_epoch,
+         true <-
+           vault_authorization_epoch ==
+             binding.vault_authorization_epoch,
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         :ok <- export_acquisition_status(owner, ticket),
+         reader_context = Map.put(state.context, :object_binding, reader_binding),
+         {:ok, lease} <-
+           start_download_lease(state, binding, object_dek, reader_context, %{
+             export_ownership: %{owner_pid: owner, ticket: ticket}
+           }) do
+      {:reply, {:ok, lease}, register_lease(state, binding, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      true -> {:reply, {:error, :waiting_for_unlock}, state}
+      false -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
+  def handle_call(
+        {:export_lease, %{purpose: :document_source, access: :request} = request, ticket},
+        {owner, _tag},
+        state
+      ) do
+    with :ok <- validate_document_request(request, @document_request_fields),
+         :ok <- export_acquisition_status(owner, ticket),
+         %{} = session <- Map.get(state.sessions, request.session_id),
+         true <-
+           metadata_session_matches?(
+             state,
+             session,
+             request,
+             state.adapters.clock.utc_now(state.context)
+           ),
+         binding = Map.take(request, @document_request_fields),
+         :ok <- export_acquisition_status(owner, ticket),
+         {:ok, %{object_dek: object_dek, reader_binding: reader_binding}} <-
+           object_key(state, session, binding),
+         :ok <- export_acquisition_status(owner, ticket),
+         reader_context = Map.put(state.context, :object_binding, reader_binding),
+         {:ok, lease} <-
+           start_download_lease(state, binding, object_dek, reader_context, %{
+             export_ownership: %{owner_pid: owner, ticket: ticket}
+           }) do
+      {:reply, {:ok, lease}, register_lease(state, request.session_id, lease)}
+    else
+      nil -> {:reply, {:error, :waiting_for_unlock}, state}
+      false -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, :waiting_for_unlock} -> {:reply, {:error, :waiting_for_unlock}, state}
+      {:error, %Error{}} = error -> {:reply, error, state}
+      {:error, _reason} -> {:reply, {:error, Error.new(:storage_unavailable)}, state}
+    end
+  end
+
+  def handle_call({:export_lease, _request, _ticket}, _from, state),
+    do: {:reply, {:error, Error.new(:invalid)}, state}
 
   def handle_call({:lease, %{"purpose" => purpose}}, _from, state)
       when purpose in [:document_extraction_source, "document_extraction_source"],
@@ -1486,6 +1602,41 @@ defmodule Singularity.Runtime.KeyCustodian do
       state.lease_supervisor,
       Map.merge(options, private_options)
     )
+  end
+
+  defp revoke_failed_export(lease) do
+    monitor = Process.monitor(lease)
+
+    try do
+      :ok = DownloadLease.revoke(lease)
+    catch
+      :exit, _reason ->
+        receive do
+          {:DOWN, ^monitor, :process, ^lease, _reason} -> :ok
+        end
+    end
+
+    Process.demonitor(monitor, [:flush])
+    :ok
+  end
+
+  defp export_acquisition_status(owner, ticket) do
+    if Process.alive?(owner) and ExportOwnership.status(ticket) != :cancelled and
+         ExportOwnership.remaining_ms(ticket) > 0 do
+      :ok
+    else
+      ExportOwnership.cancel(ticket)
+      {:error, Error.new(:storage_unavailable, retryable?: true)}
+    end
+  end
+
+  defp validate_export_download_request(request) do
+    with :ok <- validate_download_request(request),
+         true <- exact_keys?(request, [:purpose | @request_fields]) do
+      :ok
+    else
+      _invalid -> {:error, Error.new(:invalid)}
+    end
   end
 
   defp validate_vault_rotation_request(request) when is_map(request) do

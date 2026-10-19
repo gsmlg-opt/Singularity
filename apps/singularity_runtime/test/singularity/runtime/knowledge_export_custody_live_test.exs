@@ -90,8 +90,28 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
   defmodule Reader do
     alias Singularity.Runtime.CustodyReader
     alias Singularity.Runtime.KnowledgeExportCustodyLiveTest, as: Owner
+
+    def utc_now(%{export_observer: observer, object_binding: binding} = context) do
+      if is_nil(Process.get({__MODULE__, :export_init, observer.token})) do
+        Process.put({__MODULE__, :export_init, observer.token}, true)
+
+        send(
+          observer.parent,
+          {:live_export, :init_observed, self(), observer.token, binding.object_id}
+        )
+      end
+
+      Owner.export_barrier(observer, :init, binding.object_id)
+      CustodyReader.utc_now(context)
+    end
+
     def utc_now(context), do: CustodyReader.utc_now(context)
     def revalidate(context, binding), do: CustodyReader.revalidate(context, binding)
+
+    def load_object_key(%{export_observer: observer} = context, binding, hierarchy) do
+      Owner.export_barrier(observer, :material, binding.object_id)
+      load_object_key(Map.delete(context, :export_observer), binding, hierarchy)
+    end
 
     def load_object_key(context, binding, hierarchy) do
       Owner.barrier(context, :material, nil)
@@ -135,6 +155,12 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
       result
     end
 
+    def read_range(%{export_observer: observer} = context, handle, range) do
+      result = read_range(Map.delete(context, :export_observer), handle, range)
+      Singularity.Runtime.KnowledgeExportCustodyLiveTest.export_barrier(observer, :storage, nil)
+      result
+    end
+
     def read_range(context, handle, range) do
       send(context.parent, {:live_read, :ciphertext_range, range})
       LocalFilesystemAdapter.read_range(context, handle, range)
@@ -142,6 +168,29 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
 
     defp result_kind({:ok, _}), do: :ok
     defp result_kind({:error, _}), do: :error
+  end
+
+  # Export acquisition alone uses this fixed adapter. AuthorizationDependencies
+  # continues to hold the genuine KeyCustodian directly, as in every old case.
+  defmodule ExportCustodian do
+    alias Singularity.Runtime.KnowledgeExportCustodyLiveTest, as: Owner
+
+    def lease(context, request) do
+      result =
+        apply(Singularity.Runtime.KeyCustodian, :export_lease, [context.custodian, request])
+
+      case result do
+        {:ok, lease} ->
+          send(context.parent, {:live_export, :native_returned, self(), context.token, lease})
+          Owner.export_barrier(context, :returned, lease)
+          send(context.parent, {:live_read, :lease, request, lease})
+
+        _ ->
+          :ok
+      end
+
+      result
+    end
   end
 
   defmodule Audit do
@@ -183,6 +232,15 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
         result
       end)
     end
+  end
+
+  setup context do
+    if Map.get(context, :export_ownership, false) do
+      assert Code.ensure_loaded?(KeyCustodian)
+      assert function_exported?(KeyCustodian, :export_lease, 2), "missing native export_lease/2"
+    end
+
+    %{}
   end
 
   setup context do
@@ -805,6 +863,316 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
     assert_closed!(f, trace)
   end
 
+  for kind <- [:asset, :document] do
+    @tag export_ownership: true, plaintext: :nonempty, barrier: %{stage: :material}
+    test "native export #{kind} loader returning after public five-second timeout leaves no late custody",
+         %{fixture: f} do
+      {f, binding} = export_source!(f, unquote(kind))
+      started = System.monotonic_time(:millisecond)
+      {owner, token} = export_pass!(f, unquote(kind), binding)
+      assert_receive {:live_export, :barrier, :material, loader, barrier_token, object}, 5_000
+      assert loader == f.custodian and object == f.source.object_id
+
+      assert_receive {:live_export, :outcome, ^owner, ^token,
+                      {:error, %Error{code: :storage_unavailable}}},
+                     7_000
+
+      assert Process.alive?(owner)
+      assert System.monotonic_time(:millisecond) - started >= 5_000
+      send(loader, {:continue_native_export, barrier_token})
+      assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+      assert_late_export_init_closed!(f.observer.token)
+      assert Process.alive?(owner)
+      refute_receive {:live_export, :native_returned, ^owner, _, _}, 0
+      assert_no_export_io!()
+    end
+
+    @tag export_ownership: true, plaintext: :nonempty, barrier: %{stage: :init}
+    test "native export #{kind} init spanning public timeout autonomously terminates after clock release",
+         %{fixture: f} do
+      {f, binding} = export_source!(f, unquote(kind))
+      started = System.monotonic_time(:millisecond)
+      {owner, token} = export_pass!(f, unquote(kind), binding)
+      assert_receive {:live_export, :barrier, :init, lease, barrier_token, object}, 5_000
+      assert object == f.source.object_id
+      monitor = Process.monitor(lease)
+
+      assert_receive {:live_export, :outcome, ^owner, ^token,
+                      {:error, %Error{code: :storage_unavailable}}},
+                     7_000
+
+      assert Process.alive?(owner)
+      assert System.monotonic_time(:millisecond) - started >= 5_000
+      send(lease, {:continue_native_export, barrier_token})
+      assert_receive {:DOWN, ^monitor, :process, ^lease, _reason}, 5_000
+      assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+      refute_receive {:live_export, :native_returned, ^owner, _, _}, 0
+      assert_no_export_io!()
+    end
+
+    @tag export_ownership: true, plaintext: :nonempty, barrier: %{stage: :init}
+    test "native export #{kind} owner death before usable init cannot leave custody after clock release",
+         %{fixture: f} do
+      {f, binding} = export_source!(f, unquote(kind))
+      {owner, token} = export_pass!(f, unquote(kind), binding)
+      assert_receive {:live_export, :barrier, :init, lease, barrier_token, object}, 5_000
+      assert object == f.source.object_id
+      lease_monitor = Process.monitor(lease)
+      owner_monitor = Process.monitor(owner)
+      Process.exit(owner, :kill)
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 5_000
+      send(lease, {:continue_native_export, barrier_token})
+      assert_receive {:DOWN, ^lease_monitor, :process, ^lease, _reason}, 5_000
+      assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+      refute_receive {:live_export, :outcome, ^owner, ^token, :ok}, 0
+      refute_receive {:live_export, :native_returned, ^owner, _, _}, 0
+      assert_no_export_io!()
+    end
+
+    @tag export_ownership: true, plaintext: :nonempty
+    test "native export #{kind} caller death after genuine API return precedes wrapper PID recording",
+         %{fixture: f} do
+      {f, binding} = export_source!(f, unquote(kind))
+      {owner, token} = export_pass!(f, unquote(kind), binding, :returned)
+      assert_receive {:live_export, :native_returned, ^owner, ^token, lease}, 5_000
+      assert_receive {:live_export, :barrier, :returned, ^owner, ^token, ^lease}, 5_000
+      lease_monitor = Process.monitor(lease)
+      owner_monitor = Process.monitor(owner)
+      trace = events()
+      refute Enum.any?(trace, &match?({:live_read, :lease, _, ^lease}, &1))
+      Process.exit(owner, :kill)
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 5_000
+      assert_receive {:DOWN, ^lease_monitor, :process, ^lease, _reason}, 5_000
+      assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+      refute_receive {:live_export, :outcome, ^owner, ^token, :ok}, 0
+      assert_no_export_io!(trace ++ events())
+    end
+
+    for cancellation <- [:owner_death, :revoke, :hard_lease_death] do
+      @tag export_ownership: true, plaintext: :nonempty, barrier: %{stage: :storage}
+      test "native export #{kind} #{cancellation} kills genuine blocked storage reader before successful plaintext",
+           %{fixture: f} do
+        {f, _binding} = export_source!(f, unquote(kind))
+        {owner, token} = export_acquirer!(f, unquote(kind))
+        assert_receive {:live_export, :acquired, ^owner, ^token, {:ok, lease}}, 5_000
+        lease_monitor = Process.monitor(lease)
+        parent = self()
+        read_token = make_ref()
+
+        reader_caller =
+          spawn(fn ->
+            result = export_read(lease, unquote(kind))
+
+            send(
+              parent,
+              {:live_export, :read_outcome, self(), read_token, export_outcome(result)}
+            )
+          end)
+
+        on_exit(fn -> stop_export_observer(reader_caller) end)
+        assert_receive {:live_export, :barrier, :storage, reader, _barrier_token, nil}, 5_000
+        reader_monitor = Process.monitor(reader)
+        assert Process.alive?(reader)
+        assert reader != reader_caller and reader != lease and reader != owner
+
+        case unquote(cancellation) do
+          :owner_death ->
+            owner_monitor = Process.monitor(owner)
+            Process.exit(owner, :kill)
+            assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 5_000
+
+          :revoke ->
+            assert :ok = DownloadLease.revoke(lease)
+
+          :hard_lease_death ->
+            Process.exit(lease, :kill)
+        end
+
+        # The actual storage callback already read ciphertext before blocking.
+        # Native cancellation must kill it; releasing it could deliver plaintext.
+        assert_receive {:DOWN, ^reader_monitor, :process, ^reader, _reader_reason}, 5_000
+        assert_receive {:DOWN, ^lease_monitor, :process, ^lease, _lease_reason}, 5_000
+
+        assert_receive {:live_export, :read_outcome, ^reader_caller, ^read_token, {:error, _}},
+                       5_000
+
+        refute_receive {:live_export, :read_outcome, ^reader_caller, ^read_token, :ok}, 0
+        assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+        assert {:error, %Error{code: :storage_unavailable}} = export_read(lease, unquote(kind))
+      end
+    end
+  end
+
+  @tag export_ownership: true, plaintext: :nonempty
+  test "accepted retained Document keeps native TTL beyond acquisition deadline and independent same-session custody",
+       %{fixture: f} do
+    {f, _binding} = export_source!(f, :document)
+    request = export_request(f, :document)
+    assert {:ok, ordinary} = KeyCustodian.lease(f.custodian, request)
+    ordinary_monitor = Process.monitor(ordinary)
+    context = %{parent: self(), custodian: f.custodian, token: make_ref(), stage: nil}
+    assert {:ok, independent} = ExportCustodian.lease(context, request)
+    accepted_at = System.monotonic_time(:millisecond)
+    independent_monitor = Process.monitor(independent)
+    {owner, token} = export_acquirer!(f, :document)
+    assert_receive {:live_export, :acquired, ^owner, ^token, {:ok, first}}, 5_000
+    assert first != independent and first != ordinary and independent != ordinary
+    first_monitor = Process.monitor(first)
+    owner_monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 5_000
+    assert_receive {:DOWN, ^first_monitor, :process, ^first, _reason}, 5_000
+
+    boundary = make_ref()
+    deadline = accepted_at + 5_001
+
+    Process.send_after(
+      self(),
+      {:live_export, :acquisition_boundary, boundary},
+      max(deadline - System.monotonic_time(:millisecond), 0)
+    )
+
+    assert_receive {:live_export, :acquisition_boundary, ^boundary}, 6_000
+    assert System.monotonic_time(:millisecond) >= deadline
+    assert KeyCustodian.unlocked?(f.custodian, f.session.session_id)
+    refute_receive {:DOWN, ^ordinary_monitor, :process, ^ordinary, _}, 0
+    refute_receive {:DOWN, ^independent_monitor, :process, ^independent, _}, 0
+    assert {:ok, bytes} = DownloadLease.read_document_chunk(ordinary, 0)
+    assert bytes == f.plaintext
+    assert {:ok, bytes} = DownloadLease.read_document_chunk(independent, 0)
+    assert bytes == f.plaintext
+    assert :ok = DownloadLease.revoke(independent)
+    assert_receive {:DOWN, ^independent_monitor, :process, ^independent, _}, 5_000
+    # Ordinary revoke retains its historical inert PID; this explicit fixture
+    # teardown is separate from every autonomous export-cleanup assertion above.
+    assert :ok = DownloadLease.revoke(ordinary)
+    assert :ok = DynamicSupervisor.terminate_child(f.supervisor, ordinary)
+    assert_receive {:DOWN, ^ordinary_monitor, :process, ^ordinary, _}, 5_000
+    assert File.read!(f.sentinel) == "neighbor unchanged"
+  end
+
+  def export_barrier(context, stage, identity) do
+    if context[:stage] == stage and
+         is_nil(Process.get({__MODULE__, :native_export, context.token, stage})) do
+      Process.put({__MODULE__, :native_export, context.token, stage}, true)
+      send(context.parent, {:live_export, :barrier, stage, self(), context.token, identity})
+
+      receive do
+        {:continue_native_export, token} when token == context.token -> :ok
+      after
+        15_000 -> raise "native export observer barrier timed out"
+      end
+    end
+  end
+
+  defp export_source!(f, :asset), do: {f, f.binding}
+
+  defp export_source!(f, :document) do
+    binding = captured_document!(f)
+    release_source!(f)
+    assert_retained_pin!(f)
+    {f, binding}
+  end
+
+  defp export_pass!(f, kind, binding, stage \\ nil) do
+    parent = self()
+    token = make_ref()
+
+    owner =
+      spawn(fn ->
+        context = %{parent: parent, custodian: f.custodian, token: token, stage: stage}
+        runtime = Map.put(f.runtime, :custodian, {ExportCustodian, context})
+        result = call(kind, %{f | runtime: runtime}, binding)
+        send(parent, {:live_export, :outcome, self(), token, export_outcome(result)})
+        export_observer_wait()
+      end)
+
+    on_exit(fn -> stop_export_observer(owner) end)
+    {owner, token}
+  end
+
+  defp export_acquirer!(f, kind) do
+    parent = self()
+    token = make_ref()
+
+    owner =
+      spawn(fn ->
+        context = %{parent: parent, custodian: f.custodian, token: token, stage: nil}
+        result = ExportCustodian.lease(context, export_request(f, kind))
+        send(parent, {:live_export, :acquired, self(), token, result})
+        export_observer_wait()
+      end)
+
+    on_exit(fn -> stop_export_observer(owner) end)
+    {owner, token}
+  end
+
+  defp export_request(f, kind) do
+    request = %{
+      session_id: f.session.session_id,
+      principal_id: f.session.principal_id,
+      vault_id: f.session.vault_id,
+      required_capability: "asset.read",
+      principal_authorization_epoch: f.session.principal_authorization_epoch,
+      vault_authorization_epoch: f.session.vault_authorization_epoch,
+      object_id: f.source.object_id,
+      object_generation: 1
+    }
+
+    case kind do
+      :asset ->
+        Map.merge(request, %{purpose: :download, job_id: f.source.asset_id})
+
+      :document ->
+        Map.merge(request, %{
+          purpose: :document_source,
+          access: :request,
+          resource_version_id: text(f.document.resource_version_id)
+        })
+    end
+  end
+
+  defp export_read(lease, :asset), do: DownloadLease.read(lease, :all)
+  defp export_read(lease, :document), do: DownloadLease.read_document_chunk(lease, 0)
+  defp export_outcome({:ok, _}), do: :ok
+  defp export_outcome({:error, _} = error), do: error
+
+  defp export_observer_wait do
+    receive do
+      :stop_native_export_observer -> :ok
+    after
+      30_000 -> :ok
+    end
+  end
+
+  defp stop_export_observer(pid) do
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^pid, _} -> :ok
+    after
+      5_000 -> raise "native export observer did not stop"
+    end
+  end
+
+  defp assert_no_export_io!(trace \\ events()) do
+    refute Enum.any?(trace, &match?({:live_read, :plaintext_range, _, _}, &1))
+    refute Enum.any?(trace, &match?({:live_read, :document_chunk, _, _}, &1))
+    refute Enum.any?(trace, &match?({:live_read, :ciphertext_range, _}, &1))
+  end
+
+  defp assert_late_export_init_closed!(token) do
+    receive do
+      {:live_export, :init_observed, lease, ^token, _object} ->
+        monitor = Process.monitor(lease)
+        assert_receive {:DOWN, ^monitor, :process, ^lease, _reason}, 5_000
+        assert_late_export_init_closed!(token)
+    after
+      0 -> :ok
+    end
+  end
+
   # Public only to the nested delegates in this owning test module.
   def connection_witness(repo) do
     [[backend, transaction, principal, owner]] =
@@ -850,6 +1218,18 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
 
     root = Path.join(tmp_dir, "storage")
     observer = %{parent: self(), barrier: barrier_kind, token: make_ref()}
+
+    observer =
+      if is_map(barrier_kind) do
+        %{observer | barrier: nil}
+        |> Map.put(
+          :export_observer,
+          Map.merge(barrier_kind, Map.take(observer, [:parent, :token]))
+        )
+      else
+        observer
+      end
+
     primary = encrypted_object!(root, source_text.vault_id, ids, keys, bytes)
 
     replacement =
@@ -954,6 +1334,13 @@ defmodule Singularity.Runtime.KnowledgeExportCustodyLiveTest do
         key_wrapper: KeyWrapper,
         storage: %{adapter: Storage, context: %{root: root, parent: self()}}
       })
+
+    custody_context =
+      if Map.has_key?(observer, :export_observer) do
+        put_in(custody_context.storage.context[:export_observer], observer.export_observer)
+      else
+        custody_context
+      end
 
     custodian =
       start_supervised!(

@@ -1,3 +1,57 @@
+defmodule Singularity.Runtime.DownloadLease.ExportOwnership do
+  @moduledoc false
+
+  def new do
+    %{
+      deadline_ms: System.monotonic_time(:millisecond) + 5_000,
+      state: :atomics.new(1, signed: false)
+    }
+  end
+
+  def remaining_ms(ticket),
+    do: max(ticket.deadline_ms - System.monotonic_time(:millisecond), 0)
+
+  def status(ticket) do
+    case :atomics.get(ticket.state, 1) do
+      0 -> :pending
+      1 -> :accepted
+      2 -> :cancelled
+    end
+  end
+
+  def accept(ticket) do
+    if remaining_ms(ticket) > 0 do
+      case :atomics.compare_exchange(ticket.state, 1, 0, 1) do
+        result when result in [:ok, 1] ->
+          if remaining_ms(ticket) > 0 and status(ticket) == :accepted do
+            :ok
+          else
+            cancel(ticket)
+            :cancelled
+          end
+
+        2 ->
+          :cancelled
+      end
+    else
+      cancel(ticket)
+      :cancelled
+    end
+  end
+
+  def cancel(ticket) do
+    :atomics.put(ticket.state, 1, 2)
+    :ok
+  end
+
+  def expire_pending(ticket) do
+    case :atomics.compare_exchange(ticket.state, 1, 0, 2) do
+      1 -> :accepted
+      result when result in [:ok, 2] -> :cancelled
+    end
+  end
+end
+
 defmodule Singularity.Runtime.DownloadLease do
   @moduledoc """
   One-use opaque custody for an authenticated full or ranged object read.
@@ -9,6 +63,7 @@ defmodule Singularity.Runtime.DownloadLease do
   use GenServer
 
   alias Singularity.Core.Error
+  alias Singularity.Runtime.DownloadLease.ExportOwnership
 
   @lease_seconds 60
 
@@ -72,6 +127,54 @@ defmodule Singularity.Runtime.DownloadLease do
     do: GenServer.call(lease, :revoke, :infinity)
 
   @impl true
+  def init(%{
+        authorization: authorization,
+        binding: binding,
+        clock: clock,
+        context: context,
+        custodian: custodian,
+        export_ownership: %{owner_pid: owner, ticket: ticket} = ownership,
+        key_material: <<_::binary-size(32)>> = key_material,
+        key_reader: key_reader
+      })
+      when is_map(binding) and is_pid(custodian) and is_pid(owner) do
+    Process.flag(:trap_exit, true)
+    owner_monitor = Process.monitor(owner)
+    Process.send_after(self(), :export_acquisition_expired, ExportOwnership.remaining_ms(ticket))
+
+    with :ok <- export_acquisition_status(ownership),
+         now = clock.utc_now(context),
+         :ok <- export_acquisition_status(ownership) do
+      custodian_monitor = Process.monitor(custodian)
+      Process.send_after(self(), :expire, @lease_seconds * 1_000)
+
+      {:ok,
+       %{
+         authorization: authorization,
+         binding: binding,
+         clock: clock,
+         custodian: custodian,
+         custodian_monitor: custodian_monitor,
+         expires_at: DateTime.add(now, @lease_seconds, :second),
+         export_ownership: ownership,
+         export_owner_monitor: owner_monitor,
+         key_reader: key_reader,
+         mode: nil,
+         consumer_pid: nil,
+         consumer_monitor: nil,
+         next_index: 0,
+         pending: nil,
+         public_context: Map.delete(context, :key_material),
+         reader_context: Map.put(context, :key_material, key_material),
+         revoked?: false
+       }}
+    else
+      :cancelled ->
+        ExportOwnership.cancel(ticket)
+        {:stop, :normal}
+    end
+  end
+
   def init(
         %{
           authorization: authorization,
@@ -282,6 +385,9 @@ defmodule Singularity.Runtime.DownloadLease do
   def handle_call(:authenticate_empty_document_original, _from, state),
     do: {:reply, {:error, Error.new(:invalid)}, state}
 
+  def handle_call(:revoke, _from, %{export_ownership: _ownership} = state),
+    do: {:stop, :normal, :ok, revoke_state(state)}
+
   def handle_call(:revoke, _from, %{mode: :document_worker_source} = state),
     do: {:stop, :normal, :ok, revoke_state(state)}
 
@@ -427,6 +533,15 @@ defmodule Singularity.Runtime.DownloadLease do
   end
 
   def handle_info(
+        {:DOWN, monitor, :process, owner, _reason},
+        %{
+          export_ownership: %{owner_pid: owner},
+          export_owner_monitor: monitor
+        } = state
+      ),
+      do: {:stop, :normal, revoke_state(state)}
+
+  def handle_info(
         {:DOWN, monitor, :process, consumer, _reason},
         %{
           mode: :document_worker_source,
@@ -442,6 +557,16 @@ defmodule Singularity.Runtime.DownloadLease do
       ) do
     {:stop, :normal, revoke_state(state)}
   end
+
+  def handle_info(:export_acquisition_expired, %{export_ownership: ownership} = state) do
+    case ExportOwnership.expire_pending(ownership.ticket) do
+      :accepted -> {:noreply, state}
+      :cancelled -> {:stop, :normal, revoke_state(state)}
+    end
+  end
+
+  def handle_info(:expire, %{export_ownership: _ownership} = state),
+    do: {:stop, :normal, revoke_state(state)}
 
   def handle_info(:expire, %{mode: :document_worker_source} = state),
     do: {:stop, :normal, revoke_state(state)}
@@ -476,13 +601,15 @@ defmodule Singularity.Runtime.DownloadLease do
       reader_context: state.reader_context
     }
 
+    operation = Map.merge(operation, Map.take(state, [:export_ownership]))
+
     reader = fn ->
       result = perform_read(operation)
       send(lease, {:download_read_complete, operation_ref, result})
     end
 
     {worker, monitor} =
-      if state.mode == :document_worker_source,
+      if state.mode == :document_worker_source or Map.has_key?(state, :export_ownership),
         do: :erlang.spawn_opt(reader, [:link, :monitor]),
         else: spawn_monitor(reader)
 
@@ -499,17 +626,20 @@ defmodule Singularity.Runtime.DownloadLease do
   end
 
   defp perform_read(operation) do
-    with :ok <-
+    with :ok <- export_read_status(operation),
+         :ok <-
            operation.authorization.revalidate(
              operation.public_context,
              operation.binding
            ),
+         :ok <- export_read_status(operation),
          {:ok, plaintext} <- read_operation(operation),
          :ok <-
            operation.authorization.revalidate(
              operation.public_context,
              operation.binding
-           ) do
+           ),
+         :ok <- export_read_status(operation) do
       {:ok, plaintext}
     end
   rescue
@@ -537,6 +667,17 @@ defmodule Singularity.Runtime.DownloadLease do
 
   defp lease_status(%{revoked?: true}), do: :revoked
 
+  defp lease_status(%{export_ownership: _ownership} = state) do
+    with :ok <- export_read_status(state),
+         :lt <- DateTime.compare(state.clock.utc_now(state.public_context), state.expires_at),
+         :ok <- export_read_status(state) do
+      :active
+    else
+      {:error, :waiting_for_unlock} -> :revoked
+      _expired -> :expired
+    end
+  end
+
   defp lease_status(state) do
     case DateTime.compare(
            state.clock.utc_now(state.public_context),
@@ -550,6 +691,9 @@ defmodule Singularity.Runtime.DownloadLease do
   defp revoke_state(%{revoked?: true} = state), do: state
 
   defp revoke_state(state) do
+    if Map.has_key?(state, :export_ownership),
+      do: ExportOwnership.cancel(state.export_ownership.ticket)
+
     state = cancel_pending(state)
     _overwritten = overwrite(Map.get(state.reader_context, :key_material))
 
@@ -558,6 +702,16 @@ defmodule Singularity.Runtime.DownloadLease do
       | reader_context: Map.delete(state.reader_context, :key_material),
         revoked?: true
     }
+  end
+
+  defp finish_reader(%{export_ownership: _ownership}, pending) do
+    Process.exit(pending.pid, :kill)
+
+    receive do
+      {:DOWN, monitor, :process, reader, _reason}
+      when monitor == pending.monitor and reader == pending.pid ->
+        :ok
+    end
   end
 
   defp finish_reader(%{mode: :document_worker_source}, pending) do
@@ -595,6 +749,21 @@ defmodule Singularity.Runtime.DownloadLease do
         last >= first
 
   defp valid_range?(_range), do: false
+
+  defp export_acquisition_status(%{owner_pid: owner, ticket: ticket}) do
+    if Process.alive?(owner) and ExportOwnership.status(ticket) != :cancelled and
+         ExportOwnership.remaining_ms(ticket) > 0,
+       do: :ok,
+       else: :cancelled
+  end
+
+  defp export_read_status(%{export_ownership: %{owner_pid: owner, ticket: ticket}}) do
+    if Process.alive?(owner) and ExportOwnership.status(ticket) == :accepted,
+      do: :ok,
+      else: {:error, :waiting_for_unlock}
+  end
+
+  defp export_read_status(_ordinary), do: :ok
 
   defp overwrite(secret) when is_binary(secret),
     do: :binary.copy(<<0>>, byte_size(secret))
