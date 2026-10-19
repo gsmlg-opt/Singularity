@@ -175,6 +175,14 @@ Resume original Task16 using `KeyCustodian.export_lease/2` only in its companion
 adapter. Native component acceptance does not accept Task16's artifact/startup
 composition, either end-to-end ALL-leases assertion, Task17 or Phase5.
 
+Task16's one-way orchestration seam and exact P5-A2 formatter reconciliation
+follow
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-acyclic-composition-design.md`
+and
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-acyclic-composition.md`.
+The fixed internal generation closure is not caller/configuration-selected;
+all original ownership, native cleanup, startup and zero-cycle gates remain.
+
 The active invariant is:
 
 > Every user-owned object belongs to an authenticated owner scope, and every
