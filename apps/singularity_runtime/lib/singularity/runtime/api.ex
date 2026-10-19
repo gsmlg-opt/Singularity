@@ -1289,6 +1289,10 @@ defmodule Singularity.Runtime.Api do
       export_note: fn session, resource_id ->
         NoteExportReader.run(runtime, session, resource_id)
       end,
+      export_knowledge: &KnowledgeExport.run(runtime, &1, &2),
+      knowledge_export_entries: &KnowledgeExport.entries(runtime, &1, &2, &3),
+      read_knowledge_export_chunk: &KnowledgeExport.read_chunk(runtime, &1, &2, &3, &4),
+      close_knowledge_export: &KnowledgeExport.close(runtime, &1, &2),
       finish_upload: &UploadSession.finish/1,
       get_note: fn session, resource_id ->
         NoteGet.run(runtime, session, resource_id)
@@ -1486,6 +1490,7 @@ defmodule Singularity.Runtime.Api do
       jobs: {ObanAdapter, %{}},
       key_deriver: Argon2KeyDeriver,
       key_wrapper: KeyWrapper,
+      knowledge_export: KnowledgeExport.configuration(),
       note_repository: NoteRepository,
       knowledge_link_repository: KnowledgeLinkRepository,
       note_search: NoteLexicalSearch,

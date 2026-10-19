@@ -618,13 +618,21 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   end
 
   defp normalize_phase5!(@api, source) do
+    source = strip_phase5_additions!(@api, source)
+    undo_phase5_native_text!(source)
+  end
+
+  defp normalize_phase5!(path, source) do
+    source = strip_phase5_additions!(path, source)
+    undo_phase5_task8!(path, source)
+  end
+
+  defp undo_phase5_native_text!(source) do
     Enum.reduce(native_text_hunks(), source, fn hunk, remaining ->
       {before, old, _new, after_bytes, prefix, suffix} = assert_native_text_hunk!(remaining, hunk)
       prefix <> before <> old <> after_bytes <> suffix
     end)
   end
-
-  defp normalize_phase5!(path, source), do: undo_phase5_task8!(path, source)
 
   defp assert_runtime_baseline!(path, source, expected) do
     assert_historical_runtime_baseline!(path, normalize_phase5!(path, source), expected)
@@ -1206,18 +1214,20 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
   # BEGIN Task8 exact test attribution.
   test "accepted Task8 inverse recovers independently fixed pre-Task8 Application bytes" do
-    source = read_source(@application)
-    Enum.each(phase5_task8_replacements(), &assert_task8_tuple!(source, &1))
+    raw = read_source(@application)
+    Enum.each(phase5_task8_replacements(), &assert_task8_tuple!(raw, &1))
+    staged = strip_phase5_additions!(@application, raw)
+    inverse = undo_phase5_task8!(@application, staged)
 
     assert_digest!(
       @application <> " Task8 inverse",
-      undo_phase5_task8!(@application, source),
+      inverse,
       "4deda19432de3174c2f737216c8185e3cdea8bb91d3960475308a27558bdfbca"
     )
 
     assert_historical_runtime_baseline!(
       @application,
-      undo_phase5_task8!(@application, source),
+      inverse,
       @runtime_baselines[@application]
     )
   end
@@ -1420,7 +1430,8 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
   # Native-text fixtures come from all eleven original context-bearing hunks of
   # 6fd422a6987121d02e54a8cc6395061880ec903f, not from normalized current bytes.
   test "accepted native-text inverse recovers exact pre-native and original API bytes" do
-    source = read_source(@api)
+    raw = read_source(@api)
+    source = strip_phase5_additions!(@api, raw)
 
     assert_digest!(
       @api <> " accepted native-text source",
@@ -1429,7 +1440,7 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
     )
 
     Enum.each(native_text_hunks(), &assert_native_text_hunk!(source, &1))
-    normalized = normalize_phase5!(@api, source)
+    normalized = undo_phase5_native_text!(source)
 
     assert_digest!(
       @api <> " pre-native-text inverse",
@@ -1906,4 +1917,574 @@ defmodule Singularity.Web.Architecture.KnowledgePhase1ContractTest do
 
     section
   end
+
+  # BEGIN Task16 strict attribution contracts (test-first window).
+  test "Task16 inventory pins exactly seven additions and one separate startup replacement" do
+    assert ["P5-A1", "P5-A2", "P5-A3", "P5-A4", "P5-C1", "P5-C2", "P5-C3"] ==
+             Enum.map(phase5_additions(), &elem(&1, 0))
+
+    for tuple <- phase5_additions(),
+        do: assert_phase5_addition!(read_source(elem(tuple, 1)), tuple)
+
+    assert_phase5_startup!(read_source(@application))
+  end
+
+  for id <- ["P5-A1", "P5-A2", "P5-A3", "P5-A4", "P5-C1", "P5-C2", "P5-C3"],
+      mutation <- [:missing, :duplicate, :altered, :relocated] do
+    test "Task16 #{id} strict attribution rejects #{mutation}" do
+      tuple = Enum.find(phase5_additions(), &(elem(&1, 0) == unquote(id)))
+      path = elem(tuple, 1)
+      mutated = phase5_addition_mutation!(read_source(path), tuple, unquote(mutation))
+
+      assert_raise ExUnit.AssertionError, fn -> strip_phase5_additions!(path, mutated) end
+    end
+  end
+
+  for mutation <- [
+        :missing,
+        :duplicate,
+        :module,
+        :function,
+        :children,
+        :options,
+        :boolean,
+        :old_only,
+        :coexisting,
+        :relocated,
+        :before,
+        :after
+      ] do
+    test "Task16 startup replacement rejects #{mutation}" do
+      mutated = phase5_startup_mutation!(read_source(@application), unquote(mutation))
+      assert_raise ExUnit.AssertionError, fn -> strip_phase5_additions!(@application, mutated) end
+    end
+  end
+
+  test "Task16 staging recovers the same fixed pre-native API input" do
+    staged = strip_phase5_additions!(@api, read_source(@api))
+    assert_phase5_absent!(@api, staged)
+
+    assert_digest!(
+      @api <> " accepted native-text source",
+      staged,
+      "8557685c2415c5ee3b30e33be6dfaab6e4ee25b0772bb3123a92384a914c33b4"
+    )
+
+    Enum.each(native_text_hunks(), &assert_native_text_hunk!(staged, &1))
+  end
+
+  test "Task16 staging precedes one Task8 inverse with unchanged fixed output" do
+    raw = read_source(@application)
+    Enum.each(phase5_task8_replacements(), &assert_task8_tuple!(raw, &1))
+    staged = strip_phase5_additions!(@application, raw)
+    assert_phase5_absent!(@application, staged)
+
+    assert_digest!(
+      @application <> " Task8 inverse",
+      undo_phase5_task8!(@application, staged),
+      "4deda19432de3174c2f737216c8185e3cdea8bb91d3960475308a27558bdfbca"
+    )
+  end
+
+  for {path, expected} <- [
+        {"config/dev.exs", "b028676aba7578fad1e217fbecc94c0aad66610c671eeec1220d1808b3d6c8d0"},
+        {"config/test.exs", "587ad6ff1dadd4cd3efe69a8dd485b26c9f28175e6a19edb565ae11c857e0ea2"},
+        {"config/runtime.exs", "1847759a3e3461681f5e832cb4b9e35cfb1ae0217665afd7c60b375128fa55ca"}
+      ] do
+    test "Task16 config staging recovers the fixed #{path} parent" do
+      path = unquote(path)
+      staged = strip_phase5_additions!(path, read_source(path))
+      assert_phase5_absent!(path, staged)
+      assert_digest!(path, staged, unquote(expected))
+    end
+  end
+
+  for boundary <- [:api_native, :application_task8],
+      mutation <- [:missing, :duplicate, :altered, :relocated] do
+    test "Task16 #{boundary} positive input boundary rejects #{mutation}" do
+      {path, mutated} =
+        case unquote(boundary) do
+          :api_native ->
+            tuple = Enum.find(phase5_additions(), &(elem(&1, 0) == "P5-A2"))
+            {@api, phase5_addition_mutation!(read_source(@api), tuple, unquote(mutation))}
+
+          :application_task8 ->
+            {@application, phase5_startup_mutation!(read_source(@application), unquote(mutation))}
+        end
+
+      assert_raise ExUnit.AssertionError, fn -> strip_phase5_additions!(path, mutated) end
+    end
+  end
+
+  for id <- 1..11 do
+    test "native-text hunk #{id} retained mutations pass Task16 staging before native rejection" do
+      source = read_source(@api)
+      hunk = Enum.at(native_text_hunks(), unquote(id) - 1)
+
+      for mutation <- [:altered, :removed, :reverted, :duplicate, :relocated, :before, :after] do
+        mutated = native_text_mutation!(source, hunk, mutation)
+        staged = strip_phase5_additions!(@api, mutated)
+        assert_phase5_absent!(@api, staged)
+        assert_raise ExUnit.AssertionError, fn -> assert_native_text_hunk!(staged, hunk) end
+
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(@api, mutated, @runtime_baselines[@api])
+        end
+      end
+    end
+  end
+
+  test "unrelated native legacy-byte counterproof reaches its fixed historical digest" do
+    source = read_source(@api)
+    original = "  The sole application-facing runtime facade.\n"
+    replacement = "  The unauthorized application-facing runtime facade.\n"
+    assert [prefix, suffix] = String.split(source, original)
+    mutated = prefix <> replacement <> suffix
+    staged = strip_phase5_additions!(@api, mutated)
+    assert_phase5_absent!(@api, staged)
+    Enum.each(native_text_hunks(), &assert_native_text_hunk!(staged, &1))
+
+    error =
+      assert_raise ExUnit.AssertionError, fn ->
+        assert_runtime_baseline!(@api, mutated, @runtime_baselines[@api])
+      end
+
+    assert String.starts_with?(error.message, @api <> " changed from accepted baseline")
+  end
+
+  test "portable export public registration has exactly the approved names and arities" do
+    expected = [
+      export_knowledge: 2,
+      export_knowledge: 3,
+      knowledge_export_entries: 3,
+      knowledge_export_entries: 4,
+      read_knowledge_export_chunk: 4,
+      read_knowledge_export_chunk: 5,
+      close_knowledge_export: 2,
+      close_knowledge_export: 3
+    ]
+
+    actual =
+      Singularity.Runtime.Api.__info__(:functions)
+      |> Enum.filter(fn {name, _arity} -> phase5_export_name?(name) end)
+
+    assert Enum.sort(actual) == Enum.sort(expected)
+  end
+
+  test "portable export AST registration matches only exact reviewed block references" do
+    for path <- [@api, @application, "config/dev.exs", "config/test.exs", "config/runtime.exs"] do
+      assert_phase5_registration!(path, read_source(path))
+    end
+  end
+
+  for {label, addition} <- [
+        {"unknown operation", "  def unknown_knowledge_export(value), do: value\n"},
+        {"extra existing-name clause",
+         "  def export_knowledge(:unapproved, _options), do: {:error, :invalid}\n"},
+        {"foreign qualified callback",
+         "  defp unapproved_callback(value), do: KnowledgeExport.unapproved(value)\n"},
+        {"documentation-hidden operation",
+         "  @doc \"portable export\"\n  def unknown_knowledge_export(value), do: value\n"}
+      ] do
+    test "portable export AST and historical bytes reject #{label}" do
+      source = read_source(@api)
+      assert_phase5_registration!(@api, source)
+      mutated = phase5_append_module_code!(source, unquote(addition))
+      assert_raise ExUnit.AssertionError, fn -> assert_phase5_registration!(@api, mutated) end
+      staged = strip_phase5_additions!(@api, mutated)
+      assert_phase5_absent!(@api, staged)
+      Enum.each(native_text_hunks(), &assert_native_text_hunk!(staged, &1))
+
+      error =
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(@api, mutated, @runtime_baselines[@api])
+        end
+
+      assert String.starts_with?(error.message, @api <> " changed from accepted baseline")
+    end
+  end
+
+  test "unknown export callbacks cannot hide beside an approved callback" do
+    source = read_source(@api)
+    anchor = "      finish_upload: &UploadSession.finish/1,\n"
+    assert [prefix, suffix] = String.split(source, anchor)
+    addition = "      unknown_knowledge_export: &KnowledgeExport.run(runtime, &1, &2),\n"
+    mutated = prefix <> addition <> anchor <> suffix
+    assert [_, _] = String.split(mutated, addition)
+    assert_raise ExUnit.AssertionError, fn -> assert_phase5_registration!(@api, mutated) end
+
+    # Inserting next to A3 changes its exact following context; the strict
+    # stripper itself must reject rather than treating it as an absent block.
+    assert_raise ExUnit.AssertionError, fn -> strip_phase5_additions!(@api, mutated) end
+  end
+
+  for {label, addition} <- [
+        {"foreign native startup",
+         "  defp foreign_start, do: Singularity.Runtime.Knowledge.ExportArtifact.start_runtime([], [], false)\n"},
+        {"extra startup clause",
+         "  @doc false\n  def application_children(:unapproved), do: []\n"}
+      ] do
+    test "unapproved #{label} retains its historical byte rejection" do
+      mutated = phase5_append_module_code!(read_source(@application), unquote(addition))
+      staged = strip_phase5_additions!(@application, mutated)
+      assert_phase5_absent!(@application, staged)
+      Enum.each(phase5_task8_replacements(), &assert_task8_tuple!(staged, &1))
+
+      error =
+        assert_raise ExUnit.AssertionError, fn ->
+          assert_runtime_baseline!(@application, mutated, @runtime_baselines[@application])
+        end
+
+      assert String.starts_with?(error.message, @application <> " changed from accepted baseline")
+    end
+  end
+
+  test "export AST documentation filtering cannot hide adjacent executable code" do
+    source = read_source(@api)
+
+    documented =
+      phase5_append_module_code!(
+        source,
+        "  @doc \"knowledge export\"\n  def identity(value), do: value\n"
+      )
+
+    assert_phase5_registration!(@api, documented)
+
+    hidden =
+      phase5_append_module_code!(
+        source,
+        "  @moduledoc \"knowledge export\"\n  @doc \"knowledge export\"\n" <>
+          "  def unknown_knowledge_export(value), do: value\n"
+      )
+
+    assert_raise ExUnit.AssertionError, fn -> assert_phase5_registration!(@api, hidden) end
+  end
+
+  defp strip_phase5_additions!(path, source) do
+    source = undo_phase5_startup!(path, source)
+
+    Enum.reduce(phase5_additions(), source, fn
+      {id, ^path, preceding, addition, following, block_hash, context_hash, _destination},
+      remaining ->
+        assert [_, _] = String.split(remaining, addition)
+        assert_digest!(path <> id <> " addition", addition, block_hash)
+        context = preceding <> addition <> following
+        assert [_, _] = String.split(remaining, context)
+        assert_digest!(path <> id <> " context", context, context_hash)
+        strip_unique!(remaining, addition)
+
+      _other, remaining ->
+        remaining
+    end)
+  end
+
+  defp undo_phase5_startup!(@application = path, source) do
+    {before, old, new, after_bytes, old_hash, new_hash, old_context_hash, new_context_hash} =
+      phase5_startup_replacement()
+
+    assert_digest!(path <> " P5-A5 old", old, old_hash)
+    assert_digest!(path <> " P5-A5 new", new, new_hash)
+    assert_digest!(path <> " P5-A5 old context", before <> old <> after_bytes, old_context_hash)
+    context = before <> new <> after_bytes
+    assert_digest!(path <> " P5-A5 new context", context, new_context_hash)
+    assert [_, _] = String.split(source, new)
+    refute String.contains?(source, old)
+    assert [prefix, suffix] = String.split(source, context)
+    prefix <> before <> old <> after_bytes <> suffix
+  end
+
+  defp undo_phase5_startup!(_path, source), do: source
+
+  defp assert_phase5_absent!(path, source) do
+    for {_id, ^path, _before, addition, _after, _hash, _context_hash, _destination} <-
+          phase5_additions() do
+      refute String.contains?(source, addition)
+    end
+
+    if path == @application do
+      {before, old, new, after_bytes, _, _, _, _} = phase5_startup_replacement()
+      refute String.contains?(source, new)
+      assert [_, _] = String.split(source, before <> old <> after_bytes)
+    end
+  end
+
+  defp assert_phase5_addition!(source, tuple) do
+    {id, path, before, addition, after_bytes, hash, context_hash, destination} = tuple
+    assert_digest!(path <> id <> " addition", addition, hash)
+    context = before <> addition <> after_bytes
+    assert_digest!(path <> id <> " context", context, context_hash)
+    assert [_, _] = String.split(source, addition)
+    assert [prefix, suffix] = String.split(source, context)
+    assert [_, _] = String.split(source, destination)
+    {before, addition, after_bytes, destination, prefix, suffix}
+  end
+
+  defp phase5_addition_mutation!(source, tuple, mutation) do
+    {before, addition, after_bytes, destination, prefix, suffix} =
+      assert_phase5_addition!(source, tuple)
+
+    context = before <> addition <> after_bytes
+
+    changed =
+      case mutation do
+        :missing ->
+          prefix <> before <> after_bytes <> suffix
+
+        :duplicate ->
+          prefix <> before <> addition <> addition <> after_bytes <> suffix
+
+        :altered ->
+          altered =
+            String.replace(addition, "\n", " # unauthorized Task16 bytes\n", global: false)
+
+          refute altered == addition
+          prefix <> before <> altered <> after_bytes <> suffix
+
+        :relocated ->
+          removed = prefix <> before <> after_bytes <> suffix
+          assert [destination_prefix, destination_suffix] = String.split(removed, destination)
+          relocated = destination_prefix <> destination <> addition <> destination_suffix
+          assert [_, _] = String.split(relocated, destination <> addition)
+          assert [_, _] = String.split(relocated, before <> after_bytes)
+          refute String.contains?(relocated, context)
+          relocated
+      end
+
+    refute changed == source
+    changed
+  end
+
+  defp assert_phase5_startup!(source) do
+    {before, old, new, after_bytes, old_hash, new_hash, old_context_hash, new_context_hash} =
+      phase5_startup_replacement()
+
+    assert_digest!(@application <> " P5-A5 old", old, old_hash)
+    assert_digest!(@application <> " P5-A5 new", new, new_hash)
+
+    assert_digest!(
+      @application <> " P5-A5 old context",
+      before <> old <> after_bytes,
+      old_context_hash
+    )
+
+    context = before <> new <> after_bytes
+    assert_digest!(@application <> " P5-A5 new context", context, new_context_hash)
+    assert [_, _] = String.split(source, new)
+    refute String.contains?(source, old)
+    assert [prefix, suffix] = String.split(source, context)
+    {before, old, new, after_bytes, prefix, suffix}
+  end
+
+  defp phase5_startup_mutation!(source, mutation) do
+    {before, old, new, after_bytes, prefix, suffix} = assert_phase5_startup!(source)
+    context = before <> new <> after_bytes
+    old_site = before <> old <> after_bytes
+
+    changed =
+      case mutation do
+        :missing ->
+          prefix <> before <> after_bytes <> suffix
+
+        :duplicate ->
+          prefix <> before <> new <> new <> after_bytes <> suffix
+
+        :old_only ->
+          prefix <> old_site <> suffix
+
+        :coexisting ->
+          prefix <> before <> new <> old <> after_bytes <> suffix
+
+        :relocated ->
+          destination = "  @doc false\n  @spec application_children(map())"
+          removed = prefix <> old_site <> suffix
+          assert [_, _] = String.split(removed, old_site)
+          assert [destination_prefix, destination_suffix] = String.split(removed, destination)
+          relocated = destination_prefix <> new <> destination <> destination_suffix
+          assert String.replace(relocated, new, "", global: false) == removed
+          assert [_, _] = String.split(relocated, new)
+          refute String.contains?(relocated, context)
+          relocated
+
+        :before ->
+          prefix <>
+            before <> "    # unauthorized startup before\n" <> new <> after_bytes <> suffix
+
+        :after ->
+          prefix <> before <> new <> "    # unauthorized startup after\n" <> after_bytes <> suffix
+
+        token_mutation
+        when token_mutation in [:altered, :module, :function, :children, :options, :boolean] ->
+          {token, replacement} =
+            case token_mutation do
+              :altered ->
+                {"ExportArtifact", "UnauthorizedExportArtifact"}
+
+              :module ->
+                {"ExportArtifact", "UnauthorizedExportArtifact"}
+
+              :function ->
+                {"start_runtime", "start_runtime_unapproved"}
+
+              :children ->
+                {"      children,", "      [],"}
+
+              :options ->
+                {":one_for_one", ":one_for_all"}
+
+              :boolean ->
+                {"Application.fetch_env!(:singularity_runtime, :start_infrastructure)", "false"}
+            end
+
+          altered = String.replace(new, token, replacement, global: false)
+          refute altered == new
+          prefix <> before <> altered <> after_bytes <> suffix
+      end
+
+    refute changed == source
+    changed
+  end
+
+  defp phase5_append_module_code!(source, addition) do
+    ending = "\nend\n"
+    assert String.ends_with?(source, ending)
+    prefix = binary_part(source, 0, byte_size(source) - byte_size(ending))
+    changed = prefix <> "\n" <> addition <> ending
+    refute changed == source
+    changed
+  end
+
+  defp phase5_export_name?(value),
+    do:
+      is_atom(value) and
+        Regex.match?(~r/knowledge.*export|export.*knowledge/i, Atom.to_string(value))
+
+  defp phase5_export_alias?(segments) do
+    Enum.any?(segments, &phase5_export_name?/1) or
+      (:Knowledge in segments and Enum.any?(segments, &(&1 in [:Export, :ExportArtifact])))
+  end
+
+  defp phase5_registration_terms!(source) do
+    assert {:ok, ast} = Code.string_to_quoted(source)
+
+    {_ast, terms} =
+      Macro.prewalk(ast, [], fn
+        {:@, _, [{attribute, _, _}]}, found when attribute in [:doc, :moduledoc, :typedoc] ->
+          {nil, found}
+
+        {:__aliases__, _, segments} = node, found ->
+          {node,
+           if(phase5_export_alias?(segments), do: [{:alias, segments} | found], else: found)}
+
+        {{:., _, [{:__aliases__, _, segments}, name]}, _, arguments} = node, found
+        when is_list(arguments) ->
+          term = {:qualified_call, segments, name, length(arguments)}
+          {node, if(phase5_export_alias?(segments), do: [term | found], else: found)}
+
+        {name, _, arguments} = node, found when is_atom(name) ->
+          term = {:named, name, if(is_list(arguments), do: length(arguments), else: :variable)}
+          {node, if(phase5_export_name?(name), do: [term | found], else: found)}
+
+        {name, _value} = node, found when is_atom(name) ->
+          {node, if(phase5_export_name?(name), do: [{:keyword, name} | found], else: found)}
+
+        value, found when is_atom(value) ->
+          {value, if(phase5_export_name?(value), do: [{:atom, value} | found], else: found)}
+
+        node, found ->
+          {node, found}
+      end)
+
+    Enum.sort(terms)
+  end
+
+  defp assert_phase5_registration!(path, source) do
+    expected =
+      phase5_additions()
+      |> Enum.filter(&(elem(&1, 1) == path))
+      |> Enum.flat_map(fn {id, _path, _before, addition, _after, _hash, _context_hash,
+                           _destination} ->
+        wrapped =
+          if id in ["P5-A3", "P5-A4"],
+            do:
+              "defmodule Approved do\n defp approved(runtime) do\n %{\n" <>
+                addition <> "\n }\n end\n end\n",
+            else: "defmodule Approved do\n" <> addition <> "\nend\n"
+
+        phase5_registration_terms!(wrapped)
+      end)
+
+    expected =
+      if path == @application,
+        do:
+          phase5_registration_terms!(
+            "defmodule Approved do\n" <> elem(phase5_startup_replacement(), 2) <> "\nend\n"
+          ) ++ expected,
+        else: expected
+
+    assert phase5_registration_terms!(source) == Enum.sort(expected),
+           "unapproved portable export registration found in #{path}"
+  end
+
+  defp phase5_additions do
+    [
+      {"P5-A1", "apps/singularity_runtime/lib/singularity/runtime/api.ex",
+       "  alias Singularity.Runtime.StorageAdapter\n",
+       "  alias Singularity.Runtime.Knowledge.Export, as: KnowledgeExport\n",
+       "  alias Singularity.Runtime.UnlockVault\n",
+       "bafbd33be306cb42c49cc94eb8ceb15e22c74cac3373d6fc0f0b982ccabee525",
+       "d35cf69e969c288154f56a5cd178d98489a5d02e5af10583f835da2640bb30da",
+       "  alias Singularity.Core.Error\n"},
+      {"P5-A2", "apps/singularity_runtime/lib/singularity/runtime/api.ex",
+       "  def export_note(_config, _session, _resource_id), do: {:error, :invalid}\n\n",
+       "  def export_knowledge(session, options),\n    do: with_production(&export_knowledge(&1, session, options))\n\n  @doc false\n  def export_knowledge(config, session, options),\n    do: knowledge_export_call(config, :export_knowledge, session, [options])\n\n  def knowledge_export_entries(session, handle, cursor),\n    do: with_production(&knowledge_export_entries(&1, session, handle, cursor))\n\n  @doc false\n  def knowledge_export_entries(config, session, handle, cursor),\n    do: knowledge_export_call(config, :knowledge_export_entries, session, [handle, cursor])\n\n  def read_knowledge_export_chunk(session, handle, path, index),\n    do: with_production(&read_knowledge_export_chunk(&1, session, handle, path, index))\n\n  @doc false\n  def read_knowledge_export_chunk(config, session, handle, path, index),\n    do:\n      knowledge_export_call(config, :read_knowledge_export_chunk, session, [handle, path, index])\n\n  def close_knowledge_export(session, handle),\n    do: with_production(&close_knowledge_export(&1, session, handle))\n\n  @doc false\n  def close_knowledge_export(config, session, handle),\n    do: knowledge_export_call(config, :close_knowledge_export, session, [handle])\n\n  defp knowledge_export_call(config, operation, %Session{} = session, arguments)\n       when is_map(config) and not is_struct(config) and\n              operation in [\n                :export_knowledge,\n                :knowledge_export_entries,\n                :read_knowledge_export_chunk,\n                :close_knowledge_export\n              ] do\n    with :ok <- KnowledgeExport.validate(operation, arguments),\n         {:ok, context} <- note_source_session(session) do\n      config\n      |> invoke(operation, [context | arguments])\n      |> KnowledgeExport.public_result(operation)\n      |> normalize_knowledge_export_result()\n    else\n      result -> normalize_error(result)\n    end\n  end\n\n  defp knowledge_export_call(_config, _operation, _session, _arguments),\n    do: {:error, :invalid}\n\n  defp normalize_knowledge_export_result(:ok), do: :ok\n  defp normalize_knowledge_export_result({:ok, _} = result), do: result\n  defp normalize_knowledge_export_result(result), do: normalize_error(result)\n\n",
+       "  @spec create_note(Session.t(), map() | keyword()) ::\n",
+       "1cfcdcb92693b92b2409afabe85319f60966dfbf00adb7765eae4a4a014d2b7f",
+       "cc309bdb2211654f4e571a914dd5e12f790d6a66b58b5fc8b6daf97c9ed5f11a",
+       "  @spec login(map()) :: {:ok, String.t(), Session.t()} | {:error, atom()}\n"},
+      {"P5-A3", "apps/singularity_runtime/lib/singularity/runtime/api.ex",
+       "      export_note: fn session, resource_id ->\n        NoteExportReader.run(runtime, session, resource_id)\n      end,\n",
+       "      export_knowledge: &KnowledgeExport.run(runtime, &1, &2),\n      knowledge_export_entries: &KnowledgeExport.entries(runtime, &1, &2, &3),\n      read_knowledge_export_chunk: &KnowledgeExport.read_chunk(runtime, &1, &2, &3, &4),\n      close_knowledge_export: &KnowledgeExport.close(runtime, &1, &2),\n",
+       "      finish_upload: &UploadSession.finish/1,\n",
+       "3bd6d3d4cf89fa5ca6f8f0f6d3a6b3ce9aefe20eae016d133f0ec9d470df7767",
+       "84f7d773db76740d8cd33772f8ae2936ca01590e9ba5102808df0a9c9a211275",
+       "      list_assets: fn session, params ->\n"},
+      {"P5-A4", "apps/singularity_runtime/lib/singularity/runtime/api.ex",
+       "      key_wrapper: KeyWrapper,\n",
+       "      knowledge_export: KnowledgeExport.configuration(),\n",
+       "      note_repository: NoteRepository,\n",
+       "4a0c358b71f8262563abe79f3235339699348472e1179603c223a6add01acadd",
+       "7a29bb7d9a9145cec7538b412ee8d082a76276066406c9e7a924f82d48b24813",
+       "      assets: AssetRepository,\n"},
+      {"P5-C1", "config/dev.exs", "      Path.expand(\"../var/storage\", __DIR__)\n    )\n\n",
+       "export_backup_root =\n  System.get_env(\"SINGULARITY_BACKUP_ROOT\", Path.expand(\"../var/backups\", __DIR__))\n\nconfig :singularity_runtime,\n  knowledge_export_root:\n    System.get_env(\n      \"SINGULARITY_EXPORT_ROOT\",\n      Path.join(\n        Path.dirname(export_backup_root),\n        Path.basename(export_backup_root) <> \"-knowledge-export\"\n      )\n    )\n\n",
+       "config :singularity_storage, Singularity.Storage.MigrationRepo,\n",
+       "d00f70903d73f1238d0c7f7f062db307bbf778d0708ff5a29c9bf280ce45257a",
+       "e04b97ef27cd4bee396b4667422b481a66ae86aa34eb4bf06594048a6eeec67c", "import Config\n"},
+      {"P5-C2", "config/test.exs",
+       "  storage_root: Path.join([System.tmp_dir!(), \"singularity\", \"test\", test_run_id])\n\n",
+       "config :singularity_runtime,\n  knowledge_export_root:\n    Path.join([System.tmp_dir!(), \"singularity-knowledge-export\", \"test\", test_run_id])\n\n",
+       "config :singularity_runtime,\n  start_infrastructure: false,\n",
+       "bcfc6c807c63982522bd2294aacca2758f1531382bf4843f6f732af2d8d0f298",
+       "f46a458f657f53d3dea0f8d42891eef4c6c78188f54ceabb6920506e0bb62a00", "import Config\n"},
+      {"P5-C3", "config/runtime.exs",
+       "  storage_root = System.fetch_env!(\"SINGULARITY_STORAGE_ROOT\")\n\n",
+       "  config :singularity_runtime,\n    knowledge_export_root:\n      System.get_env(\n        \"SINGULARITY_EXPORT_ROOT\",\n        Path.join(Path.dirname(backup_root), Path.basename(backup_root) <> \"-knowledge-export\")\n      )\n\n",
+       "  audit_fingerprint_secret =\n",
+       "8e04ee2d4050d7f13b1725c5106e3c365f0c8416464a4b45b0208f075530e099",
+       "4bd5f62e207938b44857bf2ba76e0368cfadb62acbf4b6868d5c638eb22db621", "import Config\n"}
+    ]
+  end
+
+  defp phase5_startup_replacement do
+    {"    children = application_children(composition())\n\n",
+     "    Supervisor.start_link(children,\n      strategy: :one_for_one,\n      name: Singularity.Runtime.Supervisor\n    )\n",
+     "    Singularity.Runtime.Knowledge.ExportArtifact.start_runtime(\n      children,\n      [strategy: :one_for_one, name: Singularity.Runtime.Supervisor],\n      Application.fetch_env!(:singularity_runtime, :start_infrastructure)\n    )\n",
+     "  end\n\n  @doc false\n",
+     "4d3a4b83c158a6934ec69ee8040001792f2aca027f0688ccc5924c5830541359",
+     "6dbc92f768417e9ff94187ad848dcce494b3dd0aff7226f1173161c2be6ac275",
+     "4efa62de7c4f815e083641f2e31f1d6d7cdca3a85e49c05305eb03cb22626529",
+     "1ae1d3a76f2cfed98ce35885974d80a6a8188f0e5c55f9946d4ed5ad2e4e19e7"}
+  end
+
+  # END Task16 strict attribution contracts (test-first window).
 end

@@ -26,6 +26,10 @@ config :singularity_storage,
   storage_root: Path.join([System.tmp_dir!(), "singularity", "test", test_run_id])
 
 config :singularity_runtime,
+  knowledge_export_root:
+    Path.join([System.tmp_dir!(), "singularity-knowledge-export", "test", test_run_id])
+
+config :singularity_runtime,
   start_infrastructure: false,
   audit_fingerprint_secret: :binary.copy(<<0xA7>>, 32),
   mutation_fingerprint_secret: :binary.copy(<<0xB8>>, 32),

@@ -73,6 +73,120 @@ defmodule Singularity.Web.Architecture.ExportLeaseOwnershipContractTest do
      "9e7e20f235345627eee93a824b0b652a2b8cd582e657f9f92cc2a4716c00a091"}
   ]
 
+  # BEGIN Task16 Read caller compatibility literals
+  # Reviewed raw bytes, not expectations derived from the candidate at test time.
+  @read_transition Jason.decode!(~S'''
+                   {"path":"apps/singularity_runtime/lib/singularity/runtime/knowledge/export_read.ex","candidate_sha256":"5377afeb0858e1d3bcd40c939a263b517ecb4454e9a7ff2f09ed46b3ede59ebb","original_sha256":"9e7e20f235345627eee93a824b0b652a2b8cd582e657f9f92cc2a4716c00a091","block":"  # BEGIN Task16 committed transfer reads\n  # Only an Artifact owner may use these committed-transfer entrypoints. The\n  # companion owns acquisition even when the first COMMIT loses the local lease.\n  def asset_for_export(runtime, session, binding) do\n    safely(fn ->\n      validate_request!(runtime, session)\n      validate_asset!(binding)\n      context = transfer_context!(runtime)\n      owner = self()\n\n      pass = fn acc, consumer ->\n        transfer_asset_pass(runtime, session, binding, context, owner, acc, consumer)\n      end\n\n      descriptor(pass, binding[\"plaintext_byte_size\"], nil)\n    end)\n  end\n\n  def document_for_export(runtime, session, captured) do\n    safely(fn ->\n      validate_request!(runtime, session)\n      exact_keys!(captured, [:version, :source])\n      version = captured.version\n      map_keys!(version, @version_keys)\n      validate_asset!(captured.source)\n      ids!(version, ~w(resource_id version_id))\n      digest!(version[\"original_digest\"])\n\n      unless version[\"kind\"] == \"document\" and is_integer(version[\"original_byte_size\"]) and\n               version[\"original_byte_size\"] in 0..@document_bytes and\n               version[\"original_byte_size\"] == captured.source[\"plaintext_byte_size\"],\n             do: fail(:integrity_failure)\n\n      context = transfer_context!(runtime)\n      owner = self()\n\n      pass = fn acc, consumer ->\n        transfer_document_pass(runtime, session, captured, context, owner, acc, consumer)\n      end\n\n      descriptor(pass, version[\"original_byte_size\"], version[\"original_digest\"])\n    end)\n  end\n\n  defp transfer_context!(runtime) do\n    case {Map.get(runtime, :custodian), Map.get(runtime, :authenticated_reader)} do\n      {{Singularity.Runtime.Knowledge.ExportArtifact.Leases, context},\n       {Singularity.Runtime.Knowledge.ExportArtifact.Leases, context}}\n      when is_map(context) ->\n        exact_keys!(context, [:companion, :operation_ref, :reader])\n\n        unless is_pid(context.companion) and node(context.companion) == node() and\n                 context.companion != self() and Process.alive?(context.companion) and\n                 is_reference(context.operation_ref) and transfer_reader?(context.reader),\n               do: fail(:invalid)\n\n        context\n\n      _ ->\n        fail(:invalid)\n    end\n  end\n\n  defp transfer_reader?(module) when is_atom(module), do: module not in [nil, true, false]\n\n  defp transfer_reader?({module, _context}) when is_atom(module),\n    do: module not in [nil, true, false]\n\n  defp transfer_reader?(_reader), do: false\n\n  defp transfer_validate!(runtime, session, context, owner) do\n    unless self() == owner, do: fail(:invalid)\n    validate_request!(runtime, session)\n    unless transfer_context!(runtime) === context, do: fail(:invalid)\n  end\n\n  defp transfer_requirement(session) do\n    %{\n      vault_id: session.vault_id,\n      required_capability: \"asset.read\",\n      classification: :private,\n      requires_unlocked?: true,\n      principal_authorization_epoch: session.principal_authorization_epoch,\n      vault_authorization_epoch: session.vault_authorization_epoch\n    }\n  end\n\n  defp transfer_asset_pass(runtime, session, binding, context, owner, acc, consumer) do\n    transfer_validate!(runtime, session, context, owner)\n    size = binding[\"plaintext_byte_size\"]\n    initial = {acc, :crypto.hash_init(:sha256), 0}\n\n    result =\n      if size == 0 do\n        unless transfer_asset_read!(runtime, session, binding, :zero, context) == \"\",\n          do: fail(:integrity_failure)\n\n        initial\n      else\n        Enum.reduce(0..div(size - 1, @piece_bytes), initial, fn index, state ->\n          first = index * @piece_bytes\n          range = first..min(first + @piece_bytes - 1, size - 1)\n          bytes = transfer_asset_read!(runtime, session, binding, range, context)\n\n          unless is_binary(bytes) and byte_size(bytes) == range.last - range.first + 1,\n            do: fail(:integrity_failure)\n\n          validate_request!(runtime, session)\n          consume!(bytes, state, consumer)\n        end)\n      end\n\n    asset_guard!(runtime, session, binding, if(size == 0, do: :zero, else: 0..0))\n    result\n  end\n\n  defp transfer_asset_read!(runtime, session, binding, mode, context) do\n    requirement = transfer_requirement(session)\n\n    unwrap!(\n      OperationScope.with_read_request(runtime, session, requirement, fn repo ->\n        with :ok <- call(repository(runtime), :lock_asset_source, [repo, binding, mode]),\n             {:ok, lease} <-\n               Singularity.Runtime.Knowledge.ExportArtifact.Leases.lease(\n                 context,\n                 transfer_asset_request(session, binding)\n               ),\n             :ok <- call(repository(runtime), :lock_asset_source, [repo, binding, mode]) do\n          {:after_commit_scoped,\n           fn run_scoped ->\n             try do\n               validate_request!(runtime, session)\n\n               bytes =\n                 unwrap!(\n                   Singularity.Runtime.Knowledge.ExportArtifact.Leases.read(\n                     context,\n                     lease,\n                     if(mode == :zero, do: :all, else: mode)\n                   )\n                 )\n\n               transfer_asset_post!(run_scoped, runtime, session, binding, mode, requirement)\n               {:ok, bytes}\n             after\n               revoke({Singularity.Runtime.Knowledge.ExportArtifact.Leases, context}, lease)\n             end\n           end}\n        else\n          {:error, %Error{}} = error -> error\n          _ -> {:error, Error.new(:integrity_failure)}\n        end\n      end)\n    )\n  end\n\n  defp transfer_asset_post!(run_scoped, runtime, session, binding, mode, requirement) do\n    audit = Map.get(runtime, :audit, Singularity.Storage.Postgres.AuditSink)\n    correlation_id = Ecto.UUID.generate()\n\n    case run_scoped.(fn repo ->\n           with :ok <-\n                  Singularity.Runtime.Authorize.check(\n                    runtime.authorization,\n                    repo,\n                    session,\n                    requirement\n                  ),\n                :ok <- call(repository(runtime), :lock_asset_source, [repo, binding, mode]),\n                :ok <-\n                  Singularity.Runtime.Audit.append_principal(audit, repo, session, %{\n                    action: \"asset.downloaded\",\n                    result: :completed,\n                    classification: :private,\n                    correlation_id: correlation_id,\n                    target_type: \"asset\",\n                    target_id: binding[\"asset_id\"],\n                    metadata: %{}\n                  }) do\n             :ok\n           end\n         end) do\n      :ok -> validate_request!(runtime, session)\n      {:error, reason} -> raise_error!(reason)\n      _ -> fail(:integrity_failure)\n    end\n  end\n\n  defp transfer_asset_request(session, binding) do\n    %{\n      job_id: binding[\"asset_id\"],\n      purpose: :download,\n      session_id: session.session_id,\n      principal_id: session.principal_id,\n      vault_id: session.vault_id,\n      principal_authorization_epoch: session.principal_authorization_epoch,\n      vault_authorization_epoch: session.vault_authorization_epoch,\n      required_capability: \"asset.read\",\n      object_id: binding[\"object_id\"],\n      object_generation: binding[\"object_generation\"]\n    }\n  end\n\n  defp transfer_document_pass(runtime, session, captured, context, owner, acc, consumer) do\n    transfer_validate!(runtime, session, context, owner)\n    requirement = transfer_requirement(session)\n\n    unwrap!(\n      OperationScope.with_read_request(runtime, session, requirement, fn repo ->\n        with {:ok, binding} <- call(repository(runtime), :document_source, [repo, captured]),\n             :ok <- transfer_document_binding!(captured, binding),\n             {:ok, lease} <-\n               Singularity.Runtime.Knowledge.ExportArtifact.Leases.lease(\n                 context,\n                 transfer_document_request(session, binding)\n               ),\n             {:ok, ^binding} <- call(repository(runtime), :document_source, [repo, captured]) do\n          {:after_commit_scoped,\n           fn run_scoped ->\n             try do\n               validate_request!(runtime, session)\n\n               guard = fn ->\n                 transfer_document_guard!(\n                   run_scoped,\n                   runtime,\n                   session,\n                   captured,\n                   binding,\n                   requirement\n                 )\n               end\n\n               initial = {acc, :crypto.hash_init(:sha256), 0}\n               size = binding.source_byte_size\n\n               result =\n                 if size == 0 do\n                   case Singularity.Runtime.Knowledge.ExportArtifact.Leases.authenticate_empty_document_original(\n                          context,\n                          lease\n                        ) do\n                     :ok -> :ok\n                     {:error, reason} -> raise_error!(reason)\n                     _ -> fail(:integrity_failure)\n                   end\n\n                   guard.()\n                   initial\n                 else\n                   Enum.reduce(0..div(size - 1, @native_bytes), initial, fn ordinal, state ->\n                     if ordinal > 0, do: guard.()\n\n                     bytes =\n                       unwrap!(\n                         Singularity.Runtime.Knowledge.ExportArtifact.Leases.read_document_chunk(\n                           context,\n                           lease,\n                           ordinal\n                         )\n                       )\n\n                     guard.()\n                     expected_size = min(@native_bytes, size - ordinal * @native_bytes)\n\n                     unless is_binary(bytes) and byte_size(bytes) == expected_size,\n                       do: fail(:integrity_failure)\n\n                     split_document!(bytes, state, consumer, guard)\n                   end)\n                 end\n\n               guard.()\n               {:ok, result}\n             after\n               revoke({Singularity.Runtime.Knowledge.ExportArtifact.Leases, context}, lease)\n             end\n           end}\n        else\n          {:error, %Error{}} = error -> error\n          _ -> {:error, Error.new(:integrity_failure)}\n        end\n      end)\n    )\n  end\n\n  defp transfer_document_guard!(run_scoped, runtime, session, captured, binding, requirement) do\n    case run_scoped.(fn repo ->\n           with :ok <-\n                  Singularity.Runtime.Authorize.check(\n                    runtime.authorization,\n                    repo,\n                    session,\n                    requirement\n                  ),\n                {:ok, ^binding} <- call(repository(runtime), :document_source, [repo, captured]) do\n             :ok\n           else\n             {:error, %Error{}} = error -> error\n             _ -> {:error, Error.new(:integrity_failure)}\n           end\n         end) do\n      :ok -> validate_request!(runtime, session)\n      {:error, reason} -> raise_error!(reason)\n      _ -> fail(:integrity_failure)\n    end\n  end\n\n  defp transfer_document_binding!(captured, binding) do\n    unless binding.resource_id == captured.version[\"resource_id\"] and\n             binding.resource_version_id == captured.version[\"version_id\"] and\n             binding.object_id == captured.source[\"object_id\"] and\n             binding.object_generation == captured.source[\"object_generation\"] and\n             binding.source_byte_size == captured.version[\"original_byte_size\"] and\n             hex(binding.source_digest) == captured.version[\"original_digest\"],\n           do: fail(:integrity_failure)\n\n    :ok\n  end\n\n  defp transfer_document_request(session, binding) do\n    %{\n      purpose: :document_source,\n      access: :request,\n      session_id: session.session_id,\n      principal_id: session.principal_id,\n      vault_id: session.vault_id,\n      principal_authorization_epoch: session.principal_authorization_epoch,\n      vault_authorization_epoch: session.vault_authorization_epoch,\n      required_capability: \"asset.read\",\n      resource_version_id: binding.resource_version_id,\n      object_id: binding.object_id,\n      object_generation: binding.object_generation\n    }\n  end\n\n  # END Task16 committed transfer reads\n\n","left":"  def note(runtime, session, binding), do: text(runtime, session, binding, :note)\n  def fragment(runtime, session, binding), do: text(runtime, session, binding, :fragment)\n\n","right":"  defp text(runtime, session, binding, kind) do\n    safely(fn ->\n","begin":"  # BEGIN Task16 committed transfer reads\n","end":"  # END Task16 committed transfer reads\n\n","block_bytes":12264,"left_bytes":173,"right_bytes":65,"context_offset":3534,"block_sha256":"4d0da4e78d2dceef190f7fd8e55baec1a7f0a2fe739ec642cd913b6c938c5cdb","left_sha256":"5840c6cd9d15fcdd704a3e67786a277df54867e72d3ef9eae1357de8030b9435","right_sha256":"9e2c742b5c01f493b492a73a5ea095823444c853629ce26f2832d64594ff679a","old_context_sha256":"414b8cbb01f08e8ee033a7caae5e75db8035236c7940cd523c500ce0e5700463","new_context_sha256":"5ae7c43aee58778b52ea735528987a8b4a5d868deb32bccb5200ec3955490460"}
+                   ''')
+  # END Task16 Read caller compatibility literals
+
+  # BEGIN Task16 Read caller compatibility tests
+  test "Read transition literals retain the reviewed body and both raw context edges" do
+    for field <- ["block", "left", "right"] do
+      assert byte_size(@read_transition[field]) == @read_transition[field <> "_bytes"]
+      assert sha(@read_transition[field]) == @read_transition[field <> "_sha256"]
+    end
+
+    assert sha(@read_transition["left"] <> @read_transition["right"]) ==
+             @read_transition["old_context_sha256"]
+
+    assert sha(@read_transition["left"] <> @read_transition["block"] <> @read_transition["right"]) ==
+             @read_transition["new_context_sha256"]
+  end
+
+  test "raw Read candidate strictly reconstructs the old caller without normalizing other paths" do
+    source = File.read!(Path.join(@repo_root, @read_transition["path"]))
+    assert sha(source) == @read_transition["candidate_sha256"]
+    assert {:ok, original} = read_transfer_inverse(source)
+    assert sha(original) == @read_transition["original_sha256"]
+    assert read_source(@read_transition["path"]) == original
+
+    for path <-
+          Enum.map(@transitions, & &1["path"]) ++
+            ["apps/singularity_runtime/lib/singularity/runtime/assets/download.ex"] do
+      assert read_source(path) == File.read!(Path.join(@repo_root, path))
+    end
+  end
+
+  for {mutation, reason} <- [
+        missing: :missing_read_block,
+        changed: :changed_read_block,
+        duplicate: :duplicate_read_block,
+        duplicate_context: :duplicate_read_block,
+        block_relocation: :read_block_location,
+        context_relocation: :read_context_location,
+        left: :read_left_context,
+        right: :read_right_context,
+        both: :read_both_contexts,
+        coexistence: :read_old_new_coexistence,
+        legacy_byte: :read_original_hash,
+        new_outside_bytes: :read_original_hash,
+        old_raw: :missing_read_block
+      ] do
+    @read_mutation mutation
+    @read_reason reason
+    test "raw Read transition rejects #{@read_mutation} at its exact inverse boundary" do
+      source = File.read!(Path.join(@repo_root, @read_transition["path"]))
+      assert {:ok, original} = read_transfer_inverse(source)
+      assert sha(source) == @read_transition["candidate_sha256"]
+      assert sha(original) == @read_transition["original_sha256"]
+      block = @read_transition["block"]
+      left = @read_transition["left"]
+      right = @read_transition["right"]
+      context = left <> block <> right
+
+      mutated =
+        case @read_mutation do
+          :missing ->
+            String.replace(source, block, "", global: false)
+
+          :changed ->
+            changed = String.replace(block, "Only an Artifact", "Only aN Artifact", global: false)
+            String.replace(source, block, changed, global: false)
+
+          :duplicate ->
+            source <> block
+
+          :duplicate_context ->
+            source <> context
+
+          :block_relocation ->
+            String.replace(source, block, "", global: false) <> block
+
+          :context_relocation ->
+            String.replace(source, context, "", global: false) <> context
+
+          :left ->
+            String.replace(source, context, corrupt_edge(left) <> block <> right, global: false)
+
+          :right ->
+            String.replace(source, context, left <> block <> corrupt_edge(right), global: false)
+
+          :both ->
+            String.replace(source, context, corrupt_edge(left) <> block <> corrupt_edge(right),
+              global: false
+            )
+
+          :coexistence ->
+            source <> left <> right
+
+          :legacy_byte ->
+            String.replace(source, "@piece_bytes 65_536", "@piece_bytes 65_537", global: false)
+
+          :new_outside_bytes ->
+            source <> "# unreviewed outside addition\n"
+
+          :old_raw ->
+            original
+        end
+
+      assert mutated != source
+      assert read_transfer_inverse(mutated) == {:error, @read_reason}
+    end
+  end
+
+  # END Task16 Read caller compatibility tests
+
   test "the original 56-file manifest remains literal and only the two approved paths differ" do
     assert sha(@original_manifest) == @original_manifest_sha
     entries = manifest_entries()
@@ -201,6 +315,88 @@ defmodule Singularity.Web.Architecture.ExportLeaseOwnershipContractTest do
       refute accepted
     end
   end
+
+  # BEGIN Task16 Read caller compatibility helpers
+  defp read_transfer_inverse(source) do
+    blocks = :binary.matches(source, @read_transition["block"])
+    starts = :binary.matches(source, @read_transition["begin"])
+    stops = :binary.matches(source, @read_transition["end"])
+
+    cond do
+      length(blocks) > 1 or length(starts) > 1 or length(stops) > 1 ->
+        {:error, :duplicate_read_block}
+
+      blocks == [] and starts == [] and stops == [] ->
+        {:error, :missing_read_block}
+
+      length(blocks) != 1 or length(starts) != 1 or length(stops) != 1 ->
+        {:error, :changed_read_block}
+
+      true ->
+        [{offset, _length}] = blocks
+        read_transfer_context_inverse(source, offset)
+    end
+  end
+
+  defp read_transfer_context_inverse(source, offset) do
+    left = @read_transition["left"]
+    right = @read_transition["right"]
+    block = @read_transition["block"]
+    contexts = :binary.matches(source, left <> block <> right)
+    old_contexts = :binary.matches(source, left <> right)
+    after_block = offset + byte_size(block)
+
+    left? =
+      offset >= byte_size(left) and
+        binary_part(source, offset - byte_size(left), byte_size(left)) == left
+
+    right? =
+      byte_size(source) >= after_block + byte_size(right) and
+        binary_part(source, after_block, byte_size(right)) == right
+
+    cond do
+      contexts != [] and old_contexts != [] ->
+        {:error, :read_old_new_coexistence}
+
+      old_contexts != [] ->
+        {:error, :read_block_location}
+
+      not left? and not right? ->
+        {:error, :read_both_contexts}
+
+      not left? ->
+        {:error, :read_left_context}
+
+      not right? ->
+        {:error, :read_right_context}
+
+      contexts != [{@read_transition["context_offset"], byte_size(left <> block <> right)}] ->
+        {:error, :read_context_location}
+
+      true ->
+        original = String.replace(source, block, "", global: false)
+
+        cond do
+          sha(original) != @read_transition["original_sha256"] ->
+            {:error, :read_original_hash}
+
+          sha(source) != @read_transition["candidate_sha256"] ->
+            {:error, :read_candidate_hash}
+
+          true ->
+            {:ok, original}
+        end
+    end
+  end
+
+  defp read_source(
+         "apps/singularity_runtime/lib/singularity/runtime/knowledge/export_read.ex" = path
+       ) do
+    assert {:ok, original} = read_transfer_inverse(File.read!(Path.join(@repo_root, path)))
+    original
+  end
+
+  # END Task16 Read caller compatibility helpers
 
   defp read_source(path), do: File.read!(Path.join(@repo_root, path))
   defp sha(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)

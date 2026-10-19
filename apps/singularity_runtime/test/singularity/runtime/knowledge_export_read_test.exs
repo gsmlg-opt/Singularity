@@ -803,4 +803,813 @@ defmodule Singularity.Runtime.KnowledgeExportReadTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  # BEGIN TASK16 TRANSFER READ CONTRACTS
+  # SYNTHETIC authority, SQL COMMIT and original bytes. Actual Artifact.generate
+  # creates the owner/companion, admits and records each PID lease, and performs
+  # cleanup. These tests do NOT qualify PostgreSQL locks or native encryption.
+  @transfer_artifact Singularity.Runtime.Knowledge.ExportArtifact
+  @transfer_leases Singularity.Runtime.Knowledge.ExportArtifact.Leases
+
+  defmodule TransferRepo do
+    def checkout(_context, callback), do: callback.()
+    def in_transaction?(), do: Process.get({__MODULE__, :transaction}, false)
+    def in_transaction?(_context), do: in_transaction?()
+  end
+
+  defmodule TransferLock do
+    def with_shared(_context, repo, _owner, callback), do: callback.(repo)
+    def with_shared(_context, repo, _principal, _owner, callback), do: callback.(repo)
+  end
+
+  defmodule TransferScoped do
+    alias Singularity.Core.Error
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+    alias Singularity.Runtime.KnowledgeExportReadTest.TransferRepo
+
+    def transact(context, repo, scope, callback) do
+      owner = self()
+      Process.put({TransferRepo, :transaction}, true)
+
+      number =
+        Agent.get_and_update(context.state, fn state ->
+          number = Map.get(state.transactions, owner, 0) + 1
+
+          {number,
+           %{
+             state
+             | transactions: Map.put(state.transactions, owner, number),
+               inside: Map.put(state.inside, owner, true)
+           }}
+        end)
+
+      Contract.transfer_record(context, {:scope_begin, owner, number, scope, true})
+
+      outcome =
+        try do
+          result = callback.(repo)
+          state = Agent.get(context.state, & &1)
+
+          cond do
+            match?({:error, _}, result) ->
+              {:rollback, result}
+
+            state.fault == :initial_commit and number == 1 ->
+              {:rollback, {:error, Error.new(:storage_unavailable)}}
+
+            state.phase == :reduce and state.after_read and state.fault == :post_commit ->
+              {:rollback, {:error, Error.new(:storage_unavailable)}}
+
+            true ->
+              {:commit, result}
+          end
+        after
+          Process.put({TransferRepo, :transaction}, false)
+          Agent.update(context.state, &%{&1 | inside: Map.put(&1.inside, owner, false)})
+          Contract.transfer_record(context, {:scope_closed, owner, number, false})
+        end
+
+      {tag, result} = outcome
+      Contract.transfer_record(context, {tag, owner, number, TransferRepo.in_transaction?()})
+      result
+    end
+  end
+
+  defmodule TransferStore do
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+    alias Singularity.Runtime.KnowledgeExportReadTest.TransferRepo
+
+    def load_live_session(context, _repo, session) do
+      Contract.transfer_record(
+        context,
+        {:authorize, self(), session, TransferRepo.in_transaction?()}
+      )
+
+      state = Agent.get(context.state, & &1)
+
+      live =
+        if state.phase == :reduce and state.after_read and state.fault == :authority,
+          do: %{state.live | capabilities: []},
+          else: state.live
+
+      {:ok, live}
+    end
+  end
+
+  defmodule TransferCustodian do
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+
+    def assert_unlocked(_context, _, _, _, _, _), do: :ok
+
+    def export_lease(context, request) do
+      state = Agent.get(context.state, & &1)
+
+      Contract.transfer_record(
+        context,
+        {:acquire, self(), state.owner, request, Map.get(state.inside, state.owner, false)}
+      )
+
+      lease =
+        spawn(fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      Agent.update(context.state, &%{&1 | leases: [lease | &1.leases]})
+      {:ok, lease}
+    end
+  end
+
+  defmodule TransferReader do
+    alias Singularity.Core.Error
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+    alias Singularity.Runtime.KnowledgeExportReadTest.TransferRepo
+
+    def read(context, lease, range) do
+      read(context, lease, :asset, range, fn bytes ->
+        if range == :all, do: bytes, else: binary_part(bytes, range.first, Range.size(range))
+      end)
+    end
+
+    def read_document_chunk(context, lease, ordinal) do
+      read(context, lease, :document, ordinal, fn bytes ->
+        offset = ordinal * 4_194_304
+        binary_part(bytes, offset, min(4_194_304, byte_size(bytes) - offset))
+      end)
+    end
+
+    def authenticate_empty_document_original(context, lease) do
+      Contract.transfer_record(
+        context,
+        {:native, self(), lease, :document, :empty, TransferRepo.in_transaction?()}
+      )
+
+      state = Agent.get(context.state, & &1)
+      Agent.update(context.state, &%{&1 | after_read: true})
+
+      if state.phase == :reduce and state.fault == :native,
+        do: {:error, Error.new(:integrity_failure)},
+        else: :ok
+    end
+
+    def revoke(context, lease) do
+      count =
+        Agent.get_and_update(context.state, fn state ->
+          count = Map.get(state.revokes, lease, 0) + 1
+          {count, %{state | revokes: Map.put(state.revokes, lease, count)}}
+        end)
+
+      Contract.transfer_record(context, {:revoke, self(), lease, count})
+      state = Agent.get(context.state, & &1)
+
+      if state.phase == :reduce and state.fault == :revoke and count == 1 do
+        {:error, Error.new(:storage_unavailable)}
+      else
+        monitor = Process.monitor(lease)
+        send(lease, :stop)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^lease, _} -> :ok
+        after
+          1_000 -> {:error, Error.new(:storage_unavailable)}
+        end
+      end
+    end
+
+    defp read(context, lease, kind, mode, select) do
+      Contract.transfer_record(
+        context,
+        {:native, self(), lease, kind, mode, TransferRepo.in_transaction?()}
+      )
+
+      state = Agent.get(context.state, & &1)
+      Agent.update(context.state, &%{&1 | after_read: true})
+
+      if state.phase == :reduce and state.fault == :native,
+        do: {:error, Error.new(:integrity_failure)},
+        else: {:ok, select.(state.bytes)}
+    end
+  end
+
+  defmodule TransferRepository do
+    alias Singularity.Core.Error
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+    alias Singularity.Runtime.KnowledgeExportReadTest.TransferRepo
+
+    def lock_asset_source(context, _repo, binding, mode) do
+      Contract.transfer_record(
+        context,
+        {:guard, self(), :asset, mode, TransferRepo.in_transaction?()}
+      )
+
+      true = binding == Agent.get(context.state, & &1.asset)
+      status(context)
+    end
+
+    def document_source(context, _repo, captured) do
+      Contract.transfer_record(
+        context,
+        {:guard, self(), :document, :exact, TransferRepo.in_transaction?()}
+      )
+
+      true = captured == Agent.get(context.state, & &1.document)
+
+      with :ok <- status(context) do
+        {:ok,
+         %{
+           resource_id: captured.version["resource_id"],
+           resource_version_id: captured.version["version_id"],
+           object_id: captured.source["object_id"],
+           object_generation: captured.source["object_generation"],
+           source_digest: Base.decode16!(captured.version["original_digest"], case: :lower),
+           source_byte_size: captured.version["original_byte_size"]
+         }}
+      end
+    end
+
+    defp status(context) do
+      state = Agent.get(context.state, & &1)
+
+      if state.phase == :reduce and state.after_read and state.fault == :source,
+        do: {:error, Error.new(:integrity_failure)},
+        else: :ok
+    end
+  end
+
+  defmodule TransferAudit do
+    alias Singularity.Core.Error
+    alias Singularity.Runtime.KnowledgeExportReadTest, as: Contract
+    alias Singularity.Runtime.KnowledgeExportReadTest.TransferRepo
+
+    def append(context, _repo, event) do
+      Contract.transfer_record(context, {:audit, self(), event, TransferRepo.in_transaction?()})
+      state = Agent.get(context.state, & &1)
+
+      if state.phase == :reduce and state.fault == :audit,
+        do: {:error, Error.new(:storage_unavailable)},
+        else: :ok
+    end
+  end
+
+  for {kind, function} <- [asset: :asset_for_export, document: :document_for_export] do
+    test "Task16 #{kind} ordinary runtime is invalid before scope or custody", c do
+      binding = Map.fetch!(c, unquote(kind))
+
+      assert {:error, %Error{code: :invalid}} =
+               transfer_call(unquote(function), [c.runtime, c.session, binding])
+
+      assert events() == []
+    end
+
+    test "Task16 #{kind} malformed companion contexts deny without side effects", c do
+      f = transfer_fixture(c, "original")
+      {dead, monitor} = spawn_monitor(fn -> :ok end)
+      assert_receive {:DOWN, ^monitor, :process, ^dead, _}
+
+      assert :invalid_contexts_verified ==
+               transfer_generate(f, fn operation_runtime ->
+                 {@transfer_leases, context} = operation_runtime.custodian
+
+                 contexts = [
+                   %{context | companion: self()},
+                   %{context | companion: dead},
+                   %{context | operation_ref: :not_a_reference},
+                   Map.put(context, :deadline, 1),
+                   Map.delete(context, :reader),
+                   %{context | reader: nil}
+                 ]
+
+                 for invalid <- contexts do
+                   runtime =
+                     operation_runtime
+                     |> Map.put(:custodian, {@transfer_leases, invalid})
+                     |> Map.put(:authenticated_reader, {@transfer_leases, invalid})
+
+                   assert {:error, %Error{code: :invalid}} =
+                            transfer_call(unquote(function), [
+                              runtime,
+                              c.session,
+                              Map.fetch!(f, unquote(kind))
+                            ])
+                 end
+
+                 mismatches = [
+                   {TransferCustodian, f.context},
+                   {@transfer_leases, %{context | operation_ref: make_ref()}}
+                 ]
+
+                 for custodian <- mismatches do
+                   runtime = Map.put(operation_runtime, :custodian, custodian)
+
+                   assert {:error, %Error{code: :invalid}} =
+                            transfer_call(unquote(function), [
+                              runtime,
+                              c.session,
+                              Map.fetch!(f, unquote(kind))
+                            ])
+                 end
+
+                 :invalid_contexts_verified
+               end)
+
+      assert transfer_events(f) == []
+      assert Agent.get(f.state, & &1.leases) == []
+    end
+  end
+
+  for kind <- [:asset, :document], content <- [:empty, :bounded] do
+    test "Task16 #{kind} #{content} commits before transfer and freshly commits before consumption",
+         c do
+      bytes = if unquote(content) == :empty, do: "", else: :binary.copy("a", 131_073)
+      f = transfer_fixture(c, bytes)
+
+      result =
+        transfer_generate(f, fn runtime ->
+          {:ok, descriptor} = transfer_descriptor(f, runtime, unquote(kind))
+          transfer_phase(f, :reduce)
+          reduced = transfer_reduce(f, descriptor)
+          {descriptor.byte_size, descriptor.sha256, reduced}
+        end)
+
+      count = if bytes == "", do: 0, else: 3
+      expected = {byte_size(bytes), sha(bytes), {:ok, {byte_size(bytes), sha(bytes), count}}}
+      assert result == expected
+      transfer_assert_order(f, unquote(kind))
+      trace = transfer_events(f)
+      native = for {_, {:native, _, _, kind, mode, false}} <- trace, do: {kind, mode}
+      assert native != []
+
+      if unquote(kind) == :asset do
+        audits = for {_, {:audit, _, event, true}} <- trace, do: event
+        assert length(audits) == length(native)
+
+        for event <- audits do
+          assert event.action == "asset.downloaded"
+          assert event.result == :completed
+          assert event.classification == :private
+          assert event.target_type == "asset"
+          assert event.target_id == @asset
+          assert event.principal_id == @principal and event.vault_id == @owner
+          assert event.metadata == %{}
+          assert {:ok, _} = Ecto.UUID.cast(event.correlation_id)
+        end
+
+        assert length(Enum.uniq_by(audits, & &1.correlation_id)) == length(audits)
+
+        for {:asset, mode} <- native do
+          if bytes == "" do
+            assert mode == :all
+          else
+            assert %Range{step: 1} = mode
+            assert Range.size(mode) in 1..65_536
+            assert mode.last < byte_size(bytes)
+          end
+        end
+      else
+        refute Enum.any?(trace, &match?({_, {:audit, _, _, _}}, &1))
+        if bytes == "", do: assert(Enum.all?(native, &(&1 == {:document, :empty})))
+      end
+    end
+  end
+
+  test "Task16 Document native 4MiB chunks stay distinct from 64KiB consumer pieces", c do
+    bytes = :binary.copy("z", 4_194_305)
+    f = transfer_fixture(c, bytes)
+
+    assert {sha(bytes), {:ok, {4_194_305, sha(bytes), 65}}} ==
+             transfer_generate(f, fn runtime ->
+               {:ok, descriptor} = transfer_descriptor(f, runtime, :document)
+               transfer_phase(f, :reduce)
+               {descriptor.sha256, transfer_reduce(f, descriptor)}
+             end)
+
+    trace = transfer_events(f)
+
+    assert for({:reduce, {:native, _, _, :document, ordinal, false}} <- trace, do: ordinal) == [
+             0,
+             1
+           ]
+
+    assert Enum.count(trace, &match?({:reduce, {:consumer, _, 65_536, false}}, &1)) == 64
+    assert Enum.count(trace, &match?({:reduce, {:consumer, _, 1, false}}, &1)) == 1
+    transfer_assert_order(f, :document)
+  end
+
+  for kind <- [:asset, :document], fault <- [:authority, :source, :post_commit, :native] do
+    test "Task16 #{kind} #{fault} after preflight emits no consumer bytes", c do
+      f = transfer_fixture(c, "original")
+
+      result =
+        transfer_generate(f, fn runtime ->
+          {:ok, descriptor} = transfer_descriptor(f, runtime, unquote(kind))
+          transfer_phase(f, :reduce, unquote(fault))
+          transfer_reduce(f, descriptor)
+        end)
+
+      code =
+        case unquote(fault) do
+          :authority -> :forbidden
+          :post_commit -> :storage_unavailable
+          _ -> :integrity_failure
+        end
+
+      assert {:error, %Error{code: ^code}} = result
+      refute Enum.any?(transfer_events(f), &match?({:reduce, {:consumer, _, _, _}}, &1))
+    end
+  end
+
+  for bytes <- ["", "original"] do
+    test "Task16 Asset audit rejection after #{inspect(bytes)} read does not reach consumer", c do
+      f = transfer_fixture(c, unquote(bytes))
+
+      assert {:error, %Error{code: :storage_unavailable}} =
+               transfer_generate(f, fn runtime ->
+                 {:ok, descriptor} = transfer_descriptor(f, runtime, :asset)
+                 transfer_phase(f, :reduce, :audit)
+                 transfer_reduce(f, descriptor)
+               end)
+
+      trace = transfer_events(f)
+      assert Enum.any?(trace, &match?({:reduce, {:audit, _, _, true}}, &1))
+      refute Enum.any?(trace, &match?({:reduce, {:consumer, _, _, _}}, &1))
+      assert Enum.any?(trace, &match?({:reduce, {:rollback, _, _, false}}, &1))
+    end
+  end
+
+  for kind <- [:asset, :document] do
+    test "Task16 #{kind} first COMMIT rejection retains companion cleanup of its unreturned lease",
+         c do
+      f = transfer_fixture(c, "original")
+      Agent.update(f.state, &%{&1 | fault: :initial_commit})
+
+      assert {:error, %Error{code: :storage_unavailable}} =
+               transfer_generate(f, &transfer_descriptor(f, &1, unquote(kind)))
+
+      trace = transfer_events(f)
+      assert Enum.count(trace, &match?({_, {:acquire, _, _, _, true}}, &1)) == 1
+      assert Enum.any?(trace, &match?({_, {:rollback, _, 1, false}}, &1))
+      refute Enum.any?(trace, &match?({_, {:native, _, _, _, _, _}}, &1))
+      refute Enum.any?(trace, &match?({_, {:consumer, _, _, _}}, &1))
+    end
+
+    test "Task16 #{kind} descriptor rejects another reducer PID before any scope or lease", c do
+      f = transfer_fixture(c, "original")
+
+      assert {:error, %Error{code: :invalid}} =
+               transfer_generate(f, fn runtime ->
+                 {:ok, descriptor} = transfer_descriptor(f, runtime, unquote(kind))
+                 transfer_phase(f, :foreign)
+                 owner = self()
+
+                 {foreign, monitor} =
+                   spawn_monitor(fn ->
+                     result =
+                       descriptor.reduce.(nil, fn _, _ -> flunk("foreign consumer invoked") end)
+
+                     send(owner, {:foreign_transfer_result, self(), result})
+                   end)
+
+                 assert_receive {:foreign_transfer_result, ^foreign, result}, 1_000
+                 assert_receive {:DOWN, ^monitor, :process, ^foreign, :normal}, 1_000
+                 result
+               end)
+
+      refute Enum.any?(transfer_events(f), fn {phase, _} -> phase == :foreign end)
+    end
+
+    test "Task16 #{kind} failed explicit revoke fails reduction but companion retires its PID",
+         c do
+      f = transfer_fixture(c, "original")
+
+      assert {:error, %Error{code: :storage_unavailable}} =
+               transfer_generate(f, fn runtime ->
+                 {:ok, descriptor} = transfer_descriptor(f, runtime, unquote(kind))
+                 transfer_phase(f, :reduce, :revoke)
+                 transfer_reduce(f, descriptor)
+               end)
+
+      trace = transfer_events(f)
+      assert Enum.any?(trace, &match?({:reduce, {:revoke, _, _, 2}}, &1))
+    end
+
+    test "Task16 #{kind} consumer error preserves exact error and retires custody", c do
+      f = transfer_fixture(c, "original")
+
+      assert {:error, %Error{code: :conflict}} =
+               transfer_generate(f, fn runtime ->
+                 {:ok, descriptor} = transfer_descriptor(f, runtime, unquote(kind))
+                 transfer_phase(f, :reduce)
+
+                 descriptor.reduce.(nil, fn bytes, _ ->
+                   transfer_record(
+                     f.context,
+                     {:consumer, self(), byte_size(bytes), TransferRepo.in_transaction?()}
+                   )
+
+                   {:error, Error.new(:conflict)}
+                 end)
+               end)
+
+      assert Enum.count(transfer_events(f), &match?({:reduce, {:consumer, _, _, false}}, &1)) == 1
+    end
+  end
+
+  test "Task16 Document reauthorizes between consumer pieces of one native chunk", c do
+    f = transfer_fixture(c, :binary.copy("d", 65_537))
+
+    assert {:error, %Error{code: :forbidden}} =
+             transfer_generate(f, fn runtime ->
+               {:ok, descriptor} = transfer_descriptor(f, runtime, :document)
+               transfer_phase(f, :reduce)
+
+               transfer_reduce(f, descriptor, fn _ ->
+                 Agent.update(f.state, &%{&1 | live: %{&1.live | capabilities: []}})
+               end)
+             end)
+
+    trace = transfer_events(f)
+    assert Enum.count(trace, &match?({:reduce, {:native, _, _, :document, 0, false}}, &1)) == 1
+    assert Enum.count(trace, &match?({:reduce, {:consumer, _, _, false}}, &1)) == 1
+    assert {:reduce, {:consumer, Agent.get(f.state, & &1.owner), 65_536, false}} in trace
+  end
+
+  for {kind, mutation} <- [
+        {:asset, :format},
+        {:asset, :cipher_size},
+        {:document, :maximum},
+        {:document, :source_size},
+        {:document, :digest}
+      ] do
+    test "Task16 #{kind} rejects captured #{mutation} before transaction or lease", c do
+      f = transfer_fixture(c, "original")
+
+      binding =
+        case unquote(mutation) do
+          :format -> Map.put(f.asset, "format_version", 2)
+          :cipher_size -> Map.put(f.asset, "ciphertext_byte_size", 135)
+          :maximum -> put_in(f.document, [:version, "original_byte_size"], 67_108_865)
+          :source_size -> put_in(f.document, [:source, "plaintext_byte_size"], 9)
+          :digest -> put_in(f.document, [:version, "original_digest"], "not-a-digest")
+        end
+
+      refute binding == Map.fetch!(f, unquote(kind))
+
+      if unquote(kind) == :document do
+        assert Enum.sort(Map.keys(binding)) == [:source, :version]
+        assert is_map(binding.source) and is_map(binding.version)
+      end
+
+      assert {:error, %Error{code: :integrity_failure}} =
+               transfer_generate(f, fn runtime ->
+                 transfer_call(transfer_function(unquote(kind)), [runtime, f.session, binding])
+               end)
+
+      refute Enum.any?(transfer_events(f), &match?({_, {:scope_begin, _, _, _, _}}, &1))
+      assert Agent.get(f.state, & &1.leases) == []
+    end
+  end
+
+  def transfer_record(context, event) do
+    Agent.update(context.state, &%{&1 | events: [{&1.phase, event} | &1.events]})
+  end
+
+  defp transfer_fixture(c, bytes) do
+    roots = Map.new(~w(export storage backup)a, &{&1, Path.join(c.tmp_dir, "transfer-#{&1}")})
+
+    for path <- Map.values(roots) do
+      File.mkdir!(path)
+      File.chmod!(path, 0o700)
+    end
+
+    asset = asset_binding(bytes)
+    document = document_binding(asset, bytes)
+
+    state =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             bytes: bytes,
+             asset: asset,
+             document: document,
+             live: nil,
+             owner: nil,
+             events: [],
+             inside: %{},
+             transactions: %{},
+             leases: [],
+             revokes: %{},
+             phase: :preflight,
+             fault: nil,
+             after_read: false
+           }
+         end}
+      )
+
+    live = Process.get(:export_read_live)
+    Agent.update(state, &%{&1 | live: live})
+    supervisor = start_supervised!({Task.Supervisor, []})
+    context = %{state: state, observer: self(), token: make_ref()}
+
+    assert {:ok, authorization} =
+             AuthorizationDependencies.new(%{
+               store: {TransferStore, context},
+               custodian: {TransferCustodian, context}
+             })
+
+    runtime = %{
+      request_repo: {TransferRepo, context},
+      vault_lock: {TransferLock, context},
+      authorization_lock: {TransferLock, context},
+      scoped_repo: {TransferScoped, context},
+      authorization: authorization,
+      audit: {TransferAudit, context},
+      custodian: {TransferCustodian, context},
+      authenticated_reader: {TransferReader, context},
+      knowledge_export_repository: {TransferRepository, context},
+      knowledge_export: %{
+        root: roots.export,
+        storage_root: roots.storage,
+        backup_root: roots.backup,
+        task_supervisor: supervisor,
+        clock: fn -> 0 end
+      }
+    }
+
+    %{
+      runtime: runtime,
+      session: c.session,
+      asset: asset,
+      document: document,
+      state: state,
+      context: context,
+      roots: roots,
+      supervisor: supervisor
+    }
+  end
+
+  defp transfer_generate(f, callback) do
+    assert Code.ensure_loaded?(@read)
+    assert function_exported?(@read, :asset_for_export, 3), "missing Task16 asset_for_export/3"
+
+    assert function_exported?(@read, :document_for_export, 3),
+           "missing Task16 document_for_export/3"
+
+    observer = self()
+    token = f.context.token
+
+    generation =
+      apply(@transfer_artifact, :generate, [
+        f.runtime,
+        f.session,
+        fn runtime, operation ->
+          owner = self()
+          Agent.update(f.state, &%{&1 | owner: owner})
+          assert runtime.custodian == runtime.authenticated_reader
+          assert {@transfer_leases, context} = runtime.custodian
+          assert context.companion == operation.companion
+          assert context.operation_ref == operation.operation_ref
+          assert context.reader == {TransferReader, f.context}
+          send(observer, {:transfer_identity, token, owner, operation.companion})
+          result = callback.(runtime)
+          send(observer, {:transfer_result, token, result})
+          {:error, Error.new(:conflict)}
+        end
+      ])
+
+    expected =
+      if Agent.get(f.state, & &1.fault) == :revoke, do: :storage_unavailable, else: :conflict
+
+    assert {:error, %Error{code: ^expected}} = generation
+
+    assert_receive {:transfer_identity, ^token, owner, companion}, 1_000
+    owner_monitor = Process.monitor(owner)
+    companion_monitor = Process.monitor(companion)
+    assert_receive {:DOWN, ^owner_monitor, :process, ^owner, _}, 1_000
+    assert_receive {:DOWN, ^companion_monitor, :process, ^companion, _}, 1_000
+    assert_receive {:transfer_result, ^token, result}, 1_000
+    assert Task.Supervisor.children(f.supervisor) == []
+    assert File.ls!(f.roots.export) == []
+    for lease <- Agent.get(f.state, & &1.leases), do: refute(Process.alive?(lease))
+    result
+  end
+
+  defp transfer_call(function, args) do
+    assert Code.ensure_loaded?(@read)
+    assert function_exported?(@read, function, 3), "missing Task16 #{function}/3"
+    apply(@read, function, args)
+  end
+
+  defp transfer_function(:asset), do: :asset_for_export
+  defp transfer_function(:document), do: :document_for_export
+
+  defp transfer_descriptor(f, runtime, kind),
+    do: transfer_call(transfer_function(kind), [runtime, f.session, Map.fetch!(f, kind)])
+
+  defp transfer_phase(f, phase, fault \\ nil),
+    do: Agent.update(f.state, &%{&1 | phase: phase, fault: fault, after_read: false})
+
+  defp transfer_reduce(f, descriptor, hook \\ fn _ -> :ok end) do
+    result =
+      descriptor.reduce.({:crypto.hash_init(:sha256), 0, 0}, fn bytes, {hash, size, count} ->
+        transfer_record(
+          f.context,
+          {:consumer, self(), byte_size(bytes), TransferRepo.in_transaction?()}
+        )
+
+        hook.(count + 1)
+        {:ok, {:crypto.hash_update(hash, bytes), size + byte_size(bytes), count + 1}}
+      end)
+
+    case result do
+      {:ok, {hash, size, count}} ->
+        {:ok, {size, Base.encode16(:crypto.hash_final(hash), case: :lower), count}}
+
+      error ->
+        error
+    end
+  end
+
+  defp transfer_events(f), do: Agent.get(f.state, &Enum.reverse(&1.events))
+
+  defp transfer_assert_order(f, kind) do
+    owner = Agent.get(f.state, & &1.owner)
+
+    for {_, {:acquire, companion, ^owner, request, true}} <- transfer_events(f) do
+      assert is_pid(companion) and companion != owner
+      assert request.session_id == f.session.session_id
+      assert request.principal_id == f.session.principal_id
+      assert request.vault_id == f.session.vault_id
+      assert request.principal_authorization_epoch == 7
+      assert request.vault_authorization_epoch == 23
+      assert request.required_capability == "asset.read"
+      assert request.object_id == f.asset["object_id"]
+      assert request.object_generation == f.asset["object_generation"]
+
+      expected_keys =
+        if kind == :asset do
+          assert request.purpose == :download
+          assert request.job_id == @asset
+
+          ~w(job_id purpose session_id principal_id vault_id principal_authorization_epoch vault_authorization_epoch required_capability object_id object_generation)a
+        else
+          assert request.purpose == :document_source
+          assert request.access == :request
+          assert request.resource_version_id == f.document.version["version_id"]
+
+          ~w(purpose access session_id principal_id vault_id principal_authorization_epoch vault_authorization_epoch required_capability resource_version_id object_id object_generation)a
+        end
+
+      assert Enum.sort(Map.keys(request)) == Enum.sort(expected_keys)
+    end
+
+    for phase <- [:preflight, :reduce] do
+      trace = for {^phase, event} <- transfer_events(f), do: event
+
+      for {{:native, ^owner, lease, ^kind, _, false}, index} <- Enum.with_index(trace) do
+        before = Enum.take(trace, index)
+        acquisition = Enum.find_index(before, &match?({:acquire, _, ^owner, _, true}, &1))
+        assert is_integer(acquisition)
+        assert is_pid(lease)
+
+        assert Enum.any?(
+                 Enum.drop(before, acquisition + 1),
+                 &match?({:commit, ^owner, _, false}, &1)
+               )
+
+        after_native =
+          trace
+          |> Enum.drop(index + 1)
+          |> Enum.take_while(fn event ->
+            not (match?({:native, _, _, _, _, _}, event) or
+                   match?({:consumer, _, _, _}, event) or match?({:revoke, _, _, _}, event))
+          end)
+
+        authorize = Enum.find_index(after_native, &match?({:authorize, ^owner, _, true}, &1))
+        guard = Enum.find_index(after_native, &match?({:guard, ^owner, ^kind, _, true}, &1))
+        commit = Enum.find_index(after_native, &match?({:commit, ^owner, _, false}, &1))
+        assert is_integer(authorize) and is_integer(guard) and is_integer(commit)
+        assert authorize < guard and guard < commit
+
+        if kind == :asset do
+          audit = Enum.find_index(after_native, &match?({:audit, ^owner, _, true}, &1))
+          assert is_integer(audit) and guard < audit and audit < commit
+        end
+      end
+
+      for {{:consumer, ^owner, size, false}, index} <- Enum.with_index(trace) do
+        assert size in 1..65_536
+        before = Enum.take(trace, index)
+        assert Enum.any?(before, &match?({:commit, ^owner, _, false}, &1))
+        assert Enum.any?(before, &match?({:authorize, ^owner, _, true}, &1))
+        refute TransferRepo.in_transaction?()
+      end
+
+      refute Enum.any?(trace, &match?({:native, _, _, _, _, true}, &1))
+      refute Enum.any?(trace, &match?({:consumer, _, _, true}, &1))
+    end
+  end
+
+  # END TASK16 TRANSFER READ CONTRACTS
 end

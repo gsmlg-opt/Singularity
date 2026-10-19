@@ -191,6 +191,29 @@ It reuses the existing task supervisor and preserves exact owner-DOWN-before-
 deletion ordering; native authority, startup recovery limits and all original
 acceptance obligations remain unchanged.
 
+Task16's terminal close and actual cleanup acknowledgement follow
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-terminal-close-design.md`
+and
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-terminal-close.md`.
+Only the impossible same-owner live receipt is superseded. First-close success
+requires genuine cleanup and exact owner/companion termination; later dead-owner
+close remains a freshly authenticated no-op, not proof of completed cleanup.
+
+Task16's committed native transfer-read amendment is specified in
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-transfer-read-design.md`
+and
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-transfer-read.md`.
+Its fixed companion-owned entrypoints preserve the accepted old read primitives.
+Independent design reviews precede implementation; native transaction, source,
+audit, cleanup and exact-error evidence requirements are not waived.
+
+Task16's exact Step7b input staging and actual C1 formatter reconciliation follow
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-attribution-staging-design.md`
+and
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-attribution-staging.md`.
+Keep the fixed Task8/native-text/historical hashes and causal mutation routes.
+Independent design reviews precede the bounded architecture-test changes.
+
 The active invariant is:
 
 > Every user-owned object belongs to an authenticated owner scope, and every

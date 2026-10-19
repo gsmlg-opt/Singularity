@@ -145,6 +145,42 @@ defmodule Singularity.Storage.KnowledgeExport.Repository do
 
   def document_source(_repo, _binding), do: {:error, Error.new(:invalid)}
 
+  def document_source_selector(repo, version) when is_map(version) and not is_struct(version) do
+    export_read(fn ->
+      owner = export_owner!(repo)
+      resource = canonical_id(version["resource_id"])
+      id = canonical_id(version["version_id"])
+      export_live_version!(repo, owner, resource, id, "document")
+
+      [source_resource, source_version, digest, size] =
+        one(
+          export_query(
+            repo,
+            """
+            SELECT source_resource_id,source_resource_version_id,source_digest,source_byte_size
+            FROM content.document_versions
+            WHERE resource_id=$1 AND resource_version_id=$2 AND vault_id=$3
+              AND classification='private'
+            LIMIT 2
+            """,
+            [dump(resource), dump(id), dump(owner)]
+          )
+        )
+
+      unless version["kind"] == "document" and version["availability"] == "included" and
+               hex(digest) == version["original_digest"] and
+               size == version["original_byte_size"] and is_integer(size) and
+               size in 0..67_108_864,
+             do: fail(:integrity_failure)
+
+      {:ok,
+       {:binary_binding, :asset, canonical_id(text(source_resource)),
+        canonical_id(text(source_version))}}
+    end)
+  end
+
+  def document_source_selector(_repo, _version), do: {:error, Error.new(:invalid)}
+
   def revalidate_note(repo, %{version: version}) do
     export_read(fn ->
       owner = export_owner!(repo)

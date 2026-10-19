@@ -36,6 +36,13 @@ if config_env() == :prod do
   backup_root = System.fetch_env!("SINGULARITY_BACKUP_ROOT")
   storage_root = System.fetch_env!("SINGULARITY_STORAGE_ROOT")
 
+  config :singularity_runtime,
+    knowledge_export_root:
+      System.get_env(
+        "SINGULARITY_EXPORT_ROOT",
+        Path.join(Path.dirname(backup_root), Path.basename(backup_root) <> "-knowledge-export")
+      )
+
   audit_fingerprint_secret =
     case System.fetch_env!("SINGULARITY_AUDIT_FINGERPRINT_SECRET")
          |> Base.decode64() do

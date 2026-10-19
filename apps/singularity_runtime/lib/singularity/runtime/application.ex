@@ -34,9 +34,10 @@ defmodule Singularity.Runtime.Application do
   def start(_type, _args) do
     children = application_children(composition())
 
-    Supervisor.start_link(children,
-      strategy: :one_for_one,
-      name: Singularity.Runtime.Supervisor
+    Singularity.Runtime.Knowledge.ExportArtifact.start_runtime(
+      children,
+      [strategy: :one_for_one, name: Singularity.Runtime.Supervisor],
+      Application.fetch_env!(:singularity_runtime, :start_infrastructure)
     )
   end
 

@@ -116,6 +116,30 @@ defmodule Singularity.Runtime.KnowledgeExportApiTest do
     end
   end
 
+  for key <- [:materializer, :work, :callback, :module, :function, :args, :mfa] do
+    @work_key key
+    test "caller-selected #{@work_key} cannot select export work" do
+      observer = self()
+      reference = make_ref()
+      canary = fn _, _ -> send(observer, {:unexpected_work, reference}) end
+
+      config = %{
+        export_knowledge: fn _, _ -> send(observer, {:unexpected_composition, reference}) end
+      }
+
+      for value <- [canary, {__MODULE__, :canary, []}],
+          options <- [
+            %{@work_key => value},
+            %{@work_key => value, :include_tombstones => false}
+          ] do
+        assert {:error, :invalid} = Api.export_knowledge(config, session_dto(), options)
+        refute_received {:unexpected_composition, ^reference}
+        refute_received {:unexpected_work, ^reference}
+        refute_received :unexpected_mfa_work
+      end
+    end
+  end
+
   test "strict DTO fields become SessionContext without changing the five-field binding" do
     dto = session_dto()
     config = recording_config({:ok, handle()})
@@ -525,6 +549,8 @@ defmodule Singularity.Runtime.KnowledgeExportApiTest do
                validate(operation, arguments)
     end
   end
+
+  def canary, do: send(self(), :unexpected_mfa_work)
 
   defp call(config, operation, arguments, session \\ session_dto()),
     do: apply(Api, operation, [config, session | arguments])

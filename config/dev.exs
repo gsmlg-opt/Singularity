@@ -24,6 +24,19 @@ config :singularity_storage,
       Path.expand("../var/storage", __DIR__)
     )
 
+export_backup_root =
+  System.get_env("SINGULARITY_BACKUP_ROOT", Path.expand("../var/backups", __DIR__))
+
+config :singularity_runtime,
+  knowledge_export_root:
+    System.get_env(
+      "SINGULARITY_EXPORT_ROOT",
+      Path.join(
+        Path.dirname(export_backup_root),
+        Path.basename(export_backup_root) <> "-knowledge-export"
+      )
+    )
+
 config :singularity_storage, Singularity.Storage.MigrationRepo,
   url:
     System.get_env(
