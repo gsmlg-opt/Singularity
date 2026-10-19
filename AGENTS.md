@@ -56,6 +56,13 @@ see `docs/verification/2026-10-18-phase-5-task12-handoff.md` for its actual
 gates and documentation-closure boundary.
 Task11's local documentation handoff is `e24b2b2b10f4bb2d21d7600ad8bdc2f931237d56`;
 see `docs/verification/2026-10-18-phase-5-task11-handoff.md` for its source/gates.
+Task16's tested/reviewed local source is `5d7cd738c1049071987f93d6ec6c6dd68d4e409b`;
+see `docs/verification/2026-10-19-phase-5-task16-handoff.md` for actual gates,
+ordered independent reviews, three local commits and the separate documentation-
+closure boundary. Task17 live portable acceptance is next only after that
+closure and its updated independently reviewed design/plan. Tasks17/18/19 and
+whole Phase5 acceptance remain unqualified. Dated earlier Task16 NO-GO and
+unchecked snapshots remain historical evidence, not the current source status.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
 database `pg_trgm` provisioning/hardening through the existing external

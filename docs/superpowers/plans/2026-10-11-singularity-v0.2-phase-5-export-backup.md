@@ -12,6 +12,25 @@
 
 ## Status, evidence and execution boundary
 
+### Current Task16 source/gate qualification — 2026-10-19
+
+Authenticated artifact composition and both strict ALL-issued-lease end-to-end
+requirements are source-qualified on local source
+`5d7cd738c1049071987f93d6ec6c6dd68d4e409b`. Actual final SOURCE SPEC then NEW
+distinct SOURCE QUALITY both CLOSED PASS. The [source/gate handoff](../../verification/2026-10-19-phase-5-task16-handoff.md)
+records the exact43 committed paths, three local commits, twelve fresh successor
+gates, twelve unchanged-input retained gates, all ordinary posts, historical
+failures, bounded review coverage and closed isolated-environment evidence.
+All43 committed blobs match the tested/reviewed manifest; no intermediate
+commit is claimed separately tested. Documentation gate, own SQL post, reviews,
+local documentation commit and literal clean closure remain PENDING at this
+snapshot; their actual result belongs in its separate ignored closure receipt.
+Task16 local acceptance requires that closure. Task17 then requires its updated
+independently reviewed design/plan before implementation GO. Tasks17/18/19 and
+wholePhase5 acceptance remain unqualified; E2E NOT RUN and no publication,
+production activation or new Vault feature work. Earlier dated NO-GO/unchecked
+records below remain historical evidence, not current source qualification.
+
 ### Qualified Task16 native prerequisite — 2026-10-19
 
 Local native source acceptance is `6c7f867309470e23e8f34c06a8f53af0b496d48d`;
@@ -2649,6 +2668,11 @@ parent factual records are `.devenv/phase5-task15-repair1-source-spec.md` and
 
 ## Task 16: Runtime orchestration, session-bound handles and public API
 
+The current Task16 source/gate qualification and handoff above supersede only
+the older implementation-pending and strict-gap status snapshots below.
+The seven completed steps describe that tested/reviewed source; documentation
+closure remains separate. This does not accept Task17/18/19 or wholePhase5.
+
 The 2026-10-19 native prerequisite above is source-qualified; its original
 frozen-interface blocker is resolved only for the approved native seam.
 Wire the original companion acquisition adapter to `export_lease/2` when resuming
@@ -2687,7 +2711,7 @@ guarantee. No affected source GO/Task16 acceptance; independent valid work may
 continue without changing frozen custody or leases. This status synchronization
 is bookkeeping, not a new design or source authorization.
 
-- [ ] Add RED API/handle tests for these exact public operations and internal
+- [x] Add RED API/handle tests for these exact public operations and internal
   leading-config variants following the existing Api testing convention:
 
 ```elixir
@@ -2701,13 +2725,13 @@ close_knowledge_export(session, handle)
   SHA-256, at most 500 entries; read only manifest-listed path/ordinal chunks
   at most 64 KiB. Handles expose no host path. Unknown options, destinations,
   caller owners/adapters, absolute paths and invalid ordinals reject.
-- [ ] Implement `Export.run/3` resolving current authenticated session, deriving
+- [x] Implement `Export.run/3` resolving current authenticated session, deriving
   owner, checking existing Note/Asset read requirements, capturing snapshot,
   transferring exact originals/Note/text and manifest, verifying output and
   reauthorizing completion. Keep metadata transaction closed for transfer/client
   delivery. No new capability or Vault grant. Errors are content-free atoms/
   existing sanitized Error values; canary content never reaches logs/telemetry.
-- [ ] Compose the Task13 ExportSnapshot/Spool and trusted application-configured
+- [x] Compose the Task13 ExportSnapshot/Spool and trusted application-configured
   `knowledge_export_root`, separate and not nested under storage_root/backup_root
   or their aliases. Dev/test/prod supply only this ephemeral plaintext root;
   optional SINGULARITY_EXPORT_ROOT defaults to an isolated sibling beside the
@@ -2718,7 +2742,7 @@ close_knowledge_export(session, handle)
   Composition tests assert exact trusted root/adapters and existing contracts.
   Revalidate captured immutable text/original bindings after cut and at completion;
   starts no binary materialization before snapshot COMMIT.
-- [ ] Implement temporary `ExportArtifact` under existing supervisor/task seams,
+- [x] Implement temporary `ExportArtifact` under existing supervisor/task seams,
   bound to original session/principal/owner/authorization epochs, with maximum
   15 minutes from creation. Monitor the requester only during generation:
   requester death before completion aborts and cleans the operation. Before
@@ -2738,14 +2762,14 @@ close_knowledge_export(session, handle)
   Use monotonic deadline and deterministic test clock/barriers, no arbitrary
   sleeps or new durable queue/domain GenServer. Idempotent owner close revokes
   delivery and removes only its owned artifact.
-- [ ] On revocation, loss of unlock, timeout/cancel, denied chunk, checksum,
+- [x] On revocation, loss of unlock, timeout/cancel, denied chunk, checksum,
   generation-requester death, artifact-owner death or startup leftovers, clean only recognizable
   export-owned directories below dedicated configured staging root and revoke
   outstanding leases. Test another owner's/operation's sentinel survives.
   Add two deterministic monitor-handoff tests: kill generation requester before
   completion and assert no handle/owned files; let requester exit after success
   and assert same-session manifest/chunk access remains valid until owner close.
-- [ ] Extend architecture baseline contracts with exact Phase 5 block/context
+- [x] Extend architecture baseline contracts with exact Phase 5 block/context
   hashes and mutation/removal/duplication/relocation tests. Strip only exact
   approved additions before existing hashes; retain all Phase 2/3/4 and legacy
   runtime assertions. Add exact Phase 5 knowledge-registration attribution and
@@ -2754,7 +2778,7 @@ close_knowledge_export(session, handle)
   `Knowledge.Export` terms or replace a baseline with the current file hash.
   Task 0 and Task 1 did not pre-authorize stripping. Dependency graph
   remains seven applications, zero cycles.
-- [ ] Run full API/artifact and architecture owners:
+- [x] Run full API/artifact and architecture owners:
 
 ```sh
 devenv shell -- env MIX_ENV=test MIX_DEPS_PATH=/home/gao/Workspace/gsmlg-opt/Singularity/deps mix test apps/singularity_runtime/test/singularity/runtime/knowledge_export_api_test.exs apps/singularity_runtime/test/singularity/runtime/knowledge_export_artifact_test.exs apps/singularity_runtime/test/singularity/runtime/application_test.exs apps/singularity_runtime/test/singularity/runtime/note_markdown_source_export_test.exs apps/singularity_web/test/singularity/architecture/knowledge_phase1_contract_test.exs apps/singularity_web/test/singularity/architecture/notes_scope_contract_test.exs --seed 215378 --warnings-as-errors
