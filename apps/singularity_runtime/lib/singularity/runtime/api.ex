@@ -75,6 +75,7 @@ defmodule Singularity.Runtime.Api do
   alias Singularity.Runtime.SessionContext
   alias Singularity.Runtime.Search.Rebuild, as: SearchRebuild
   alias Singularity.Runtime.StorageAdapter
+  alias Singularity.Runtime.Knowledge.Export, as: KnowledgeExport
   alias Singularity.Runtime.UnlockVault
   alias Singularity.Runtime.UploadSessionSupervisor
   alias Singularity.Storage.AuthorizationLock
@@ -647,6 +648,61 @@ defmodule Singularity.Runtime.Api do
   end
 
   def export_note(_config, _session, _resource_id), do: {:error, :invalid}
+
+  def export_knowledge(session, options),
+    do: with_production(&export_knowledge(&1, session, options))
+
+  @doc false
+  def export_knowledge(config, session, options),
+    do: knowledge_export_call(config, :export_knowledge, session, [options])
+
+  def knowledge_export_entries(session, handle, cursor),
+    do: with_production(&knowledge_export_entries(&1, session, handle, cursor))
+
+  @doc false
+  def knowledge_export_entries(config, session, handle, cursor),
+    do: knowledge_export_call(config, :knowledge_export_entries, session, [handle, cursor])
+
+  def read_knowledge_export_chunk(session, handle, path, index),
+    do: with_production(&read_knowledge_export_chunk(&1, session, handle, path, index))
+
+  @doc false
+  def read_knowledge_export_chunk(config, session, handle, path, index),
+    do:
+      knowledge_export_call(config, :read_knowledge_export_chunk, session, [handle, path, index])
+
+  def close_knowledge_export(session, handle),
+    do: with_production(&close_knowledge_export(&1, session, handle))
+
+  @doc false
+  def close_knowledge_export(config, session, handle),
+    do: knowledge_export_call(config, :close_knowledge_export, session, [handle])
+
+  defp knowledge_export_call(config, operation, %Session{} = session, arguments)
+       when is_map(config) and not is_struct(config) and
+              operation in [
+                :export_knowledge,
+                :knowledge_export_entries,
+                :read_knowledge_export_chunk,
+                :close_knowledge_export
+              ] do
+    with :ok <- KnowledgeExport.validate(operation, arguments),
+         {:ok, context} <- note_source_session(session) do
+      config
+      |> invoke(operation, [context | arguments])
+      |> KnowledgeExport.public_result(operation)
+      |> normalize_knowledge_export_result()
+    else
+      result -> normalize_error(result)
+    end
+  end
+
+  defp knowledge_export_call(_config, _operation, _session, _arguments),
+    do: {:error, :invalid}
+
+  defp normalize_knowledge_export_result(:ok), do: :ok
+  defp normalize_knowledge_export_result({:ok, _} = result), do: result
+  defp normalize_knowledge_export_result(result), do: normalize_error(result)
 
   @spec create_note(Session.t(), map() | keyword()) ::
           {:ok, Singularity.Runtime.DTO.Note.t()} | {:error, atom()}
