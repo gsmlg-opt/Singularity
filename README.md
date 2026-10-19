@@ -79,6 +79,12 @@ derive owner scope from authenticated runtime context and never accept a
 caller-selected Vault scope. Removing or replacing legacy Vault
 infrastructure requires a separately approved migration project.
 
+The user's [2026-10-19 minimal exception](docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+permits only native Asset/Document export-request lease ownership and cleanup
+in `KeyCustodian`/`DownloadLease`, with focused native regressions. Ordinary
+downloads/workers, all authorization/source/crypto checks and the rest of Vault
+remain frozen. Implementation and native qualification are not yet claimed.
+
 > Every user-owned object belongs to an authenticated owner scope, and every
 > projection points to an immutable source version.
 

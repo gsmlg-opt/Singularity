@@ -51,3 +51,21 @@ encoding is not a caller-selectable knowledge-domain concept.
 
 Active README and guide text point to this ADR. Historical implementation
 records are not rewritten to erase earlier decisions.
+
+## Explicit export-request lease exception — 2026-10-19
+
+The user approved only native Asset/Document export-request lease ownership
+and cleanup in `KeyCustodian` and `DownloadLease`, including acquisition timeout
+and owner death before the returned lease identifier can be recorded. This is
+the sole exception to the unchanged/compile-only language above, not a Vault
+feature, new capability, cryptographic change, ordinary-download/worker redesign
+or general custody authorization. Every existing source/session/owner/unlock/
+capability/epoch check remains required; neither strict cleanup guarantee is
+waived. No whole-session revocation may substitute for export-local cleanup.
+
+The [dated design](../superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [plan](../superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+govern the minimal seam, focused native regressions and exact inverse source
+attribution. The original frozen manifest remains immutable, with only its two
+explicitly attributed source deltas and all other entries unchanged. E2E remains
+NOT RUN; publication, deployment and production-data restrictions are unchanged.

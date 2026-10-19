@@ -86,6 +86,16 @@ Existing `vault_id` fields and storage-scope plumbing may remain where the curre
 
 A Vault-related file may be touched only when a new knowledge-base change would otherwise fail to compile or preserve established behavior. Any such change must be the smallest compatibility patch possible and must be explicitly listed in the implementation report.
 
+The user's explicit 2026-10-19 exception additionally permits only native
+Asset/Document export-request lease ownership and cleanup in `KeyCustodian`
+and `DownloadLease`, with focused export regressions and exact inverse source
+attribution. The [dated design](../specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [detailed plan](2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+supersede the freeze only for this lifecycle seam. Ordinary downloads/workers,
+all authorization/source/crypto checks and every other Vault boundary remain
+unchanged. Neither strict cleanup requirement is waived; E2E stays NOT RUN and
+publication/deployment/production restrictions remain in force.
+
 ### 2.2 Project guardrails to add first
 
 Create a root `AGENTS.md` that records this scope lock for all future agents.

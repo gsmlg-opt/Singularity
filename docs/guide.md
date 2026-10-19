@@ -2090,6 +2090,14 @@ Live runtime custody composition requires a separately approved Phase 2 design.
 No custody, key, capability, or Vault change is authorized.
 Test doubles do not prove live source verification.
 
+The later [2026-10-19 minimal exception](superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+permits only native Asset/Document export-request lease ownership and cleanup
+in `KeyCustodian`/`DownloadLease`, with focused native regressions and exact
+inverse source attribution. Ordinary downloads/workers and every existing
+source/session/owner/unlock/capability/epoch/crypto check remain unchanged.
+The rest of Vault stays frozen; native qualification is still required, E2E
+is NOT RUN, and no publication or production activation is authorized.
+
 Embeddings, semantic retrieval, RAG, Agents, OCR, photos, media,
 subscriptions, finance, health, synchronization, and external connectors are
 not `0.2.0` work.

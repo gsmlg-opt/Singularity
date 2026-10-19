@@ -22,6 +22,25 @@ No new dependency, registry, queue, domain process or migration.
 
 ## Execution boundary and unresolved requirement
 
+### Dated native lifecycle exception — 2026-10-19
+
+The user explicitly approved the minimal native export-request ownership
+exception. The [new design](../specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [prerequisite plan](2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+supersede conflicting unchanged-KeyCustodian/DownloadLease and source-NO-GO
+wording below solely for that prerequisite, after actual DESIGN SPEC then NEW
+distinct QUALITY. Both strict timeout/pre-recording-death assertions stay
+UNSATISFIED/UNWAIVED until native qualification. Preserve every historical
+finding below. Ordinary requests, workers, source/authorization/crypto remain
+unchanged; original56 remains immutable with54 raw and2 exact inverse proofs.
+After this prerequisite passes, use `KeyCustodian.export_lease/2` inside the
+planned companion acquisition adapter; do not alter existing Download/ExportRead.
+All original Task8/startup, handle, artifact and review/test steps remain required.
+No native primitive alone completes Task16/Phase5. E2E NOT RUN; no publication,
+deployment or production activation/backfill.
+
+### Historical execution and blocker records
+
 Read the complete companion design
 `../specs/2026-10-12-singularity-v0.2-phase-5-export-artifact-ownership-design.md`.
 It supplies the native source trace and fingerprints. Inspected worktree is

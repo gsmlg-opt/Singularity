@@ -139,6 +139,35 @@ module or release deliverable.
 - Removing or replacing legacy Vault infrastructure requires a separately
   approved migration project.
 
+### Authorized export-request lease exception — 2026-10-19
+
+The user explicitly approved one minimal exception to this freeze: ownership
+and cleanup of native Asset and Document **export request** leases in
+`KeyCustodian` and `DownloadLease`. The governing amendment is
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md`
+and its detailed plan is
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md`.
+This exception supersedes conflicting compile-only/frozen-interface rules
+only for that lifecycle seam and its focused export tests and exact attribution.
+
+- Bind cleanup authority before a lease can become usable, including delayed
+  issuance after acquisition timeout and operation-owner death before the lease
+  identifier is returned or recorded. Neither strict cleanup assertion is waived.
+- Keep existing authenticated source, session/principal, owner scope, unlock,
+  capability and authorization-epoch checks. Add no new capability or caller-
+  selected authority. Do not use whole-session/principal/Vault revocation as
+  export cleanup.
+- Preserve ordinary Asset download, ordinary Document request, extraction-worker,
+  key/crypto and all other Vault behavior. No unrelated frozen-source or frozen-
+  test repair is included. Native export-only regressions are required.
+- Preserve the original 56-file manifest unchanged. The two authorized source
+  deltas require exact reviewed inverse attribution to their original hashes;
+  the other 54 entries must remain byte-identical. Do not regenerate or weaken
+  historical baselines.
+- Design, detailed planning, test-first implementation, independent SPEC then
+  fresh QUALITY review and small local commits follow continuing authority.
+  E2E, publication/deployment and production-data restrictions remain unchanged.
+
 The active invariant is:
 
 > Every user-owned object belongs to an authenticated owner scope, and every

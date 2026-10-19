@@ -12,6 +12,20 @@
 
 ## Status, evidence and execution boundary
 
+### Task16 native ownership exception — 2026-10-19
+
+The user explicitly approved the minimal native export-request ownership and
+cleanup exception. The [new design](../specs/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [detailed plan](2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+govern only that prerequisite in KeyCustodian/DownloadLease, associated focused
+tests and exact attribution. They supersede conflicting unchanged-custody/
+compile-only instructions solely for this seam. All ordinary request, worker,
+authority, source, crypto and other Vault semantics remain frozen. Independent
+DESIGN SPEC then NEW QUALITY precede source GO. Both strict Task16 native gaps
+remain UNSATISFIED/UNWAIVED until actual checks pass; historical findings below
+are retained. No Task16/Phase5 acceptance or publication/production permission.
+E2E NOT RUN. Resume the original Task16 after this prerequisite qualifies.
+
 ### Current Task12 source/gate qualification — 2026-10-18
 
 The Task12 source now writes logical3 through the genuine production default.
@@ -637,6 +651,15 @@ migrations plus 13 explicitly frozen source files). New forward migrations are
 additive and are not entries in that historical baseline. This hash coverage is
 not a claim that all 56 files were source-reviewed; do not stage ignored tooling
 or regenerate baseline hashes from modified files.
+
+The explicit 2026-10-19 native ownership exception changes only the expected
+CURRENT check outcome after its reviewed implementation: run the original
+manifest literally and retain exactly KeyCustodian/DownloadLease raw mismatches;
+the other54 must pass raw. The new dedicated exact-hunk source contract must
+reconstruct both original hashes by reviewed inverses and reject mutations.
+The baseline itself and all historical all56 PASS receipts stay unchanged.
+Do not report the expected two raw mismatches as all56 raw PASS or silently
+filter them. Before native source changes the original all56 check still passes.
 
 Focused pure check command pattern:
 
@@ -2611,6 +2634,13 @@ parent factual records are `.devenv/phase5-task15-repair1-source-spec.md` and
 `.devenv/phase5-task15-repair1-quality-finding.md`.
 
 ## Task 16: Runtime orchestration, session-bound handles and public API
+
+The 2026-10-19 approved native ownership prerequisite above supersedes only the
+frozen-interface blocker for the two strict gaps, not their assertions. Source
+and native acceptance remain pending its actual review/test gates. After it
+qualifies, the original companion acquisition adapter uses `export_lease/2`;
+all startup, exact Task8 attribution, handle, artifact and independent-review
+requirements below remain. No general custody/Vault expansion is authorized.
 
 **Create:** `apps/singularity_runtime/lib/singularity/runtime/knowledge/export.ex`,
 `apps/singularity_runtime/lib/singularity/runtime/knowledge/export_artifact.ex`,

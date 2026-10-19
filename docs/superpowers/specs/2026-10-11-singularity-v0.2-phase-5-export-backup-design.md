@@ -5,6 +5,23 @@ SPEC followed by separate fresh QUALITY review have closed. Phase 5 remains
 IN PROGRESS; this document is not implementation acceptance. The reviewed
 snapshots and bounded corrections are recorded in the Phase 5 report.
 
+## Task16 native ownership exception — 2026-10-19
+
+The user explicitly approved the minimal export-request native lifecycle
+exception. Its [design](2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [plan](../plans/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+supersede the unchanged-custody/compile-only sentences below solely for
+KeyCustodian/DownloadLease export acquisition, caller ownership and cleanup.
+Ordinary requests, extraction workers and all authority/source/key/crypto
+semantics remain unchanged. Original56 is never rebaselined: the two exact
+reviewed inverses restore original hashes and remaining54 stay byte-identical.
+Both strict Task16 guarantees remain UNSATISFIED/UNWAIVED pending actual native
+qualification. The historical BLOCKED_DESIGN findings below remain evidence;
+this authorization permits their repair, not a declaration of success.
+Independent DESIGN SPEC then NEW QUALITY precede source GO. Artifact Task16,
+Task17, Task18 and final Phase5 gates remain pending; E2E NOT RUN. No publication,
+deployment, production activation/backfill or other Vault work is authorized.
+
 ## Current Task12 source/gate qualification — 2026-10-18
 
 The Task12 source now writes logical3 through the genuine production default

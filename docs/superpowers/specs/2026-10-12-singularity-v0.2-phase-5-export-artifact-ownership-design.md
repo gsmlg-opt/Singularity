@@ -2,6 +2,23 @@
 
 ## Status and authority
 
+### Dated native lifecycle exception — 2026-10-19
+
+The user explicitly approved the minimal KeyCustodian/DownloadLease native
+export-request ownership exception. The [new design](2026-10-19-singularity-v0.2-phase-5-export-lease-ownership-design.md)
+and [plan](../plans/2026-10-19-singularity-v0.2-phase-5-export-lease-ownership.md)
+supersede this document's frozen-interface/source-NO-GO wording only for that
+prerequisite after actual DESIGN SPEC then NEW distinct QUALITY closure. They
+do not waive either strict ALL-lease assertion or qualify any native behavior.
+The historical BLOCKED_DESIGN/failed-review records below remain intact. All
+startup, Task8 exact inverse, authority, source, handle and artifact contracts
+remain unchanged. The eventual companion adapter uses `export_lease/2` through
+the existing injected acquisition seam. Native prerequisite qualification is
+not Task16 acceptance. Ordinary requests, workers and other Vault behavior stay
+frozen; E2E NOT RUN and publication/production restrictions remain in force.
+
+### Historical architecture and review records
+
 Architecture assignment `phase5_artifact_ownership_architecture`, mode
 `architecture`, gate `PROJECT_ARCHITECTURE`. This is a design and implementation
 plan, not an implementation, prerequisite acceptance, or implementation GO.
