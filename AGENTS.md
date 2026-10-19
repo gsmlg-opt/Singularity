@@ -59,9 +59,16 @@ see `docs/verification/2026-10-18-phase-5-task11-handoff.md` for its source/gate
 Task16's tested/reviewed local source is `5d7cd738c1049071987f93d6ec6c6dd68d4e409b`;
 see `docs/verification/2026-10-19-phase-5-task16-handoff.md` for actual gates,
 ordered independent reviews, three local commits and the separate documentation-
-closure boundary. Task17 live portable acceptance is next only after that
-closure and its updated independently reviewed design/plan. Tasks17/18/19 and
-whole Phase5 acceptance remain unqualified. Dated earlier Task16 NO-GO and
+closure boundary. Task17 has qualified local source acceptance at
+`d054d58155ab119a17cbcbd36f11ba3a23d44e1e`: all11 scoped gates, ordered
+independent SOURCE SPEC/NEW distinct QUALITY and owned final post/PG stop/archive
+passed on the exact committed source. Its bounded handoff and actual evidence
+are recorded in §1.1 of
+`docs/superpowers/specs/2026-10-20-singularity-v0.2-phase-5-task18-historical-upgrade-design.md`.
+The next Task18 slice is governed by that design and
+`docs/superpowers/plans/2026-10-20-singularity-v0.2-phase-5-task18-historical-upgrade.md`;
+its independent design reviews and root GO still precede implementation.
+Tasks18/19 and whole Phase5 acceptance remain unqualified. Dated earlier Task16 NO-GO and
 unchecked snapshots remain historical evidence, not the current source status.
 
 The 2026-10-10 approved Phase 3 amendment permits explicit per-application
