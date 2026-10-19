@@ -83,6 +83,8 @@ defmodule Singularity.Storage.TestEnvironmentTest do
     after
       restore_env("PGPORT", previous_pg_port)
       File.rm_rf!(names.storage_root)
+      File.rm_rf!(names.storage_root <> "-backups")
+      File.rm_rf!(names.storage_root <> "-knowledge-export")
     end
   end
 
@@ -188,11 +190,14 @@ defmodule Singularity.Storage.TestEnvironmentTest do
       Enum.map(
         [
           :storage_root,
+          :backup_root,
           Singularity.Storage.MigrationRepo
           | runtime_repositories
         ],
         fn key -> {key, Application.fetch_env(:singularity_storage, key)} end
       )
+
+    previous_export_root = Application.fetch_env(:singularity_runtime, :knowledge_export_root)
 
     outer_database =
       :singularity_storage
@@ -255,6 +260,11 @@ defmodule Singularity.Storage.TestEnvironmentTest do
         {key, {:ok, value}} -> Application.put_env(:singularity_storage, key, value)
         {key, :error} -> Application.delete_env(:singularity_storage, key)
       end)
+
+      case previous_export_root do
+        {:ok, value} -> Application.put_env(:singularity_runtime, :knowledge_export_root, value)
+        :error -> Application.delete_env(:singularity_runtime, :knowledge_export_root)
+      end
 
       assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
     end
@@ -427,6 +437,202 @@ defmodule Singularity.Storage.TestEnvironmentTest do
       assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
     end
   end
+
+  # BEGIN Task16 isolated export-root compatibility contracts
+  test "create provisions an isolated backup sibling before database configuration" do
+    names = TestEnvironment.allocate!()
+    roots = isolated_export_roots(names)
+    previous_pg_port = System.get_env("PGPORT")
+    System.put_env("PGPORT", "invalid")
+
+    try do
+      assert Map.keys(Map.from_struct(names)) |> Enum.sort() ==
+               [:database, :storage_root, :suffix]
+
+      assert_raise ArgumentError, ~r/PGPORT must be a valid PostgreSQL port/, fn ->
+        TestEnvironment.create!(names)
+      end
+
+      assert File.dir?(roots.storage_root)
+      assert File.dir?(roots.backup_root)
+      assert File.dir?(Path.dirname(roots.root))
+      assert {:error, :enoent} = File.lstat(roots.root)
+
+      for left <- Map.values(roots), right <- Map.values(roots), left != right do
+        refute String.starts_with?(left, right <> "/")
+      end
+    after
+      restore_env("PGPORT", previous_pg_port)
+      Enum.each(Map.values(roots), &File.rm_rf!/1)
+    end
+  end
+
+  for operation <- [:drop!, :force_drop!] do
+    test "#{operation} removes all exact isolated roots when database configuration fails" do
+      names = TestEnvironment.allocate!()
+      roots = isolated_export_roots(names)
+      sibling = names.storage_root <> "-unrelated"
+      sentinel = Path.join(sibling, "must-survive")
+
+      for root <- Map.values(roots) do
+        File.mkdir_p!(root)
+        File.write!(Path.join(root, "owned-test-artifact"), "owned")
+      end
+
+      File.mkdir_p!(sibling)
+      File.write!(sentinel, "unrelated")
+      previous_pg_port = System.get_env("PGPORT")
+      System.put_env("PGPORT", "invalid")
+
+      try do
+        assert_raise ArgumentError, ~r/PGPORT must be a valid PostgreSQL port/, fn ->
+          apply(TestEnvironment, unquote(operation), [names])
+        end
+
+        for root <- Map.values(roots), do: assert({:error, :enoent} = File.lstat(root))
+        assert File.read!(sentinel) == "unrelated"
+      after
+        restore_env("PGPORT", previous_pg_port)
+        Enum.each(Map.values(roots), &File.rm_rf!/1)
+        File.rm_rf!(sibling)
+      end
+    end
+
+    @tag :tmp_dir
+    test "#{operation} never follows isolated backup or export symlinks", %{tmp_dir: tmp} do
+      names = TestEnvironment.allocate!()
+      roots = isolated_export_roots(names)
+      target = Path.join(tmp, "external-target")
+      sentinel = Path.join(target, "must-survive")
+      File.mkdir_p!(target)
+      File.write!(sentinel, "external")
+      File.mkdir_p!(roots.storage_root)
+      File.ln_s!(target, roots.backup_root)
+      File.ln_s!(target, roots.root)
+      previous_pg_port = System.get_env("PGPORT")
+      System.put_env("PGPORT", "invalid")
+
+      try do
+        assert_raise ArgumentError, ~r/PGPORT must be a valid PostgreSQL port/, fn ->
+          apply(TestEnvironment, unquote(operation), [names])
+        end
+
+        for root <- Map.values(roots), do: assert({:error, :enoent} = File.lstat(root))
+        assert File.read!(sentinel) == "external"
+        assert {:ok, %{type: :directory}} = File.lstat(target)
+      after
+        restore_env("PGPORT", previous_pg_port)
+        Enum.each(Map.values(roots), &File.rm_rf!/1)
+      end
+    end
+  end
+
+  @tag :tmp_dir
+  test "create refuses symlink root leaves before database configuration", %{tmp_dir: tmp} do
+    previous_pg_port = System.get_env("PGPORT")
+    System.put_env("PGPORT", "invalid")
+
+    try do
+      for key <- [:storage_root, :backup_root, :root] do
+        names = TestEnvironment.allocate!()
+        roots = isolated_export_roots(names)
+        target = Path.join(tmp, Atom.to_string(key))
+        sentinel = Path.join(target, "must-survive")
+        File.mkdir_p!(target)
+        File.write!(sentinel, "external")
+        File.mkdir_p!(Path.dirname(names.storage_root))
+        File.ln_s!(target, Map.fetch!(roots, key))
+
+        try do
+          assert_raise ArgumentError, ~r/symlink/, fn ->
+            TestEnvironment.create!(names)
+          end
+
+          assert File.read!(sentinel) == "external"
+          assert {:ok, %{type: :symlink}} = File.lstat(Map.fetch!(roots, key))
+          assert File.ls!(target) == ["must-survive"]
+        after
+          Enum.each(Map.values(roots), &File.rm_rf!/1)
+        end
+      end
+    after
+      restore_env("PGPORT", previous_pg_port)
+    end
+  end
+
+  @tag :integration
+  test "create configures disjoint run-owned roots accepted by the unchanged export directory guard" do
+    names = TestEnvironment.allocate!()
+    roots = isolated_export_roots(names)
+
+    storage_configuration =
+      Enum.map(
+        [
+          :storage_root,
+          :backup_root,
+          Singularity.Storage.MigrationRepo,
+          Singularity.Storage.RequestRepo,
+          Singularity.Storage.PreAuthRepo,
+          Singularity.Storage.DispatcherRepo,
+          Singularity.Storage.WorkerRepo
+        ],
+        fn key -> {key, Application.fetch_env(:singularity_storage, key)} end
+      )
+
+    previous_export_root = Application.fetch_env(:singularity_runtime, :knowledge_export_root)
+    assert :ok = Application.stop(:singularity_runtime)
+
+    try do
+      assert :ok = TestEnvironment.create!(names)
+
+      assert Application.fetch_env!(:singularity_storage, :storage_root) == roots.storage_root
+      assert Application.fetch_env!(:singularity_storage, :backup_root) == roots.backup_root
+      assert Application.fetch_env!(:singularity_runtime, :knowledge_export_root) == roots.root
+      assert {:error, :enoent} = File.lstat(roots.root)
+
+      assert {:ok, %{root: export_root}} =
+               Singularity.Storage.KnowledgeExport.ArtifactDirectory.prepare(roots)
+
+      assert export_root == roots.root
+      assert {:ok, %{mode: mode}} = File.lstat(export_root)
+      assert Bitwise.band(mode, 0o777) == 0o700
+
+      for root <- Map.values(roots) do
+        File.write!(Path.join(root, "owned-test-artifact"), "owned")
+      end
+
+      assert :ok = TestEnvironment.drop!(names)
+      for root <- Map.values(roots), do: assert({:error, :enoent} = File.lstat(root))
+    after
+      try do
+        TestEnvironment.force_drop!(names)
+      after
+        Enum.each(Map.values(roots), &File.rm_rf!/1)
+
+        Enum.each(storage_configuration, fn
+          {key, {:ok, value}} -> Application.put_env(:singularity_storage, key, value)
+          {key, :error} -> Application.delete_env(:singularity_storage, key)
+        end)
+
+        case previous_export_root do
+          {:ok, value} -> Application.put_env(:singularity_runtime, :knowledge_export_root, value)
+          :error -> Application.delete_env(:singularity_runtime, :knowledge_export_root)
+        end
+
+        assert {:ok, _started} = Application.ensure_all_started(:singularity_runtime)
+      end
+    end
+  end
+
+  defp isolated_export_roots(names) do
+    %{
+      storage_root: names.storage_root,
+      backup_root: names.storage_root <> "-backups",
+      root: names.storage_root <> "-knowledge-export"
+    }
+  end
+
+  # END Task16 isolated export-root compatibility contracts
 
   defp await_database_drop_lock(connection, database, deadline) do
     Postgrex.query!(connection, "SELECT pg_stat_clear_snapshot()", [])

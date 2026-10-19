@@ -76,7 +76,7 @@ defmodule Singularity.Storage.TestEnvironment do
     assert_test_environment!()
     validate!(names)
     ensure_database_dependencies!()
-    File.mkdir_p!(names.storage_root)
+    prepare_roots!(names)
 
     create_database!(names.database)
     bootstrap_search_extensions!(names)
@@ -93,7 +93,7 @@ defmodule Singularity.Storage.TestEnvironment do
       try do
         drop_database!(names.database)
       after
-        File.rm_rf!(names.storage_root)
+        cleanup_roots!(names)
       end
 
       :erlang.raise(kind, reason, __STACKTRACE__)
@@ -110,7 +110,7 @@ defmodule Singularity.Storage.TestEnvironment do
       drop_database!(names.database)
       :ok
     after
-      File.rm_rf!(names.storage_root)
+      cleanup_roots!(names)
     end
   end
 
@@ -125,7 +125,7 @@ defmodule Singularity.Storage.TestEnvironment do
       force_drop_database!(names.database)
       :ok
     after
-      File.rm_rf!(names.storage_root)
+      cleanup_roots!(names)
     end
   end
 
@@ -243,6 +243,48 @@ defmodule Singularity.Storage.TestEnvironment do
     end)
 
     Application.put_env(:singularity_storage, :storage_root, names.storage_root)
+    roots = roots(names)
+    Application.put_env(:singularity_storage, :backup_root, roots.backup_root)
+    Application.put_env(:singularity_runtime, :knowledge_export_root, roots.export_root)
+  end
+
+  defp roots(names) do
+    %{
+      storage_root: names.storage_root,
+      backup_root: names.storage_root <> "-backups",
+      export_root: names.storage_root <> "-knowledge-export"
+    }
+  end
+
+  defp prepare_roots!(names) do
+    roots = roots(names)
+    Enum.each(Map.values(roots), &reject_symlink_chain!/1)
+    File.mkdir_p!(roots.storage_root)
+    File.mkdir_p!(roots.backup_root)
+  end
+
+  defp cleanup_roots!(names) do
+    names
+    |> roots()
+    |> Map.values()
+    |> Enum.each(fn root ->
+      reject_symlink_chain!(Path.dirname(root))
+      File.rm_rf!(root)
+    end)
+  end
+
+  defp reject_symlink_chain!("/"), do: :ok
+
+  defp reject_symlink_chain!(path) do
+    reject_symlink_chain!(Path.dirname(path))
+
+    case File.lstat(path) do
+      {:ok, %{type: :symlink}} ->
+        raise ArgumentError, "test environment roots must not contain symlinks"
+
+      _ ->
+        :ok
+    end
   end
 
   defp migrate! do

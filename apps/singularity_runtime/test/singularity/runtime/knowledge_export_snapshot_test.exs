@@ -486,7 +486,11 @@ defmodule Singularity.Runtime.KnowledgeExportSnapshotSQLTest do
     end
   end
 
-  setup %{tmp_dir: tmp_dir}, do: LiveFixture.live_fixture!(tmp_dir)
+  setup %{tmp_dir: tmp_dir},
+    do:
+      LiveFixture.live_fixture!(
+        Singularity.Runtime.KnowledgeExportQualificationRoot.allocate!(tmp_dir)
+      )
 
   test "real resolver and Authorize capture under RR before auth SQL without READ ONLY", c do
     note = note!(c, "canonical 界\r\n")
