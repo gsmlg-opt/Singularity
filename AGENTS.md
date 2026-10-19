@@ -183,6 +183,14 @@ and
 The fixed internal generation closure is not caller/configuration-selected;
 all original ownership, native cleanup, startup and zero-cycle gates remain.
 
+Task16's cleanup-only replacement after confirmed companion loss follows
+`docs/superpowers/specs/2026-10-19-singularity-v0.2-phase-5-export-companion-recovery-design.md`
+and
+`docs/superpowers/plans/2026-10-19-singularity-v0.2-phase-5-export-companion-recovery.md`.
+It reuses the existing task supervisor and preserves exact owner-DOWN-before-
+deletion ordering; native authority, startup recovery limits and all original
+acceptance obligations remain unchanged.
+
 The active invariant is:
 
 > Every user-owned object belongs to an authenticated owner scope, and every
