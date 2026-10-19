@@ -1242,6 +1242,6 @@ defmodule Singularity.Storage.KnowledgeExport.Spool do
     end
   end
 
-  defp hex(bytes), do: Base.encode16(bytes, case: :lower)
+  defp hex(bytes), do: bytes |> Base.encode16(case: :lower) |> :binary.copy()
   defp error(code), do: {:error, Error.new(code)}
 end

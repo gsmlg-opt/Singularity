@@ -1579,7 +1579,7 @@ defmodule Singularity.Storage.KnowledgeExport.Writer do
   defp kind!("note"), do: :note
   defp kind!(_), do: fail(:invalid)
   defp sha(bytes), do: :crypto.hash(:sha256, bytes) |> hex()
-  defp hex(bytes), do: Base.encode16(bytes, case: :lower)
+  defp hex(bytes), do: bytes |> Base.encode16(case: :lower) |> :binary.copy()
   defp native!(:ok), do: :ok
   defp native!(_), do: fail(:storage_unavailable)
   defp value!({:ok, value}), do: value

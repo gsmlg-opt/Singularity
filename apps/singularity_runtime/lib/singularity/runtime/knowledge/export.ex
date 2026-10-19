@@ -83,6 +83,7 @@ defmodule Singularity.Runtime.Knowledge.Export do
                      backup_root: configuration.backup_root,
                      capture: capture,
                      options: normalized_options,
+                     write: Map.get(runtime, :knowledge_export_write, &IO.binwrite/2),
                      original_fold: fn selector, acc, emit ->
                        original_fold(runtime, session, capture, selector, acc, emit)
                      end

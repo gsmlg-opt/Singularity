@@ -2515,4 +2515,49 @@ defmodule Singularity.Web.Architecture.KnowledgeExportCompositionContractTest do
   end
 
   defp block(expressions), do: {:__block__, [], expressions}
+
+  # TASK17_INTERNAL_WRITE_FORWARDING_BEGIN
+  @task17_write_entry "                     write: Map.get(runtime, :knowledge_export_write, &IO.binwrite/2),\n"
+  @task17_export_preimage "dab8881c7685bc967bb214736f167b6f37808040eb8adeaf48a2da9567ca8009"
+
+  # Exact source attribution only; actual Api/native/Writer RED/GREEN and
+  # lifetime cleanup remain separate compiled-runtime requirements.
+  test "Task17 forwards only the existing internal Writer callback with the production IO default" do
+    source = File.read!(Path.join(@repo_root, @export_path))
+    assert :ok = task17_write_forwarding_contract!(source)
+  end
+
+  test "Task17 forwarding validator rejects missing duplicate changed-default and unrelated amendments" do
+    source = File.read!(Path.join(@repo_root, @export_path))
+    assert :ok = task17_write_forwarding_contract!(source)
+
+    mutants = [
+      String.replace(source, @task17_write_entry, "", global: false),
+      source <> @task17_write_entry,
+      String.replace(source, "&IO.binwrite/2", "&File.write/2", global: false),
+      source <> "\n# unrelated source amendment\n"
+    ]
+
+    for mutant <- mutants do
+      assert :ok = task17_write_forwarding_contract!(source)
+      assert_raise ExUnit.AssertionError, fn -> task17_write_forwarding_contract!(mutant) end
+    end
+  end
+
+  defp task17_write_forwarding_contract!(source) do
+    assert length(:binary.matches(source, @task17_write_entry)) == 1,
+           "exactly one trusted Writer write entry with IO.binwrite default"
+
+    assert length(:binary.matches(source, ":knowledge_export_write")) == 1,
+           "the internal key has only the trusted forwarding callsite"
+
+    inverse = String.replace(source, @task17_write_entry, "", global: false)
+
+    assert Base.encode16(:crypto.hash(:sha256, inverse), case: :lower) == @task17_export_preimage,
+           "all other accepted Export source bytes remain unchanged"
+
+    :ok
+  end
+
+  # TASK17_INTERNAL_WRITE_FORWARDING_END
 end
