@@ -62,7 +62,8 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
     Singularity.Storage.PreAuthRepo,
     Singularity.Storage.DispatcherRepo,
     Singularity.Storage.WorkerRepo,
-    :storage_root
+    :storage_root,
+    :backup_root
   ]
 
   defmodule OracleIds do
@@ -311,6 +312,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   defp backup_source!(names, bundle_path, descriptors) do
     Application.put_env(:singularity_runtime, :maintenance_mode, false)
     TestEnvironment.create!(names)
+    Application.put_env(:singularity_storage, :backup_root, Path.dirname(bundle_path))
 
     {owner, owner_password, vault_key} = bootstrap_source!(names)
 
@@ -351,6 +353,7 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
   defp restore_destination!(names, bundle_path, descriptors, source, new_password) do
     Application.put_env(:singularity_runtime, :maintenance_mode, true)
     TestEnvironment.create!(names)
+    Application.put_env(:singularity_storage, :backup_root, Path.dirname(bundle_path))
     stop_runtime_repositories()
     Application.put_env(:singularity_runtime, :start_infrastructure, false)
     {:ok, _migration_repo} = MigrationRepo.start_link(pool_size: 2)
@@ -1590,7 +1593,8 @@ defmodule Mix.Tasks.Singularity.Test.Restore do
       {:singularity_runtime, :authorization_dependencies},
       {:singularity_runtime, :key_custodian},
       {:singularity_runtime, :backup_task},
-      {:singularity_runtime, :restore_task}
+      {:singularity_runtime, :restore_task},
+      {:singularity_runtime, :knowledge_export_root}
     ]
 
     storage = Enum.map(@storage_env_keys, &{:singularity_storage, &1})

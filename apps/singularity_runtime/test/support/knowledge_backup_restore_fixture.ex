@@ -4,7 +4,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
   alias Singularity.Runtime.{
     BootstrapOwner,
     KeyCustodian,
-    KnowledgeRestoreOracle,
+    KnowledgeRestoreNativeEvidence,
     NativeAssetFixture
   }
 
@@ -394,17 +394,25 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
 
   defmodule ObservedRuntimeIntegrity do
     @moduledoc false
-    alias Singularity.Runtime.{IntegrityAudit, KnowledgeRestoreOracle}
+    alias Singularity.Runtime.{IntegrityAudit, KnowledgeRestoreNativeEvidence}
 
     def verify_ciphertext(context, rewrapped) do
       :ok =
-        context.observe.(:saga_ciphertext, KnowledgeRestoreOracle.inventory_handoff(rewrapped))
+        context.observe.(
+          :saga_ciphertext,
+          KnowledgeRestoreNativeEvidence.inventory_handoff(rewrapped)
+        )
 
       IntegrityAudit.verify_ciphertext(context.integrity, rewrapped)
     end
 
     def verify_plaintext_and_search(context, rewrapped) do
-      :ok = context.observe.(:saga_plaintext, KnowledgeRestoreOracle.inventory_handoff(rewrapped))
+      :ok =
+        context.observe.(
+          :saga_plaintext,
+          KnowledgeRestoreNativeEvidence.inventory_handoff(rewrapped)
+        )
+
       IntegrityAudit.verify_plaintext_and_search(context.integrity, rewrapped)
     end
 
@@ -932,7 +940,9 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
         observation = observed.observation
 
         original_inventory =
-          KnowledgeRestoreOracle.original_inventory!(observation.rows["content.asset_objects"])
+          KnowledgeRestoreNativeEvidence.original_inventory!(
+            observation.rows["content.asset_objects"]
+          )
 
         require!(
           observation.cut.object_inventory == original_inventory,
@@ -1157,7 +1167,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
       "foreign composition did not begin with two distinct genuine equal-length PDF publications"
     )
 
-    physical = KnowledgeRestoreOracle.replace_ciphertext!(root, entry, donor.ciphertext)
+    physical = KnowledgeRestoreNativeEvidence.replace_ciphertext!(root, entry, donor.ciphertext)
 
     result =
       MigrationRepo.transaction(fn ->
@@ -1203,7 +1213,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
       )
 
     after_witness =
-      KnowledgeRestoreOracle.reference_witness!(
+      KnowledgeRestoreNativeEvidence.reference_witness!(
         root,
         Map.replace!(entry, :ciphertext_hash, donor.ciphertext_sha256)
       )
@@ -1241,7 +1251,9 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
     )
 
     before_pdf = Map.fetch!(before_objects, pdf.object_id)
-    before_physical = KnowledgeRestoreOracle.reference_witness!(root, physical_entry!(before_pdf))
+
+    before_physical =
+      KnowledgeRestoreNativeEvidence.reference_witness!(root, physical_entry!(before_pdf))
 
     envelopes = fn ->
       observe_rows!(
@@ -1267,7 +1279,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
 
     require!(
       native_inventory!(owner) == expected_objects and envelopes.() == before_envelopes and
-        KnowledgeRestoreOracle.reference_witness!(root, physical_entry!(before_pdf)) ==
+        KnowledgeRestoreNativeEvidence.reference_witness!(root, physical_entry!(before_pdf)) ==
           before_physical,
       "PDF metadata composition changed native storage beyond the selected plaintext size"
     )
@@ -1309,7 +1321,7 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
           "historical composition did not begin at genuine UUID publication"
         )
 
-        {id, KnowledgeRestoreOracle.reference_witness!(root, entry)}
+        {id, KnowledgeRestoreNativeEvidence.reference_witness!(root, entry)}
       end)
 
     selected =
@@ -1358,7 +1370,8 @@ defmodule Singularity.Runtime.KnowledgeBackupRestoreFixture do
 
     for {id, object} <- after_objects do
       unchanged? =
-        KnowledgeRestoreOracle.reference_witness!(root, physical_entry!(object)) == witnesses[id]
+        KnowledgeRestoreNativeEvidence.reference_witness!(root, physical_entry!(object)) ==
+          witnesses[id]
 
       require!(unchanged?, "historical composition changed ciphertext or physical identity")
     end
