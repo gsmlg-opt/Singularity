@@ -1,0 +1,29 @@
+defmodule Singularity.Knowledge.Item do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @type t :: %__MODULE__{}
+
+  @required [:kind, :external_id, :title, :url, :first_seen_at, :last_seen_at]
+
+  schema "items" do
+    field :kind, :string
+    field :external_id, :string
+    field :title, :string
+    field :url, :string
+    field :summary, :string
+    field :published_at, :utc_datetime
+    field :attributes, :map, default: %{}
+    field :first_seen_at, :utc_datetime
+    field :last_seen_at, :utc_datetime
+    has_many :observations, Singularity.Knowledge.Observation
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(item, attrs) do
+    item
+    |> cast(attrs, @required ++ [:summary, :published_at, :attributes])
+    |> validate_required(@required)
+    |> unique_constraint([:kind, :external_id])
+  end
+end
