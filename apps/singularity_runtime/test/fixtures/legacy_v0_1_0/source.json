@@ -1,0 +1,1781 @@
+{
+  "schema": 1,
+  "release": "v0.1.0",
+  "commit": "c49dc0aeda1d0115b20ff291f0da658f7e558b43",
+  "tree": "f68e1ed5507780db1e3c024e7f387557ac75f23b",
+  "fingerprint": "d7506f511de599dfb92cd2313f843abb27ca26eafd3bf89939ecbf07e2a22924",
+  "bytes": 2135469,
+  "files": [
+    {
+      "original": "apps/singularity_core/lib/singularity/core.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core.ex.source",
+      "blob": "6dd163f7be5b6aa0f7d0b2c498f05677139cc461",
+      "sha256": "5a99540ccaeda362f171cc5718e9404cd4168ba4f75dabfb9cbaba6b3b481335",
+      "bytes": 127
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/account.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/account.ex.source",
+      "blob": "28bd7bd2afb0738e41009d4ea1716d1bff92d915",
+      "sha256": "d4fdf215970d2d55c4c3a77d0e99b91e3ceb503b206212f040a822effeaa47af",
+      "bytes": 835
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/asset.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/asset.ex.source",
+      "blob": "4136cf416e2db23487bc21a4bdeb88bbb6797d20",
+      "sha256": "85ffde0df65b4923d01600dc1d87b969dd90985100cc5914cd18d5697a58deed",
+      "bytes": 3062
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/asset_search_store.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/asset_search_store.ex.source",
+      "blob": "4144dc4aebf60b0c7a9566a56f7a242cb01dd5e2",
+      "sha256": "4b2c1adf8c0780b86ff7f0cbbf8679cf30667241e8112bcaccfd7f72e1991ae2",
+      "bytes": 544
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/asset_state.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/asset_state.ex.source",
+      "blob": "6ec59713705588b6e0f463e851ff98e618d79a98",
+      "sha256": "a973d6c447544103c3c3a469966c0b3f4dc4013ad3778dd8e502a8ba18263d8d",
+      "bytes": 969
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/audit_event.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/audit_event.ex.source",
+      "blob": "95eede0a0d502b4a92e3af108540ea8073ea8acd",
+      "sha256": "d8966cfdaa593962ae8c2ef2e28e9d45019116375bd76709b6a4764264bee706",
+      "bytes": 4457
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/audit_sink.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/audit_sink.ex.source",
+      "blob": "719b0679f6f3e8d6cc51dc17cf8dda7f5217610b",
+      "sha256": "1f535c03a62b0c5fad3697e6362751b5491d82b945622ecb025128c061b6a488",
+      "bytes": 266
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/backup_status_store.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/backup_status_store.ex.source",
+      "blob": "61b37497ba0ed6c3d0a0422cf67549becd6c6a83",
+      "sha256": "8ef1d43ef1b0a61bc24696042f3b7f821d9c2b38349280a0ce7523a3b8646e61",
+      "bytes": 315
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/capability.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/capability.ex.source",
+      "blob": "146293e29125f21d67a8d8f7fa067161c193c57a",
+      "sha256": "e26226cd121f16d5e717f2fef6666a2d0d3e7c2b703af2d2dd55a2e74294c989",
+      "bytes": 1054
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/classification.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/classification.ex.source",
+      "blob": "31bf7f76921d6985b5c7fab1af2b8de56ea2a9b7",
+      "sha256": "8158814f4d37e7614b48fd8daf532884315ee074f5b95e5d8f83799685687e13",
+      "bytes": 767
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/clock.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/clock.ex.source",
+      "blob": "e977cce26456bdf419df7c434a4cd35d6bda3032",
+      "sha256": "bb0a293d95722bce1a067314599bb6391eb83dc36aed5d8270ea85631bbab716",
+      "bytes": 152
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/device.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/device.ex.source",
+      "blob": "dbd6654e4e337f8ec479be61ee392b75429afff6",
+      "sha256": "68e2661eedf88c005d01ac042fd74c22e3d0fe91bb37c990570ac03eec7bc29d",
+      "bytes": 844
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/error.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/error.ex.source",
+      "blob": "4787413628cd3641d596be5b7587c3bf14737bd3",
+      "sha256": "00b932c98f36b8e01b460e2d6b896b9e1a47f6b086fb59b893da5a45325a16bf",
+      "bytes": 1909
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/id_generator.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/id_generator.ex.source",
+      "blob": "514d9216598b2d86c37a78217160ba5f0b1610b1",
+      "sha256": "124d8b21aadf657a656a334b176ba50efcbcfc589ea654d081464d2c53ebd5f9",
+      "bytes": 175
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/job_envelope.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/job_envelope.ex.source",
+      "blob": "66dba6c833e9cd3fb9e7fb1c856e5bcc3fc09f5a",
+      "sha256": "2157a005216f208969ae40c518c2dc7b3126e6ffaa7b8b1f673105a7ede6a682",
+      "bytes": 3343
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/job_handler.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/job_handler.ex.source",
+      "blob": "da4c649e6308f2afe15d4980bd6994f19a441cf6",
+      "sha256": "a489521445d08fd60c08a3488daaeb40513990380d34a62a388ea89adf10a46e",
+      "bytes": 599
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/job_runner.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/job_runner.ex.source",
+      "blob": "3e5a8ba2ba4bb8b818687ce4e0e38ebe693d2c9d",
+      "sha256": "dbff07411c0d709de648515bfa2b651ab42ca57cbe6f12e67aae5cafa39d265b",
+      "bytes": 394
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/key_deriver.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/key_deriver.ex.source",
+      "blob": "d2231b9953aa5ac7bb5931107584475b632bb150",
+      "sha256": "91e002d6d186e3422371e3e613cd5944d36605024e1f17d54767e5d92dd06832",
+      "bytes": 280
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/key_wrapper.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/key_wrapper.ex.source",
+      "blob": "d8b0b63f9ed20b3b9fa0da5045be44b02e7cc7f7",
+      "sha256": "817d559c817c3f5a4dfd9dbdddc9d6d654ee5670cb0cc0550d66d185efc9922c",
+      "bytes": 359
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/note_conflict.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/note_conflict.ex.source",
+      "blob": "6fcce20ba481f44f18d7875214f5d2c520d30af3",
+      "sha256": "0f736707ecddf3d84ff6e876d14f79d19f7915c9a2f86003ebbda89595617c9f",
+      "bytes": 3475
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/note_save_result.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/note_save_result.ex.source",
+      "blob": "3750e043eb2e33ec92b58686b2145b68514a11eb",
+      "sha256": "8af3bc535bf65a7ce3d39786f7d232f011f9cee629baba97b9ee7e773fcb2f32",
+      "bytes": 2207
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/note_search_store.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/note_search_store.ex.source",
+      "blob": "6a4dc143c7deb5a8f3a6b6c85eef3ec9a4254175",
+      "sha256": "08222d1ea1ee774279dafd046d7d661ba0e1ad2c7e1042707267a2e87841ac98",
+      "bytes": 354
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/note_snapshot.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/note_snapshot.ex.source",
+      "blob": "69dc990612af6fe4248ad659596849786faa7767",
+      "sha256": "3d00cc8f1ba01281636b6d537f792f3e5971de09b4c04e274cca4c990f863438",
+      "bytes": 3397
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/object_ref.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/object_ref.ex.source",
+      "blob": "0663f81e5ffd2ac0e811c40bae772d5c46fb665c",
+      "sha256": "44489d5eb6e2368b3c596aecc8876f5c1f5d4bdc1a3116bcccd71844ab7f3cf7",
+      "bytes": 545
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/object_storage.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/object_storage.ex.source",
+      "blob": "28241a4a4886999117cc7582d40a4102513be3d8",
+      "sha256": "9a1c802b7f8fe6d0daab01909ab304e7b72c0d52b808f82a793fa27a2d356036",
+      "bytes": 1335
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/outbox.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/outbox.ex.source",
+      "blob": "ee598e7650c1205f276557d4428c0eb51cb45270",
+      "sha256": "55e0930e418cd46bea5261d67ac1623d94e632f60fafad7aa21a1ac810a566de",
+      "bytes": 490
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/outbox_event.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/outbox_event.ex.source",
+      "blob": "a3eb828b09704a9ea612bcb144248f560914592e",
+      "sha256": "14327de759eb3d57fe06dec3dfce2a7c5d0a7bffa2a9b9d34ce1c7c9e81ac33e",
+      "bytes": 3221
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/password_hasher.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/password_hasher.ex.source",
+      "blob": "a6506c86774866d654e40cffc43efc56ca03b18d",
+      "sha256": "9274cfea33988a733dffacd2d67c7e8054ee4beb176567f21f5cc23ff1e5e77b",
+      "bytes": 357
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/person.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/person.ex.source",
+      "blob": "82c803cfb323b4b3865a63fd49cb91066456f030",
+      "sha256": "d4d9a2c2c07134997499a924a5b0289c435d7cb1d2d065c2c6c22e28762f0452",
+      "bytes": 662
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/principal.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/principal.ex.source",
+      "blob": "7c3d686fa47c11758f758a99a43f84ad9fde6b09",
+      "sha256": "e7a61e658c0fa91c9c1f2f94b31bcb9fc674aafb9b4dcc10fb4132686bec4a3c",
+      "bytes": 1089
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/resource.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/resource.ex.source",
+      "blob": "464c3e923bac09edf8fc7121fb0e62e4dd85fee5",
+      "sha256": "e03fba2b911a8a7541f551ea5f27b9066fe3d06829a99d7f3a04205fc06174b9",
+      "bytes": 1113
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/resource_version.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/resource_version.ex.source",
+      "blob": "20b527bdf40c66b9ec60418330648a9aac3670b8",
+      "sha256": "4a00a8a43b822f94d18aff56d4f2b94159b51801445fde755d893ed1e6d3e9ea",
+      "bytes": 1546
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/schema_version.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/schema_version.ex.source",
+      "blob": "b9380783533afd7bb38599dd46e95c3668793cc1",
+      "sha256": "2e8dd407bf510b429d2e797cb71e8a14849180864e35cffae9bd4e6addf74bc5",
+      "bytes": 412
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/session.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/session.ex.source",
+      "blob": "8dbaaa64def4a3c7fe472b5715b2f25390708ddb",
+      "sha256": "4c51e0735766f7f843dc171c7064cca36702d0ce4f0729c1db6b3bb90277c8a1",
+      "bytes": 1238
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/source_reference.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/source_reference.ex.source",
+      "blob": "8d3f14652e2bf55581c39cff9a0b45325e65ade9",
+      "sha256": "9345ab719fe23624b1d5d23ffb2ad9d4707d37bdca36c5eb6a01c1fccb52e19a",
+      "bytes": 1708
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/stage_ref.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/stage_ref.ex.source",
+      "blob": "c0461fcb123ea39d396bcf859735f4026d5c0dcf",
+      "sha256": "16dbfaf3dea7a227f50601d1f4662dd98aef76ddafc535b2e1bf669ce925a8d8",
+      "bytes": 523
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/types.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/types.ex.source",
+      "blob": "971f00a5dd2ee21cbe456930d9fc67e5ff8b997d",
+      "sha256": "2363fde24981ea1c292e60748809d77d32e665afe04f848ebcbc0603b918fe18",
+      "bytes": 4387
+    },
+    {
+      "original": "apps/singularity_core/lib/singularity/core/vault.ex",
+      "fixture": "sources/apps/singularity_core/lib/singularity/core/vault.ex.source",
+      "blob": "dde21ec0181604fe568c39735e2a825b71ef66e9",
+      "sha256": "80188cf7ddd3a194869a4cc2b3f2f9a2ee26149e35d3d8a2ef5bc30c7cd57962",
+      "bytes": 956
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains.ex.source",
+      "blob": "78a01e4a7433f3e0340f117a9e32a08cde9ab15d",
+      "sha256": "4e6bb177d62d2f220bf13e8c91566ddd1bcedabdf54da09f5401bcf1ace1e512",
+      "bytes": 132
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/assets.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/assets.ex.source",
+      "blob": "aebfe930948b9135bf5699f80819480ceaf74b09",
+      "sha256": "a15e764ecd73e83296d4c991a8d79f1ab29e1412f6097534ef5f13368a0adc91",
+      "bytes": 10163
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/assets/repository.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/assets/repository.ex.source",
+      "blob": "14648ce4f3328e624362ad39a9f93a67259791ab",
+      "sha256": "cd0c027da4e7510eb1f692a14cb83edee290e4b51479bb3d9c61d0ad45292576",
+      "bytes": 2282
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/identity.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/identity.ex.source",
+      "blob": "a76323984717c2f27e79b1b4b989d996d8b0b847",
+      "sha256": "231e0e44866dba854ef206d8ad00757244ca5c827f39424982b9a742c24db0bb",
+      "bytes": 1563
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/identity/repository.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/identity/repository.ex.source",
+      "blob": "2f1b2ddd6cdef39243a925f68acaf2ae223bf8d9",
+      "sha256": "9fd8f68d781f5fc099440b2411b0b57d0af5e57293b4f365ea2fd16a8186c111",
+      "bytes": 752
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/notes.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/notes.ex.source",
+      "blob": "73b047ada29e7a081dffe03ebff6f9fc7d797b1e",
+      "sha256": "c169b22842c581503085398340b25b19ea3de5e5b80dd38620628cae389b0038",
+      "bytes": 7267
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/notes/command.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/notes/command.ex.source",
+      "blob": "1e9ce64c5d244da1a3f2e82ea7eb5fb4b52d887f",
+      "sha256": "a7855e13206f5c6a098fc5455d8aaf742c71c6ea0bd71167ab7e6e65c6078030",
+      "bytes": 8138
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/notes/repository.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/notes/repository.ex.source",
+      "blob": "6dd464e36abca8b3c2786fb906d4944780741b1a",
+      "sha256": "a5e02d84912b37c36f8aa606b4892c9329c0d3c9b1ee81cb4a79b1aefbc0f0cb",
+      "bytes": 1208
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/vaults.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/vaults.ex.source",
+      "blob": "7c4072927950641e2bb34aa99396113a60c3cd5e",
+      "sha256": "b1bfcaf893fe62d0d8a3dd59f71f484a01ef28707f42d38b83404c78a6f60c55",
+      "bytes": 3281
+    },
+    {
+      "original": "apps/singularity_domains/lib/singularity/domains/vaults/repository.ex",
+      "fixture": "sources/apps/singularity_domains/lib/singularity/domains/vaults/repository.ex.source",
+      "blob": "6dc27d3f3c0238d2ef139e35d678f49128bbbce1",
+      "sha256": "7687d8557442f4298f0b994a80a219b29e12f3f807125ed2641dcd82cc791efc",
+      "bytes": 768
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest.ex.source",
+      "blob": "300bf181d5e32e9bc343c81704ff2b7bc5365811",
+      "sha256": "74da40ae469173dda8923174ea49eb9fd762735b08884801998e5a670cf72bdb",
+      "bytes": 96
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/idempotency.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/idempotency.ex.source",
+      "blob": "51d348f9b80dfd04df23016f683f747762c42524",
+      "sha256": "9d00416be93273a1f8413a139dcd4c55f58ad79a983e01f4a4f3cf049005168e",
+      "bytes": 975
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/metadata/jpeg.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/metadata/jpeg.ex.source",
+      "blob": "cf76c39dbbcc9a910f9e20aebac5414bbb89ae83",
+      "sha256": "22944af96912fa713c20d7067fdf483477d17d9294fd5e7eddc80a0d8e665143",
+      "bytes": 18033
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/metadata/pdf.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/metadata/pdf.ex.source",
+      "blob": "a6c59c6f5e84d221128cc2f6a85bef7d0d3a3a02",
+      "sha256": "e3c848e44ccf5705961a79f05921d806983afb70314791dc13c3d7883fc36712",
+      "bytes": 821
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/metadata/png.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/metadata/png.ex.source",
+      "blob": "41a8c2de92f0a3c6bffd27fc4062770cf5704d28",
+      "sha256": "4fa6373f217b46eee58ac2952db893bf729fbfd83223cb34c75147a586e84d97",
+      "bytes": 2093
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/metadata_extractor.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/metadata_extractor.ex.source",
+      "blob": "5951345d212232196c0cb9ff4190363b56d4715f",
+      "sha256": "73466eaf091e2fd767ee093ce41c3dc5c97d83f3183f9e082f838793afeff98e",
+      "bytes": 12393
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/upload_checkpoint.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/upload_checkpoint.ex.source",
+      "blob": "5a4b65ec359db0b410d0dd47979831a3afa397cb",
+      "sha256": "474b56639e8da9453f508084d0c447bc40b01c3553db0e41be72deeccd2e383b",
+      "bytes": 2037
+    },
+    {
+      "original": "apps/singularity_ingest/lib/singularity/ingest/upload_request.ex",
+      "fixture": "sources/apps/singularity_ingest/lib/singularity/ingest/upload_request.ex.source",
+      "blob": "92fdb5863bc30a8323a61db0297131890b1c180a",
+      "sha256": "61432c2135a07571f8c2ca9260223e3c1cf745ebf3ccd44d609fcdc4e5b364b0",
+      "bytes": 3683
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval.ex.source",
+      "blob": "7068e51065a900798ffa7c1916caa9abde8eb544",
+      "sha256": "208eb75c22e6d1b342274fafc1b67a41bde02389dd9773af85aafcb1c4f53ab4",
+      "bytes": 126
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/asset_metadata_search.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/asset_metadata_search.ex.source",
+      "blob": "ea1cb81fedc4b9ad19519f6e1414fb7e67918194",
+      "sha256": "11e256c456d99a8d46825882318cd2c8e1c03f46e7c7ef11c22f45e3375601ef",
+      "bytes": 3261
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/asset_search_page.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/asset_search_page.ex.source",
+      "blob": "03e99d3dd31250dad4fcc92b5a6fc5e7af321c37",
+      "sha256": "699f8ec606c57e4b83346bbba326f970ad809eea2620e66ba3bc595ea30063fc",
+      "bytes": 826
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/asset_search_query.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/asset_search_query.ex.source",
+      "blob": "f80cc83d18486b365f9a13f043370e23aefe21fb",
+      "sha256": "221fa23963b5340ee31ad10494d3a42e09a3c78eed75c83f59862c896368be9f",
+      "bytes": 4321
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/note_lexical_search.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/note_lexical_search.ex.source",
+      "blob": "22df8161fd7e7eb7484e2e898410d878818b553c",
+      "sha256": "ba54d4b1975251b2c47a8180d9c8cf3af7a16668e723bfa756f7a9012b24435f",
+      "bytes": 3353
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/note_search_page.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/note_search_page.ex.source",
+      "blob": "9255061be08b0aefc3b7834259c4ffc0784528c1",
+      "sha256": "3d6d435bc889ba171b2b5ae91694b52ac4c5467107787ab0b14c8c1c41f12018",
+      "bytes": 1179
+    },
+    {
+      "original": "apps/singularity_retrieval/lib/singularity/retrieval/note_search_query.ex",
+      "fixture": "sources/apps/singularity_retrieval/lib/singularity/retrieval/note_search_query.ex.source",
+      "blob": "303d92c0aaa94b0bb8ce1cafad3af72aa8ee0fbf",
+      "sha256": "4f1e3beab476a5486139c681dc100c02f4d4de6e7a286f80e63d82f6fcc6f1cd",
+      "bytes": 3254
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime.ex.source",
+      "blob": "3c0448309fa6dca50f363b058ab2cc6551a65e1f",
+      "sha256": "81a306ab2e0ecfd0264e4d495df4919535ca044c74b268f8d04e78aa1d4905ca",
+      "bytes": 133
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/access_policy.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/access_policy.ex.source",
+      "blob": "bc8d67d1d33a140ee911ac33281f53a83bd3ac52",
+      "sha256": "c94d7c989f94af6b9f3af8212a1c625a3e43e19a3cbea6460e1e3ce5ec1376a5",
+      "bytes": 6712
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/api.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/api.ex.source",
+      "blob": "bae5829edb1962ebfbe7765524067ee2d6e2ddec",
+      "sha256": "eded245a1bd95410b323192de836c9b1de8cec14de4b26cb8e41263d66ebf3c4",
+      "bytes": 60934
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/application.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/application.ex.source",
+      "blob": "db752544191eab22e97b47fe6cf69fbc1b2735a8",
+      "sha256": "4bed50e5ab4f7ed351b0e7497a943f940466bce53101928ce4e906ae910abe35",
+      "bytes": 6491
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/asset_events.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/asset_events.ex.source",
+      "blob": "48832dda82e0f004c679f7103ef6f71a9ff28caa",
+      "sha256": "58a7f04eddb61162b899e9c7b1a89512c6fa879fb09f17113313d9557e1cdd87",
+      "bytes": 2485
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/accept_upload.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/accept_upload.ex.source",
+      "blob": "d92cf312a2f7c83458c85484d3469e6a29455bba",
+      "sha256": "752d2f1cb5ede70276c0df3c0f89b020c40650903e191e75ddcc90472c248cdd",
+      "bytes": 11125
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/cancel_upload_grant.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/cancel_upload_grant.ex.source",
+      "blob": "5499c57d518d4a77e56c246211929ae972583b55",
+      "sha256": "156b2f2f12c914ac0247ddf79306a9848b87a6d2fc06d33ba467c4639f593f86",
+      "bytes": 3366
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/cleanup.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/cleanup.ex.source",
+      "blob": "847bd5618c7a5d7a38773cb1ec67951e900030c6",
+      "sha256": "3aa06360434ecfa671a3daa3aafd75407089ba889cf44bbea0db90734149ab89",
+      "bytes": 2089
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/create_upload_grant.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/create_upload_grant.ex.source",
+      "blob": "e9f4b648e58558daa783a3221aabeb3c9163b57b",
+      "sha256": "065715ea9d5784029990969a2500b712605b22b60e40b44cbce714659aea0a67",
+      "bytes": 6058
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/delete.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/delete.ex.source",
+      "blob": "eda9c4e2a8ab3a64aaeb536a18568bcb2e823bbc",
+      "sha256": "80a6a2fbd3ed4038ae5655bf12c2b80848b9d3d06c193a29c2ea6fc3965c2f32",
+      "bytes": 5916
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/download.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/download.ex.source",
+      "blob": "69dbc12aea691df05006b71caf957ce74aa98241",
+      "sha256": "b08b13274784e51dc7ec6eb41bf2ffd45a341be8ba614f858d3b84701ed7870d",
+      "bytes": 14209
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/extract_metadata.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/extract_metadata.ex.source",
+      "blob": "6962844e8519c52cd4b97f198b74582a8f18f0b0",
+      "sha256": "c6c35a3ac55d03b0c6fa7c8f4c5112f02e5763ea9d7f12f8e193ed70bcd51b64",
+      "bytes": 6881
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/finalize.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/finalize.ex.source",
+      "blob": "a70e60b48773a968d6d61c409cfc534eb751f651",
+      "sha256": "a214d9ad0f5236bfc2d55f676882f258beb8478dfcf0f1ec6fef924c17066918",
+      "bytes": 8649
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/object_cleanup.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/object_cleanup.ex.source",
+      "blob": "878d98fffd701ebdb4fc64dfb895419b5286c7a9",
+      "sha256": "383d165ac3ff6165bd6c94782bb7dfe97f60db2b998442b35dd6789d1b8c7db0",
+      "bytes": 5273
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/retry.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/retry.ex.source",
+      "blob": "0b1fc6cfdd06e6b4c32bafd508ea0d3f43dfc7e9",
+      "sha256": "6d6513b44c3145ffecaf148a4724eb428752797f9f75740d73fc41372a4198df",
+      "bytes": 3299
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/search.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/search.ex.source",
+      "blob": "98bd51b2e753b5bbcf66b2cfaa46240cfb9dd770",
+      "sha256": "1cbfb1d2e115980b3196f5b15d46d1df2bca063cebe9b23227b42bb49d2f59dd",
+      "bytes": 4128
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/status.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/status.ex.source",
+      "blob": "937e84378208af34619915a38e6c945bbe5cc143",
+      "sha256": "668e8c384cbf126b7768a3a3afb1ec9eb50ccb868bb12d95e7b05a8498b10ec9",
+      "bytes": 3564
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/upload_reconciler.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/upload_reconciler.ex.source",
+      "blob": "37c5f8753c07503ce0ebe819c0e3eafddd86c631",
+      "sha256": "e2bad1d0585da2e83aa7e16fa3536705d44d7ce7543fd44796aadec5d7c5f320",
+      "bytes": 8013
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/upload_session.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/upload_session.ex.source",
+      "blob": "7f14a3401394df5ae941bdaf2cc5530ae2a03676",
+      "sha256": "8a72c25f89a5521dacdc7e20d06b3f1949160f9d68afa1ab22d848b2026404f0",
+      "bytes": 45691
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/assets/verify.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/assets/verify.ex.source",
+      "blob": "2844dc73dc49b48723bd9dfa50c252ece3dcfde8",
+      "sha256": "61d25ade16f1032a620e4a08011bfefca9f2e69d0791b127cf296b8b2b2e777b",
+      "bytes": 5087
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/audit.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/audit.ex.source",
+      "blob": "0291672f27eeb63af087b0a03cd049fc463a1928",
+      "sha256": "53fef66154191d0be7094b541d64bb6c6f2d5b08d655a9c681475d9238c28bbd",
+      "bytes": 3140
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/authorization_dependencies.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/authorization_dependencies.ex.source",
+      "blob": "d6d9b5f41272ae31ef18f9655f5c53646b3d8aed",
+      "sha256": "9c6eb3c6fba9be0ef2d2d685a5fc6fe666f11fe480b4e89f59804b53e63e20ae",
+      "bytes": 641
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/authorize.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/authorize.ex.source",
+      "blob": "b0b39bbd49316b940cb67e265f9fd2405ddddd07",
+      "sha256": "e00bf92fef6e5b8e5dea16b10d9c6e035aa824b3934ef59caf474364c7566ce9",
+      "bytes": 10538
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/backup_key_lease.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/backup_key_lease.ex.source",
+      "blob": "833581d035029c9abde13ff14fb2db3fbad34d20",
+      "sha256": "9f67a885567ad39925bc8d96f980e290142694100b7823b5172ae2f660b95244",
+      "bytes": 83206
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/backup_vault.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/backup_vault.ex.source",
+      "blob": "aa764552115e83eb66b71419b1598002cc7e2ae9",
+      "sha256": "9fa780fe04454a6c3b26b4fed2eddbcf3d74e8f4b83e4d98ad2ec1179729f6c3",
+      "bytes": 29293
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/backups/status.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/backups/status.ex.source",
+      "blob": "14fab76361bb64b09128067804452910e161447c",
+      "sha256": "452be5532172449491548d92a3ee4e0fd50444fa5fbd22cb7b5fdecb5797b6bb",
+      "bytes": 4788
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/bootstrap_owner.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/bootstrap_owner.ex.source",
+      "blob": "206e2a6dd5c92ca97d8dffe2db580a1310737aba",
+      "sha256": "514947565cf3555be081bf186a39762cfef5514680ff194751080f1ff132dc73",
+      "bytes": 8416
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/change_password.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/change_password.ex.source",
+      "blob": "f2213745e35a932fd19e4c376958c8b42cf10479",
+      "sha256": "91c6654748381f970f89eacc0395eaf42a1466f93366568c5cd7c9b7993af27f",
+      "bytes": 9972
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/custody_reader.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/custody_reader.ex.source",
+      "blob": "2b639e4d471c3a48ae3b50661194e9482f8fe79e",
+      "sha256": "96c140944f9a91592ab5f6242db8feb97bee9049b206806a11c37a4f71dd926f",
+      "bytes": 12343
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/deferred_plaintext_adapter.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/deferred_plaintext_adapter.ex.source",
+      "blob": "f9cb4af4f77bd6e22021d2d195837d3b88b2a074",
+      "sha256": "aa227a4e9cba5d3737dd654e73b5a0c4eee37493047d42c5fe83f415068e01a5",
+      "bytes": 1255
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/download_lease.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/download_lease.ex.source",
+      "blob": "a661de7074b18000b82bff92dcedec0bfca56637",
+      "sha256": "520689d55ae9a301c9d4dda0f689d64a2daaa6da7a3a2dccac0840a478911cc1",
+      "bytes": 8215
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/asset_summary.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/asset_summary.ex.source",
+      "blob": "ca9497ac4be9bbbb637d25587d676a25af53379c",
+      "sha256": "5ca8e31e49d622c351fb8139afb943d0a78e7b2cec96cfa4d068743e50c307fb",
+      "bytes": 1164
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/backup_status.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/backup_status.ex.source",
+      "blob": "8c26ff6f50ff002893f96b9f9ccf8b3dc6122f4c",
+      "sha256": "92137de3ce4214c8351af02c057361c1f16f48a67a57d5bf90471c19bcf5dd4e",
+      "bytes": 477
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note.ex.source",
+      "blob": "9c87c393703c5582495bfe679445b7b9d5a05b00",
+      "sha256": "d2112b83d14d6bc54a1afbe999692b305018e1018764b4b9ac4529d71369f499",
+      "bytes": 1310
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_conflict.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_conflict.ex.source",
+      "blob": "3455372554d4cfacfb2a79a27c2a9dab620e1a81",
+      "sha256": "9d8f3b777d750983654ef2a6d5ac5a916a77ea82ab54f31f7bada5968ed8e89d",
+      "bytes": 1260
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_conflict_detail.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_conflict_detail.ex.source",
+      "blob": "6c0f2c398e5b4ca2113322b0920992f12d743f09",
+      "sha256": "80bbc18843c2b09bfbbed02dd9280d03341d63438defd6c616fd8cb5a6d561c6",
+      "bytes": 1781
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_export.ex.source",
+      "blob": "9fa84479cd7ed71f1d948e198d0d640acbdb9746",
+      "sha256": "b9b65c02e93270fe10da5a17f677e66ed3122c0327eef79d94b4beac6852a76a",
+      "bytes": 1526
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_history_page.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_history_page.ex.source",
+      "blob": "c915479b8d58a8c5d27b522ee4c0cdbc53c0ccd8",
+      "sha256": "00248a8943185b3b99a174c6fa14e0a2b6363544edab359730f2dc8cef0fab95",
+      "bytes": 1419
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_save_result.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_save_result.ex.source",
+      "blob": "bee919758c336d6e8ce170071e0082b97dfa7f1d",
+      "sha256": "37822ae26bb50e3e7c552dfb832d3ce0531238076d0b2eaa1c4fa5cbc34ced98",
+      "bytes": 2159
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_search_page.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_search_page.ex.source",
+      "blob": "655d2af0f14cd77e2e029ccfdbec7cc9d8632d0b",
+      "sha256": "02454cd3680e99f220500050a82e0e0ba73078cb3ede3030d45c4132184b80ec",
+      "bytes": 1387
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_summary.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_summary.ex.source",
+      "blob": "c6d16491373826b8e7399cfcf4c6f143cdc2912e",
+      "sha256": "e6afd5e3402abee8530c415d987068534479fa2cd2c08ca7177e0fd1f8a365ea",
+      "bytes": 3084
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_trash_page.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_trash_page.ex.source",
+      "blob": "641d9cec676ab56322aec94cb509202af0f94d7d",
+      "sha256": "c7442b1d01eb2c9239f4704f98b6342e1a72d61aa2afce2581af26f03e0b19ef",
+      "bytes": 1708
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_version.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_version.ex.source",
+      "blob": "3df05d6862294387b93a086c4a4da081dd624bc2",
+      "sha256": "5068d60c5305e35fa8d060f2ac1d04a9767073e8a435f40543eeed10b7fc5e9f",
+      "bytes": 1219
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/note_version_summary.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/note_version_summary.ex.source",
+      "blob": "cad2f848ede3f872a2a01b5502ba55493151990c",
+      "sha256": "6cc8944f2fc9908c771b97604aed0689ebce0cd8c9aa9db0bdb0b3a1bbda6a29",
+      "bytes": 2283
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/search_page.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/search_page.ex.source",
+      "blob": "e08d26e95aa68d9424f098ad66abc73c52838ba1",
+      "sha256": "aaa48093e7859827f9fd086080866d1f505da12079320a13e763c3a11fd50b5b",
+      "bytes": 344
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/session.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/session.ex.source",
+      "blob": "3af6f7cae5a2f6da277578393af63a0c60484a62",
+      "sha256": "c3099472a5bdd3020df4cd3a0987e8a02194d9508a995ac4f0ae81d9a34a19af",
+      "bytes": 787
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/dto/upload_grant.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/dto/upload_grant.ex.source",
+      "blob": "86b8c7ab8c72d7fbf6095303041f820701c6e727",
+      "sha256": "25134b32b7c52db52c9f57b390a64e06ff02ebe4f338dff9896c36835b0ad365",
+      "bytes": 612
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/integrity_audit.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/integrity_audit.ex.source",
+      "blob": "4e34ba402bd2177c0c42da6c2cbdd615c7967f56",
+      "sha256": "29b337d261e6a51cafe4fd3584fce3841c5c8006c5ce911f22b3af968d4526f6",
+      "bytes": 14224
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/job_dispatcher.ex.source",
+      "blob": "0f63bccefd7368fafbdadaea30fd6d44df09a78c",
+      "sha256": "2f92227526e692931e4d8e501635eb94f79e59f90f54bab7f5f9891581f507c8",
+      "bytes": 7869
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/key_custodian.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/key_custodian.ex.source",
+      "blob": "57c01c703c448009d65dc50b40149460a0af16ae",
+      "sha256": "78dde566db8709c1354fd12093eb7c492bb24fc53ccddecf448fe1c409354583",
+      "bytes": 127803
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/key_lease.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/key_lease.ex.source",
+      "blob": "426057e69b9464dd3f40d72198d3a61e1a50d325",
+      "sha256": "7424cf250bd361262a12e2f8c3d82e013ec3492586ef7df034f2079e4ed7446c",
+      "bytes": 32024
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/key_lease_supervisor.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/key_lease_supervisor.ex.source",
+      "blob": "32af22bfb6e46ac4beb0af3ccfdcda390f60ee22",
+      "sha256": "8468f24f30b6c1368d3a4da51185665c9981b50a771a719e46918f646a524049",
+      "bytes": 931
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/lock_vault.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/lock_vault.ex.source",
+      "blob": "b986d81fa57d8ee55e732312ec40416a00ca2db6",
+      "sha256": "38d59e9af30f335aedc4d187a5ef00be12c1cc064c64da70bd18a5a2f906eee2",
+      "bytes": 6082
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/login.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/login.ex.source",
+      "blob": "94b097b4610cb0a8844f180519783a8235b247fa",
+      "sha256": "525f8041daa3ee45740bf1d0bd28641f1260773fac62b72a066bb2ce5f38773b",
+      "bytes": 6316
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/logout.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/logout.ex.source",
+      "blob": "a537d6f621d3b8b9814c64bbac86e6dbd8cdb61a",
+      "sha256": "54183359442ec71fb7caf979e0c85044aa202f0c25a1d962c2708ad733ca11f6",
+      "bytes": 3039
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/create.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/create.ex.source",
+      "blob": "c76b67585059c324239aef597a7dca82ee2f1b65",
+      "sha256": "a429dfe92391707ada22bc17778e3d8d67d89e2999a44f6b87489216f2bfb940",
+      "bytes": 8723
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/delete.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/delete.ex.source",
+      "blob": "f9d2b11404ac402f17f167d7d49297be87d7e9cc",
+      "sha256": "e4ae7adf636fffe7d57da85d8106ddb328a06f13db5ba84d7ab8bf0a1096840b",
+      "bytes": 590
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/dto.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/dto.ex.source",
+      "blob": "abcf9007fcab876ca37eb48a8e40342c21c71328",
+      "sha256": "e007c17b80c5612dab99e5d4b6e1037f86ba9204c7016d272dbaa7f86c60e1a0",
+      "bytes": 13264
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/export.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/export.ex.source",
+      "blob": "1e1693949537e9e5fa73361017c98cd14f54b74a",
+      "sha256": "fe9b26fead490fe6e0b1c0a9b076369c95680e19a537baa82d008f907deca124",
+      "bytes": 4641
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/get.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/get.ex.source",
+      "blob": "ddfda72ea1a97fb09183bfede85c46667f7e87aa",
+      "sha256": "df19de3ccd041057295c5fc1546a7b1ddbd43cf9feaf1028014cc48af8580a92",
+      "bytes": 3812
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/history.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/history.ex.source",
+      "blob": "f889ad7f544841172595e10279a95bc839a40e98",
+      "sha256": "6617380c8f50fad97af039897dda1173787a0f6bbf561cdbfc9b3c3f3dba48a8",
+      "bytes": 3785
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/merge.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/merge.ex.source",
+      "blob": "27baf26b76db1b1ecc67e0f56668848f2c2aacb9",
+      "sha256": "6e89a91ae9fbd28d0c9e63049559ca2e42f50d5c3b7fcb5da493097e7b4ab3aa",
+      "bytes": 593
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/mutation_fingerprint.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/mutation_fingerprint.ex.source",
+      "blob": "36013170d860519354892908060bda9fde4c80cc",
+      "sha256": "6c96c7bcb5dbc05a14679e352d4ce4959bf52bfebfebd48f8c781d5313724094",
+      "bytes": 3144
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/projection.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/projection.ex.source",
+      "blob": "a33501631ba3141fccb862f2e3dd880c07968a64",
+      "sha256": "3c9831ac5160ba44592cd2dffd4259d18831a656eac088cb428b0be79a1d53cb",
+      "bytes": 2812
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/restore.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/restore.ex.source",
+      "blob": "f8eeb0ab0d55e834fef6778a307a27d7dd218ce3",
+      "sha256": "d7547562b472ec06bd2c9a71ebbbab3c2fcd2e77e5e645c31bb9ba98bd612c94",
+      "bytes": 596
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/save.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/save.ex.source",
+      "blob": "dc2455c944645c5183bc483caaa0c85c6435411d",
+      "sha256": "2a612119438872f89a0f6363bc0c50f5996da374cee2c02454378c72551474ad",
+      "bytes": 585
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/search.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/search.ex.source",
+      "blob": "8b60a9e52f0c3d34b46452e357d7ff1b88ea79c6",
+      "sha256": "f6fd720a8cd790f3a6e54d60e3507905dc620950255ab1bf98b53b5d9880426e",
+      "bytes": 2966
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/notes/trash.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/notes/trash.ex.source",
+      "blob": "7a9b2203583a0cdf4c90582cc1abf3bb737c040d",
+      "sha256": "95c19888d39b0960658a7658b2988ed5b63cbbd4178497f58ba2381f82045edd",
+      "bytes": 3497
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/observability/logger_metadata.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/observability/logger_metadata.ex.source",
+      "blob": "7d3233f314642f78c1600f540d092d355750ec84",
+      "sha256": "88928d9f5728d749bdf0945530a807623438ec0495b46c57754365ea3be2965e",
+      "bytes": 2131
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/observability/redactor.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/observability/redactor.ex.source",
+      "blob": "3b320fa6f826901698700d6d5397afa4cdae34b4",
+      "sha256": "dc10e3d7b05f70cffaf40de80890a8de5208002ffca03be207f6e6e77f9899fe",
+      "bytes": 2884
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/observability/telemetry.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/observability/telemetry.ex.source",
+      "blob": "c7353c64275d37ec4b29fb56311ffbe6ba4fc854",
+      "sha256": "ce4d557f7d03dfb770af689a2e3fd782fbea91adb4fc95c9395b54cba0a21458",
+      "bytes": 12883
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/operation_scope.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/operation_scope.ex.source",
+      "blob": "194ab11984db9e9984775f4d4ca9e24d671b65d9",
+      "sha256": "458c9fad4b48bed99e39e02611ab38f137a185d2db966bdf23f0bca158f0fde6",
+      "bytes": 11244
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/outbox_dispatcher.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/outbox_dispatcher.ex.source",
+      "blob": "744d7ec88248395e4671631b2817416bc7674e53",
+      "sha256": "2f6991648e94771ab14d3fa85aefe6f9ffdde6975be1599eb1c00a04fb5b4755",
+      "bytes": 8258
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/resolve_session.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/resolve_session.ex.source",
+      "blob": "140a21f2e69b4e91fde28acac834a47d472866f4",
+      "sha256": "1d10515fb22a23df198127c5a2b81e8b98b120d49bf2b84643036d27fde6667b",
+      "bytes": 1058
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/restore_authenticator.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/restore_authenticator.ex.source",
+      "blob": "cebfd5b8a17c5ce30fd044e8a03af9f2e159387d",
+      "sha256": "92f13be4e916d2650e8444203e21b102c7da8cd7e51f8537a1f39bcfc2f7ced1",
+      "bytes": 12877
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/restore_integrity_lease.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/restore_integrity_lease.ex.source",
+      "blob": "3ee69dd4ac70c0d1197c4ca9d7947fc421f96b4f",
+      "sha256": "f9d073b3f8fb2ec7cfad9cdc7e221c43a52903b50c4e332341622f71a65315f5",
+      "bytes": 17539
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/restore_vault.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/restore_vault.ex.source",
+      "blob": "fed5ce43ac3dd8fee182f954c5e71aca1f1f9814",
+      "sha256": "6d16cae7f2765348c276d5df6ed96e5c4eea610f5d1c42c62094c989e635e3fc",
+      "bytes": 8477
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/rotate_domain_key.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/rotate_domain_key.ex.source",
+      "blob": "5aa5939e269b06946699e28685eef03bb1ef4abc",
+      "sha256": "6eb8cd1905c5d1ba6fbef74e6d3ef0d8bff60de5191c2d3bbaa7aeb30e805484",
+      "bytes": 7894
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/rotate_vault_key.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/rotate_vault_key.ex.source",
+      "blob": "33b2c4638dad25a04b3d63ea04c9efa270c10081",
+      "sha256": "05208cd79662181e6039441af9d7a968bf7c1116ae0827fbeaa1724f9be3a061",
+      "bytes": 9086
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/session_context.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/session_context.ex.source",
+      "blob": "f649f92abba31ef0cca28e32d8cf6657720ddb12",
+      "sha256": "ad264efe05391ce2ce6fdfa21523cd6ef44a606b1fe9904d826e03873f7d6726",
+      "bytes": 1912
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/storage_adapter.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/storage_adapter.ex.source",
+      "blob": "1fbd5106deec75266317f2a8cce05323796df6cf",
+      "sha256": "00cb6a6bc3c2d4578d75088af94beea98649c9503e6c820799ee6e8d059e3956",
+      "bytes": 554
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/unlock_vault.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/unlock_vault.ex.source",
+      "blob": "d255a6654c73b748a0b2726b20f3ef67edb8253b",
+      "sha256": "747799bccf52813173dd0defbfd7f5eca2163ce2433414c0ffc4431162bf95f9",
+      "bytes": 8436
+    },
+    {
+      "original": "apps/singularity_runtime/lib/singularity/runtime/upload_session_supervisor.ex",
+      "fixture": "sources/apps/singularity_runtime/lib/singularity/runtime/upload_session_supervisor.ex.source",
+      "blob": "b28c633268a557f2b797daa1ce07d24c8b11b036",
+      "sha256": "0e1397eed594d0c6584ea7323239f625c1fd3d776173e7dc6e2fa2763362f7c0",
+      "bytes": 3498
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage.ex.source",
+      "blob": "7c993477025aef4374f784f77ce7418d015ccf05",
+      "sha256": "17b8dbf35f8bedd8ba1fcf2ea6467515a7f4b07adff8025a4663f605ccc7607d",
+      "bytes": 117
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/authenticated_reader.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/authenticated_reader.ex.source",
+      "blob": "29c24a0899a088d089e22703e4ef32040320a9c8",
+      "sha256": "11b333a111bc70625de60c4ea86f85a8d9c1bd8ae82c3f3cc09b8b549af5ae65",
+      "bytes": 10712
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/authorization_lock.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/authorization_lock.ex.source",
+      "blob": "33a32c5afbe7450d3079b59b1fdbc7e1eb050a1b",
+      "sha256": "36c80052e3649021bb7152b436fe3b445fcf1bfb97596151a8b8b1438d51914a",
+      "bytes": 2282
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/bundle_reader.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/bundle_reader.ex.source",
+      "blob": "675969bd83b69fda3ec10c1e17c09305ab42b6d1",
+      "sha256": "73f59954893e0408fe1d7a88a13f17a378f6ac89c80663248a1aaffb8fbab21c",
+      "bytes": 41577
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/bundle_writer.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/bundle_writer.ex.source",
+      "blob": "cacfb0dddcabf1fb6c650f78beba98afacf0ba72",
+      "sha256": "78e21cf1ecaa4a25df4ba3b1ca877dfb8d975de0893f3b9b71bbf472b4225065",
+      "bytes": 18634
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/exporter.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/exporter.ex.source",
+      "blob": "f71eca18db654a4e054ff478c6d19db43a2c6486",
+      "sha256": "8c2a4668d4ed0bc3423805a03be8b8adcc9022581e4a40fa32f96733cdc6dd0e",
+      "bytes": 31841
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/integrity_audit.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/integrity_audit.ex.source",
+      "blob": "a6de6e507f6917b22f718ca35b3950329f6e98c2",
+      "sha256": "8daf562b07f0d2636ac1aa0c9c8bba52d122b9fb325b73f1581e3c3a222d3858",
+      "bytes": 34174
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/local_destination.ex.source",
+      "blob": "951549f74b4e54efdb8689da4e6656d1b203cb5c",
+      "sha256": "2f8223eead8b66121936c671b115710dd87a3a380a256407dc4e0d8f15c6e462",
+      "bytes": 32158
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/logical_bundle_verifier.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/logical_bundle_verifier.ex.source",
+      "blob": "1622ff898d25b6548c40019495a67bc94f90572d",
+      "sha256": "9835f630be1a1a21e38ba67a6aa281b57f4efb0f55e16a9103f370d95f3cd1c0",
+      "bytes": 23631
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/logical_record_codec.ex.source",
+      "blob": "c9e72f553b553129e75bf0fb76bf12dbd5520a9c",
+      "sha256": "f69c7506248ef0d5f3c436af3e63b8fd92dbbf3412d0e0bc048634f1f6c55ebe",
+      "bytes": 15504
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/logical_schema.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/logical_schema.ex.source",
+      "blob": "8af2786d4af07dfec146d2ab070e3101b4ee2b06",
+      "sha256": "ba0722ca85ce0a1259ce650927aa53ed728db0b28467adf308c3ada5a03036e8",
+      "bytes": 14615
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/logical_schema_v2.ex.source",
+      "blob": "307396ce563b62e5d72c2b1aa47ac06a2c3ab89e",
+      "sha256": "992ef89fb52a91ccaa0d7cf2b3ae6607a465e7b345cca5d6c55a86c3fac9f3e6",
+      "bytes": 15901
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/manifest.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/manifest.ex.source",
+      "blob": "fabc0d8e6a539ad78fc3445d2e863d73ccd6a362",
+      "sha256": "a10e3159ea9efe64fca51bc7f6a8e7a2446c33f0f41501bd2e42e8c93588ed3f",
+      "bytes": 8477
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/reconciler.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/reconciler.ex.source",
+      "blob": "8004b52f99961f0d2ad53eaefdec31061f404694",
+      "sha256": "b96c943faad8ba2e915b8cebc7c912c9a42766ec9aba6444b251188aef5f0074",
+      "bytes": 32843
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/backup/restorer.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/backup/restorer.ex.source",
+      "blob": "3b1c1c60db5ea875e55c6ef4582b1791f7c0f8c4",
+      "sha256": "8db00eb23a4fed13cf3e8ce87f4433b25a8a103db476c51333a2274cea3d6992",
+      "bytes": 113415
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/argon2_key_deriver.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/argon2_key_deriver.ex.source",
+      "blob": "2b386bb49099319d38c3d709b6c0988fcdb40a26",
+      "sha256": "7c3023b8d433cb337e1fd1d6b59d742d732be0ad7f492cb8da7b7c883dc9bc37",
+      "bytes": 1413
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/argon2_password_hasher.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/argon2_password_hasher.ex.source",
+      "blob": "649762517f08237f1b7245dfc6a9685f3296a3b5",
+      "sha256": "3059cc3de7908b81695114762d52e1b0e18c604166d868ee3338297f8bd7f550",
+      "bytes": 2887
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/backup_key_deriver.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/backup_key_deriver.ex.source",
+      "blob": "b9855fa54266a6501fc7ff361a947a2fe52e7bff",
+      "sha256": "19e46bd538eef448ab6dd11ae0f0df39be22bbe8a95a75fbef6402b4a00244d1",
+      "bytes": 1720
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/backup_recovery_wrapper.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/backup_recovery_wrapper.ex.source",
+      "blob": "0790948115758475533fa85d080c358023779863",
+      "sha256": "6f153dbc19e747e402eeecdc3a8e21c6caa1e73e1283f9e8c14e0eda1d9478b8",
+      "bytes": 2879
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/chunked_aead.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/chunked_aead.ex.source",
+      "blob": "efc95ca4869e7bc123182651694cc669f51fc6d0",
+      "sha256": "2c70e4e60881a589b6209e7feef614dae3bb7647ae7406b71c20e178d34a71ca",
+      "bytes": 23750
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/format.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/format.ex.source",
+      "blob": "bd5c69bc4fe4e8998368f03d2248700237b84c2d",
+      "sha256": "80ebf3849374cc55d460c3e10a3f693c416e7b60ae4183aca3a07dc919b134cc",
+      "bytes": 4997
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/key_wrapper.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/key_wrapper.ex.source",
+      "blob": "d30187bb85fda99f32ae200c08d2195128c49035",
+      "sha256": "bcfe7e5093d02e7917f160ac3066e1dea13916efe63c855ce1a3e69abaf11b88",
+      "bytes": 4207
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/object_identity.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/object_identity.ex.source",
+      "blob": "14b48c235c7b3efde5352fc28d1f13496a87a7e0",
+      "sha256": "d57f6031068587832a0ab4adbb8209868e31df61dec4988a02105b35308bb93b",
+      "bytes": 1781
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/crypto/recovered_vault_key.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/crypto/recovered_vault_key.ex.source",
+      "blob": "d955964a149ecd64e83bc366ba65bf287a51e85a",
+      "sha256": "b64b248a214b2ab57679ccc676b04d357789df91f62bb6c3613954d0ede774da",
+      "bytes": 2462
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/dispatcher_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/dispatcher_repo.ex.source",
+      "blob": "a4e60a6509d0d5e10ee5379c2fbd449187ab46bf",
+      "sha256": "dd9464167b2cc2ef89a0a132f67c8cdd0805e891a94ccc77c18834267a7269d5",
+      "bytes": 292
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/encrypted_stage_writer.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/encrypted_stage_writer.ex.source",
+      "blob": "c7866f00674338c1e8b00bdd760fc45ff458741c",
+      "sha256": "74af4f984f565afbd7cc9601f929bec274c8238271a4974190d9ea10f703fe9a",
+      "bytes": 25326
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/jobs/envelope_codec.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/jobs/envelope_codec.ex.source",
+      "blob": "a0f8168ebfb6c665e93dd1035683016321fb3bde",
+      "sha256": "76ecddec9e10432e15df53c2e3878fb18ee3426fe7a3d39957f9c6d920a4c5cc",
+      "bytes": 8328
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/jobs/generic_worker.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/jobs/generic_worker.ex.source",
+      "blob": "dbac21a56117ff9e3d70411dbfb35b77d9acc815",
+      "sha256": "34a762dc4eb811d89565e6c1dafceaab01be0d5a9393c2aa5a8a0db259792a54",
+      "bytes": 5368
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/jobs/oban_adapter.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/jobs/oban_adapter.ex.source",
+      "blob": "d9b858282ae69814e27ac719142e16c6bd57b234",
+      "sha256": "bdc880b9fd3591624164edad01ff4f71b2764c6c6473535efb484aaea12d66ea",
+      "bytes": 10111
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/jobs/progress.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/jobs/progress.ex.source",
+      "blob": "7538c2684efb42ad2eacc4298f7e7804803c08ac",
+      "sha256": "aeb0cf59d8f461737f6b6fc0e316b9cdc2c08427330fbb9b04853b4eebb065bc",
+      "bytes": 28045
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/jobs/worker_scope.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/jobs/worker_scope.ex.source",
+      "blob": "8e74a3994f07d33f3321fc01c4487d65708f3f71",
+      "sha256": "1b624cd43220ca345e5aa255db711f1fcdaca1f9a4efe288a3cd65b889598700",
+      "bytes": 1173
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/local/path_guard.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/local/path_guard.ex.source",
+      "blob": "5d296e565816bcfb513b411a5e1c91c4b1399a53",
+      "sha256": "bb8cdbe2974a1afe2780846f10a488b4ca1cc7dc9f38587e2f5d819b87fc107d",
+      "bytes": 4472
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/local/stage.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/local/stage.ex.source",
+      "blob": "71afe033ff8d11961c1c6ea5b77de5e83c6a3a5d",
+      "sha256": "6510846554347386fdbc66177be920b9f8b9a29640c3b4eee68c93b7bc88dd10",
+      "bytes": 19682
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/local/sync.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/local/sync.ex.source",
+      "blob": "8690d293419637d66ab3a4b018f98c4e728ab5bf",
+      "sha256": "4cd1ba12238ed19c396644c60548c28dfcd0c42b6ad13f0bb8dda7de99aa2e0c",
+      "bytes": 4875
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/local_filesystem_adapter.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/local_filesystem_adapter.ex.source",
+      "blob": "eee55c52628101cf0437d43cf46adb68b2b90544",
+      "sha256": "6603fb29629b2346075d5237b05d961853b5d615ab602f4769d0600941b6e16b",
+      "bytes": 24275
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/migration_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/migration_repo.ex.source",
+      "blob": "978437b31300ca946e704a7e370f9f45c70af2f7",
+      "sha256": "4af95d6f52f8feef9d7f1e6068359c58338d1d9ff82dbe4a6221823c6d54d5f0",
+      "bytes": 295
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/object_lock.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/object_lock.ex.source",
+      "blob": "ae395f887686d0aac9552d8d4ad448ecf408c04d",
+      "sha256": "9ce40d86260832ab2dc896931e068943847301419ad1db68849ea54cbbaa3ba3",
+      "bytes": 1260
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/asset_deletion_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/asset_deletion_repository.ex.source",
+      "blob": "4e4d31176b9360af445c23debde06f92ae30cae4",
+      "sha256": "08f7330a65e83ea71113114681a4d01455ceb971f2e2e6db1d38a7c33d13d96e",
+      "bytes": 50515
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/asset_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/asset_repository.ex.source",
+      "blob": "293d5d17108c0c63978967bb4e85013a56c49585",
+      "sha256": "4d622c10249cd6d71757faec69f8bcdcc3a2d26c081ac5627fba2e075b0ab506",
+      "bytes": 172803
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/asset_search_store.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/asset_search_store.ex.source",
+      "blob": "aa83edb0d0c4eee0d2be65e5e23b6f08a0be06b0",
+      "sha256": "2747ddd32a23fb5d4ac78e503b2438972c740bf8ecc4ab4041a47574130e83c4",
+      "bytes": 26901
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/asset_upload_recovery_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/asset_upload_recovery_repository.ex.source",
+      "blob": "760e972f08249f0aedde89dc2f71e09a93ad855b",
+      "sha256": "9e0ecb6dcd06f86549e91fadeb4f52b8eb0ac93544c1089194355cbe031d1365",
+      "bytes": 7595
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/audit_sink.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/audit_sink.ex.source",
+      "blob": "31b3684c5c56120e58cd828a3266ca9e30edb658",
+      "sha256": "ca29297ed44082f3464948501462443c397bd5c49a3039e23da6ae1e929a0c7e",
+      "bytes": 2398
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/backup_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/backup_repository.ex.source",
+      "blob": "c5a3603198e6fcb1825d819d209b9beb41064c9f",
+      "sha256": "636d4918c1ac3076075baeefc8419162f291af7bb17a8ca973ac156203452e3e",
+      "bytes": 27605
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/backup_status_store.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/backup_status_store.ex.source",
+      "blob": "4bc2db588a61051e24829efa90779c95e8af82c3",
+      "sha256": "d0024bfe163d62ec85ac7a25e234ad8e85b10d63aacbe8e95c25c784eefbdedd",
+      "bytes": 1303
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/custody_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/custody_repository.ex.source",
+      "blob": "31c3cacb3ddf48e858a0af6272d2a2dca7caae79",
+      "sha256": "3a2bc9aac5fced8fe98b767812f512303ed9b9f88b753a18c4f0388f9b2c677b",
+      "bytes": 36876
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/identity_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/identity_repository.ex.source",
+      "blob": "e3c44dd6a8d4d50a589f6a57989d5716d5b24202",
+      "sha256": "ce5657377cd5b9c89049b401203a7f3cff02775168c40ad8487a6b4b87db2fb6",
+      "bytes": 57588
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/key_rotation_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/key_rotation_repository.ex.source",
+      "blob": "a06ccc14c110543b5b672a8dbd99ff5c16fb2761",
+      "sha256": "efe78bfde2168f8868ae3c848083b1d6ffeb4a9813a7bda67569d5869c404d41",
+      "bytes": 34900
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/note_capability_reconciler.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/note_capability_reconciler.ex.source",
+      "blob": "6359d58737e5ad07fa5031f6e51548a3fe33bc25",
+      "sha256": "34a12c577c6fa99331e01cb97ede8b1e4261cacd0edb9f2fa678ce19413839ee",
+      "bytes": 611
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/note_mutation_receipts.ex.source",
+      "blob": "702e38a995a9adb3702f8d20a0ca1a40802a65aa",
+      "sha256": "3943d952ac59ab579a28a0faebb093587380b5dc89e6a86d29bacff81c72118a",
+      "bytes": 12707
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/note_projection_reconciler.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/note_projection_reconciler.ex.source",
+      "blob": "93a1748b4721edd0b14c6db5bc7563c10ac0f1fa",
+      "sha256": "256b0257c3981abeca3f7a3815c0cc306be4d50cbbdb2354781d3769034c7336",
+      "bytes": 4778
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/note_repository.ex.source",
+      "blob": "d33d07178b68231e1c868a4c8badb67f8516692f",
+      "sha256": "265bbbe0e2eace1e3e66d1169742562a9a0e13be488998fc51ca28fec7f1a43b",
+      "bytes": 53830
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/note_search_store.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/note_search_store.ex.source",
+      "blob": "7046c59baaf82f12e0c8f990670d251b84aedc6e",
+      "sha256": "322ca20bd66529570b54c5d85f82581d5280674ec3f56da6eb583429350f4086",
+      "bytes": 13703
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/outbox.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/outbox.ex.source",
+      "blob": "f0e52c617b005419f113b611e8a1b1e5d5ea4a01",
+      "sha256": "d0458a3ad896a520dd4aa690f0dcc8251cf8c75db9ffa68e46aa0e86512401b6",
+      "bytes": 6211
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/pre_auth.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/pre_auth.ex.source",
+      "blob": "4b4bcede82847e366e0df900a5a4bb09075437c3",
+      "sha256": "2390d0e98c4708f8a9e15aa341f557543b6a84102a9a8d4a9d40b2a95eec516d",
+      "bytes": 5431
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/uuid.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/uuid.ex.source",
+      "blob": "72836b17ec43f6b2c69180ddcd36fe3d77ae3062",
+      "sha256": "b14a0f49420e39186cdb3e4acac34fdeb1bb7e622c43e42f87411ae0de15beaf",
+      "bytes": 945
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/postgres/vault_repository.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/postgres/vault_repository.ex.source",
+      "blob": "2464a67172353ae7bec6a63637f9590763c91bb8",
+      "sha256": "624c5a17d20f34210f4c932bef6c012a0498b04605a34bdf843d65bfe94e086e",
+      "bytes": 2619
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/pre_auth_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/pre_auth_repo.ex.source",
+      "blob": "8d7b1c19c30e52afd7be23892c5f7323e7e0d5c1",
+      "sha256": "8a94ae42816ef1570be822ef5fd510715765802d6fb81bf426b0be530f50951e",
+      "bytes": 289
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/request_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/request_repo.ex.source",
+      "blob": "3a92d039e59c1b2e489a19d457583978bf41d533",
+      "sha256": "c0a215a82c0c11d07a60d285ede4640fb7c3f5ab6bffcc84ebf8585d8a33b33b",
+      "bytes": 286
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/role_verifier.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/role_verifier.ex.source",
+      "blob": "bd1708561275520508a0a0dce93280dc72a7c979",
+      "sha256": "1ea42d89753e2707c7a344e8d7f1b3e8085680aa254bb2691c90838bc1c8e756",
+      "bytes": 5352
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/safe_sql.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/safe_sql.ex.source",
+      "blob": "e866ddf8f08b6502e96e034446004f628eeebdce",
+      "sha256": "8b971c3da6cce92c3f50cb58954006aab34645e9d43966416f666cf189c7b9fe",
+      "bytes": 4445
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/audit/backup_manifest.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/audit/backup_manifest.ex.source",
+      "blob": "6814bf3b1df6db9e4a67df1afd1b91cd83c01ca9",
+      "sha256": "58ba228c50d95626ef01a08c3e719fed5876efd9010d37567ea22e71283c3b73",
+      "bytes": 3561
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/audit/backup_manifest_object.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/audit/backup_manifest_object.ex.source",
+      "blob": "6ca75b67c04fa6983b17276fa2dfc2460d8d31bc",
+      "sha256": "7d48243aa9628a398e517e61b1bc3312b6699c9b6e466c1098424904402947c0",
+      "bytes": 2191
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/audit/event.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/audit/event.ex.source",
+      "blob": "b31a86479ed9f4875ebb7ea744c55903f2d0aa83",
+      "sha256": "a120c84c4de3777dc7b83981a60421b9022f8782b6afa0b1f6be24fb0fcb420f",
+      "bytes": 4950
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset.ex.source",
+      "blob": "5220ccf2c112fb1f9fdcd1c07b7620a1729c2c25",
+      "sha256": "448bc1e62678daa3f9d8d78b31167a81753138a512b8d513bf0ff81320831042",
+      "bytes": 3481
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset_key_envelope.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset_key_envelope.ex.source",
+      "blob": "9e71805ed3b8b429caa3490b6c847c0c90648423",
+      "sha256": "63badca9ce3d65b6ad0ed7cc7e2117e6352eb63d771be6d5f906a935d3b15861",
+      "bytes": 1748
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset_metadata.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset_metadata.ex.source",
+      "blob": "6e393042a5cae3c8edd0cac0e3c2dc7d43eac3ab",
+      "sha256": "3261a8dee4c450a70dcbf2994d2551dc7ec98d98ee53d220bf6293965a4a5b4c",
+      "bytes": 2611
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset_object.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset_object.ex.source",
+      "blob": "8c73a404209d2214d26ee75238c8ea4d078a0837",
+      "sha256": "b81d723b10843710a0eb82fcd05f0df1c890160fad5867f37274e4c79d23a494",
+      "bytes": 4627
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset_search_document.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset_search_document.ex.source",
+      "blob": "1ca888b2685f7c087b55852177e1261251dd06ce",
+      "sha256": "2d8eea97af8f740fbb96f3acdec1f110b234849a4af041c6968fc4038b2c87a9",
+      "bytes": 1627
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/asset_stage.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/asset_stage.ex.source",
+      "blob": "517a1ea4053d1f732ed4f91d04d9b90b11569568",
+      "sha256": "fcdee52380c1c16589c609cef6d2ceef9d7cad78ff4908d32489bd620d5e8efd",
+      "bytes": 5133
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/note_conflict.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/note_conflict.ex.source",
+      "blob": "820f7e4fc3d6891d66b7a24a8d8ed3400785b88e",
+      "sha256": "bf2e79b78be5b20c5ecc45c070f1918f3194924cad76e808e75869d943fd677f",
+      "bytes": 2490
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/note_mutation_receipt.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/note_mutation_receipt.ex.source",
+      "blob": "fffd5aa4a936f2ba01e6a95ad882a6ceb8a37e05",
+      "sha256": "bf127b2a39ab79ee68b42416e3c8de44f1f3ec140f3152fd0160b00ebedd3a63",
+      "bytes": 2493
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/note_search_document.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/note_search_document.ex.source",
+      "blob": "63c27f9316b2fdd79484d181e1c5ebf59d372592",
+      "sha256": "6830f9f12ea253619fc1f071cc385278ca865496b38511fac36dd158b928230c",
+      "bytes": 1535
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/note_version.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/note_version.ex.source",
+      "blob": "30413651b211db131c2f3193cac1154e31aa6d1d",
+      "sha256": "13fc441e27307bebbce25e1e96fa725af7ad5fe24cf46a82b209304196085ca5",
+      "bytes": 2536
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/resource.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/resource.ex.source",
+      "blob": "5844af7cf09e2136d03e9fd5fd0cebcf7e095ec1",
+      "sha256": "ec2945307a6d23b1bd75e3072b5819ac2d72a2d62d4c90750669c9207cde0759",
+      "bytes": 2513
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/resource_asset.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/resource_asset.ex.source",
+      "blob": "b2f030507be5b39d14e10b54d554a41bedff4118",
+      "sha256": "5de86a48de502f87a9045574707789d328d97db46a5a5e2d1c05d10f1527d198",
+      "bytes": 1302
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/resource_version.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/resource_version.ex.source",
+      "blob": "53d66ce6288990908456233e545297d28c365d57",
+      "sha256": "6c3103cf29245c581ef2559cb248aed9e0daf4337b8da46b185c2e5f48519e0d",
+      "bytes": 1582
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/source_reference.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/source_reference.ex.source",
+      "blob": "356e89a6e55fbf87c63370c3eaeead762ab69084",
+      "sha256": "808a1e2f673ab7014f12051591dfdc0c809f602a2f8138f6c6f795372efae255",
+      "bytes": 1959
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/tombstone.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/tombstone.ex.source",
+      "blob": "0f89aa70f4f115e30099886019626519e36838d6",
+      "sha256": "fb2c0821d0530a2aaaa5b849a5c5675a75c5eea75598e7bf09a410c30d1b1e92",
+      "bytes": 1821
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/content/upload_grant.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/content/upload_grant.ex.source",
+      "blob": "25bdb82ad5d8b56e21cb944db1d82fd1e2c0200b",
+      "sha256": "0ed021418daec8069109b7828203800d1f9fe280439dc66d185930e8efd6ef15",
+      "bytes": 3533
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/capability.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/capability.ex.source",
+      "blob": "1c287ba4c8930b8a45e00088697de7bc21d3c426",
+      "sha256": "68659e9033e8d5cb4003e43edf0f6087b8c3fcf14809d0b4b3befc74831956a8",
+      "bytes": 583
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/data_classification.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/data_classification.ex.source",
+      "blob": "abd62d7df6729f985d19decdc3989ec13e46c96d",
+      "sha256": "334a05649985c325939e8f5a35da2272a47b023d9e27eb11f13650a5b6bdc2ac",
+      "bytes": 847
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/domain_dedup_key_wrapper.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/domain_dedup_key_wrapper.ex.source",
+      "blob": "d46900a9a8e3a24a14e5ac27474b283dfe4cad47",
+      "sha256": "57491bf091a6c3093b6f3eb6bfc97abcb08859e7b51a3e154d957ad7ae454833",
+      "bytes": 1097
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/domain_key_version.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/domain_key_version.ex.source",
+      "blob": "83b744d3ef658edb6db4529313009b312e10ce5d",
+      "sha256": "f3ea2c4d9be4e24d778fa1a4a921fd1b6350053a2e3db7beecf3a5a71a8b6be1",
+      "bytes": 2051
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/key_domain.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/key_domain.ex.source",
+      "blob": "a907f5900ac16db585f8ffe1325070c0879a83c9",
+      "sha256": "2193da756143bf2762bb64231a631cd7b6857891737684585c8a1cad6de0d3c8",
+      "bytes": 1224
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/outbox_event.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/outbox_event.ex.source",
+      "blob": "e032e8fe484af5a50e9c19f637557380da90945d",
+      "sha256": "b81c38e5d894fddb876ee9a9ac47b83b311101379b5740e996ca0f394c01dcab",
+      "bytes": 3837
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/principal_capability.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/principal_capability.ex.source",
+      "blob": "09ee63e3ae0b69e1b69c2d5ee0ad1bef6425ac28",
+      "sha256": "a0b4f7a1889a16fba0c87aae7f418e9fd1c6407f2a4b321a267dbde7d18c6b42",
+      "bytes": 1189
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/vault.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/vault.ex.source",
+      "blob": "f0480f30be99ac123e49be6c5b72484e994b01a4",
+      "sha256": "5c27e184031881ff58af856aa3d4ccd7c2cf50a44c1b3cdaed925a81965c9a42",
+      "bytes": 2238
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/vault_key_version.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/vault_key_version.ex.source",
+      "blob": "f78027209e2684f9843eb3ca4d73e9555b8e802f",
+      "sha256": "9605dffccf40bcb29c9599165964ace212a785c822d5962fa337f3e4ee4f3eea",
+      "bytes": 1731
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/vault_key_wrapper.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/vault_key_wrapper.ex.source",
+      "blob": "ec8d5175f714ba7060d28c195291e6face2304e4",
+      "sha256": "2dd0a0a0770e50c0f0f8a2d23f5fb332c54b04323a8624c66c6a85a3e9325dfe",
+      "bytes": 2286
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/core/vault_member.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/core/vault_member.ex.source",
+      "blob": "130c00f07a820bb5b43bb416bf0822c470a298d0",
+      "sha256": "985584e72204940c9e4cae98ecbda36b6c41025cda36ba6143d348f5a9852e38",
+      "bytes": 1185
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/account.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/account.ex.source",
+      "blob": "b99ec1f1ac9605a810a9cd2ea036e4dd5a765a5d",
+      "sha256": "771a96e0ed2a42928a775d6a79104cca1a7021909cc1ce56645b4cd1eaa20fb0",
+      "bytes": 1358
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/auth_attempt.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/auth_attempt.ex.source",
+      "blob": "74da29143d8ae3de5505978ca2047ccb94d4466c",
+      "sha256": "3954d6161b88359bc9427e83e33aef8140c5ef38bcf2b0ce23aac8be4d2be2f6",
+      "bytes": 1444
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/credential.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/credential.ex.source",
+      "blob": "2fd0712f9f1af0fc42a0c4fc7e6cbb8f7d8109bb",
+      "sha256": "fb6f9ef597db03e71fcd099d0b9bac255cc65bcf0447221e9b8db0fbecb2b984",
+      "bytes": 1449
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/device.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/device.ex.source",
+      "blob": "02800da26ee6a1d73fc4464a59b8743b1ebb620e",
+      "sha256": "326665facceb52abf74305db49b6c734e983197814286e43b582f57a3f88b22a",
+      "bytes": 803
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/person.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/person.ex.source",
+      "blob": "f77e0dde4bec5daca9b11411720cf8143ffdc299",
+      "sha256": "a21642c4c3194be8023c7ed9d27f973b58e2f1c01b19c5bdb4d5dc35229674ee",
+      "bytes": 1128
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/principal.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/principal.ex.source",
+      "blob": "2a911bb1be6648f4ccba120e7d0aa9c5ee1a2cab",
+      "sha256": "a9bb78e00d78b0a8dc4b205ab494dd932975520a0e959c11672b77565ab6c79d",
+      "bytes": 1648
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/security_setting.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/security_setting.ex.source",
+      "blob": "5b2e033461d764bad085878e5291db2de7b68898",
+      "sha256": "2628ea5684683d6963f1e6ca40d22f43dc28ca9d2d98186ec2f632bf4b28db4f",
+      "bytes": 1393
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/identity/session.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/identity/session.ex.source",
+      "blob": "f013161e48ba6054c4c2d2f61c99b5a4cb4f6286",
+      "sha256": "99552ed46ac6851c42f593589bdbadeb30a4ad780e8fa651671b3129112eefa5",
+      "bytes": 1729
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/jobs/effect_receipt.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/jobs/effect_receipt.ex.source",
+      "blob": "e97ade8b60f76281f284de771b0c5919e58cc80b",
+      "sha256": "86c4561368f8122b417a702ac402aafddce2e275e403711ac82c06cca7605ab0",
+      "bytes": 1493
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/jobs/job_progress.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/jobs/job_progress.ex.source",
+      "blob": "73e237742036497729536f12b8385081e06daa32",
+      "sha256": "b32459cd6356705f433b0e311afeb142e9d27c5c5f8d07ed9bd7e880bba51d47",
+      "bytes": 3098
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/schema/jobs/job_submission.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/schema/jobs/job_submission.ex.source",
+      "blob": "482d796ce149e0f94fc214051df84abcca715441",
+      "sha256": "b77b87647ca6544a295cf0b9c9ccddf18db1ac173eb2f8775c51ce74c253f38e",
+      "bytes": 1601
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/scoped_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/scoped_repo.ex.source",
+      "blob": "2bed81615983a903506d3ecbe18ca0c1aee53419",
+      "sha256": "15990cf92b2a53c5414dd1963c22a607803fcc78ba4bcc7957363b9fe5037c15",
+      "bytes": 3100
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/test_environment.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/test_environment.ex.source",
+      "blob": "fca6a2ab6a498aa224295fa061f56e7efb8e7d50",
+      "sha256": "fb430df7f2c8486dd3a86d1998bf5ad381cb0473ae92b8f984ce6567ec62513f",
+      "bytes": 9229
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/vault_lock.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/vault_lock.ex.source",
+      "blob": "b7e5f39a23fb365d52f9e95a57f1acaaf692dba9",
+      "sha256": "d6e0e31efb0a4d835b2fd3f77d7f7b50fda5b1f4c107b75c053319439b72d597",
+      "bytes": 2286
+    },
+    {
+      "original": "apps/singularity_storage/lib/singularity/storage/worker_repo.ex",
+      "fixture": "sources/apps/singularity_storage/lib/singularity/storage/worker_repo.ex.source",
+      "blob": "8dd6f5152fce1af1a935ac2e6596138321918d9e",
+      "sha256": "413433d8d5e14339f6cd8c269dc7451691e8128727cec3b96008895ab72b8af2",
+      "bytes": 288
+    },
+    {
+      "original": "config/config.exs",
+      "fixture": "sources/config/config.exs.source",
+      "blob": "06df5971e1fb9612c5a847e939204ce4d7607bc3",
+      "sha256": "ebbf6e0d51ce707a67d7e29115ad0e2af7fbc372ff68072a67279ec1fa5304f8",
+      "bytes": 4949
+    },
+    {
+      "original": "mix.lock",
+      "fixture": "sources/mix.lock.source",
+      "blob": "35fd4ee0691cda7f36505221bffc4f1beee5f061",
+      "sha256": "ae235b7777083e3ac9912aa73ee13d9fc0fc2eb2bef34d3685d61b7260b60dae",
+      "bytes": 21414
+    }
+  ]
+}

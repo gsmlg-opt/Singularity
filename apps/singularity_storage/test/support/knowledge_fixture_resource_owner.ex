@@ -19,6 +19,27 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
       do: "knowledge fixture relationship rejected: #{reason}"
   end
 
+  # TASK18_LEGACY_ERROR_BEGIN
+  @legacy_failure_categories [
+    :legacy_protocol,
+    :legacy_output_limit,
+    :legacy_pipe,
+    :legacy_start,
+    :legacy_exit,
+    :legacy_deadline,
+    :legacy_caller_down,
+    :legacy_identity,
+    :legacy_dependency_identity,
+    :legacy_preparation
+  ]
+
+  defmodule PreparationError do
+    defexception [:primary, :cleanup]
+    def message(_exception), do: "legacy_preparation"
+  end
+
+  # TASK18_LEGACY_ERROR_END
+
   # Test-only checkpoints observe real lifecycle stages. They never substitute
   # acquisition or run the user's destination callback in the resource owner.
   def with_checkpoint(checkpoint, fun) when is_function(checkpoint, 2) do
@@ -44,7 +65,18 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
     open_owned(parent_owner, options)
   end
 
-  defp open_owned(parent, options) do
+  # TASK18_LEGACY_OPEN_BEGIN
+  def open_legacy_v0_1_0(prepare) when is_function(prepare, 2) do
+    Singularity.Storage.LegacyUpgradeFixtures.identity!()
+    open_owned(nil, [migration_pool_size: 2], prepare)
+  end
+
+  def open_legacy_v0_1_0(_invalid), do: raise(ArgumentError, "legacy_preparation")
+  # TASK18_LEGACY_OPEN_END
+
+  defp open_owned(parent, options), do: open_owned(parent, options, nil)
+
+  defp open_owned(parent, options, preparation) do
     caller = self()
     checkpoint = Process.get(@checkpoint, fn _stage, _resources -> :ok end)
 
@@ -77,8 +109,14 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
 
       command = if is_nil(parent), do: :acquire, else: :acquire_child
 
-      case request(owner, {command, checkpoint, options}) do
+      acquisition =
+        if is_nil(preparation),
+          do: {command, checkpoint, options},
+          else: {:acquire_legacy, checkpoint, preparation}
+
+      case request(owner, acquisition) do
         {:ok, destination} -> {owner, destination}
+        {:ok, destination, receipt} -> {owner, destination, receipt}
         {:raised, kind, reason, stack} -> :erlang.raise(kind, reason, stack)
         {:relationship_error, reason} -> raise(RelationshipError, reason: reason)
       end
@@ -88,7 +126,7 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
         # Default opens propagate secondary close failures. Child opens retain
         # their primary exception and an independent cleanup receipt.
         if Process.alive?(owner) do
-          if is_nil(parent) do
+          if is_nil(parent) and is_nil(preparation) do
             close(owner)
           else
             try do
@@ -177,6 +215,9 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
 
       {{command, checkpoint, options}, ^caller, ref} when command in [:acquire, :acquire_child] ->
         acquire(%{state | checkpoint: checkpoint}, ref, options)
+
+      {{:acquire_legacy, checkpoint, preparation}, ^caller, ref} ->
+        acquire_legacy(%{state | checkpoint: checkpoint}, ref, preparation)
 
       {:attach_child, child, _caller, edge_ref, reply_ref} ->
         reject_child(child, edge_ref, reply_ref, :parent_not_ready)
@@ -295,6 +336,77 @@ defmodule Singularity.Storage.Backup.KnowledgeFixtureResourceOwner do
         finish_terminal(state, terminal, failures)
     end
   end
+
+  # TASK18_LEGACY_ACQUIRE_BEGIN
+  defp acquire_legacy(%{caller: caller, checkpoint: checkpoint} = initial, acquire_ref, prepare) do
+    {native_outcome, own_failures} =
+      MigrationTestEnvironment.with_legacy_owned_database(
+        caller,
+        checkpoint,
+        prepare,
+        fn destination, receipt ->
+          send(caller, {acquire_ref, {:ok, destination, receipt}})
+          {terminal, state} = await_release(initial)
+          {terminal, observe(state, :owner_cleanup_begin)}
+        end
+      )
+
+    {outcome, state} =
+      case native_outcome do
+        {:ok, {terminal, state}} -> {terminal, state}
+        other -> {other, initial}
+      end
+
+    stage = if own_failures == [], do: :owner_cleanup_completed, else: :owner_cleanup_failed
+    state = observe(state, stage)
+
+    dependency_failures =
+      case original_terminal(outcome) do
+        {:dependency_failed, pid} -> [{:owned_process_exited, pid}]
+        _ -> []
+      end
+
+    failures =
+      state.descendant_failures ++ dependency_failures ++ state.local_failures ++ own_failures
+
+    {state, failures} = acknowledge_parent(state, failures)
+
+    case outcome do
+      {:raised, kind, reason, stack} ->
+        reply =
+          case {kind, reason} do
+            {:throw, {:legacy_preparation_failed, category}} ->
+              primary =
+                if category in @legacy_failure_categories, do: category, else: :legacy_preparation
+
+              {:raised, :error, %PreparationError{primary: primary, cleanup: failures}, []}
+
+            _other when failures == [] ->
+              {:raised, kind, reason, stack}
+
+            _other ->
+              primary =
+                case {kind, reason} do
+                  {:error, %ArgumentError{message: "legacy_preparation_not_closed"}} ->
+                    :legacy_preparation_not_closed
+
+                  _other ->
+                    {:legacy_preparation_failed, kind}
+                end
+
+              # No raw callback stack belongs in the safe dual-failure envelope.
+              {:raised, :error, %PreparationError{primary: primary, cleanup: failures}, []}
+          end
+
+        send(caller, {acquire_ref, reply})
+        failed_acquisition(state, failures)
+
+      terminal ->
+        finish_terminal(state, terminal, failures)
+    end
+  end
+
+  # TASK18_LEGACY_ACQUIRE_END
 
   defp await_release(%{caller: caller, caller_monitor: caller_monitor} = state) do
     receive do

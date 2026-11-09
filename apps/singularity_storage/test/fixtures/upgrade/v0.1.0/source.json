@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "release": "v0.1.0",
+  "commit": "c49dc0aeda1d0115b20ff291f0da658f7e558b43",
+  "tree": "203135f6e35b72aaab269b75a30dcf2ef080bfe3",
+  "fingerprint": "5e3c5b3ad94f294379a00c80136617910c3537fc8a6288266ecc9a53e5f6eb62",
+  "bytes": 247412,
+  "files": [
+    {
+      "filename": "20260718000100_create_schemas.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000100_create_schemas.exs",
+      "fixture": "migrations/20260718000100_create_schemas.exs",
+      "blob": "8a3d4889ce1099f7d4a6f3fc6694c0bd4bc025fc",
+      "sha256": "a08d8ee09aef77969caf040429c07e4c8a817051c98acd10080e8dcdbdc377d7",
+      "bytes": 633
+    },
+    {
+      "filename": "20260718000200_create_identity_and_vault_tables.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000200_create_identity_and_vault_tables.exs",
+      "fixture": "migrations/20260718000200_create_identity_and_vault_tables.exs",
+      "blob": "8236e40dd82e686c4121a74d765b4fa8b05a65c4",
+      "sha256": "fe71cd5ce35523de7af3f58f85967e95d8b4e13357906dcbcc803193386c1f32",
+      "bytes": 12663
+    },
+    {
+      "filename": "20260718000300_create_content_asset_tables.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000300_create_content_asset_tables.exs",
+      "fixture": "migrations/20260718000300_create_content_asset_tables.exs",
+      "blob": "ec0217f6131f7f5cd34ebaa3b90eb5aa12177c18",
+      "sha256": "dde10879fbdf82636821f4b80aaa6750f501a00c1ec0b89e061c99ea5bf7c87c",
+      "bytes": 14752
+    },
+    {
+      "filename": "20260718000400_create_outbox_and_jobs.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000400_create_outbox_and_jobs.exs",
+      "fixture": "migrations/20260718000400_create_outbox_and_jobs.exs",
+      "blob": "2e9fa10bd034b324043dd65e1d05d6d3aecd0ff2",
+      "sha256": "04901d591e52a3a486b55c53676142fd9555337bd9fd25ab892771c1a61d858a",
+      "bytes": 5617
+    },
+    {
+      "filename": "20260718000500_create_audit_and_backup_tables.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000500_create_audit_and_backup_tables.exs",
+      "fixture": "migrations/20260718000500_create_audit_and_backup_tables.exs",
+      "blob": "9a5bd47276208b7f854d828ced3b0659d7dfa892",
+      "sha256": "20d01c1e372a720f6864eff44a729496c3c00ad0bf06e60658ee04adf0fbceea",
+      "bytes": 5136
+    },
+    {
+      "filename": "20260718000600_create_security_functions_rls_and_grants.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000600_create_security_functions_rls_and_grants.exs",
+      "fixture": "migrations/20260718000600_create_security_functions_rls_and_grants.exs",
+      "blob": "d988862af528044403a5120cc0488d65bdcb485e",
+      "sha256": "95947d8aa9acd5ca1cbb73b25d34e6aa4f10b7c2b3b1078e62af680e5987abcc",
+      "bytes": 32272
+    },
+    {
+      "filename": "20260718000700_create_asset_search_projection.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000700_create_asset_search_projection.exs",
+      "fixture": "migrations/20260718000700_create_asset_search_projection.exs",
+      "blob": "79bf5068c87395723dc4b6ceb3b7411f8aafa21c",
+      "sha256": "3862518b7c77b19c1fd8d38cd5e356cc2a9c42bec35c03dcd5696da1c1a70597",
+      "bytes": 3832
+    },
+    {
+      "filename": "20260718000800_add_task11_authorization_functions.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000800_add_task11_authorization_functions.exs",
+      "fixture": "migrations/20260718000800_add_task11_authorization_functions.exs",
+      "blob": "4e2ccab0b9d98dfcbd44640d78d7bee9bbdb4ba1",
+      "sha256": "4cc1ff4fcebed58e7fa1e345e1fdd16e8a97fb9ecfe6cded3e2eef6dba491c10",
+      "bytes": 45335
+    },
+    {
+      "filename": "20260718000900_complete_asset_lifecycle_evidence.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260718000900_complete_asset_lifecycle_evidence.exs",
+      "fixture": "migrations/20260718000900_complete_asset_lifecycle_evidence.exs",
+      "blob": "b31dd349b03861e4ef2071dc9058b1b38aa7dd7c",
+      "sha256": "5f2580665fe9c09b4d4e5ef6a153d086a00977beb12c4d785fa7c57580230d8a",
+      "bytes": 25749
+    },
+    {
+      "filename": "20260722000100_skip_vault_locked_outbox_claims.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000100_skip_vault_locked_outbox_claims.exs",
+      "fixture": "migrations/20260722000100_skip_vault_locked_outbox_claims.exs",
+      "blob": "eb0498fa18e34d51dba4da9247efd77705e74f78",
+      "sha256": "28b350ff7f204faef6864d731213c5f472f7ea1793cff1ec52de4e919c58bccd",
+      "bytes": 4899
+    },
+    {
+      "filename": "20260722000200_export_current_vault_owner_for_backup.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000200_export_current_vault_owner_for_backup.exs",
+      "fixture": "migrations/20260722000200_export_current_vault_owner_for_backup.exs",
+      "blob": "285767a173ffb3acf2eebc56e196ec749a72113e",
+      "sha256": "dbe6f19a8c496d29eb19f19f0c0f1a2e3caea78361c3494fa044bb28ed6d1331",
+      "bytes": 6865
+    },
+    {
+      "filename": "20260722000300_enforce_backup_manifest_tag_length.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000300_enforce_backup_manifest_tag_length.exs",
+      "fixture": "migrations/20260722000300_enforce_backup_manifest_tag_length.exs",
+      "blob": "04772ebe9db1ac91a2b7128d3d0bfcc733e02507",
+      "sha256": "480f38ac6369f1d15588d5da6d77ab4948a3ceb15e86644aff21aac0e181cecc",
+      "bytes": 621
+    },
+    {
+      "filename": "20260722000400_harden_backup_repository.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000400_harden_backup_repository.exs",
+      "fixture": "migrations/20260722000400_harden_backup_repository.exs",
+      "blob": "b9015956401b3703fb6ff6d6fc68300add5d440b",
+      "sha256": "a90586ded49fdd32600cb35571b220903a46eec8e69cf9c8eb641bb82d85bd8f",
+      "bytes": 26713
+    },
+    {
+      "filename": "20260722000500_allow_restore_outbox_retirement_reasons.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000500_allow_restore_outbox_retirement_reasons.exs",
+      "fixture": "migrations/20260722000500_allow_restore_outbox_retirement_reasons.exs",
+      "blob": "2901761f527bb7f71978dbaa172ead36908af0e9",
+      "sha256": "8aee14f94f834ffa89899df0bcc6f0c7a961f3f0c5a556e9b161dc3d0dbecf41",
+      "bytes": 1507
+    },
+    {
+      "filename": "20260722000600_create_restore_import_sagas.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000600_create_restore_import_sagas.exs",
+      "fixture": "migrations/20260722000600_create_restore_import_sagas.exs",
+      "blob": "e6202d4ac7cf120bf2a41ff8a18ea95711ccfcb2",
+      "sha256": "25bc5bd3a753b38eb59c69e09d7d06ac2073a1958934ed3993c32d28afe7dbb6",
+      "bytes": 4933
+    },
+    {
+      "filename": "20260722000700_harden_audit_event_contract.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000700_harden_audit_event_contract.exs",
+      "fixture": "migrations/20260722000700_harden_audit_event_contract.exs",
+      "blob": "6b86dcc0a8ed448d491d6833ff4227ebebba352d",
+      "sha256": "1cf64ea5bbd05251a13242539a8bf109dea4c9d6fc84fcc7508346984ebbc6b2",
+      "bytes": 6822
+    },
+    {
+      "filename": "20260722000800_bind_anonymous_audit_fingerprint.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000800_bind_anonymous_audit_fingerprint.exs",
+      "fixture": "migrations/20260722000800_bind_anonymous_audit_fingerprint.exs",
+      "blob": "211256b9485edba0be05671e1e4542ec4f72ec64",
+      "sha256": "f0a8c67141f043f409f1aef6d86d8ea23d9f0c59f39256efd07a2d38ced91ce2",
+      "bytes": 7687
+    },
+    {
+      "filename": "20260722000900_expose_upload_stage_age.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722000900_expose_upload_stage_age.exs",
+      "fixture": "migrations/20260722000900_expose_upload_stage_age.exs",
+      "blob": "f42a25e103d63b146b584002cd1ccb409c523011",
+      "sha256": "aba4f15d4d9937f69a9451bebc3e14980ac077d24b37e824858c8746d30d46ae",
+      "bytes": 2213
+    },
+    {
+      "filename": "20260722001000_guard_active_domain_key_envelopes.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260722001000_guard_active_domain_key_envelopes.exs",
+      "fixture": "migrations/20260722001000_guard_active_domain_key_envelopes.exs",
+      "blob": "0a35ef4ac1b8b56a390cec825bf0a95f922a128b",
+      "sha256": "43b49032cc475b6b35e1120fcb4c5da60fde47c72a04064a58aca207b09379e1",
+      "bytes": 2260
+    },
+    {
+      "filename": "20260728000100_secure_upload_grant_csrf.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260728000100_secure_upload_grant_csrf.exs",
+      "fixture": "migrations/20260728000100_secure_upload_grant_csrf.exs",
+      "blob": "5f6470b66745a536fd6eb1db346fd970374ba7ce",
+      "sha256": "dbd0096e555958dd0a5e57868c738908dec5a1b88c819549de8ece45efbc7b42",
+      "bytes": 1691
+    },
+    {
+      "filename": "20260729000100_retire_superseded_upload_grants.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260729000100_retire_superseded_upload_grants.exs",
+      "fixture": "migrations/20260729000100_retire_superseded_upload_grants.exs",
+      "blob": "86ca8967e863f57df88879a08cbc3f12c2d0b572",
+      "sha256": "ec09d4953047684ac7fe2d3257877c6a520ed518286ee1f0f851c1ea42a08a80",
+      "bytes": 3574
+    },
+    {
+      "filename": "20260818000100_create_private_markdown_notes.exs",
+      "original": "apps/singularity_storage/priv/repo/migrations/20260818000100_create_private_markdown_notes.exs",
+      "fixture": "migrations/20260818000100_create_private_markdown_notes.exs",
+      "blob": "b73187c13549677a04552709f6fe33f0d5fed239",
+      "sha256": "89d6ce8f89ef0693d0be59ac5d495764c6a5981f518fccc93ef00fd565feb4e7",
+      "bytes": 31638
+    }
+  ]
+}

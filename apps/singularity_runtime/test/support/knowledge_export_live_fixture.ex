@@ -3547,4 +3547,348 @@ defmodule Singularity.Runtime.KnowledgeExportLiveFixture do
   defp dump(id), do: Ecto.UUID.dump!(id)
   defp text(id), do: Ecto.UUID.load!(id)
   defp sha(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+
+  # TASK18_EXISTING_RUNTIME_POPULATION_BEGIN
+  defmodule PopulationError do
+    @derive {Inspect, only: []}
+    defexception [:primary, :cleanup]
+    def message(_error), do: "existing_runtime_population"
+  end
+
+  # Borrow only this already-running installation. Its ResourceOwner remains
+  # the sole lifetime authority, including when the original caller disappears.
+  def with_existing_runtime(native, callback) when is_map(native) and is_function(callback, 1) do
+    binding = existing_runtime_identity!(native)
+
+    fixture =
+      Map.merge(native, %{
+        inputs: independent_inputs(),
+        sources: %{},
+        graph: %{},
+        roots: %{storage: native.destination.object_root, backup: binding.backup},
+        observer: %{control: nil}
+      })
+
+    permissions = permission_snapshot(fixture)
+    assert_denied_write_guard!(permissions)
+    child = {__MODULE__, make_ref()}
+
+    specification = %{
+      id: child,
+      restart: :temporary,
+      shutdown: 5_000,
+      start:
+        {Agent, :start_link,
+         [fn -> %{lifecycle: %{permission_scopes: [], root_snapshots: nil}} end]}
+    }
+
+    control =
+      case Supervisor.start_child(native.infrastructure, specification) do
+        {:ok, pid} when is_pid(pid) -> pid
+        _other -> raise ArgumentError, "existing_runtime_population"
+      end
+
+    monitor = Process.monitor(control)
+    fixture = put_in(fixture.observer.control, control)
+    caller = self()
+
+    fixture =
+      Map.merge(fixture, %{
+        permission_baseline: permissions,
+        permission_snapshot: fn -> permission_snapshot(fixture) end,
+        permission_scope: fn controls, fun ->
+          unless self() == caller, do: raise(ArgumentError, "existing_runtime_identity")
+          # The existing private scope's internal try/after semantics stay intact;
+          # the constructor retains the outcome actually observed at its boundary.
+          permission_scope(fixture, controls, fun)
+        end
+      })
+
+    try do
+      outcome = existing_population_outcome(fn -> callback.(fixture) end)
+
+      cleanup =
+        existing_population_cleanup(fixture, binding, permissions, child, control, monitor)
+
+      case {outcome, cleanup} do
+        {{:returned, value}, []} ->
+          value
+
+        {{:raised, kind, reason, stack}, []} ->
+          :erlang.raise(kind, reason, stack)
+
+        {primary, failures} ->
+          primary =
+            case primary do
+              {:raised, kind, reason, stack} -> {kind, reason, stack}
+              {:returned, _private_value} -> :returned
+            end
+
+          raise PopulationError, primary: primary, cleanup: failures
+      end
+    after
+      Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  def with_existing_runtime(_native, _callback),
+    do: raise(ArgumentError, "existing_runtime_identity")
+
+  defp existing_runtime_identity!(native) do
+    try do
+      true =
+        Enum.sort(Map.keys(native)) == [
+          :credentials,
+          :destination,
+          :infrastructure,
+          :owner,
+          :repositories,
+          :session
+        ]
+
+      true = is_pid(native.owner) and Process.alive?(native.owner)
+      {:dictionary, dictionary} = Process.info(native.owner, :dictionary)
+
+      state =
+        Map.fetch!(
+          Map.new(dictionary),
+          {Singularity.Storage.MigrationTestEnvironment, :owned_destination}
+        )
+
+      true = native.owner != self() and state.caller == self()
+      true = state.database_status == :created and state.root_claimed?
+
+      true =
+        state.infrastructure == native.infrastructure and Process.alive?(native.infrastructure)
+
+      true = native.destination.repo == MigrationRepo
+      names = state.names
+      true = names.database =~ ~r/\Asingularity_test_[0-9a-f]{24}\z/
+      true = names.database == "singularity_test_" <> names.suffix
+
+      true =
+        names.storage_root ==
+          Path.join([System.tmp_dir!(), "singularity", "integration", names.suffix])
+
+      true = native.destination.database == names.database
+      true = native.destination.object_root == Path.join(names.storage_root, "objects")
+      true = state.root_identity == existing_population_directory!(names.storage_root)
+
+      true =
+        Application.fetch_env!(:singularity_storage, :storage_root) ==
+          native.destination.object_root
+
+      backup = Path.join(names.storage_root, "backups")
+      true = Application.fetch_env!(:singularity_storage, :backup_root) == backup
+
+      roots =
+        Map.new(
+          [names.storage_root, native.destination.object_root, backup],
+          &{&1, existing_population_directory!(&1)}
+        )
+
+      repos = [
+        MigrationRepo,
+        RequestRepo,
+        Singularity.Storage.PreAuthRepo,
+        Singularity.Storage.DispatcherRepo,
+        Singularity.Storage.WorkerRepo
+      ]
+
+      true = Enum.sort(Map.keys(native.repositories)) == Enum.sort(repos)
+      true = Enum.sort(Map.keys(state.active_repos)) == Enum.sort(repos)
+
+      for repo <- repos do
+        {pid, database} = Map.fetch!(native.repositories, repo)
+        true = is_pid(pid) and Process.alive?(pid) and Process.whereis(repo) == pid
+        true = state.active_repos[repo] == pid and {repo, pid} in state.owned_repos
+        true = database == names.database
+        true = Keyword.fetch!(repo.config(), :database) == database
+      end
+
+      databases =
+        Enum.map(repos, fn repo ->
+          %{rows: [[database, oid]]} =
+            SafeSQL.query!(
+              repo,
+              "SELECT current_database(),oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()",
+              [],
+              log: false
+            )
+
+          true = database == names.database
+          oid
+        end)
+
+      true = length(Enum.uniq(databases)) == 1
+      children = Supervisor.which_children(native.infrastructure) |> Enum.sort()
+      custodian = Process.whereis(KeyCustodian)
+      true = is_pid(custodian) and Process.alive?(custodian)
+
+      true =
+        Enum.count(children, fn {id, pid, _, _} -> id == KeyCustodian and pid == custodian end) ==
+          1
+
+      true = Enum.all?(children, fn {_, pid, _, _} -> is_pid(pid) and Process.alive?(pid) end)
+
+      true =
+        not Enum.any?(Application.started_applications(), &(elem(&1, 0) == :singularity_runtime))
+
+      configuration = Application.fetch_env!(:singularity_runtime, :authorization_dependencies)
+      true = configuration == %{store: IdentityRepository, custodian: KeyCustodian}
+      {:ok, dependencies} = AuthorizationDependencies.new(configuration)
+      # Normal native authorization intentionally retains its existing idle touch.
+      # Before-effects means before this constructor's child/GRANT/root/config work,
+      # not a claim that existing authenticated authorization is side-effect-free.
+      :ok =
+        RequestRepo.checkout(fn ->
+          Singularity.Storage.ScopedRepo.transact(
+            RequestRepo,
+            Map.take(native.session, [:principal_id, :vault_id]),
+            fn repo ->
+              {:ok, live} = IdentityRepository.load_live_session(repo, native.session.session_id)
+              true = is_map(live)
+
+              for key <- [:account_id, :credential_id, :principal_id, :vault_id] do
+                true = Map.fetch!(live, key) == Map.fetch!(native.credentials.owner, key)
+              end
+
+              true =
+                native.session.principal_id == live.principal_id and
+                  native.session.vault_id == live.vault_id
+
+              true =
+                native.session.principal_authorization_epoch == live.principal_authorization_epoch
+
+              true = native.session.vault_authorization_epoch == live.vault_authorization_epoch
+              true = native.session.unlocked? == true and live.vault_locked == false
+
+              :ok =
+                Authorize.check(dependencies, repo, native.session, %{
+                  vault_id: live.vault_id,
+                  principal_authorization_epoch: live.principal_authorization_epoch,
+                  vault_authorization_epoch: live.vault_authorization_epoch,
+                  required_capabilities: ["asset.read", "asset.write", "note.read", "note.write"],
+                  classification: :private
+                })
+
+              :ok
+            end
+          )
+        end)
+
+      %{
+        backup: backup,
+        roots: roots,
+        oid: hd(databases),
+        children: children,
+        environments: Map.new(@fixture_apps, &{&1, Map.new(Application.get_all_env(&1))})
+      }
+    catch
+      _kind, _private_reason -> raise ArgumentError, "existing_runtime_identity"
+    end
+  end
+
+  defp existing_population_directory!(path) do
+    true = is_binary(path) and Path.type(path) == :absolute and Path.expand(path) == path
+    directory_chain!(path)
+
+    %File.Stat{
+      type: :directory,
+      uid: uid,
+      mode: mode,
+      major_device: major,
+      minor_device: minor,
+      inode: inode
+    } = File.lstat!(path)
+
+    true = uid == File.stat!(__DIR__).uid
+    true = Bitwise.band(mode, 0o777) == 0o700
+    {major, minor, inode}
+  end
+
+  defp existing_population_cleanup(fixture, binding, permissions, child, control, monitor) do
+    failures =
+      existing_population_cleanup_step([], :permission_restore, fn ->
+        {migration, database} = Map.fetch!(fixture.repositories, MigrationRepo)
+        true = Process.whereis(MigrationRepo) == migration and Process.alive?(migration)
+
+        %{rows: [[^database, oid]]} =
+          SafeSQL.query!(
+            MigrationRepo,
+            "SELECT current_database(),oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()",
+            [],
+            log: false
+          )
+
+        true = oid == binding.oid
+        restore_permission_scopes!(fixture)
+        true = permission_snapshot(fixture) == permissions
+        true = Agent.get(control, & &1.lifecycle.permission_scopes) == []
+      end)
+
+    failures =
+      existing_population_cleanup_step(failures, :journal_stop, fn ->
+        case Enum.find(Supervisor.which_children(fixture.infrastructure), &(elem(&1, 0) == child)) do
+          {^child, ^control, :worker, _modules} ->
+            :ok = Supervisor.terminate_child(fixture.infrastructure, child)
+
+          nil ->
+            true = not Process.alive?(control)
+
+          _replacement ->
+            raise ArgumentError, "existing_runtime_population"
+        end
+
+        receive do
+          {:DOWN, ^monitor, :process, ^control, _reason} -> :ok
+        after
+          5_000 -> raise ArgumentError, "existing_runtime_population"
+        end
+      end)
+
+    failures =
+      existing_population_cleanup_step(failures, :journal_remove, fn ->
+        # Temporary children lose their specification on termination. Never
+        # delete a replacement's specification merely because its ID matches.
+        true = not Process.alive?(control)
+
+        true =
+          not Enum.any?(
+            Supervisor.which_children(fixture.infrastructure),
+            &(elem(&1, 0) == child or elem(&1, 1) == control)
+          )
+      end)
+
+    existing_population_cleanup_step(failures, :installation_identity, fn ->
+      true =
+        existing_runtime_identity!(
+          Map.take(fixture, [
+            :credentials,
+            :destination,
+            :infrastructure,
+            :owner,
+            :repositories,
+            :session
+          ])
+        ) == binding
+    end)
+  end
+
+  defp existing_population_cleanup_step(failures, category, callback) do
+    case existing_population_outcome(callback) do
+      {:returned, _} -> failures
+      {:raised, _, _, _} -> failures ++ [category]
+    end
+  end
+
+  defp existing_population_outcome(callback) do
+    try do
+      {:returned, callback.()}
+    catch
+      kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+    end
+  end
+
+  # TASK18_EXISTING_RUNTIME_POPULATION_END
 end

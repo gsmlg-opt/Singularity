@@ -18,9 +18,32 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
   # fixture API below retains its established behavior and consumers.
   def with_owned_database(caller, checkpoint, fun, options \\ [])
       when options in [[], [migration_pool_size: 2]] do
+    run_owned_database(caller, checkpoint, fun, options, nil)
+  end
+
+  # TASK18_LEGACY_ACQUISITION_BEGIN
+  def with_legacy_owned_database(caller, checkpoint, prepare, fun)
+      when is_function(prepare, 2) and is_function(fun, 2) do
+    Singularity.Storage.LegacyUpgradeFixtures.identity!()
+
+    run_owned_database(
+      caller,
+      checkpoint,
+      fn destination -> fun.(destination, owned_state().legacy_receipt) end,
+      [migration_pool_size: 2],
+      prepare
+    )
+  end
+
+  # TASK18_LEGACY_ACQUISITION_END
+
+  defp run_owned_database(caller, checkpoint, fun, options, preparation) do
     state = %{
       caller: caller,
       checkpoint: checkpoint,
+      legacy_preparation: preparation,
+      legacy_cleanup: :not_started,
+      legacy_receipt: nil,
       migration_repo_options: if(options == [], do: [], else: [pool_size: 2]),
       configs: Map.new(@fixture_apps, &{&1, Map.new(Application.get_all_env(&1))}),
       compiler_options: Code.compiler_options(),
@@ -151,7 +174,11 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
 
     try do
       owned_checkpoint(:before_migration)
-      Ecto.Migrator.run(MigrationRepo, migrations_path(), :up, to: 99_999_999_999_999, log: false)
+
+      Ecto.Migrator.run(MigrationRepo, owned_migrations_path(), :up,
+        to: 99_999_999_999_999,
+        log: false
+      )
     after
       Code.compiler_options(owned_state().compiler_options)
     end
@@ -160,9 +187,55 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
     stop_owned_repo(MigrationRepo, migration_pid)
     for repo <- @repos -- [MigrationRepo], do: start_owned_repo(repo, :destination)
     start_owned_repo(MigrationRepo, :destination, owned_state().migration_repo_options)
+    destination = %{repo: MigrationRepo, database: names.database, object_root: root}
+    prepare_legacy_destination(destination)
     owned_checkpoint(:ready)
-    %{repo: MigrationRepo, database: names.database, object_root: root}
+    destination
   end
+
+  # TASK18_LEGACY_PREPARATION_BEGIN
+  defp owned_migrations_path do
+    if owned_state().legacy_preparation do
+      Singularity.Storage.LegacyUpgradeFixtures.identity!()
+      Path.expand("../fixtures/upgrade/v0.1.0/migrations", __DIR__)
+    else
+      migrations_path()
+    end
+  end
+
+  defp prepare_legacy_destination(destination) do
+    case owned_state().legacy_preparation do
+      nil ->
+        :ok
+
+      prepare ->
+        owner = self()
+        caller = owned_state().caller
+
+        report = fn status ->
+          unless self() == owner, do: raise(ArgumentError, "legacy_preparation_owner")
+
+          unless status in [:running, :closed, :unconfirmed] and
+                   (owned_state().legacy_cleanup != :unconfirmed or status == :unconfirmed),
+                 do: raise(ArgumentError, "legacy_preparation_state")
+
+          update_owned(&%{&1 | legacy_cleanup: status})
+          :ok
+        end
+
+        receipt = prepare.(destination, %{caller: caller, report_cleanup: report})
+
+        unless owned_state().legacy_cleanup == :closed,
+          do: raise(ArgumentError, "legacy_preparation_not_closed")
+
+        update_owned(&%{&1 | legacy_receipt: receipt})
+        # This observation also rechecks caller/repository/maintenance liveness
+        # after the external preparation closes, before ready can be observed.
+        owned_checkpoint(:legacy_preparation_completed)
+    end
+  end
+
+  # TASK18_LEGACY_PREPARATION_END
 
   defp pause_owned_baseline do
     state = owned_state()
@@ -269,7 +342,16 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
 
     database = if state.names, do: state.names.database
     root = if state.names, do: state.names.storage_root
-    failures = cleanup_step(failures, {:drop_database, database}, &drop_owned_database/0)
+
+    quarantined? =
+      not is_nil(state.legacy_preparation) and state.legacy_cleanup in [:running, :unconfirmed]
+
+    failures =
+      if quarantined? do
+        failures ++ [{:legacy_preparation_quarantined, state.legacy_cleanup}]
+      else
+        cleanup_step(failures, {:drop_database, database}, &drop_owned_database/0)
+      end
 
     failures =
       Enum.reduce(owned_state().connections, failures, fn pid, failures ->
@@ -278,7 +360,10 @@ defmodule Singularity.Storage.MigrationTestEnvironment do
         end)
       end)
 
-    failures = cleanup_step(failures, {:remove_root, root}, &remove_owned_root/0)
+    failures =
+      if quarantined?,
+        do: failures,
+        else: cleanup_step(failures, {:remove_root, root}, &remove_owned_root/0)
 
     failures =
       cleanup_step(failures, :restore_configs, fn -> restore_owned_configs(state.configs) end)
