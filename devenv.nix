@@ -4,14 +4,14 @@ let
   pkgs-stable = import inputs.nixpkgs-stable { system = pkgs.stdenv.system; };
 in
 {
-  packages = with pkgs-stable; [
-    git
-    beam28Packages.elixir-ls
-    nodejs_24
+  packages = [
+    pkgs-stable.git
+    pkgs.beam29Packages.elixir-ls
+    pkgs-stable.nodejs_24
   ];
 
   languages.elixir.enable = true;
-  languages.elixir.package = pkgs-stable.beam28Packages.elixir;
+  languages.elixir.package = pkgs.beam29Packages.elixir;
 
   services.postgres = {
     enable = true;
