@@ -1,134 +1,38 @@
-# Singularity Repository Instructions
+# Singularity
 
-## Active release
+自托管的个人信息采集与知识保存系统。用户配置信息来源，系统负责收集，沉淀为可回溯的知识条目。
 
-The only active product release is Singularity `0.2.0`, the first complete
-single-user personal knowledge base. Its governing documents are:
+当前设计：`docs/superpowers/specs/2026-11-09-singularity-collector-v1-design.md`。
 
-- `docs/superpowers/specs/2026-08-31-singularity-v0.2-release-design.md`
-- `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
-- `docs/superpowers/plans/2026-08-31-singularity-v0.2-release.md`
-- `docs/superpowers/specs/2026-09-06-singularity-v0.2-phase-1-canonical-model-design.md`
-- `docs/superpowers/plans/2026-09-06-singularity-v0.2-phase-1-canonical-model.md`
+## 技术栈
 
-Work proceeds one accepted phase at a time in a separate project-local
-worktree and branch. Phase 1 is accepted locally at
-`a80957da41582de40bdf586a0cba1e14644acf0a`. The active implementation
-slice is Phase 2 under
-`docs/superpowers/specs/2026-09-22-singularity-v0.2-phase-2-import-extraction-design.md`
-and
-`docs/superpowers/plans/2026-09-22-singularity-v0.2-phase-2-import-extraction.md`.
-Later phases still require separate approved designs and detailed plans.
-Version bumps, tags, releases, pushes, and deployments remain separately gated.
+- Elixir umbrella：`apps/singularity`（领域与采集），`apps/singularity_web`（Phoenix LiveView + phoenix_duskmoon）。
+- PostgreSQL；后台任务用 Styx（自维护的 Oban fork）；HTTP 用 Req；HTML 解析用 Floki。
+- `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection` 的公开函数，不直接访问 Repo。
 
-New canonical writes remain unavailable to production runtime roles.
-Public import, extraction workers, search, Note Save integration, backup V3,
-and browser behavior remain in their designated later phases.
+## 新增来源类型
 
-Phase 2 must provide original-byte retention and abandoned extraction recovery
-before public import. Phase 4 must seal Note source-set membership before enabling
-its writes. Production activation requires a fail-closed backup guard for
-unsupported canonical rows or complete V3 support.
+1. 在 `Singularity.Collectors.<Name>` 实现 `Singularity.Collector` 的全部回调。
+2. 把"获取"和"纯函数解析"分开；解析部分用真实响应的 fixture 测试，覆盖正常、空结果、单条损坏三种情况。
+3. 在 `config :singularity, :collectors` 中注册。
+4. （可选）在 `SingularityWeb.ItemComponents` 中加一个 kind 专属的展示组件。
 
-Phase 1 source acceptance covers only the bounded authenticated storage digest
-primitive, source-proof contract, source revalidation, and isolated contract tests.
-Live runtime custody composition requires a separately approved Phase 2 design.
-No custody, key, capability, or Vault change is authorized.
-Test doubles do not prove live source verification.
+如果新增类型时必须改框架或加 migration，说明框架有缺陷，要先更新 spec。
 
-## Vault freeze
+## 上游依赖
 
-Vault is frozen compatibility substrate for `0.2.0`, not an active product
-module or release deliverable.
+Styx、phoenix_duskmoon、duskmoon_bundler 都是自维护的库。遇到缺陷或缺少功能时，去对应仓库提 issue，不在本地绕过。
 
-- Do not add, redesign, clean up, remove, migrate, or make Vault optional.
-- Do not change Vault unlock, locking, keys, passwords, recovery,
-  capabilities, administration, policies, commands, telemetry, tests, or UX.
-- Do not investigate or repair unrelated Vault issues.
-- Existing `vault_id` columns and adapter plumbing may remain only as opaque
-  legacy owner-scope encoding required by current persistence.
-- New knowledge APIs derive owner scope from authenticated runtime context and
-  never accept a caller-selected Vault scope.
-- A Vault-related file may change only for the smallest compile-preserving
-  compatibility patch required by approved knowledge work, and that patch
-  must be reported explicitly.
-- Removing or replacing legacy Vault infrastructure requires a separately
-  approved migration project.
+## 流程
 
-The active invariant is:
+- 一个功能对应一份 spec 和一份 plan，完成后统一 review 一次。符合"新增来源类型"清单的工作只需要一份简短的 plan。
+- 不产生回执文件、SHA 清单，也不做切片级的多重审查。
+- 直接在 main 上开发，除非用户明确要求，否则不创建分支或 worktree。
+- YAGNI：spec 中列为"不做"的内容，必须先有新的 spec 才能开始。
 
-> Every user-owned object belongs to an authenticated owner scope, and every
-> projection points to an immutable source version.
+## 验证
 
-## Active exclusions
-
-Qdrant is out of scope for `0.2.0`.
-
-Embeddings, vector or hybrid retrieval, reranking, RAG, LLM or Agent
-execution, OCR, Office formats, autosave, WYSIWYG editing, CRDTs,
-collaboration, synchronization, sharing, media domains, finance, health,
-external connectors, ESS/S3 redesign, Activity expansion, and Settings
-expansion are also out of scope.
-
-## Architectural boundaries
-
-- PostgreSQL is canonical for structured knowledge records.
-- Original binary bytes remain in the established Asset storage path.
-- Search rows are rebuildable projections, never canonical records.
-- Every search result and citation resolves to an immutable source version.
-- `singularity_web` calls only `Singularity.Runtime.Api`.
-- Domain code does not acquire Ecto, Phoenix, filesystem, shell, PostgreSQL,
-  or React concerns.
-- External extraction stays outside long PostgreSQL transactions.
-- Imports, jobs, and projection rebuilds are idempotent.
-- User content stays out of logs, telemetry metadata, exceptions, outbox
-  payloads, job arguments, and audit metadata.
-
-## Phase and verification protocol
-
-- Characterize established behavior before changing it.
-- Add a failing focused contract before changing enforced behavior.
-- Never edit a released migration.
-- Never weaken, skip, delete, or reclassify a required assertion.
-- Run focused checks during a phase and the complete README verification gate
-  before accepting the phase.
-- Preserve the seven-application dependency graph and require zero xref
-  cycles.
-- Record commits, changed files, migrations, tests, exact commands and
-  results, remaining risks, and confirmation that no Vault feature work
-  occurred.
-
-### Historical Phase 0 blocker repairs
-
-The following approved repair scope records the accepted Phase 0 boundary;
-its Phase 1 prohibition is historical and does not override the active release scope.
-
-- `docs/superpowers/specs/2026-09-01-singularity-v0.2-phase-0-blocker-repair-design.md`
-
-The only classification repair makes
-`resource_versions_resource_classification_fkey` deferrable and initially
-deferred through a new forward migration.
-
-The only wake repair moves application-owned wake generation counters from
-Oban metadata to `jobs.job_submissions` and raises the supported Oban floor to
-2.24.
-
-No other Phase 0 production-code, production-behavior, or schema change is
-authorized. Version bumps, tags, releases, pushes, deployments, and Phase 1
-work remain prohibited.
-
-## Stop conditions
-
-Stop the affected work and report evidence when:
-
-- live remote identity or required workflow state cannot be verified;
-- a complete required gate fails;
-- work would change Vault semantics or require an unapproved migration;
-- an additive implementation cannot preserve immutable source provenance;
-- backup compatibility would break;
-- release automation cannot prove the exact tested source; or
-- a dependency issue in a configured internal organization blocks the task.
-
-Follow the repository upstream-issue routing policy. Do not hide a dependency
-defect behind an unapproved local workaround. Independent work may continue
-only when it remains valid and does not evade the blocker.
+    devenv up -d
+    devenv shell -- mix format --check-formatted
+    devenv shell -- mix compile --warnings-as-errors
+    devenv shell -- mix test
