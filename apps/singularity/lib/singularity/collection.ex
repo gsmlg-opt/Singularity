@@ -42,6 +42,8 @@ defmodule Singularity.Collection do
       {:ok, %Result{} = result} -> record(source, result, now)
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    exception -> {:error, {:exception, exception.__struct__}}
   end
 
   defp record(source, result, now) do
@@ -49,8 +51,6 @@ defmodule Singularity.Collection do
       {:ok, count} -> {:ok, count, result.skipped}
       {:error, reason} -> {:error, reason}
     end
-  rescue
-    exception -> {:error, {:exception, exception.__struct__}}
   end
 
   defp start_run!(source, now) do

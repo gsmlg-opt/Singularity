@@ -18,6 +18,7 @@ config :singularity, Styx,
   queues: [default: 5, collect: 1],
   plugins: [
     {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
+    {Styx.Lifeline, rescue_after: {30, :minutes}},
     {Styx.Cron, crontab: [{"* * * * *", Singularity.Collection.ScheduleWorker}]}
   ]
 

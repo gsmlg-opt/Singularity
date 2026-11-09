@@ -36,6 +36,15 @@ defmodule Singularity.CollectionTest do
       assert error =~ "no entries"
     end
 
+    test "marks the run failed when the collector raises" do
+      Process.put(:fake_collector_response, fn _c, _n -> raise "parser exploded" end)
+
+      assert {:error, {:exception, RuntimeError}, %FetchRun{status: "failed", error: error}} =
+               Collection.run(source_fixture(), @now)
+
+      assert error =~ "RuntimeError"
+    end
+
     test "records collector errors and skipped counts" do
       Process.put(:fake_collector_response, fn _c, _n -> {:error, {:http_status, 429}} end)
 
