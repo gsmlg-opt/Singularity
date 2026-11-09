@@ -40,7 +40,10 @@ defmodule Singularity.MixProject do
       {:phoenix_pubsub, "~> 2.4"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
-      {:jason, "~> 1.2"}
+      {:jason, "~> 1.2"},
+      {:styx, "~> 0.1.1"},
+      {:req, "~> 0.5"},
+      {:floki, ">= 0.30.0"}
     ]
   end
 

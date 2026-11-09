@@ -9,6 +9,7 @@ defmodule Singularity.Application do
   def start(_type, _args) do
     children = [
       Singularity.Repo,
+      {Styx, Application.fetch_env!(:singularity, Styx)},
       {DNSCluster, query: Application.get_env(:singularity, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Singularity.PubSub}
       # Start a worker by calling: Singularity.Worker.start_link(arg)

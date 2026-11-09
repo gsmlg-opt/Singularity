@@ -13,6 +13,11 @@ import Config
 config :singularity,
   ecto_repos: [Singularity.Repo]
 
+config :singularity, Styx,
+  repo: Singularity.Repo,
+  queues: [default: 5, collect: 1],
+  plugins: [{Styx.Pruner, max_age: 60 * 60 * 24 * 7}]
+
 config :singularity_web,
   ecto_repos: [Singularity.Repo],
   generators: [context_app: :singularity]

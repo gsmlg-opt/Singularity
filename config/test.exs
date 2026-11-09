@@ -20,6 +20,8 @@ config :singularity,
            pool_size: System.schedulers_online() * 2
          ]
 
+config :singularity, Styx, testing: :manual
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :singularity_web, SingularityWeb.Endpoint,
