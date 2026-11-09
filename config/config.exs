@@ -16,7 +16,10 @@ config :singularity,
 config :singularity, Styx,
   repo: Singularity.Repo,
   queues: [default: 5, collect: 1],
-  plugins: [{Styx.Pruner, max_age: 60 * 60 * 24 * 7}]
+  plugins: [
+    {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
+    {Styx.Cron, crontab: [{"* * * * *", Singularity.Collection.ScheduleWorker}]}
+  ]
 
 config :singularity, :collectors, []
 
