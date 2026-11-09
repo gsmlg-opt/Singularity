@@ -17,7 +17,8 @@ defmodule SingularityWeb.Router do
   scope "/", SingularityWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", ItemLive.Index, :index
+    live "/items/:id", ItemLive.Show, :show
   end
 
   # Other scopes may use custom stacks.
