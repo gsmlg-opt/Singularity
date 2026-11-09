@@ -21,7 +21,7 @@ config :singularity, Styx,
     {Styx.Cron, crontab: [{"* * * * *", Singularity.Collection.ScheduleWorker}]}
   ]
 
-config :singularity, :collectors, []
+config :singularity, :collectors, [Singularity.Collectors.GithubTrending]
 
 config :singularity_web,
   ecto_repos: [Singularity.Repo],

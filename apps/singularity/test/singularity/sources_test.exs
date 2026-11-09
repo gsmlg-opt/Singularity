@@ -1,5 +1,5 @@
 defmodule Singularity.SourcesTest do
-  use Singularity.DataCase, async: false
+  use Singularity.DataCase, async: true
 
   import Singularity.Fixtures
 
@@ -74,28 +74,8 @@ defmodule Singularity.SourcesTest do
   end
 
   test "ensure_default_source/1 creates the GitHub Trending default only once" do
-    Application.put_env(:singularity, :collectors, [
-      Singularity.Test.FakeCollector,
-      GithubTrendingStub
-    ])
-
-    on_exit(fn ->
-      Application.put_env(:singularity, :collectors, [Singularity.Test.FakeCollector])
-    end)
-
     assert {:ok, %Source{kind: "github_trending"}} = Sources.ensure_default_source(@now)
     assert {:ok, :exists} = Sources.ensure_default_source(@now)
     assert length(Sources.list_sources()) == 1
   end
-end
-
-defmodule GithubTrendingStub do
-  @moduledoc false
-  @behaviour Singularity.Collector
-  def kind, do: "github_trending"
-  def label, do: "GitHub Trending"
-  def config_fields, do: []
-  def default_interval_minutes, do: 1440
-  def validate_config(config), do: {:ok, config}
-  def fetch(_config, _now), do: {:error, :stub}
 end
