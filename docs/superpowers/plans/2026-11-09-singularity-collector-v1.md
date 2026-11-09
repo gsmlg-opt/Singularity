@@ -6,7 +6,7 @@
 
 **Architecture:** 两个 app 的 umbrella：`apps/singularity` 放领域代码（Sources / Knowledge / Collection 三个上下文、`Collector` behaviour 与注册表、Styx workers），`apps/singularity_web` 放 Phoenix LiveView + phoenix_duskmoon UI，只调用领域上下文。新增来源类型只需实现 `Collector` behaviour 并在配置中注册。
 
-**Tech Stack:** Elixir ~> 1.18 / OTP 28，Phoenix 1.8 + LiveView，phoenix_duskmoon ~> 10，duskmoon_bundler ~> 10.1，PostgreSQL 17，Styx ~> 0.1.1（自维护的 Oban fork），Req ~> 0.5，Floki。
+**Tech Stack:** Elixir ~> 1.18 / OTP 29（devenv 从 rolling nixpkgs 获取 beam29Packages，glibc 2.44），Phoenix 1.8 + LiveView，phoenix_duskmoon ~> 10，duskmoon_bundler ~> 10.1，PostgreSQL 17，Styx ~> 0.1.1（自维护的 Oban fork），Req ~> 0.5，Floki。
 
 **Spec:** `docs/superpowers/specs/2026-11-09-singularity-collector-v1-design.md`
 
@@ -3081,27 +3081,48 @@ git commit -m "feat: add collect task, release migrations and default source"
 
 - [ ] **Step 1: Dockerfile**
 
-参照 `../backplane/Dockerfile` 中构建资源的方式（`mix npm.install --frozen`、`DUSKMOON_NATIVE_MODE=precompiled`、`mix assets.deploy`），写成单个 builder 阶段：
+duskmoon_vize 预编译的 GNU NIF 要求 glibc 2.43（Ubuntu 26.04）。上游在 duskmoon-dev/duskmoon-bundler#9 中明确这是有意为之的平台基线，所以 Web 资源必须在 `ubuntu:26.04` 阶段构建，这和 `../backplane/Dockerfile` 的 `web-assets-builder` 阶段做法相同。release 本身在 Elixir 镜像中构建，然后把构建好的 `priv/static` 复制进去：
 ```dockerfile
-ARG ELIXIR_IMAGE=hexpm/elixir:1.18.4-erlang-28.0.2-debian-bookworm-20250630-slim
-ARG RUNNER_IMAGE=debian:bookworm-slim
+# 执行前用 hub.docker.com/r/hexpm/elixir/tags 确认 1.18.5 + OTP 29.1.x 的确切 tag
+ARG ELIXIR_IMAGE=hexpm/elixir:1.18.5-erlang-29.1.2-debian-trixie-slim
+ARG RUNNER_IMAGE=debian:trixie-slim
+
+FROM ${ELIXIR_IMAGE} AS beam-tools
+
+FROM ubuntu:26.04 AS web-assets-builder
+ENV MIX_ENV=prod DUSKMOON_NATIVE_MODE=precompiled LANG=C.UTF-8
+WORKDIR /app
+COPY --from=beam-tools /usr/local /usr/local
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git unzip \
+    libncurses6 libodbc2 libsctp1 libssl3t64 libstdc++6 netbase \
+  && rm -rf /var/lib/apt/lists/*
+RUN mix local.hex --force && mix local.rebar --force
+COPY mix.exs mix.lock package.json package-lock.json bunfig.toml ./
+COPY config ./config
+COPY apps/singularity/mix.exs ./apps/singularity/mix.exs
+COPY apps/singularity_web/mix.exs apps/singularity_web/package.json ./apps/singularity_web/
+RUN mix deps.get --only prod && mix deps.compile
+RUN mix npm.install --frozen
+COPY . .
+RUN mix assets.deploy
 
 FROM ${ELIXIR_IMAGE} AS builder
-ENV MIX_ENV=prod DUSKMOON_NATIVE_MODE=precompiled LANG=C.UTF-8
+ENV MIX_ENV=prod LANG=C.UTF-8
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends build-essential ca-certificates curl git unzip \
   && rm -rf /var/lib/apt/lists/*
 RUN mix local.hex --force && mix local.rebar --force
-
 COPY mix.exs mix.lock ./
 COPY config ./config
 COPY apps/singularity/mix.exs ./apps/singularity/mix.exs
 COPY apps/singularity_web/mix.exs ./apps/singularity_web/mix.exs
 RUN mix deps.get --only prod && mix deps.compile
-
 COPY . .
-RUN mix assets.setup && mix assets.deploy && mix release singularity
+COPY --from=web-assets-builder /app/apps/singularity_web/priv/static ./apps/singularity_web/priv/static
+RUN mix release singularity
 
 FROM ${RUNNER_IMAGE}
 RUN apt-get update \
@@ -3115,7 +3136,7 @@ USER singularity
 EXPOSE 4000
 CMD ["/app/bin/server"]
 ```
-`mix assets.setup` 和 `mix assets.deploy` 是 Task 3 中 setup skill 在 `singularity_web` 里定义的 alias。如果 setup 产出的是 `package.json`，并且需要 `mix npm.install --frozen`，就在 `COPY . .` 之前按 backplane 的方式复制 `package.json` 和 lock 文件，再执行安装。
+`mix npm.install` 是 duskmoon_npm 提供的纯 Elixir 任务，不需要 Node。`mix assets.deploy` 是 Task 3 在 `singularity_web` 中定义的 alias（`phx.digest.clean`、`duskmoon_bundler.build singularity_web --tailwind`、`phx.digest`）。如果 builder 阶段因为 `lazy_html` 或其他依赖需要编译 Rust 而失败，就设置 `DUSKMOON_NATIVE_MODE=precompiled`，并检查是否只有 vize 需要 glibc 2.43（runner 阶段不会加载 vize，因为它是构建期依赖）。
 
 `.dockerignore`：
 ```
@@ -3169,7 +3190,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
+          otp-version: "29"
           elixir-version: "1.18"
       - run: mix deps.get
       - run: mix format --check-formatted
