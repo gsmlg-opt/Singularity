@@ -11,7 +11,7 @@ in
   ];
 
   languages.elixir.enable = true;
-  languages.elixir.package = pkgs.beam29Packages.elixir;
+  languages.elixir.package = pkgs.beam29Packages.elixir_1_20;
 
   services.postgres = {
     enable = true;

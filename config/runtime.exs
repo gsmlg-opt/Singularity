@@ -60,6 +60,7 @@ if config_env() == :prod do
       """
 
   config :singularity_web, SingularityWeb.Endpoint,
+    url: [host: System.get_env("PHX_HOST", "localhost")],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
