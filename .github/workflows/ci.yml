@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    # 固定 runner：setup-beam 按 ImageOS 下载 builds.hex.pm 的 OTP 构建，ubuntu-24.04 有 OTP 29.1.2
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      # builds.hex.pm 没有 Elixir 1.18.x 的 OTP 29 构建；与 Dockerfile 的镜像保持一致
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29.1.2"
+          elixir-version: "1.20.5"
+      # 不构建 Web 资源：duskmoon_vize 的预编译 NIF 需要 glibc 2.43，runner 上无法加载；资源构建在 Dockerfile 的 ubuntu:26.04 阶段完成
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t singularity:ci .

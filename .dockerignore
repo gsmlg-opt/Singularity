@@ -1,0 +1,7 @@
+_build
+deps
+.devenv
+.elixir_ls
+node_modules
+apps/singularity_web/priv/static/assets
+.git
