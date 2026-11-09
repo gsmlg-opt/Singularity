@@ -19,6 +19,10 @@ defmodule SingularityWeb.Router do
 
     live "/", ItemLive.Index, :index
     live "/items/:id", ItemLive.Show, :show
+    live "/sources", SourceLive.Index, :index
+    live "/sources/new", SourceLive.Form, :new
+    live "/sources/:id/edit", SourceLive.Form, :edit
+    live "/sources/:id", SourceLive.Show, :show
   end
 
   # Other scopes may use custom stacks.

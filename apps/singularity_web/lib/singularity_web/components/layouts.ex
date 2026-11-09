@@ -35,7 +35,7 @@ defmodule SingularityWeb.Layouts do
       <nav class="w-48 shrink-0 border-r border-outline-variant p-4 space-y-2" aria-label="主导航">
         <div class="text-lg font-semibold mb-4">Singularity</div>
         <.link navigate={~p"/"} id="nav-items" class={nav_class(@current == :items)}>条目</.link>
-        <.link navigate="/sources" id="nav-sources" class={nav_class(@current == :sources)}>来源</.link>
+        <.link navigate={~p"/sources"} id="nav-sources" class={nav_class(@current == :sources)}>来源</.link>
       </nav>
       <main class="flex-1 p-6 space-y-4 min-w-0">
         <.dm_flash_group flash={@flash} />
