@@ -10,6 +10,10 @@ import Config
 config :singularity_web, SingularityWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if System.get_env("PHX_SERVER") do
+  config :singularity_web, SingularityWeb.Endpoint, server: true
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :singularity_web, SingularityWeb.Endpoint,

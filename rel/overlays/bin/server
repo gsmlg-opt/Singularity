@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+cd -P -- "$(dirname -- "$0")"
+./singularity eval Singularity.Release.migrate
+PHX_SERVER=true exec ./singularity start

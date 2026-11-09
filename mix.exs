@@ -8,7 +8,17 @@ defmodule Singularity.Umbrella.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      releases: releases()
+    ]
+  end
+
+  defp releases do
+    [
+      singularity: [
+        applications: [singularity: :permanent, singularity_web: :permanent],
+        include_executables_for: [:unix]
+      ]
     ]
   end
 
