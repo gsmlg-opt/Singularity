@@ -1,0 +1,38 @@
+# Local test environment: the release image plus its own Postgres.
+# Deploy with deploy/local/deploy.sh; settings live in deploy/local/.env.
+name: singularity-test
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: singularity
+      POSTGRES_PASSWORD: singularity
+      POSTGRES_DB: singularity
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U singularity"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../..
+    image: singularity:test
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ecto://singularity:singularity@db/singularity
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?run deploy/local/deploy.sh}
+      PHX_HOST: ${PHX_HOST:-localhost}
+      PORT: "4000"
+    ports:
+      - "${TEST_PORT:-4120}:4000"
+    restart: unless-stopped
+
+volumes:
+  db:

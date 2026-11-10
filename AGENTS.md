@@ -1,6 +1,6 @@
 # Singularity
 
-自托管的个人信息采集与知识保存系统。用户配置信息来源，系统负责收集，沉淀为可回溯的知识条目。
+自托管的个人知识库。知识条目是核心；采集只是条目的一种来源。用户配置信息来源，系统收集后沉淀为可回溯的知识条目。设计、界面和数据模型都以知识条目为中心，不以采集为中心。
 
 当前设计：`docs/superpowers/specs/2026-11-09-singularity-collector-v1-design.md`。
 
@@ -8,7 +8,7 @@
 
 - Elixir umbrella：`apps/singularity`（领域与采集），`apps/singularity_web`（Phoenix LiveView + phoenix_duskmoon）。
 - PostgreSQL；后台任务用 Styx（自维护的 Oban fork）；HTTP 用 Req；HTML 解析用 Floki。
-- `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection` 的公开函数，不直接访问 Repo。
+- `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection` 的公开函数，不直接访问 Repo、schema 或 `Singularity.Collector`。Web 表单提交的数据一律交给对应上下文的服务函数处理。
 
 ## 新增来源类型
 
@@ -36,3 +36,11 @@ Styx、phoenix_duskmoon、duskmoon_bundler 都是自维护的库。遇到缺陷�
     devenv shell -- mix format --check-formatted
     devenv shell -- mix compile --warnings-as-errors
     devenv shell -- mix test
+
+## 本机测试环境
+
+每个版本开发完成后，都要部署到本机测试环境，给用户看效果：
+
+    deploy/local/deploy.sh
+
+它会用当前代码构建 release 镜像，连同独立的 Postgres 一起用 Docker Compose 启动，地址是 http://10.100.10.10:4120/。数据保存在 `singularity-test_db` 卷里，重新部署不会丢失。配置在 `deploy/local/.env`（不进 git）。

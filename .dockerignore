@@ -5,3 +5,4 @@ deps
 node_modules
 apps/singularity_web/priv/static/assets
 .git
+deploy
