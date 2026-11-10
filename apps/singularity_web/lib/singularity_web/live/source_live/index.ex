@@ -2,13 +2,14 @@ defmodule SingularityWeb.SourceLive.Index do
   use SingularityWeb, :live_view
 
   import SingularityWeb.ItemComponents, only: [format_time: 1]
+  import SingularityWeb.RunComponents
 
   alias Singularity.{Collection, Sources}
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Collection.subscribe()
-    {:ok, load(socket)}
+    {:ok, socket |> assign(page_title: dgettext("source", "Sources")) |> load()}
   end
 
   @impl true
@@ -20,7 +21,7 @@ defmodule SingularityWeb.SourceLive.Index do
 
   def handle_event("collect", %{"id" => id}, socket) do
     {:ok, _job} = Collection.enqueue(String.to_integer(id))
-    {:noreply, put_flash(socket, :info, "已加入采集队列")}
+    {:noreply, put_flash(socket, :info, dgettext("source", "Collection queued"))}
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
@@ -34,40 +35,56 @@ defmodule SingularityWeb.SourceLive.Index do
   defp load(socket),
     do: assign(socket, sources: Sources.list_sources(), runs: Collection.latest_runs())
 
-  def run_variant("ok"), do: "success"
-  def run_variant("failed"), do: "error"
-  def run_variant(_running), do: "info"
+  @doc "The source type's label, or a notice when the type is no longer registered."
+  def type_label(source) do
+    case Sources.fetch_source_type(source.kind) do
+      {:ok, type} -> type.label
+      :error -> dgettext("source", "Unavailable (%{kind})", kind: source.kind)
+    end
+  end
+
+  def enabled_label(true), do: dgettext("source", "Enabled")
+  def enabled_label(false), do: dgettext("source", "Disabled")
 
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold">来源</h1>
-        <.link navigate={~p"/sources/new"} id="new-source"><.dm_btn variant="primary" size="sm">
-          新建来源
-        </.dm_btn></.link>
+        <h1 class="text-2xl font-semibold">{dgettext("source", "Sources")}</h1>
+        <.link navigate={~p"/source/sources/new"} id="new-source">
+          <.dm_btn variant="primary" size="sm">{dgettext("source", "New source")}</.dm_btn>
+        </.link>
       </div>
 
       <.dm_table id="sources" data={@sources}>
-        <:col :let={source} label="名称">
-          <.link navigate={~p"/sources/#{source.id}"} id={"source-#{source.id}"}>{source.name}</.link>
+        <:col :let={source} label={dgettext("source", "Name")}>
+          <.link navigate={~p"/source/sources/#{source.id}"} id={"source-#{source.id}"}>
+            {source.name}
+          </.link>
         </:col>
-        <:col :let={source} label="类型">{Sources.type_label(source)}</:col>
-        <:col :let={source} label="间隔">{source.interval_minutes} 分钟</:col>
-        <:col :let={source} label="状态">
+        <:col :let={source} label={dgettext("source", "Type")}>{type_label(source)}</:col>
+        <:col :let={source} label={dgettext("source", "Interval")}>
+          {dngettext("source", "%{count} minute", "%{count} minutes", source.interval_minutes)}
+        </:col>
+        <:col :let={source} label={dgettext("source", "Status")}>
           <.dm_badge size="sm" variant={if source.enabled, do: "success", else: "warning"}>
-            {if source.enabled, do: "启用", else: "停用"}
+            {enabled_label(source.enabled)}
           </.dm_badge>
         </:col>
-        <:col :let={source} label="最近采集">
+        <:col :let={source} label={dgettext("source", "Latest run")}>
           <span :if={run = @runs[source.id]}>
-            <.dm_badge size="sm" variant={run_variant(run.status)}>{run.status}</.dm_badge>
-            {format_time(run.started_at)} · {run.item_count} 条
+            <.run_status run={run} />
+            {format_time(run.started_at)} · {dngettext(
+              "source",
+              "%{count} item",
+              "%{count} items",
+              run.item_count
+            )}
           </span>
           <span :if={!@runs[source.id]}>—</span>
         </:col>
-        <:col :let={source} label="操作">
+        <:col :let={source} label={dgettext("source", "Actions")}>
           <div class="flex gap-2">
             <.dm_btn
               :if={source.enabled}
@@ -76,20 +93,26 @@ defmodule SingularityWeb.SourceLive.Index do
               phx-click="collect"
               phx-value-id={source.id}
             >
-              立即采集
+              {dgettext("source", "Collect now")}
             </.dm_btn>
             <.dm_btn size="sm" id={"toggle-#{source.id}"} phx-click="toggle" phx-value-id={source.id}>
-              {if source.enabled, do: "停用", else: "启用"}
+              {if source.enabled,
+                do: dgettext("source", "Disable"),
+                else: dgettext("source", "Enable")}
             </.dm_btn>
-            <.link navigate={~p"/sources/#{source.id}/edit"}><.dm_btn size="sm">编辑</.dm_btn></.link>
+            <.link navigate={~p"/source/sources/#{source.id}/edit"}>
+              <.dm_btn size="sm">{dgettext("source", "Edit")}</.dm_btn>
+            </.link>
             <.dm_btn
               size="sm"
               id={"delete-#{source.id}"}
               phx-click="delete"
               phx-value-id={source.id}
-              data-confirm="删除该来源及其观测记录？条目会保留。"
+              data-confirm={
+                dgettext("source", "Delete this source and its records? Projects are kept.")
+              }
             >
-              删除
+              {dgettext("source", "Delete")}
             </.dm_btn>
           </div>
         </:col>

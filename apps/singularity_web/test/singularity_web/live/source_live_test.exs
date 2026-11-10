@@ -5,23 +5,32 @@ defmodule SingularityWeb.SourceLiveTest do
   import Phoenix.LiveViewTest
   import Singularity.Fixtures
 
+  alias Singularity.{Knowledge, Sources}
   alias Singularity.Collection.{CollectSourceWorker, FetchRun}
-  alias Singularity.Sources
+  alias Singularity.Knowledge.FetchDetailsWorker
 
   describe "index" do
     test "lists sources with type and latest run status", %{conn: conn} do
       source = source_fixture(name: "My fake")
       fetch_run_fixture(source, status: "failed", error: "HTTP 500")
 
-      {:ok, _view, html} = live(conn, ~p"/sources")
+      {:ok, view, html} = live(conn, ~p"/source/sources")
       assert html =~ "My fake"
       assert html =~ "Fake"
-      assert html =~ "failed"
+      assert html =~ "Failed"
+      assert has_element?(view, "#top-nav-source[aria-current='page']")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='source-sources']")
+    end
+
+    test "reports unavailable source types", %{conn: conn} do
+      source_fixture(kind: "gone")
+      {:ok, _view, html} = live(conn, ~p"/source/sources")
+      assert html =~ "Unavailable (gone)"
     end
 
     test "collect now enqueues a job", %{conn: conn} do
       source = source_fixture()
-      {:ok, view, _html} = live(conn, ~p"/sources")
+      {:ok, view, _html} = live(conn, ~p"/source/sources")
 
       view |> element("#collect-#{source.id}") |> render_click()
       assert_enqueued(worker: CollectSourceWorker, args: %{source_id: source.id})
@@ -29,7 +38,7 @@ defmodule SingularityWeb.SourceLiveTest do
 
     test "toggle and delete", %{conn: conn} do
       source = source_fixture()
-      {:ok, view, _html} = live(conn, ~p"/sources")
+      {:ok, view, _html} = live(conn, ~p"/source/sources")
 
       view |> element("#toggle-#{source.id}") |> render_click()
       refute Sources.get_source!(source.id).enabled
@@ -41,11 +50,11 @@ defmodule SingularityWeb.SourceLiveTest do
 
   describe "form" do
     test "new: choose a type, then fill type-specific fields", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/sources/new")
+      {:ok, _view, html} = live(conn, ~p"/source/sources/new")
       assert html =~ "GitHub Trending"
       assert html =~ "Fake"
 
-      {:ok, view, html} = live(conn, ~p"/sources/new?kind=fake")
+      {:ok, view, html} = live(conn, ~p"/source/sources/new?kind=fake")
       assert html =~ "Topic"
 
       html =
@@ -61,12 +70,12 @@ defmodule SingularityWeb.SourceLiveTest do
 
       [source] = Sources.list_sources()
       assert source.config == %{"topic" => "x"}
-      assert_redirect(view, ~p"/sources/#{source.id}")
+      assert_redirect(view, ~p"/source/sources/#{source.id}")
     end
 
     test "edit updates the source", %{conn: conn} do
       source = source_fixture()
-      {:ok, view, _html} = live(conn, ~p"/sources/#{source.id}/edit")
+      {:ok, view, _html} = live(conn, ~p"/source/sources/#{source.id}/edit")
 
       view |> form("#source-form", source: %{name: "Renamed"}) |> render_submit()
       assert Sources.get_source!(source.id).name == "Renamed"
@@ -78,7 +87,7 @@ defmodule SingularityWeb.SourceLiveTest do
       source = source_fixture()
       fetch_run_fixture(source, status: "failed", error: "HTTP 429")
 
-      {:ok, view, html} = live(conn, ~p"/sources/#{source.id}")
+      {:ok, view, html} = live(conn, ~p"/source/sources/#{source.id}")
       assert html =~ "HTTP 429"
 
       fetch_run_fixture(source,
@@ -89,6 +98,62 @@ defmodule SingularityWeb.SourceLiveTest do
 
       send(view.pid, {:fetch_run, %FetchRun{source_id: source.id, status: "ok"}})
       assert render(view) =~ "25"
+    end
+  end
+
+  describe "add project" do
+    test "adds a project and opens it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/source/add")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='source-add']")
+
+      view
+      |> form("#add-project-form", project: %{address: "https://github.com/elixir-lang/elixir"})
+      |> render_submit()
+
+      [project] = Knowledge.list_projects()
+      {path, flash} = assert_redirect(view)
+      assert path == ~p"/knowledge/projects/#{project.id}"
+      assert flash["info"] =~ "Project added"
+      assert_enqueued(worker: FetchDetailsWorker, args: %{item_id: project.id})
+    end
+
+    test "opens a known project with a notice", %{conn: conn} do
+      {:ok, project} = Knowledge.add_project("elixir-lang/elixir")
+      {:ok, view, _html} = live(conn, ~p"/source/add")
+
+      view
+      |> form("#add-project-form", project: %{address: "git@github.com:elixir-lang/elixir.git"})
+      |> render_submit()
+
+      {path, flash} = assert_redirect(view)
+      assert path == ~p"/knowledge/projects/#{project.id}"
+      assert flash["info"] == "Already in the knowledge base"
+    end
+
+    test "shows an error for unsupported addresses", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/source/add")
+
+      html =
+        view
+        |> form("#add-project-form", project: %{address: "https://gitlab.com/a/b"})
+        |> render_submit()
+
+      assert html =~ "Only GitHub repositories are supported"
+      assert Knowledge.list_projects() == []
+    end
+  end
+
+  describe "runs" do
+    test "lists recent runs across sources", %{conn: conn} do
+      fetch_run_fixture(source_fixture(name: "Daily"), status: "failed", error: "HTTP 500")
+      fetch_run_fixture(source_fixture(name: "Weekly"), status: "ok", item_count: 25)
+
+      {:ok, view, html} = live(conn, ~p"/source/runs")
+      assert html =~ "Daily"
+      assert html =~ "Weekly"
+      assert has_element?(view, "#runs", "HTTP 500")
+      assert has_element?(view, "#runs", "25")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='source-runs']")
     end
   end
 end

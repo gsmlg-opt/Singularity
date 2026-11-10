@@ -25,3 +25,253 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Running"
 msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:78
+#, elixir-autogen, elixir-format
+msgid "%{count} item"
+msgid_plural "%{count} items"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/source_live/index.ex:68
+#: lib/singularity_web/live/source_live/show.ex:62
+#, elixir-autogen, elixir-format
+msgid "%{count} minute"
+msgid_plural "%{count} minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/source_live/index.ex:87
+#, elixir-autogen, elixir-format
+msgid "Actions"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:72
+#, elixir-autogen, elixir-format
+msgid "Add"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:10
+#: lib/singularity_web/live/source_live/add.ex:55
+#, elixir-autogen, elixir-format
+msgid "Add project"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:28
+#, elixir-autogen, elixir-format
+msgid "Already in the knowledge base"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:24
+#, elixir-autogen, elixir-format
+msgid "Choose a source type"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:96
+#: lib/singularity_web/live/source_live/show.ex:47
+#, elixir-autogen, elixir-format
+msgid "Collect now"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:146
+#, elixir-autogen, elixir-format
+msgid "Collection interval (minutes)"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:24
+#: lib/singularity_web/live/source_live/show.ex:26
+#, elixir-autogen, elixir-format
+msgid "Collection queued"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:17
+#: lib/singularity_web/live/source_live/runs.ex:30
+#, elixir-autogen, elixir-format
+msgid "Collection runs"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/show.ex:58
+#, elixir-autogen, elixir-format
+msgid "Config"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:115
+#, elixir-autogen, elixir-format
+msgid "Delete"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:112
+#, elixir-autogen, elixir-format
+msgid "Delete this source and its records? Projects are kept."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:100
+#, elixir-autogen, elixir-format
+msgid "Disable"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:47
+#, elixir-autogen, elixir-format
+msgid "Disabled"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:104
+#: lib/singularity_web/live/source_live/show.ex:50
+#, elixir-autogen, elixir-format
+msgid "Edit"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:39
+#, elixir-autogen, elixir-format
+msgid "Edit source"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:101
+#, elixir-autogen, elixir-format
+msgid "Enable"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:46
+#, elixir-autogen, elixir-format
+msgid "Enabled"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:57
+#, elixir-autogen, elixir-format
+msgid "Enter a GitHub repository; its details and labels are fetched automatically."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:39
+#: lib/singularity_web/live/source_live/show.ex:77
+#, elixir-autogen, elixir-format
+msgid "Error"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/show.ex:74
+#, elixir-autogen, elixir-format
+msgid "Finished"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:67
+#: lib/singularity_web/live/source_live/show.ex:60
+#, elixir-autogen, elixir-format
+msgid "Interval"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:38
+#: lib/singularity_web/live/source_live/show.ex:75
+#, elixir-autogen, elixir-format
+msgid "Items"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:75
+#, elixir-autogen, elixir-format
+msgid "Latest run"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:117
+#: lib/singularity_web/live/source_live/index.ex:61
+#, elixir-autogen, elixir-format
+msgid "Name"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:56
+#, elixir-autogen, elixir-format
+msgid "New source"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:16
+#, elixir-autogen, elixir-format
+msgid "New source: %{type}"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/show.ex:66
+#, elixir-autogen, elixir-format
+msgid "Next run"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:31
+#, elixir-autogen, elixir-format
+msgid "No collection has run yet."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:36
+#, elixir-autogen, elixir-format
+msgid "Only GitHub repositories are supported for now, e.g. owner/repo or https://github.com/owner/repo"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:22
+#, elixir-autogen, elixir-format
+msgid "Project added; fetching its GitHub details"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/show.ex:70
+#, elixir-autogen, elixir-format
+msgid "Recent runs"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:67
+#, elixir-autogen, elixir-format
+msgid "Repository address"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:152
+#, elixir-autogen, elixir-format
+msgid "Save"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:76
+#, elixir-autogen, elixir-format
+msgid "Saved"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/show.ex:76
+#, elixir-autogen, elixir-format
+msgid "Skipped"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:33
+#, elixir-autogen, elixir-format
+msgid "Source"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:49
+#, elixir-autogen, elixir-format
+msgid "Source type %{kind} is unavailable, so the source cannot be edited"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:12
+#: lib/singularity_web/live/source_live/index.ex:54
+#, elixir-autogen, elixir-format
+msgid "Sources"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:37
+#: lib/singularity_web/live/source_live/show.ex:73
+#, elixir-autogen, elixir-format
+msgid "Started"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:70
+#: lib/singularity_web/live/source_live/runs.ex:36
+#: lib/singularity_web/live/source_live/show.ex:64
+#: lib/singularity_web/live/source_live/show.ex:72
+#, elixir-autogen, elixir-format
+msgid "Status"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/add.ex:44
+#, elixir-autogen, elixir-format
+msgid "The project could not be added; try again"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:66
+#: lib/singularity_web/live/source_live/show.ex:56
+#, elixir-autogen, elixir-format
+msgid "Type"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/index.ex:42
+#, elixir-autogen, elixir-format
+msgid "Unavailable (%{kind})"
+msgstr ""

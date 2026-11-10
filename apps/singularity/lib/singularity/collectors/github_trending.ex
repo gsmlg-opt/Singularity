@@ -20,8 +20,14 @@ defmodule Singularity.Collectors.GithubTrending do
   @impl true
   def config_fields do
     [
-      %{name: :language, type: :string, label: "语言（留空表示全部）", required: false, options: []},
-      %{name: :since, type: :select, label: "时间范围", required: true, options: @since_values}
+      %{
+        name: :language,
+        type: :string,
+        label: "Language (leave blank for all)",
+        required: false,
+        options: []
+      },
+      %{name: :since, type: :select, label: "Range", required: true, options: @since_values}
     ]
   end
 

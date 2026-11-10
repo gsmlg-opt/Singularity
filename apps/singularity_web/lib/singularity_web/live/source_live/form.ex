@@ -12,13 +12,16 @@ defmodule SingularityWeb.SourceLive.Form do
       {:ok, type} ->
         source = Sources.new_source(type.kind)
 
-        socket
-        |> assign(page_title: "新建来源 · #{type.label}", source: source, type: type)
-        |> assign(form: to_form(Sources.change_source(source)))
-
-      _ ->
         assign(socket,
-          page_title: "选择来源类型",
+          page_title: dgettext("source", "New source: %{type}", type: type.label),
+          source: source,
+          type: type,
+          form: to_form(Sources.change_source(source))
+        )
+
+      _no_type ->
+        assign(socket,
+          page_title: dgettext("source", "Choose a source type"),
           source: nil,
           type: nil,
           form: nil,
@@ -33,7 +36,7 @@ defmodule SingularityWeb.SourceLive.Form do
     case Sources.fetch_source_type(source.kind) do
       {:ok, type} ->
         assign(socket,
-          page_title: "编辑来源",
+          page_title: dgettext("source", "Edit source"),
           source: source,
           type: type,
           form: to_form(Sources.change_source(source))
@@ -41,8 +44,13 @@ defmodule SingularityWeb.SourceLive.Form do
 
       :error ->
         socket
-        |> put_flash(:error, "来源类型 #{source.kind} 不可用，无法编辑")
-        |> push_navigate(to: ~p"/sources")
+        |> put_flash(
+          :error,
+          dgettext("source", "Source type %{kind} is unavailable, so the source cannot be edited",
+            kind: source.kind
+          )
+        )
+        |> push_navigate(to: ~p"/source/sources")
     end
   end
 
@@ -64,7 +72,9 @@ defmodule SingularityWeb.SourceLive.Form do
     case result do
       {:ok, source} ->
         {:noreply,
-         socket |> put_flash(:info, "已保存") |> push_navigate(to: ~p"/sources/#{source.id}")}
+         socket
+         |> put_flash(:info, dgettext("source", "Saved"))
+         |> push_navigate(to: ~p"/source/sources/#{source.id}")}
 
       {:error, changeset} ->
         {:noreply, assign(socket, form: to_form(changeset))}
@@ -76,6 +86,9 @@ defmodule SingularityWeb.SourceLive.Form do
     Map.get(config, to_string(name)) || Map.get(config, name)
   end
 
+  # Collector field labels are English data; translate them at runtime.
+  defp field_label(field), do: Gettext.dgettext(SingularityWeb.Gettext, "source", field.label)
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -84,7 +97,9 @@ defmodule SingularityWeb.SourceLive.Form do
 
       <ul :if={is_nil(@type)} id="source-types" class="space-y-2">
         <li :for={type <- @types}>
-          <.link navigate={~p"/sources/new?kind=#{type.kind}"} id={"type-#{type.kind}"}>{type.label}</.link>
+          <.link navigate={~p"/source/sources/new?kind=#{type.kind}"} id={"type-#{type.kind}"}>
+            {type.label}
+          </.link>
         </li>
       </ul>
 
@@ -94,9 +109,14 @@ defmodule SingularityWeb.SourceLive.Form do
         id="source-form"
         phx-change="validate"
         phx-submit="save"
-        class="space-y-3 max-w-lg"
+        class="max-w-lg space-y-3"
       >
-        <.dm_input id="source-name" name="source[name]" label="名称" value={@form[:name].value} />
+        <.dm_input
+          id="source-name"
+          name="source[name]"
+          label={dgettext("source", "Name")}
+          value={@form[:name].value}
+        />
         <.field_errors form={@form} field={:name} />
 
         <div :for={field <- @type.fields}>
@@ -104,7 +124,7 @@ defmodule SingularityWeb.SourceLive.Form do
             :if={field.type == :select}
             id={"config-#{field.name}"}
             name={"source[config][#{field.name}]"}
-            label={field.label}
+            label={field_label(field)}
             value={config_value(@form, field.name)}
             options={Enum.map(field.options, &{&1, &1})}
           />
@@ -113,7 +133,7 @@ defmodule SingularityWeb.SourceLive.Form do
             id={"config-#{field.name}"}
             type={if field.type == :integer, do: "number", else: "text"}
             name={"source[config][#{field.name}]"}
-            label={field.label}
+            label={field_label(field)}
             value={config_value(@form, field.name)}
           />
         </div>
@@ -123,12 +143,14 @@ defmodule SingularityWeb.SourceLive.Form do
           id="source-interval"
           type="number"
           name="source[interval_minutes]"
-          label="采集间隔（分钟）"
+          label={dgettext("source", "Collection interval (minutes)")}
           value={@form[:interval_minutes].value}
         />
         <.field_errors form={@form} field={:interval_minutes} />
 
-        <.dm_btn type="submit" variant="primary" id="source-save">保存</.dm_btn>
+        <.dm_btn type="submit" variant="primary" id="source-save">
+          {dgettext("source", "Save")}
+        </.dm_btn>
       </.form>
     </Layouts.app>
     """

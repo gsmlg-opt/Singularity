@@ -88,11 +88,6 @@ defmodule Singularity.SourcesTest do
     end
   end
 
-  test "type_label/1 reports unavailable kinds" do
-    assert Sources.type_label(source_fixture()) == "Fake"
-    assert Sources.type_label(source_fixture(kind: "gone")) =~ "gone"
-  end
-
   test "ensure_default_source/1 creates the GitHub Trending default only once" do
     assert {:ok, %Source{kind: "github_trending"}} = Sources.ensure_default_source(@now)
     assert {:ok, :exists} = Sources.ensure_default_source(@now)

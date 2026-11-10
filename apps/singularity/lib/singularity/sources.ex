@@ -50,13 +50,6 @@ defmodule Singularity.Sources do
   defp describe_type(collector),
     do: %{kind: collector.kind(), label: collector.label(), fields: collector.config_fields()}
 
-  def type_label(%Source{kind: kind}) do
-    case Collector.fetch_module(kind) do
-      {:ok, collector} -> collector.label()
-      :error -> "不可用（#{kind}）"
-    end
-  end
-
   @doc "Locks due sources, advances their next_run_at, and returns them."
   def claim_due_sources(%DateTime{} = now) do
     now = DateTime.truncate(now, :second)
