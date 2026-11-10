@@ -3,14 +3,37 @@ defmodule Singularity.Sources do
 
   import Ecto.Query
 
-  alias Singularity.{Collector, Repo}
+  alias Singularity.{Collector, Repo, Settings}
   alias Singularity.Sources.Source
 
-  @default_source %{
-    "kind" => "github_trending",
-    "name" => "GitHub Trending · All languages · daily",
-    "config" => %{"language" => "", "since" => "daily"}
-  }
+  # Default daily GitHub Trending sources: all languages plus common ones, as
+  # {GitHub trending slug, display name}. Appending a language here seeds it on
+  # the next deploy; defaults the user deleted are not recreated.
+  @trending_daily_defaults [
+    {"", "All languages"},
+    {"elixir", "Elixir"},
+    {"erlang", "Erlang"},
+    {"rust", "Rust"},
+    {"go", "Go"},
+    {"zig", "Zig"},
+    {"c", "C"},
+    {"c++", "C++"},
+    {"c#", "C#"},
+    {"java", "Java"},
+    {"kotlin", "Kotlin"},
+    {"swift", "Swift"},
+    {"python", "Python"},
+    {"javascript", "JavaScript"},
+    {"typescript", "TypeScript"},
+    {"ruby", "Ruby"},
+    {"php", "PHP"},
+    {"dart", "Dart"},
+    {"haskell", "Haskell"},
+    {"lua", "Lua"},
+    {"shell", "Shell"},
+    {"nix", "Nix"}
+  ]
+  @seeded_defaults_key "seeded_trending_daily_languages"
 
   def list_sources, do: Source |> order_by(asc: :inserted_at, asc: :id) |> Repo.all()
 
@@ -73,7 +96,56 @@ defmodule Singularity.Sources do
     claimed
   end
 
-  def ensure_default_source(now \\ DateTime.utc_now()) do
-    if Repo.exists?(Source), do: {:ok, :exists}, else: create_source(@default_source, now)
+  @doc """
+  Creates the default daily GitHub Trending sources that were never seeded
+  before and do not already exist. Returns `{:ok, created_count}`.
+  """
+  @spec ensure_default_sources(DateTime.t()) :: {:ok, non_neg_integer()}
+  def ensure_default_sources(now \\ DateTime.utc_now()) do
+    Repo.transaction(fn ->
+      seeded = seeded_default_languages()
+
+      pending =
+        Enum.reject(@trending_daily_defaults, fn {language, _name} -> language in seeded end)
+
+      existing = existing_trending_daily_languages()
+
+      created =
+        for {language, name} <- pending, language not in existing do
+          {:ok, _source} =
+            create_source(
+              %{
+                "kind" => "github_trending",
+                "name" => "GitHub Trending · #{name} · daily",
+                "config" => %{"language" => language, "since" => "daily"}
+              },
+              now
+            )
+        end
+
+      {:ok, _setting} =
+        Settings.put(
+          @seeded_defaults_key,
+          JSON.encode!(seeded ++ Enum.map(pending, &elem(&1, 0)))
+        )
+
+      length(created)
+    end)
+  end
+
+  defp seeded_default_languages do
+    case Settings.get(@seeded_defaults_key) do
+      nil -> []
+      json -> JSON.decode!(json)
+    end
+  end
+
+  defp existing_trending_daily_languages do
+    Source
+    |> where(kind: "github_trending")
+    |> select([s], s.config)
+    |> Repo.all()
+    |> Enum.filter(&(&1["since"] == "daily"))
+    |> Enum.map(&(&1["language"] || ""))
   end
 end

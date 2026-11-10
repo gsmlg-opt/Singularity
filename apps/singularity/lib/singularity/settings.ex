@@ -1,5 +1,5 @@
 defmodule Singularity.Settings do
-  @moduledoc "System configuration in the settings table. v2 has one key: the GitHub token."
+  @moduledoc "System configuration in the settings table: the GitHub token and which default sources were seeded."
 
   import Ecto.Query
 
@@ -37,6 +37,23 @@ defmodule Singularity.Settings do
   def clear_github_token do
     Setting |> where(key: @github_token) |> Repo.delete_all()
     :ok
+  end
+
+  @doc "The stored value for `key`, or nil."
+  @spec get(String.t()) :: String.t() | nil
+  def get(key) when is_binary(key),
+    do: Setting |> where(key: ^key) |> select([s], s.value) |> Repo.one()
+
+  @doc "Stores `value` under `key`, replacing any previous value."
+  @spec put(String.t(), String.t()) :: {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
+  def put(key, value) when is_binary(key) and is_binary(value) do
+    %Setting{}
+    |> Setting.changeset(%{key: key, value: value})
+    |> Repo.insert(
+      on_conflict: {:replace, [:value, :updated_at]},
+      conflict_target: :key,
+      returning: true
+    )
   end
 
   defp stored_token,

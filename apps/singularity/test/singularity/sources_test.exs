@@ -88,9 +88,59 @@ defmodule Singularity.SourcesTest do
     end
   end
 
-  test "ensure_default_source/1 creates the GitHub Trending default only once" do
-    assert {:ok, %Source{kind: "github_trending"}} = Sources.ensure_default_source(@now)
-    assert {:ok, :exists} = Sources.ensure_default_source(@now)
-    assert length(Sources.list_sources()) == 1
+  describe "ensure_default_sources/1" do
+    test "creates a daily GitHub Trending source for all languages and each common language" do
+      assert {:ok, created} = Sources.ensure_default_sources(@now)
+
+      sources = Sources.list_sources()
+      assert created == length(sources)
+      assert Enum.all?(sources, &(&1.kind == "github_trending" and &1.config["since"] == "daily"))
+
+      languages = Enum.map(sources, & &1.config["language"])
+      assert "" in languages
+
+      assert Enum.all?(
+               ["elixir", "rust", "go", "python", "typescript", "c++", "c#"],
+               &(&1 in languages)
+             )
+
+      assert Enum.find(sources, &(&1.config["language"] == "")).name ==
+               "GitHub Trending · All languages · daily"
+
+      assert Enum.find(sources, &(&1.config["language"] == "c++")).name ==
+               "GitHub Trending · C++ · daily"
+    end
+
+    test "is idempotent" do
+      {:ok, _created} = Sources.ensure_default_sources(@now)
+      count = length(Sources.list_sources())
+
+      assert {:ok, 0} = Sources.ensure_default_sources(@now)
+      assert length(Sources.list_sources()) == count
+    end
+
+    test "does not duplicate an existing source with the same language and range" do
+      {:ok, existing} =
+        Sources.create_source(
+          %{"kind" => "github_trending", "name" => "Mine", "config" => %{"language" => "rust"}},
+          @now
+        )
+
+      {:ok, _created} = Sources.ensure_default_sources(@now)
+
+      assert [%Source{id: id}] =
+               Enum.filter(Sources.list_sources(), &(&1.config["language"] == "rust"))
+
+      assert id == existing.id
+    end
+
+    test "does not recreate a default source the user deleted" do
+      {:ok, _created} = Sources.ensure_default_sources(@now)
+      elixir = Enum.find(Sources.list_sources(), &(&1.config["language"] == "elixir"))
+      {:ok, _deleted} = Sources.delete_source(elixir)
+
+      assert {:ok, 0} = Sources.ensure_default_sources(@now)
+      refute Enum.any?(Sources.list_sources(), &(&1.config["language"] == "elixir"))
+    end
   end
 end

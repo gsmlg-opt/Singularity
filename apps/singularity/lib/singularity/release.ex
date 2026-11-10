@@ -12,7 +12,7 @@ defmodule Singularity.Release do
 
     {:ok, _, _} =
       Ecto.Migrator.with_repo(Singularity.Repo, fn _repo ->
-        Singularity.Sources.ensure_default_source()
+        Singularity.Sources.ensure_default_sources()
       end)
 
     :ok

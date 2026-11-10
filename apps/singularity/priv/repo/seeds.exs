@@ -1,1 +1,1 @@
-{:ok, _} = Singularity.Sources.ensure_default_source()
+{:ok, _} = Singularity.Sources.ensure_default_sources()
