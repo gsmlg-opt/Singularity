@@ -1,29 +1,28 @@
 defmodule SingularityWeb.SourceLive.Form do
   use SingularityWeb, :live_view
 
-  alias Singularity.{Collector, Sources}
-  alias Singularity.Sources.Source
+  alias Singularity.Sources
 
   @impl true
   def mount(params, _session, socket),
     do: {:ok, apply_action(socket, socket.assigns.live_action, params)}
 
   defp apply_action(socket, :new, params) do
-    case params["kind"] && Collector.fetch_module(params["kind"]) do
-      {:ok, collector} ->
-        source = %Source{kind: collector.kind(), config: %{}}
+    case params["kind"] && Sources.fetch_source_type(params["kind"]) do
+      {:ok, type} ->
+        source = Sources.new_source(type.kind)
 
         socket
-        |> assign(page_title: "新建来源 · #{collector.label()}", source: source, collector: collector)
+        |> assign(page_title: "新建来源 · #{type.label}", source: source, type: type)
         |> assign(form: to_form(Sources.change_source(source)))
 
       _ ->
         assign(socket,
           page_title: "选择来源类型",
           source: nil,
-          collector: nil,
+          type: nil,
           form: nil,
-          collectors: Collector.all()
+          types: Sources.list_source_types()
         )
     end
   end
@@ -31,12 +30,12 @@ defmodule SingularityWeb.SourceLive.Form do
   defp apply_action(socket, :edit, %{"id" => id}) do
     source = Sources.get_source!(id)
 
-    case Collector.fetch_module(source.kind) do
-      {:ok, collector} ->
+    case Sources.fetch_source_type(source.kind) do
+      {:ok, type} ->
         assign(socket,
           page_title: "编辑来源",
           source: source,
-          collector: collector,
+          type: type,
           form: to_form(Sources.change_source(source))
         )
 
@@ -107,14 +106,14 @@ defmodule SingularityWeb.SourceLive.Form do
     <Layouts.app flash={@flash} current={:sources}>
       <h1 class="text-2xl font-semibold">{@page_title}</h1>
 
-      <ul :if={is_nil(@collector)} id="source-types" class="space-y-2">
-        <li :for={collector <- @collectors}>
-          <.link navigate={~p"/sources/new?kind=#{collector.kind()}"} id={"type-#{collector.kind()}"}>{collector.label()}</.link>
+      <ul :if={is_nil(@type)} id="source-types" class="space-y-2">
+        <li :for={type <- @types}>
+          <.link navigate={~p"/sources/new?kind=#{type.kind}"} id={"type-#{type.kind}"}>{type.label}</.link>
         </li>
       </ul>
 
       <.form
-        :if={@collector}
+        :if={@type}
         for={@form}
         id="source-form"
         phx-change="validate"
@@ -124,7 +123,7 @@ defmodule SingularityWeb.SourceLive.Form do
         <.dm_input id="source-name" name="source[name]" label="名称" value={@form[:name].value} />
         <.field_errors form={@form} field={:name} />
 
-        <div :for={field <- @collector.config_fields()}>
+        <div :for={field <- @type.fields}>
           <.dm_select
             :if={field.type == :select}
             id={"config-#{field.name}"}

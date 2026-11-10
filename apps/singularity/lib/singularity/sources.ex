@@ -34,6 +34,22 @@ defmodule Singularity.Sources do
 
   def delete_source(%Source{} = source), do: Repo.delete(source)
 
+  @typedoc "What a form needs to know about a source type."
+  @type source_type :: %{kind: String.t(), label: String.t(), fields: [Collector.field()]}
+
+  @spec list_source_types() :: [source_type()]
+  def list_source_types, do: Enum.map(Collector.all(), &describe_type/1)
+
+  @spec fetch_source_type(String.t()) :: {:ok, source_type()} | :error
+  def fetch_source_type(kind) when is_binary(kind) do
+    with {:ok, collector} <- Collector.fetch_module(kind), do: {:ok, describe_type(collector)}
+  end
+
+  def new_source(kind) when is_binary(kind), do: %Source{kind: kind, config: %{}}
+
+  defp describe_type(collector),
+    do: %{kind: collector.kind(), label: collector.label(), fields: collector.config_fields()}
+
   def type_label(%Source{kind: kind}) do
     case Collector.fetch_module(kind) do
       {:ok, collector} -> collector.label()

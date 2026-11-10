@@ -8,6 +8,26 @@ defmodule Singularity.SourcesTest do
 
   @now ~U[2026-11-09 08:00:00Z]
 
+  describe "source types" do
+    test "list_source_types/0 describes every registered type for forms" do
+      types = Sources.list_source_types()
+
+      assert %{kind: "fake", label: "Fake", fields: [%{name: :topic}]} =
+               Enum.find(types, &(&1.kind == "fake"))
+
+      assert Enum.any?(types, &(&1.kind == "github_trending"))
+    end
+
+    test "fetch_source_type/1 returns the type or :error" do
+      assert {:ok, %{kind: "fake", label: "Fake"}} = Sources.fetch_source_type("fake")
+      assert :error = Sources.fetch_source_type("nope")
+    end
+
+    test "new_source/1 builds an unsaved source of the given type" do
+      assert %Source{id: nil, kind: "fake", config: %{}} = Sources.new_source("fake")
+    end
+  end
+
   describe "create_source/2" do
     test "applies the collector's default interval, normalized config and immediate schedule" do
       assert {:ok, %Source{} = source} =
