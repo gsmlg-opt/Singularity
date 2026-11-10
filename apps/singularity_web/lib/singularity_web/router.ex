@@ -28,6 +28,8 @@ defmodule SingularityWeb.Router do
     live "/source/sources/:id", SourceLive.Show, :show
     live "/source/add", SourceLive.Add, :new
     live "/source/runs", SourceLive.Runs, :index
+    live "/system/github", SystemLive.Github, :show
+    live "/system/status", SystemLive.Status, :show
   end
 
   # Other scopes may use custom stacks.

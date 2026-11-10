@@ -1,0 +1,109 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: lib/singularity_web/live/system_live/github.ex:45
+#, elixir-autogen, elixir-format
+msgid "Access token"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:33
+#, elixir-autogen, elixir-format
+msgid "Available"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:73
+#, elixir-autogen, elixir-format
+msgid "Clear token"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:36
+#, elixir-autogen, elixir-format
+msgid "Executing"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:33
+#, elixir-autogen, elixir-format
+msgid "From the GITHUB_TOKEN environment variable (••••%{last4})"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:8
+#: lib/singularity_web/live/system_live/github.ex:43
+#, elixir-autogen, elixir-format
+msgid "GitHub"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:30
+#, elixir-autogen, elixir-format
+msgid "Job queues"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:64
+#, elixir-autogen, elixir-format
+msgid "New token"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:29
+#, elixir-autogen, elixir-format
+msgid "Not set"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:32
+#, elixir-autogen, elixir-format
+msgid "Queue"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:26
+#, elixir-autogen, elixir-format
+msgid "Refresh"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:39
+#, elixir-autogen, elixir-format
+msgid "Retryable"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:68
+#, elixir-autogen, elixir-format
+msgid "Save token"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:37
+#, elixir-autogen, elixir-format
+msgid "Set ••••%{last4}"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:10
+#: lib/singularity_web/live/system_live/status.ex:24
+#, elixir-autogen, elixir-format
+msgid "System status"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:23
+#, elixir-autogen, elixir-format
+msgid "Token cleared"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:14
+#, elixir-autogen, elixir-format
+msgid "Token saved"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/status.ex:29
+#, elixir-autogen, elixir-format
+msgid "Version"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/github.ex:47
+#, elixir-autogen, elixir-format
+msgid "Without a token GitHub allows 60 requests per hour; detail fetches wait when the limit is reached."
+msgstr ""

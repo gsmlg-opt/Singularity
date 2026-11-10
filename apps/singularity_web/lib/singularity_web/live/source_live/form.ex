@@ -89,6 +89,14 @@ defmodule SingularityWeb.SourceLive.Form do
   # Collector field labels are English data; translate them at runtime.
   defp field_label(field), do: Gettext.dgettext(SingularityWeb.Gettext, "source", field.label)
 
+  # Marks the collectors' field labels for `mix gettext.extract`; never called.
+  @doc false
+  def collector_field_labels,
+    do: [
+      dgettext_noop("source", "Language (leave blank for all)"),
+      dgettext_noop("source", "Range")
+    ]
+
   @impl true
   def render(assigns) do
     ~H"""
