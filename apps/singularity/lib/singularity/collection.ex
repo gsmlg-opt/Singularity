@@ -102,4 +102,13 @@ defmodule Singularity.Collection do
     |> Repo.all()
     |> Map.new(&{&1.source_id, &1})
   end
+
+  @doc "The most recent runs across all sources, newest first, with sources preloaded."
+  def list_recent_runs(limit \\ 50) do
+    FetchRun
+    |> order_by(desc: :started_at, desc: :id)
+    |> limit(^limit)
+    |> preload(:source)
+    |> Repo.all()
+  end
 end

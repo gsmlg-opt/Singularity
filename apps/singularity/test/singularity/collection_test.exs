@@ -106,4 +106,16 @@ defmodule Singularity.CollectionTest do
     assert [%{id: id}, _] = Collection.list_runs(source.id)
     assert id == newest.id
   end
+
+  test "list_recent_runs/1 spans sources, newest first, with sources loaded" do
+    a = source_fixture(name: "A")
+    b = source_fixture(name: "B")
+    fetch_run_fixture(a, started_at: ~U[2026-11-09 07:00:00Z])
+    fetch_run_fixture(b, started_at: ~U[2026-11-09 08:00:00Z])
+
+    assert [%FetchRun{source: %{name: "B"}}, %FetchRun{source: %{name: "A"}}] =
+             Collection.list_recent_runs(10)
+
+    assert [_newest] = Collection.list_recent_runs(1)
+  end
 end
