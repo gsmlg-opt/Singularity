@@ -28,6 +28,8 @@ config :singularity_web,
   ecto_repos: [Singularity.Repo],
   generators: [context_app: :singularity]
 
+config :singularity_web, SingularityWeb.Gettext, default_locale: "en"
+
 # Configures the endpoint
 config :singularity_web, SingularityWeb.Endpoint,
   url: [host: "localhost"],

@@ -76,30 +76,6 @@ defmodule SingularityWeb.SourceLive.Form do
     Map.get(config, to_string(name)) || Map.get(config, name)
   end
 
-  attr :form, :any, required: true
-  attr :field, :atom, required: true
-
-  defp field_errors(assigns) do
-    changeset = assigns.form.source
-
-    messages =
-      if changeset.action do
-        for {field, {message, opts}} <- changeset.errors, field == assigns.field do
-          Enum.reduce(opts, message, fn {key, value}, acc ->
-            String.replace(acc, "%{#{key}}", to_string(value))
-          end)
-        end
-      else
-        []
-      end
-
-    assigns = assign(assigns, :messages, messages)
-
-    ~H"""
-    <p :for={message <- @messages} class="text-sm text-error" data-role="error">{message}</p>
-    """
-  end
-
   @impl true
   def render(assigns) do
     ~H"""

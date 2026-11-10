@@ -50,6 +50,7 @@ defmodule SingularityWeb.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:singularity, in_umbrella: true},
+      {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:bandit, "~> 1.5"}
     ]

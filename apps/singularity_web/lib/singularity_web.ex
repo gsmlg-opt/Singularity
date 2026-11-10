@@ -77,10 +77,15 @@ defmodule SingularityWeb do
 
   defp html_helpers do
     quote do
+      # Translations: gettext/dgettext/dngettext against SingularityWeb.Gettext
+      use Gettext, backend: SingularityWeb.Gettext
+
       # HTML escaping functionality
       import Phoenix.HTML
       # DuskMoon UI components
       use PhoenixDuskmoon.Component
+      # Form errors through the errors domain
+      import SingularityWeb.FormHelpers
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
