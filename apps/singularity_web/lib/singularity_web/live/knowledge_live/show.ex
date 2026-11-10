@@ -24,6 +24,10 @@ defmodule SingularityWeb.KnowledgeLive.Show do
      put_flash(socket, :info, dgettext("knowledge", "Details will be fetched again shortly"))}
   end
 
+  # Tracks the typed value so resetting the form after a save reaches the browser.
+  def handle_event("edit_label", %{"label" => params}, socket),
+    do: {:noreply, assign(socket, label_form: to_form(params, as: :label))}
+
   def handle_event("add_label", %{"label" => %{"name" => name}}, socket) do
     case Knowledge.add_label(socket.assigns.project, name) do
       {:ok, _label} ->
@@ -157,7 +161,13 @@ defmodule SingularityWeb.KnowledgeLive.Show do
               </.dm_badge>
             </li>
           </ul>
-          <.form for={@label_form} id="label-form" phx-submit="add_label" class="flex items-end gap-2">
+          <.form
+            for={@label_form}
+            id="label-form"
+            phx-change="edit_label"
+            phx-submit="add_label"
+            class="flex items-end gap-2"
+          >
             <.dm_input
               id="label-name"
               name={@label_form[:name].name}
