@@ -18,7 +18,9 @@ defmodule SingularityWeb.Router do
     pipe_through :browser
 
     live "/", ItemLive.Index, :index
-    live "/items/:id", ItemLive.Show, :show
+    live "/knowledge", KnowledgeLive.Index, :index
+    live "/knowledge/projects", KnowledgeLive.Index, :projects
+    live "/knowledge/projects/:id", KnowledgeLive.Show, :show
     live "/sources", SourceLive.Index, :index
     live "/sources/new", SourceLive.Form, :new
     live "/sources/:id/edit", SourceLive.Form, :edit

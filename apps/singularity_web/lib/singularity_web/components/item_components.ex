@@ -1,10 +1,10 @@
 defmodule SingularityWeb.ItemComponents do
   @moduledoc """
-  Kind-specific item rendering. Add a clause per item kind; kinds without a
-  clause fall back to the generic display.
+  Knowledge item rendering. Software projects are the only kind in v2; a new
+  item kind gets its own component here.
   """
 
-  use Phoenix.Component
+  use SingularityWeb, :html
 
   attr :item, :map, required: true
 
@@ -37,6 +37,73 @@ defmodule SingularityWeb.ItemComponents do
     """
   end
 
+  attr :project, :map, required: true
+
+  def project_card(assigns) do
+    ~H"""
+    <.dm_card id={"project-#{@project.id}"} class="h-full" shadow="sm">
+      <:title>
+        <.link navigate={~p"/knowledge/projects/#{@project.id}"} class="hover:underline">
+          {@project.title}
+        </.link>
+      </:title>
+      <p :if={@project.summary} class="text-sm text-on-surface-variant line-clamp-3">
+        {@project.summary}
+      </p>
+      <div class="flex flex-wrap items-center gap-3 text-xs text-on-surface-variant">
+        <span class="inline-flex items-center gap-1">
+          <.dm_mdi name="star-outline" class="h-4 w-4" />{format_count(@project.attributes["stars"])}
+        </span>
+        <span :if={@project.attributes["language"]} class="inline-flex items-center gap-1">
+          <.dm_mdi name="code-tags" class="h-4 w-4" />{@project.attributes["language"]}
+        </span>
+        <.details_status project={@project} />
+      </div>
+      <.label_badges labels={@project.labels} />
+    </.dm_card>
+    """
+  end
+
+  attr :project, :map, required: true
+
+  def details_status(assigns) do
+    ~H"""
+    <.dm_badge :if={@project.details_error} variant="error" size="sm" data-role="details-status">
+      {dgettext("knowledge", "Details failed")}
+    </.dm_badge>
+    <.dm_badge
+      :if={!@project.details_error && !@project.details_fetched_at}
+      variant="info"
+      size="sm"
+      data-role="details-status"
+    >
+      {dgettext("knowledge", "Fetching details")}
+    </.dm_badge>
+    """
+  end
+
+  attr :labels, :list, required: true
+
+  def label_badges(assigns) do
+    ~H"""
+    <div :if={@labels != []} class="flex flex-wrap gap-1">
+      <.dm_badge
+        :for={label <- @labels}
+        size="sm"
+        variant={label_variant(label.origin)}
+        soft={label.origin == "auto"}
+        data-origin={label.origin}
+      >
+        {label.name}
+      </.dm_badge>
+    </div>
+    """
+  end
+
+  @doc "Manual labels use a different style from automatic ones."
+  def label_variant("manual"), do: "secondary"
+  def label_variant(_auto), do: "neutral"
+
   def format_count(nil), do: "—"
 
   def format_count(number) when is_integer(number),
@@ -46,4 +113,7 @@ defmodule SingularityWeb.ItemComponents do
 
   def format_time(nil), do: "—"
   def format_time(%DateTime{} = at), do: Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
+
+  def format_date(nil), do: "—"
+  def format_date(iso8601) when is_binary(iso8601), do: String.slice(iso8601, 0, 10)
 end

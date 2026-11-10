@@ -1,0 +1,96 @@
+## This file is a PO Template file.
+##
+## "msgid"s here are often extracted from source code.
+## Add new messages manually only if they're dynamic
+## messages that can't be statically extracted.
+##
+## Run "mix gettext.extract" to bring this file up to
+## date. Leave "msgstr"s empty as changing them here has no
+## effect: edit them in PO (.po) files instead.
+#
+msgid ""
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:98
+#, elixir-autogen, elixir-format
+msgid "Activity"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:141
+#, elixir-autogen, elixir-format
+msgid "Add project"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:114
+#, elixir-autogen, elixir-format
+msgid "All knowledge"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:110
+#, elixir-autogen, elixir-format
+msgid "Browse"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:147
+#, elixir-autogen, elixir-format
+msgid "Collection runs"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:162
+#, elixir-autogen, elixir-format
+msgid "GitHub"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:77
+#, elixir-autogen, elixir-format
+msgid "Knowledge"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:37
+#, elixir-autogen, elixir-format
+msgid "Main navigation"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:76
+#: lib/singularity_web/components/layouts.ex:88
+#: lib/singularity_web/components/layouts.ex:92
+#, elixir-autogen, elixir-format
+msgid "Overview"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:59
+#, elixir-autogen, elixir-format
+msgid "Section navigation"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:120
+#, elixir-autogen, elixir-format
+msgid "Software projects"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:78
+#: lib/singularity_web/components/layouts.ex:136
+#, elixir-autogen, elixir-format
+msgid "Source"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:138
+#, elixir-autogen, elixir-format
+msgid "Sources"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:79
+#: lib/singularity_web/components/layouts.ex:160
+#, elixir-autogen, elixir-format
+msgid "System"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:165
+#, elixir-autogen, elixir-format
+msgid "System status"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:129
+#, elixir-autogen, elixir-format
+msgid "Top labels"
+msgstr ""

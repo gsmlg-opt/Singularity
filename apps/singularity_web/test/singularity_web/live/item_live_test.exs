@@ -81,16 +81,4 @@ defmodule SingularityWeb.ItemLiveTest do
 
     assert render(view) =~ "late/arrival"
   end
-
-  test "item detail shows the observation history", %{conn: conn} do
-    source = source_fixture()
-    record!(source, "2026-11-09", ~U[2026-11-09 08:00:00Z], [gh_entry("acme/rocket", 3)])
-    [%{item: item}] = Knowledge.list_items()
-
-    {:ok, _view, html} = live(conn, ~p"/items/#{item.id}")
-    assert html =~ "https://github.com/acme/rocket"
-    assert html =~ "2026-11-09"
-    assert html =~ "Fake source"
-    assert html =~ "+45"
-  end
 end

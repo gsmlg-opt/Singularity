@@ -96,7 +96,7 @@ defmodule SingularityWeb.ItemLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current={:items}>
+    <Layouts.app flash={@flash} socket={@socket} section={:overview} active="overview-home">
       <h1 class="text-2xl font-semibold">条目</h1>
 
       <form id="item-filters" phx-change="filter" class="flex flex-wrap gap-3 items-end">
@@ -145,7 +145,7 @@ defmodule SingularityWeb.ItemLive.Index do
         >
           <div class="flex items-baseline gap-2">
             <span :if={row.rank} class="font-mono text-sm">#{row.rank}</span>
-            <.link navigate={~p"/items/#{row.item.id}"} class="font-medium">{row.item.title}</.link>
+            <.link navigate={~p"/knowledge/projects/#{row.item.id}"} class="font-medium">{row.item.title}</.link>
             <.dm_badge size="sm">{row.item.kind}</.dm_badge>
           </div>
           <p :if={row.item.summary} class="text-sm text-on-surface-variant">{row.item.summary}</p>

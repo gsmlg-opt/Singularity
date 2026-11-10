@@ -32,7 +32,7 @@ defmodule SingularityWeb.SourceLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current={:sources}>
+    <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">{@source.name}</h1>
         <div class="flex gap-2">

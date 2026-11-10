@@ -172,8 +172,6 @@ defmodule Singularity.Knowledge do
     |> Repo.all()
   end
 
-  def get_item!(id), do: Repo.get!(Item, id)
-
   def list_observations(item_id) do
     Observation
     |> where(item_id: ^item_id)

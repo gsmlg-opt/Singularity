@@ -41,7 +41,7 @@ defmodule SingularityWeb.SourceLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current={:sources}>
+    <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">来源</h1>
         <.link navigate={~p"/sources/new"} id="new-source"><.dm_btn variant="primary" size="sm">

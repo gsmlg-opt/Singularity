@@ -1,0 +1,205 @@
+defmodule SingularityWeb.KnowledgeLiveTest do
+  use SingularityWeb.ConnCase, async: true
+  use Styx.Testing, repo: Singularity.Repo
+
+  import Phoenix.LiveViewTest
+  import Singularity.Fixtures
+
+  alias Singularity.Knowledge
+  alias Singularity.Knowledge.FetchDetailsWorker
+
+  describe "index" do
+    setup do
+      rocket =
+        project_fixture(
+          title: "acme/rocket",
+          summary: "A fast rocket engine",
+          attributes: %{"stars" => 12_345, "language" => "Rust"},
+          details_fetched_at: now(),
+          first_seen_at: DateTime.add(now(), -60, :second)
+        )
+
+      tool = project_fixture(title: "solo/tool", details_error: "repository not found")
+      label_fixture(rocket, "lang:rust")
+      label_fixture(rocket, "favorite", "manual")
+      %{rocket: rocket, tool: tool}
+    end
+
+    test "shows project cards with stars, language, labels and details state", %{
+      conn: conn,
+      rocket: rocket
+    } do
+      {:ok, view, html} = live(conn, ~p"/knowledge")
+      card = "#project-#{rocket.id}"
+
+      assert html =~ "Software projects"
+
+      assert has_element?(
+               view,
+               "#{card} a[href='/knowledge/projects/#{rocket.id}']",
+               "acme/rocket"
+             )
+
+      assert has_element?(view, card, "A fast rocket engine")
+      assert has_element?(view, card, "12,345")
+      assert has_element?(view, card, "Rust")
+      assert has_element?(view, "#{card} [data-origin='manual']", "favorite")
+      assert has_element?(view, "#{card} [data-origin='auto']", "lang:rust")
+      assert has_element?(view, "#projects [data-role='details-status']", "Details failed")
+    end
+
+    test "uses the Knowledge section menu with browse items and top labels", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge")
+
+      assert has_element?(view, "#top-nav-knowledge[aria-current='page']")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='knowledge-all']")
+      assert has_element?(view, "#section-menu a[href='/knowledge']", "All knowledge")
+
+      assert has_element?(
+               view,
+               "#section-menu a[href='/knowledge/projects']",
+               "Software projects"
+             )
+
+      assert has_element?(
+               view,
+               "#section-menu a[href='/knowledge?label=lang%3Arust']",
+               "lang:rust"
+             )
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='knowledge-projects']")
+    end
+
+    test "filters by label and clears the filter", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge?label=favorite")
+
+      assert has_element?(view, "#active-label", "favorite")
+      assert has_element?(view, "#projects", "acme/rocket")
+      refute has_element?(view, "#projects", "solo/tool")
+
+      view |> element("#clear-label") |> render_click()
+      assert_patch(view, ~p"/knowledge")
+      assert has_element?(view, "#projects", "solo/tool")
+    end
+
+    test "searches and sorts through the toolbar", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge")
+
+      view
+      |> element("#project-filters")
+      |> render_change(%{"filters" => %{"q" => "rocket", "sort" => "stars"}})
+
+      assert_patch(view, ~p"/knowledge?q=rocket&sort=stars")
+      assert has_element?(view, "#projects", "acme/rocket")
+      refute has_element?(view, "#projects", "solo/tool")
+    end
+
+    test "reloads when a project is updated", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      late = project_fixture(title: "late/arrival")
+      send(view.pid, {:project_updated, late.id})
+      assert has_element?(view, "#projects", "late/arrival")
+    end
+  end
+
+  describe "show" do
+    setup do
+      source = source_fixture(name: "Trending daily")
+
+      project =
+        project_fixture(
+          title: "elixir-lang/elixir",
+          summary: "Simple from zero to scale",
+          attributes: %{
+            "stars" => 26_710,
+            "forks" => 3_717,
+            "language" => "Elixir",
+            "license" => "Apache-2.0",
+            "homepage" => "https://elixir-lang.org/",
+            "archived" => false,
+            "created_at" => "2011-01-09T08:43:57Z",
+            "pushed_at" => "2026-11-10T15:13:02Z"
+          },
+          details_fetched_at: now()
+        )
+
+      observation_fixture(project, source,
+        period: "2026-11-09",
+        rank: 3,
+        observed_at: ~U[2026-11-09 08:00:00Z],
+        attributes: %{"since" => "daily", "stars_in_period" => 45}
+      )
+
+      observation_fixture(project, nil,
+        period: "2026-11-10",
+        observed_at: ~U[2026-11-10 08:00:00Z],
+        attributes: %{"via" => "manual"}
+      )
+
+      label_fixture(project, "lang:elixir")
+      label_fixture(project, "mine", "manual")
+      %{project: project}
+    end
+
+    test "shows GitHub details and source records", %{conn: conn, project: project} do
+      {:ok, view, html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert html =~ "Simple from zero to scale"
+      assert has_element?(view, "#github-details", "26,710")
+      assert has_element?(view, "#github-details", "Apache-2.0")
+      assert has_element?(view, "#github-details", "2011-01-09")
+      assert has_element?(view, "#github-details a[href='https://elixir-lang.org/']")
+      assert has_element?(view, "#github-details a[href='https://github.com/elixir-lang/elixir']")
+      assert has_element?(view, "#observations", "Trending daily")
+      assert has_element?(view, "#observations", "Added manually")
+      assert has_element?(view, "#observations", "45")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='knowledge-projects']")
+    end
+
+    test "adds and removes manual labels; automatic labels are read-only", %{
+      conn: conn,
+      project: project
+    } do
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      view |> form("#label-form", label: %{name: "Favorite"}) |> render_submit()
+      assert has_element?(view, "#project-labels [data-origin='manual']", "favorite")
+
+      labels = Knowledge.get_project!(project.id).labels
+      mine = Enum.find(labels, &(&1.name == "mine"))
+      auto = Enum.find(labels, &(&1.name == "lang:elixir"))
+
+      view |> element("#remove-label-#{mine.id}") |> render_click()
+      refute has_element?(view, "#project-labels", "mine")
+      refute has_element?(view, "#remove-label-#{auto.id}")
+      assert has_element?(view, "#project-labels [data-origin='auto']", "lang:elixir")
+    end
+
+    test "shows label validation errors", %{conn: conn, project: project} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+      html = view |> form("#label-form", label: %{name: " "}) |> render_submit()
+      assert html =~ "can&#39;t be blank"
+    end
+
+    test "fetch again queues a details fetch", %{conn: conn, project: project} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+      view |> element("#refetch") |> render_click()
+      assert_enqueued(worker: FetchDetailsWorker, args: %{item_id: project.id})
+    end
+
+    test "reloads when its project is updated", %{conn: conn, project: project} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      {:ok, _project} =
+        Knowledge.put_details(
+          project,
+          %{title: "elixir-lang/elixir", summary: "Updated summary", attributes: %{}},
+          now()
+        )
+
+      send(view.pid, {:project_updated, project.id})
+      assert render(view) =~ "Updated summary"
+    end
+  end
+end
