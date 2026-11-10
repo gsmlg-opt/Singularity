@@ -57,6 +57,8 @@ defmodule SingularityWeb.Layouts do
           groups={left_menu_groups(@section, @labels)}
           active={@active}
           nav_label={gettext("Section navigation")}
+          expand_label={gettext("Expand navigation")}
+          collapse_label={gettext("Collapse navigation")}
           class="sticky top-16 h-[calc(100dvh-4rem)]"
         />
         <main class="min-w-0 flex-1">

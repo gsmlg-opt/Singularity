@@ -11,37 +11,37 @@
 msgid ""
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:98
+#: lib/singularity_web/components/layouts.ex:100
 #, elixir-autogen, elixir-format
 msgid "Activity"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:141
+#: lib/singularity_web/components/layouts.ex:143
 #, elixir-autogen, elixir-format
 msgid "Add project"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:114
+#: lib/singularity_web/components/layouts.ex:116
 #, elixir-autogen, elixir-format
 msgid "All knowledge"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:110
+#: lib/singularity_web/components/layouts.ex:112
 #, elixir-autogen, elixir-format
 msgid "Browse"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:147
+#: lib/singularity_web/components/layouts.ex:149
 #, elixir-autogen, elixir-format
 msgid "Collection runs"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:162
+#: lib/singularity_web/components/layouts.ex:164
 #, elixir-autogen, elixir-format
 msgid "GitHub"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:77
+#: lib/singularity_web/components/layouts.ex:79
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr ""
@@ -51,9 +51,9 @@ msgstr ""
 msgid "Main navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:76
-#: lib/singularity_web/components/layouts.ex:88
-#: lib/singularity_web/components/layouts.ex:92
+#: lib/singularity_web/components/layouts.ex:78
+#: lib/singularity_web/components/layouts.ex:90
+#: lib/singularity_web/components/layouts.ex:94
 #, elixir-autogen, elixir-format
 msgid "Overview"
 msgstr ""
@@ -63,34 +63,44 @@ msgstr ""
 msgid "Section navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:120
+#: lib/singularity_web/components/layouts.ex:122
 #, elixir-autogen, elixir-format
 msgid "Software projects"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:78
-#: lib/singularity_web/components/layouts.ex:136
+#: lib/singularity_web/components/layouts.ex:80
+#: lib/singularity_web/components/layouts.ex:138
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:138
+#: lib/singularity_web/components/layouts.ex:140
 #, elixir-autogen, elixir-format
 msgid "Sources"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:79
-#: lib/singularity_web/components/layouts.ex:160
+#: lib/singularity_web/components/layouts.ex:81
+#: lib/singularity_web/components/layouts.ex:162
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:165
+#: lib/singularity_web/components/layouts.ex:167
 #, elixir-autogen, elixir-format
 msgid "System status"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:129
+#: lib/singularity_web/components/layouts.ex:131
 #, elixir-autogen, elixir-format
 msgid "Top labels"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:61
+#, elixir-autogen, elixir-format
+msgid "Collapse navigation"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:60
+#, elixir-autogen, elixir-format
+msgid "Expand navigation"
 msgstr ""

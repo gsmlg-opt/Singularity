@@ -1,0 +1,96 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: lib/singularity_web/live/overview_live/activity.ex:61
+#, elixir-autogen, elixir-format
+msgid "%{count} item"
+msgid_plural "%{count} items"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:18
+#: lib/singularity_web/live/overview_live/activity.ex:70
+#, elixir-autogen, elixir-format
+msgid "Activity"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:41
+#, elixir-autogen, elixir-format
+msgid "Added from %{source}"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:40
+#, elixir-autogen, elixir-format
+msgid "Added manually"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:56
+#, elixir-autogen, elixir-format
+msgid "Added this week"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:58
+#, elixir-autogen, elixir-format
+msgid "Collected %{source}"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:61
+#, elixir-autogen, elixir-format
+msgid "Enabled sources"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:66
+#, elixir-autogen, elixir-format
+msgid "Last collection"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:36
+#, elixir-autogen, elixir-format
+msgid "Never"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:78
+#, elixir-autogen, elixir-format
+msgid "No software projects yet. Add one or run a source."
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:72
+#, elixir-autogen, elixir-format
+msgid "Nothing has happened yet."
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:16
+#: lib/singularity_web/live/overview_live/index.ex:46
+#, elixir-autogen, elixir-format
+msgid "Overview"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:86
+#, elixir-autogen, elixir-format
+msgid "Popular labels"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:74
+#, elixir-autogen, elixir-format
+msgid "Recently added"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:51
+#, elixir-autogen, elixir-format
+msgid "Software projects"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/index.ex:75
+#, elixir-autogen, elixir-format
+msgid "View all"
+msgstr ""

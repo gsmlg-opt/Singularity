@@ -17,7 +17,8 @@ defmodule SingularityWeb.Router do
   scope "/", SingularityWeb do
     pipe_through :browser
 
-    live "/", ItemLive.Index, :index
+    live "/", OverviewLive.Index, :index
+    live "/overview/activity", OverviewLive.Activity, :index
     live "/knowledge", KnowledgeLive.Index, :index
     live "/knowledge/projects", KnowledgeLive.Index, :projects
     live "/knowledge/projects/:id", KnowledgeLive.Show, :show

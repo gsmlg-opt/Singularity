@@ -6,37 +6,6 @@ defmodule SingularityWeb.ItemComponents do
 
   use SingularityWeb, :html
 
-  attr :item, :map, required: true
-
-  def item_meta(%{item: %{kind: "github_repo"}} = assigns) do
-    ~H"""
-    <span data-role="item-meta">
-      {@item.attributes["language"] || "—"} · ★ {format_count(@item.attributes["stars"])} · forks {format_count(
-        @item.attributes["forks"]
-      )}
-    </span>
-    """
-  end
-
-  def item_meta(assigns), do: ~H""
-
-  attr :kind, :string, required: true
-  attr :attributes, :map, required: true
-
-  def observation_meta(%{kind: "github_repo"} = assigns) do
-    ~H"""
-    <span>★ {format_count(@attributes["stars"])} · +{format_count(@attributes["stars_in_period"])} ({@attributes[
-      "since"
-    ]})</span>
-    """
-  end
-
-  def observation_meta(assigns) do
-    ~H"""
-    <span>{Enum.map_join(@attributes || %{}, " · ", fn {key, value} -> "#{key}: #{value}" end)}</span>
-    """
-  end
-
   attr :project, :map, required: true
 
   def project_card(assigns) do
