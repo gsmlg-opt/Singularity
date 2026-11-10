@@ -4,7 +4,7 @@ defmodule Singularity.Knowledge.Observation do
 
   @type t :: %__MODULE__{}
 
-  @required [:item_id, :source_id, :period, :observed_at]
+  @required [:item_id, :period, :observed_at]
 
   schema "item_observations" do
     belongs_to :item, Singularity.Knowledge.Item
@@ -19,7 +19,7 @@ defmodule Singularity.Knowledge.Observation do
 
   def changeset(observation, attrs) do
     observation
-    |> cast(attrs, @required ++ [:rank, :attributes, :raw])
+    |> cast(attrs, @required ++ [:source_id, :rank, :attributes, :raw])
     |> validate_required(@required)
     |> unique_constraint([:source_id, :item_id, :period])
   end

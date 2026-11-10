@@ -16,7 +16,10 @@ defmodule Singularity.Knowledge.Item do
     field :attributes, :map, default: %{}
     field :first_seen_at, :utc_datetime
     field :last_seen_at, :utc_datetime
+    field :details_fetched_at, :utc_datetime
+    field :details_error, :string
     has_many :observations, Singularity.Knowledge.Observation
+    has_many :labels, Singularity.Knowledge.Label
     timestamps(type: :utc_datetime)
   end
 
