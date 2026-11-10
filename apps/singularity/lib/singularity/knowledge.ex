@@ -11,17 +11,15 @@ defmodule Singularity.Knowledge do
   @topic "knowledge"
   @project "software_project"
 
-  @replace_on_conflict [
-    :title,
-    :url,
-    :summary,
-    :published_at,
-    :attributes,
-    :last_seen_at,
-    :updated_at
-  ]
+  # title, summary and attributes come from GitHub details; collected values only seed new items.
+  @replace_on_conflict [:last_seen_at, :updated_at]
+  @details_ttl_seconds 24 * 60 * 60
 
-  @doc "Upserts items and inserts one observation per entry for the result's period, atomically."
+  @doc """
+  Upserts items and inserts one observation per entry for the result's period,
+  atomically. Trending entries add a `trending:<since>` label; software projects
+  without fresh details get a details fetch queued in the same transaction.
+  """
   @spec record(Source.t(), Result.t(), DateTime.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def record(%Source{} = source, %Result{} = result, %DateTime{} = now) do
@@ -31,11 +29,44 @@ defmodule Singularity.Knowledge do
       Enum.each(result.entries, fn entry ->
         item = upsert_item!(entry, now)
         insert_observation!(item, source, result.period, entry, now)
+        add_trending_label!(item, entry, now)
+        maybe_enqueue_details!(item, now)
       end)
 
       length(result.entries)
     end)
   end
+
+  defp add_trending_label!(
+         %Item{} = item,
+         %Entry{observation_attributes: %{"since" => since}},
+         now
+       )
+       when is_binary(since) and since != "" do
+    Repo.insert_all(Label, [auto_label_row(item.id, "trending:" <> since, now)],
+      on_conflict: :nothing,
+      conflict_target: [:item_id, :name]
+    )
+
+    :ok
+  end
+
+  defp add_trending_label!(_item, _entry, _now), do: :ok
+
+  defp maybe_enqueue_details!(%Item{kind: @project} = item, now) do
+    if details_stale?(item, now) do
+      {:ok, _job} = enqueue_details(item.id)
+    end
+
+    :ok
+  end
+
+  defp maybe_enqueue_details!(_item, _now), do: :ok
+
+  defp details_stale?(%Item{details_fetched_at: nil}, _now), do: true
+
+  defp details_stale?(%Item{details_fetched_at: fetched_at}, now),
+    do: DateTime.diff(now, fetched_at) >= @details_ttl_seconds
 
   defp upsert_item!(%Entry{} = entry, now) do
     %Item{}

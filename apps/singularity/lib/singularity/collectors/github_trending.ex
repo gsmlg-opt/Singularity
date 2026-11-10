@@ -5,6 +5,7 @@ defmodule Singularity.Collectors.GithubTrending do
 
   alias Singularity.Collector.{Entry, Result}
   alias Singularity.HttpClient
+  alias Singularity.Knowledge.Address
 
   @base_url "https://github.com/trending"
   @since_values ~w(daily weekly monthly)
@@ -98,7 +99,8 @@ defmodule Singularity.Collectors.GithubTrending do
   defp parse_row(row, rank, since) do
     with [href | _] <- Floki.attribute(row, "h2 a", "href"),
          "/" <> path <- String.trim(href),
-         [owner, repo] <- String.split(path, "/", trim: true) do
+         [owner, repo] <- String.split(path, "/", trim: true),
+         {:ok, address} <- Address.normalize(owner <> "/" <> repo) do
       full_name = owner <> "/" <> repo
       summary = row |> Floki.find("p") |> Floki.text() |> squish()
 
@@ -111,10 +113,10 @@ defmodule Singularity.Collectors.GithubTrending do
 
       {:ok,
        %Entry{
-         item_kind: "github_repo",
-         external_id: full_name,
+         item_kind: "software_project",
+         external_id: address.external_id,
          title: full_name,
-         url: "https://github.com/" <> full_name,
+         url: address.url,
          summary: summary,
          rank: rank,
          item_attributes: %{"language" => language, "stars" => stars, "forks" => forks},

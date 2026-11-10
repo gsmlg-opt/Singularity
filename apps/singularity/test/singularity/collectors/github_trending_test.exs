@@ -14,12 +14,12 @@ defmodule Singularity.Collectors.GithubTrendingTest do
       assert skipped == 1
       assert [%Entry{} = rocket, %Entry{} = tool] = entries
 
-      assert rocket.external_id == "acme/rocket"
+      assert rocket.external_id == "github.com/acme/rocket"
       assert rocket.title == "acme/rocket"
       assert rocket.url == "https://github.com/acme/rocket"
       assert rocket.summary == "A fast rocket engine"
       assert rocket.rank == 1
-      assert rocket.item_kind == "github_repo"
+      assert rocket.item_kind == "software_project"
       assert rocket.item_attributes == %{"language" => "Rust", "stars" => 12_345, "forks" => 678}
 
       assert rocket.observation_attributes == %{
@@ -51,7 +51,8 @@ defmodule Singularity.Collectors.GithubTrendingTest do
       assert Enum.map(entries, & &1.rank) == Enum.to_list(1..row_count)
 
       for entry <- entries do
-        assert entry.external_id =~ ~r{^[^/\s]+/[^/\s]+$}
+        assert entry.external_id =~ ~r{^github\.com/[a-z0-9-]+/[a-z0-9._-]+$}
+        assert entry.item_kind == "software_project"
         assert is_integer(entry.item_attributes["stars"])
         assert is_integer(entry.observation_attributes["stars_in_period"])
       end
