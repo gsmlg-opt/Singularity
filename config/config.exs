@@ -15,7 +15,7 @@ config :singularity,
 
 config :singularity, Styx,
   repo: Singularity.Repo,
-  queues: [default: 5, collect: 1],
+  queues: [default: 5, collect: 1, details: 1],
   plugins: [
     {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
     {Styx.Lifeline, rescue_after: {30, :minutes}},

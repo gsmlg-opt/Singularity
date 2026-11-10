@@ -4,7 +4,7 @@ defmodule Singularity.Knowledge do
   import Ecto.Query
 
   alias Singularity.Collector.{Entry, Result}
-  alias Singularity.Knowledge.{Item, Label, Observation}
+  alias Singularity.Knowledge.{Address, FetchDetailsWorker, Item, Label, Labels, Observation}
   alias Singularity.Repo
   alias Singularity.Sources.Source
 
@@ -295,4 +295,142 @@ defmodule Singularity.Knowledge do
         :ok
     end
   end
+
+  @doc """
+  Adds a software project from a GitHub address. A new project gets a manual
+  source record and a queued details fetch. A known project is returned as
+  `{:existing, item}`; its manual source record is still written (once per day).
+  """
+  @spec add_project(String.t(), DateTime.t()) ::
+          {:ok, Item.t()}
+          | {:existing, Item.t()}
+          | {:error, :unsupported_address | Ecto.Changeset.t()}
+  def add_project(address, now \\ DateTime.utc_now()) do
+    now = DateTime.truncate(now, :second)
+
+    with {:ok, normalized} <- Address.normalize(address),
+         {:ok, outcome} <- Repo.transaction(fn -> find_or_create_project(normalized, now) end) do
+      case outcome do
+        {:created, item} ->
+          broadcast_project(item.id)
+          {:ok, item}
+
+        {:existing, item} ->
+          {:existing, item}
+      end
+    end
+  end
+
+  defp find_or_create_project(%{external_id: external_id} = address, now) do
+    case Repo.get_by(Item, kind: @project, external_id: external_id) do
+      %Item{} = item ->
+        insert_manual_observation!(item, now)
+        {:existing, item}
+
+      nil ->
+        case insert_project(address, now) do
+          {:ok, item} ->
+            insert_manual_observation!(item, now)
+            {:ok, _job} = enqueue_details(item.id)
+            {:created, item}
+
+          {:error, changeset} ->
+            Repo.rollback(changeset)
+        end
+    end
+  end
+
+  defp insert_project(%{external_id: external_id, owner: owner, repo: repo, url: url}, now) do
+    %Item{}
+    |> Item.changeset(%{
+      kind: @project,
+      external_id: external_id,
+      title: owner <> "/" <> repo,
+      url: url,
+      first_seen_at: now,
+      last_seen_at: now
+    })
+    |> Repo.insert()
+  end
+
+  defp insert_manual_observation!(%Item{} = item, now) do
+    %Observation{}
+    |> Observation.changeset(%{
+      item_id: item.id,
+      period: now |> DateTime.to_date() |> Date.to_iso8601(),
+      observed_at: now,
+      attributes: %{"via" => "manual"}
+    })
+    |> Repo.insert!(on_conflict: :nothing, conflict_target: [:source_id, :item_id, :period])
+  end
+
+  @doc "Queues a GitHub details fetch; at most one is incomplete per project."
+  @spec enqueue_details(integer()) :: {:ok, Styx.Job.t()} | {:error, term()}
+  def enqueue_details(item_id) when is_integer(item_id),
+    do: %{item_id: item_id} |> FetchDetailsWorker.new() |> Styx.insert()
+
+  @doc "Stores fetched GitHub details, clears the last error and recomputes automatic labels."
+  @spec put_details(Item.t(), Singularity.GitHub.details(), DateTime.t()) :: {:ok, Item.t()}
+  def put_details(%Item{} = item, %{attributes: attributes} = details, %DateTime{} = now) do
+    now = DateTime.truncate(now, :second)
+
+    {:ok, item} =
+      Repo.transaction(fn ->
+        item =
+          item
+          |> Ecto.Changeset.change(
+            title: details.title || item.title,
+            summary: details.summary,
+            attributes: attributes,
+            details_fetched_at: now,
+            details_error: nil
+          )
+          |> Repo.update!()
+
+        names = Labels.auto_labels(attributes, observation_sinces(item.id))
+        sync_auto_labels!(item.id, names, now)
+        item
+      end)
+
+    broadcast_project(item.id)
+    {:ok, item}
+  end
+
+  @doc "Records why the last details fetch failed."
+  @spec put_details_error(Item.t(), String.t()) :: {:ok, Item.t()}
+  def put_details_error(%Item{} = item, message) when is_binary(message) do
+    item = item |> Ecto.Changeset.change(details_error: message) |> Repo.update!()
+    broadcast_project(item.id)
+    {:ok, item}
+  end
+
+  defp observation_sinces(item_id) do
+    Observation
+    |> where([o], o.item_id == ^item_id)
+    |> select([o], fragment("?->>'since'", o.attributes))
+    |> distinct(true)
+    |> Repo.all()
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Only automatic rows are added or removed; a manual label with the same name is kept.
+  defp sync_auto_labels!(item_id, names, now) do
+    existing = Label |> where(item_id: ^item_id) |> Repo.all()
+
+    stale_ids =
+      for %Label{origin: "auto", name: name, id: id} <- existing, name not in names, do: id
+
+    Label |> where([l], l.id in ^stale_ids) |> Repo.delete_all()
+
+    taken = MapSet.new(existing, & &1.name)
+
+    rows =
+      for name <- names, not MapSet.member?(taken, name), do: auto_label_row(item_id, name, now)
+
+    Repo.insert_all(Label, rows, on_conflict: :nothing, conflict_target: [:item_id, :name])
+    :ok
+  end
+
+  defp auto_label_row(item_id, name, now),
+    do: %{item_id: item_id, name: name, origin: "auto", inserted_at: now, updated_at: now}
 end
