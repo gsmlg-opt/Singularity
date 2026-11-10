@@ -4,6 +4,7 @@ defmodule Singularity.Collectors.GithubTrending do
   @behaviour Singularity.Collector
 
   alias Singularity.Collector.{Entry, Result}
+  alias Singularity.HttpClient
 
   @base_url "https://github.com/trending"
   @since_values ~w(daily weekly monthly)
@@ -49,19 +50,17 @@ defmodule Singularity.Collectors.GithubTrending do
 
   @impl true
   def fetch(config, now) do
-    request = [user_agent: "Singularity", retry: false] ++ req_options()
-
-    case Req.get(trending_url(config), request) do
-      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+    case HttpClient.get(trending_url(config), [{"User-Agent", "Singularity"}], adapter()) do
+      {:ok, %{status: 200, body: body}} ->
         {entries, skipped} = parse(body, config["since"])
         period = now |> DateTime.to_date() |> Date.to_iso8601()
         {:ok, %Result{period: period, entries: entries, skipped: skipped}}
 
-      {:ok, %Req.Response{status: status}} ->
+      {:ok, %{status: status}} ->
         {:error, {:http_status, status}}
 
-      {:error, exception} ->
-        {:error, {:transport, Exception.message(exception)}}
+      {:error, {:transport, _message}} = error ->
+        error
     end
   end
 
@@ -174,7 +173,5 @@ defmodule Singularity.Collectors.GithubTrending do
     end
   end
 
-  defp req_options do
-    :singularity |> Application.get_env(__MODULE__, []) |> Keyword.get(:req_options, [])
-  end
+  defp adapter, do: :singularity |> Application.get_env(__MODULE__, []) |> Keyword.get(:adapter)
 end

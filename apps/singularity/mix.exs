@@ -42,7 +42,8 @@ defmodule Singularity.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.2"},
       {:styx, "~> 0.1.1"},
-      {:req, "~> 0.5"},
+      {:http_fetch, "~> 1.0.0-rc.11"},
+      {:http_test, "~> 1.0.0-rc.11", only: :test},
       {:floki, ">= 0.30.0"}
     ]
   end

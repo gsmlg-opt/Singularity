@@ -76,12 +76,16 @@ defmodule Singularity.Collectors.GithubTrendingTest do
   end
 
   describe "fetch/2" do
+    setup do
+      HTTP.Test.verify_on_exit!()
+    end
+
     test "requests the language page and returns a dated result" do
-      Req.Test.stub(GithubTrending, fn conn ->
-        assert conn.request_path == "/trending/c%2B%2B"
-        assert conn.query_string == "since=weekly"
-        assert Plug.Conn.get_req_header(conn, "user-agent") == ["Singularity"]
-        Plug.Conn.send_resp(conn, 200, fixture("minimal.html"))
+      HTTP.Test.expect(GithubTrending, fn request ->
+        assert request.url.path == "/trending/c%2B%2B"
+        assert request.url.query == "since=weekly"
+        assert HTTP.Headers.get(request.headers, "user-agent") == "Singularity"
+        HTTP.Test.html(fixture("minimal.html"))
       end)
 
       assert {:ok, %Result{period: "2026-11-09", entries: [_, _], skipped: 1}} =
@@ -92,9 +96,9 @@ defmodule Singularity.Collectors.GithubTrendingTest do
     end
 
     test "requests the all-languages page when language is blank" do
-      Req.Test.stub(GithubTrending, fn conn ->
-        assert conn.request_path == "/trending"
-        Plug.Conn.send_resp(conn, 200, fixture("minimal.html"))
+      HTTP.Test.expect(GithubTrending, fn request ->
+        assert request.url.path == "/trending"
+        HTTP.Test.html(fixture("minimal.html"))
       end)
 
       assert {:ok, _} =
@@ -105,7 +109,7 @@ defmodule Singularity.Collectors.GithubTrendingTest do
     end
 
     test "maps non-200 responses to errors" do
-      Req.Test.stub(GithubTrending, &Plug.Conn.send_resp(&1, 429, "slow down"))
+      HTTP.Test.expect(GithubTrending, fn _request -> HTTP.Test.text("slow down", 429) end)
 
       assert {:error, {:http_status, 429}} =
                GithubTrending.fetch(
@@ -115,15 +119,13 @@ defmodule Singularity.Collectors.GithubTrendingTest do
     end
 
     test "maps transport failures to errors instead of raising" do
-      Req.Test.stub(GithubTrending, &Req.Test.transport_error(&1, :econnrefused))
+      HTTP.Test.expect(GithubTrending, fn _request -> HTTP.Test.transport_error(:econnrefused) end)
 
-      assert {:error, {:transport, message}} =
+      assert {:error, {:transport, "econnrefused"}} =
                GithubTrending.fetch(
                  %{"language" => "", "since" => "daily"},
                  ~U[2026-11-09 00:00:00Z]
                )
-
-      assert is_binary(message)
     end
   end
 end

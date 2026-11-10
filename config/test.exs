@@ -28,7 +28,7 @@ config :singularity, :collectors, [
 ]
 
 config :singularity, Singularity.Collectors.GithubTrending,
-  req_options: [plug: {Req.Test, Singularity.Collectors.GithubTrending}]
+  adapter: {HTTP.Test, Singularity.Collectors.GithubTrending}
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
