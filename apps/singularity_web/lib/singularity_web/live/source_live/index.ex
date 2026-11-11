@@ -51,7 +51,7 @@ defmodule SingularityWeb.SourceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold">{dgettext("source", "Sources")}</h1>
+        <h1 class="text-2xl font-bold">{dgettext("source", "Sources")}</h1>
         <.link navigate={~p"/source/sources/new"} id="new-source">
           <.dm_btn variant="primary" size="sm">{dgettext("source", "New source")}</.dm_btn>
         </.link>
@@ -89,22 +89,30 @@ defmodule SingularityWeb.SourceLive.Index do
             <.dm_btn
               :if={source.enabled}
               size="sm"
+              variant="outline"
               id={"collect-#{source.id}"}
               phx-click="collect"
               phx-value-id={source.id}
             >
               {dgettext("source", "Collect now")}
             </.dm_btn>
-            <.dm_btn size="sm" id={"toggle-#{source.id}"} phx-click="toggle" phx-value-id={source.id}>
+            <.dm_btn
+              size="sm"
+              variant="outline"
+              id={"toggle-#{source.id}"}
+              phx-click="toggle"
+              phx-value-id={source.id}
+            >
               {if source.enabled,
                 do: dgettext("source", "Disable"),
                 else: dgettext("source", "Enable")}
             </.dm_btn>
             <.link navigate={~p"/source/sources/#{source.id}/edit"}>
-              <.dm_btn size="sm">{dgettext("source", "Edit")}</.dm_btn>
+              <.dm_btn size="sm" variant="outline">{dgettext("source", "Edit")}</.dm_btn>
             </.link>
             <.dm_btn
               size="sm"
+              variant="error"
               id={"delete-#{source.id}"}
               phx-click="delete"
               phx-value-id={source.id}

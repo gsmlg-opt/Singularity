@@ -43,7 +43,7 @@ defmodule SingularityWeb.OverviewLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:overview} active="overview-home">
-      <h1 class="text-2xl font-semibold">{dgettext("overview", "Overview")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("overview", "Overview")}</h1>
 
       <div id="overview-stats" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <.dm_stat

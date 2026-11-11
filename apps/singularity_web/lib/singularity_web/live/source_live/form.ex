@@ -101,7 +101,7 @@ defmodule SingularityWeb.SourceLive.Form do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
-      <h1 class="text-2xl font-semibold">{@page_title}</h1>
+      <h1 class="text-2xl font-bold">{@page_title}</h1>
 
       <ul :if={is_nil(@type)} id="source-types" class="space-y-2">
         <li :for={type <- @types}>

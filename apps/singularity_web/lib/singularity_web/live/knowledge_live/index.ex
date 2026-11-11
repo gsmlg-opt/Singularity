@@ -123,7 +123,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       labels={@top_labels}
       active={active_item(@live_action, @top_labels, @filters.label)}
     >
-      <h1 class="text-2xl font-semibold">{dgettext("knowledge", "Software projects")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("knowledge", "Software projects")}</h1>
 
       <div class="flex flex-wrap items-end gap-4">
         <form

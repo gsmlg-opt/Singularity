@@ -41,13 +41,19 @@ defmodule SingularityWeb.SourceLive.Show do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold">{@source.name}</h1>
+        <h1 class="text-2xl font-bold">{@source.name}</h1>
         <div class="flex gap-2">
-          <.dm_btn :if={@source.enabled} size="sm" id="collect-now" phx-click="collect">
+          <.dm_btn
+            :if={@source.enabled}
+            size="sm"
+            variant="secondary"
+            id="collect-now"
+            phx-click="collect"
+          >
             {dgettext("source", "Collect now")}
           </.dm_btn>
           <.link navigate={~p"/source/sources/#{@source.id}/edit"}>
-            <.dm_btn size="sm">{dgettext("source", "Edit")}</.dm_btn>
+            <.dm_btn size="sm" variant="outline">{dgettext("source", "Edit")}</.dm_btn>
           </.link>
         </div>
       </div>

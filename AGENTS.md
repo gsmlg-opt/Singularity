@@ -11,6 +11,10 @@
 - 界面文字全部经 gettext（`SingularityWeb.Gettext`，msgid 用英文，默认 locale `en`）。按区域分 domain：`overview`、`knowledge`、`source`、`system`；通用文字和布局放 `default`；changeset 错误放 `errors`。
 - `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection`、`Singularity.Settings`、`Singularity.System` 的公开函数，不直接访问 Repo、schema 或 `Singularity.Collector`。Web 表单提交的数据一律交给对应上下文的服务函数处理。
 
+## 界面
+
+改任何界面之前先读 `DESIGN.md`，所有界面改动都必须遵守它（DuskMoon 设计规范，骨架参照 backplane）。
+
 ## 新增来源类型
 
 1. 在 `Singularity.Collectors.<Name>` 实现 `Singularity.Collector` 的全部回调。

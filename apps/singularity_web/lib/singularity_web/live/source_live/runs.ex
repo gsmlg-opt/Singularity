@@ -27,7 +27,7 @@ defmodule SingularityWeb.SourceLive.Runs do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-runs">
-      <h1 class="text-2xl font-semibold">{dgettext("source", "Collection runs")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("source", "Collection runs")}</h1>
       <p :if={@runs == []} id="runs-empty">{dgettext("source", "No collection has run yet.")}</p>
       <.dm_table :if={@runs != []} id="runs" data={@runs}>
         <:col :let={run} label={dgettext("source", "Source")}>

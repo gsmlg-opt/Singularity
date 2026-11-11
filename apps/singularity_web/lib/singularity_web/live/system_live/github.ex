@@ -40,7 +40,7 @@ defmodule SingularityWeb.SystemLive.Github do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:system} active="system-github">
-      <h1 class="text-2xl font-semibold">{dgettext("system", "GitHub")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("system", "GitHub")}</h1>
       <.dm_card id="github-token">
         <:title>{dgettext("system", "Access token")}</:title>
         <p class="text-sm text-on-surface-variant">
@@ -70,7 +70,9 @@ defmodule SingularityWeb.SystemLive.Github do
         </.form>
         <.field_errors form={@form} field={:value} />
         <:action :if={match?({:settings, _last4}, @status)}>
-          <.dm_btn id="clear-token" phx-click="clear">{dgettext("system", "Clear token")}</.dm_btn>
+          <.dm_btn id="clear-token" variant="error" phx-click="clear">
+            {dgettext("system", "Clear token")}
+          </.dm_btn>
         </:action>
       </.dm_card>
     </Layouts.app>

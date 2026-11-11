@@ -59,7 +59,7 @@ defmodule SingularityWeb.Layouts do
           nav_label={gettext("Section navigation")}
           expand_label={gettext("Expand navigation")}
           collapse_label={gettext("Collapse navigation")}
-          class="sticky top-16 h-[calc(100dvh-4rem)]"
+          class="app-sidebar sticky top-16 h-[calc(100dvh-4rem)] bg-secondary text-secondary-content"
         />
         <main class="min-w-0 flex-1">
           <div class="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">

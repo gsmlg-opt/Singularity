@@ -78,7 +78,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
       active="knowledge-projects"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-2xl font-semibold">{@project.title}</h1>
+        <h1 class="text-2xl font-bold">{@project.title}</h1>
         <.details_status project={@project} />
       </div>
 
@@ -131,7 +131,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
             {@project.details_error}
           </p>
           <:action>
-            <.dm_btn id="refetch" size="sm" phx-click="refetch">
+            <.dm_btn id="refetch" size="sm" variant="secondary" phx-click="refetch">
               <.dm_mdi name="refresh" class="h-4 w-4" />{dgettext("knowledge", "Fetch again")}
             </.dm_btn>
           </:action>

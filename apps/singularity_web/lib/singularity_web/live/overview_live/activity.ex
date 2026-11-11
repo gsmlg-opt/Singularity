@@ -67,7 +67,7 @@ defmodule SingularityWeb.OverviewLive.Activity do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:overview} active="overview-activity">
-      <h1 class="text-2xl font-semibold">{dgettext("overview", "Activity")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("overview", "Activity")}</h1>
       <p :if={@events == []} id="activity-empty">
         {dgettext("overview", "Nothing has happened yet.")}
       </p>

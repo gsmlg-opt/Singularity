@@ -21,8 +21,8 @@ defmodule SingularityWeb.SystemLive.Status do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:system} active="system-status">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold">{dgettext("system", "System status")}</h1>
-        <.dm_btn id="refresh-status" size="sm" phx-click="refresh">
+        <h1 class="text-2xl font-bold">{dgettext("system", "System status")}</h1>
+        <.dm_btn id="refresh-status" size="sm" variant="secondary" phx-click="refresh">
           <.dm_mdi name="refresh" class="h-4 w-4" />{dgettext("system", "Refresh")}
         </.dm_btn>
       </div>

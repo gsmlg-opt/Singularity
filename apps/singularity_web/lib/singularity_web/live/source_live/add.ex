@@ -52,7 +52,7 @@ defmodule SingularityWeb.SourceLive.Add do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-add">
-      <h1 class="text-2xl font-semibold">{dgettext("source", "Add project")}</h1>
+      <h1 class="text-2xl font-bold">{dgettext("source", "Add project")}</h1>
       <p class="text-sm text-on-surface-variant">
         {dgettext(
           "source",
