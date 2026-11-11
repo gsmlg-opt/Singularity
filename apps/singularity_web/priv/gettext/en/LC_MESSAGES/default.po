@@ -16,11 +16,6 @@ msgstr ""
 msgid "Activity"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:143
-#, elixir-autogen, elixir-format
-msgid "Add project"
-msgstr ""
-
 #: lib/singularity_web/components/layouts.ex:116
 #, elixir-autogen, elixir-format
 msgid "All knowledge"
@@ -110,12 +105,19 @@ msgstr ""
 msgid "Appearance"
 msgstr ""
 
+#: lib/singularity_web/live/source_live/manual.ex:141
 #: lib/singularity_web/live/system_live/accounts.ex:134
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
+#: lib/singularity_web/live/source_live/manual.ex:112
 #: lib/singularity_web/live/system_live/accounts.ex:113
 #, elixir-autogen, elixir-format
 msgid "Close"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:143
+#, elixir-autogen, elixir-format
+msgid "Manual"
 msgstr ""

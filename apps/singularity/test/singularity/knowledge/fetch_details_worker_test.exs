@@ -89,6 +89,13 @@ defmodule Singularity.Knowledge.FetchDetailsWorkerTest do
     assert :ok = perform_job(FetchDetailsWorker, %{item_id: project.id})
   end
 
+  test "cancels for projects on other hosts" do
+    project = project_fixture(external_id: "gitlab.com/a/b", url: "https://gitlab.com/a/b")
+
+    assert {:cancel, :details_unsupported} =
+             perform_job(FetchDetailsWorker, %{item_id: project.id})
+  end
+
   test "cancels when the project no longer exists" do
     assert {:cancel, :project_not_found} = perform_job(FetchDetailsWorker, %{item_id: -1})
   end

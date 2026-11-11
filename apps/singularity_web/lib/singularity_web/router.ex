@@ -27,7 +27,7 @@ defmodule SingularityWeb.Router do
     live "/source/sources/new", SourceLive.Form, :new
     live "/source/sources/:id/edit", SourceLive.Form, :edit
     live "/source/sources/:id", SourceLive.Show, :show
-    live "/source/add", SourceLive.Add, :new
+    live "/source/manual", SourceLive.Manual, :index
     live "/source/runs", SourceLive.Runs, :index
     live "/system/accounts", SystemLive.Accounts, :show
     live "/system/accounts/:account", SystemLive.Accounts, :show

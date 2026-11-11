@@ -18,6 +18,7 @@ defmodule Singularity.Knowledge.Item do
     field :last_seen_at, :utc_datetime
     field :details_fetched_at, :utc_datetime
     field :details_error, :string
+    field :custom_title, :boolean, default: false
     has_many :observations, Singularity.Knowledge.Observation
     has_many :labels, Singularity.Knowledge.Label
     timestamps(type: :utc_datetime)
@@ -25,7 +26,7 @@ defmodule Singularity.Knowledge.Item do
 
   def changeset(item, attrs) do
     item
-    |> cast(attrs, @required ++ [:summary, :published_at, :attributes])
+    |> cast(attrs, @required ++ [:summary, :published_at, :attributes, :custom_title])
     |> validate_required(@required)
     |> unique_constraint([:kind, :external_id])
   end

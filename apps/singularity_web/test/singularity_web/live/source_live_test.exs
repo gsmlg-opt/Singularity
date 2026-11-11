@@ -118,28 +118,63 @@ defmodule SingularityWeb.SourceLiveTest do
     end
   end
 
-  describe "add project" do
-    test "adds a project and opens it", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/source/add")
-      assert has_element?(view, "#section-menu-navigation[data-active-nav='source-add']")
+  describe "manual" do
+    test "lists hand-added projects and adds one in a modal", %{conn: conn} do
+      {:ok, existing} =
+        Knowledge.add_project(%{
+          "name" => "Inkscape",
+          "address" => "gitlab.com/inkscape/inkscape"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/source/manual")
+      assert has_element?(view, "#section-menu-navigation[data-active-nav='source-manual']")
+      assert has_element?(view, "#manual-project-#{existing.id}", "Inkscape")
+      assert has_element?(view, "#manual-project-#{existing.id}", "gitlab.com")
+      assert has_element?(view, "#manual-project-#{existing.id}", "No automatic details")
+
+      assert has_element?(
+               view,
+               "#open-add-project[command='show-modal'][commandfor='add-project-modal']"
+             )
 
       view
-      |> form("#add-project-form", project: %{address: "https://github.com/elixir-lang/elixir"})
+      |> form("#add-project-form",
+        project: %{name: "Elixir", address: "https://github.com/elixir-lang/elixir"}
+      )
       |> render_submit()
 
-      [project] = Knowledge.list_projects()
+      project = Enum.find(Knowledge.list_projects(), &(&1.title == "Elixir"))
       {path, flash} = assert_redirect(view)
       assert path == ~p"/knowledge/projects/#{project.id}"
-      assert flash["info"] =~ "Project added"
+      assert flash["info"] =~ "fetching its details"
       assert_enqueued(worker: FetchDetailsWorker, args: %{item_id: project.id})
     end
 
-    test "opens a known project with a notice", %{conn: conn} do
-      {:ok, project} = Knowledge.add_project("elixir-lang/elixir")
-      {:ok, view, _html} = live(conn, ~p"/source/add")
+    test "adds a project from any git host", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/source/manual")
 
       view
-      |> form("#add-project-form", project: %{address: "git@github.com:elixir-lang/elixir.git"})
+      |> form("#add-project-form",
+        project: %{name: "Tool", address: "git@git.example.com:team/tool.git"}
+      )
+      |> render_submit()
+
+      [project] = Knowledge.list_projects()
+      assert project.external_id == "git.example.com/team/tool"
+      {_path, flash} = assert_redirect(view)
+      assert flash["info"] == "Project added"
+    end
+
+    test "opens a known project with a notice", %{conn: conn} do
+      {:ok, project} =
+        Knowledge.add_project(%{"name" => "Elixir", "address" => "elixir-lang/elixir"})
+
+      {:ok, view, _html} = live(conn, ~p"/source/manual")
+
+      view
+      |> form("#add-project-form",
+        project: %{name: "Again", address: "git@github.com:elixir-lang/elixir.git"}
+      )
       |> render_submit()
 
       {path, flash} = assert_redirect(view)
@@ -147,15 +182,18 @@ defmodule SingularityWeb.SourceLiveTest do
       assert flash["info"] == "Already in the knowledge base"
     end
 
-    test "shows an error for unsupported addresses", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/source/add")
+    test "keeps the modal form with errors", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/source/manual")
+      assert has_element?(view, "#manual-empty")
 
       html =
         view
-        |> form("#add-project-form", project: %{address: "https://gitlab.com/a/b"})
+        |> form("#add-project-form", project: %{name: "", address: "not an address"})
         |> render_submit()
 
-      assert html =~ "Only GitHub repositories are supported"
+      assert html =~ "can&#39;t be blank"
+      assert html =~ "is not a repository address"
+      assert has_element?(view, "dialog#add-project-modal #add-project-form")
       assert Knowledge.list_projects() == []
     end
   end

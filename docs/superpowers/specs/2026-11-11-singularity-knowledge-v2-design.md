@@ -220,10 +220,7 @@ AGENTS.md 的边界规则相应更新：Web 层可调用 `Sources`、`Knowledge`
 
 - `/source/sources`：来源列表，即 v1 的功能，换成新布局，包括启停、立即采集、实时状态。
 - `/source/sources/new`、`/source/sources/:id`、`/source/sources/:id/edit`：v1 的新建、详情和编辑页面，换成新布局。
-- `/source/add`：手动添加软件项目，一个地址输入框。
-  - 成功后跳转项目详情。
-  - 地址不支持时在表单上显示错误。
-  - 项目已存在时跳转已有项目，并提示"已在知识库中"。
+- `/source/manual`：手动添加的软件项目列表，"Add project" 打开 modal，填名字和任意 git 仓库地址。详见 `2026-11-11-singularity-manual-projects-design.md`（取代原来只支持 GitHub 的 `/source/add`）。
 - `/source/runs`：最近 50 次采集记录，跨所有来源，显示状态、条数、错误。
 
 ### 7.4 System（`/system/...`）

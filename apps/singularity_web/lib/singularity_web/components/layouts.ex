@@ -139,10 +139,10 @@ defmodule SingularityWeb.Layouts do
         items: [
           %{id: "source-sources", label: gettext("Sources"), to: "/source/sources", icon: "rss"},
           %{
-            id: "source-add",
-            label: gettext("Add project"),
-            to: "/source/add",
-            icon: "plus-box-outline"
+            id: "source-manual",
+            label: gettext("Manual"),
+            to: "/source/manual",
+            icon: "hand-back-right-outline"
           },
           %{
             id: "source-runs",

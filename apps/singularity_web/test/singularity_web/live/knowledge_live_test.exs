@@ -182,6 +182,23 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert html =~ "can&#39;t be blank"
     end
 
+    test "a project on another host shows its repository instead of GitHub details", %{
+      conn: conn
+    } do
+      {:ok, project} =
+        Knowledge.add_project(%{
+          "name" => "Tool",
+          "address" => "git@git.example.com:team/tool.git"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+      assert has_element?(view, "#repository", "git.example.com")
+      assert has_element?(view, "#repository code", "git@git.example.com:team/tool.git")
+      assert has_element?(view, "[data-role='details-status']", "No automatic details")
+      refute has_element?(view, "#github-details")
+      refute has_element?(view, "#refetch")
+    end
+
     test "fetch again queues a details fetch", %{conn: conn, project: project} do
       {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
       view |> element("#refetch") |> render_click()

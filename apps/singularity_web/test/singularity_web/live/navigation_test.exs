@@ -17,7 +17,7 @@ defmodule SingularityWeb.NavigationTest do
     {"/source/sources", "source", "source-sources",
      [
        {"/source/sources", "Sources"},
-       {"/source/add", "Add project"},
+       {"/source/manual", "Manual"},
        {"/source/runs", "Collection runs"}
      ]},
     {"/system/accounts", "system", "system-accounts",

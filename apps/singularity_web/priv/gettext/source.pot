@@ -46,18 +46,18 @@ msgstr[1] ""
 msgid "Actions"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:72
+#: lib/singularity_web/live/source_live/manual.ex:144
 #, elixir-autogen, elixir-format
 msgid "Add"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:10
-#: lib/singularity_web/live/source_live/add.ex:55
+#: lib/singularity_web/live/source_live/manual.ex:84
+#: lib/singularity_web/live/source_live/manual.ex:113
 #, elixir-autogen, elixir-format
 msgid "Add project"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:28
+#: lib/singularity_web/live/source_live/manual.ex:37
 #, elixir-autogen, elixir-format
 msgid "Already in the knowledge base"
 msgstr ""
@@ -136,11 +136,6 @@ msgstr ""
 msgid "Enabled"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:57
-#, elixir-autogen, elixir-format
-msgid "Enter a GitHub repository; its details and labels are fetched automatically."
-msgstr ""
-
 #: lib/singularity_web/live/source_live/runs.ex:39
 #: lib/singularity_web/live/source_live/show.ex:83
 #, elixir-autogen, elixir-format
@@ -171,6 +166,7 @@ msgstr ""
 
 #: lib/singularity_web/live/source_live/form.ex:125
 #: lib/singularity_web/live/source_live/index.ex:61
+#: lib/singularity_web/live/source_live/manual.ex:120
 #, elixir-autogen, elixir-format
 msgid "Name"
 msgstr ""
@@ -195,22 +191,12 @@ msgstr ""
 msgid "No collection has run yet."
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:36
-#, elixir-autogen, elixir-format
-msgid "Only GitHub repositories are supported for now, e.g. owner/repo or https://github.com/owner/repo"
-msgstr ""
-
-#: lib/singularity_web/live/source_live/add.ex:22
-#, elixir-autogen, elixir-format
-msgid "Project added; fetching its GitHub details"
-msgstr ""
-
 #: lib/singularity_web/live/source_live/show.ex:76
 #, elixir-autogen, elixir-format
 msgid "Recent runs"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:67
+#: lib/singularity_web/live/source_live/manual.ex:128
 #, elixir-autogen, elixir-format
 msgid "Repository address"
 msgstr ""
@@ -260,11 +246,6 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/add.ex:44
-#, elixir-autogen, elixir-format
-msgid "The project could not be added; try again"
-msgstr ""
-
 #: lib/singularity_web/live/source_live/index.ex:66
 #: lib/singularity_web/live/source_live/show.ex:62
 #, elixir-autogen, elixir-format
@@ -284,4 +265,60 @@ msgstr ""
 #: lib/singularity_web/live/source_live/form.ex:97
 #, elixir-autogen, elixir-format
 msgid "Range"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:107
+#, elixir-autogen, elixir-format
+msgid "Added"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:133
+#, elixir-autogen, elixir-format
+msgid "Any git address: https://host/path, git@host:path or owner/repo for GitHub. GitHub projects get their details fetched automatically."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:104
+#, elixir-autogen, elixir-format
+msgid "Details"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:100
+#, elixir-autogen, elixir-format
+msgid "Host"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:101
+#, elixir-autogen, elixir-format
+msgid "Labels"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:20
+#: lib/singularity_web/live/source_live/manual.ex:72
+#, elixir-autogen, elixir-format
+msgid "Manual"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:89
+#, elixir-autogen, elixir-format
+msgid "Nothing added by hand yet."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:92
+#, elixir-autogen, elixir-format
+msgid "Project"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:61
+#, elixir-autogen, elixir-format
+msgid "Project added"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:60
+#, elixir-autogen, elixir-format
+msgid "Project added; fetching its details"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/manual.ex:74
+#, elixir-autogen, elixir-format
+msgid "Software projects added by hand, from any git repository."
 msgstr ""

@@ -17,7 +17,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
   end
 
   @impl true
-  def handle_event("refetch", _params, socket) do
+  def handle_event("refetch", _params, %{assigns: %{details_supported?: true}} = socket) do
     {:ok, _job} = Knowledge.enqueue_details(socket.assigns.project.id)
 
     {:noreply,
@@ -58,8 +58,11 @@ defmodule SingularityWeb.KnowledgeLive.Show do
     do: {:noreply, assign(socket, top_labels: Knowledge.top_labels(12))}
 
   defp load(socket, id) do
+    project = Knowledge.get_project!(id)
+
     assign(socket,
-      project: Knowledge.get_project!(id),
+      project: project,
+      details_supported?: Knowledge.details_supported?(project),
       observations: Knowledge.list_observations(id),
       top_labels: Knowledge.top_labels(12)
     )
@@ -83,7 +86,36 @@ defmodule SingularityWeb.KnowledgeLive.Show do
       </div>
 
       <div class="grid gap-6 lg:grid-cols-3">
-        <.dm_card id="github-details" class="lg:col-span-2">
+        <.dm_card :if={!@details_supported?} id="repository" class="lg:col-span-2">
+          <:title>{dgettext("knowledge", "Repository")}</:title>
+          <dl class="grid grid-cols-[10rem_1fr] gap-1 text-sm">
+            <dt>{dgettext("knowledge", "Host")}</dt>
+            <dd>{@project.external_id |> String.split("/") |> hd()}</dd>
+            <dt>{dgettext("knowledge", "Address")}</dt>
+            <dd class="break-all">
+              <a
+                :if={String.starts_with?(@project.url, ["https://", "http://"])}
+                href={@project.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-primary"
+              >
+                {@project.url}
+              </a>
+              <code :if={!String.starts_with?(@project.url, ["https://", "http://"])}>
+                {@project.url}
+              </code>
+            </dd>
+          </dl>
+          <p class="text-sm text-on-surface-variant">
+            {dgettext(
+              "knowledge",
+              "Details are fetched automatically only for GitHub; labels for this project are added by hand."
+            )}
+          </p>
+        </.dm_card>
+
+        <.dm_card :if={@details_supported?} id="github-details" class="lg:col-span-2">
           <:title>{dgettext("knowledge", "GitHub details")}</:title>
           <p :if={@project.summary}>{@project.summary}</p>
           <div class="flex flex-wrap gap-4 text-sm">

@@ -255,20 +255,42 @@ defmodule Singularity.Knowledge do
     end
   end
 
-  @doc """
-  Adds a software project from a GitHub address. A new project gets a manual
-  source record and a queued details fetch. A known project is returned as
-  `{:existing, item}`; its manual source record is still written (once per day).
-  """
-  @spec add_project(String.t(), DateTime.t()) ::
-          {:ok, Item.t()}
-          | {:existing, Item.t()}
-          | {:error, :unsupported_address | Ecto.Changeset.t()}
-  def add_project(address, now \\ DateTime.utc_now()) do
-    now = DateTime.truncate(now, :second)
+  @manual_project_types %{name: :string, address: :string}
 
-    with {:ok, normalized} <- Address.normalize(address),
-         {:ok, outcome} <- Repo.transaction(fn -> find_or_create_project(normalized, now) end) do
+  @doc "A changeset for the manual \"Add project\" form: a name and a repository address."
+  @spec change_manual_project(map()) :: Ecto.Changeset.t()
+  def change_manual_project(attrs \\ %{}) do
+    {%{}, @manual_project_types}
+    |> Ecto.Changeset.cast(attrs, Map.keys(@manual_project_types))
+    |> Ecto.Changeset.validate_required([:name, :address])
+    |> Ecto.Changeset.validate_length(:name, max: 200)
+    |> Ecto.Changeset.validate_change(:address, fn :address, address ->
+      case Address.normalize(address) do
+        {:ok, _address} -> []
+        {:error, :unsupported_address} -> [address: "is not a repository address"]
+      end
+    end)
+  end
+
+  @doc """
+  Adds a software project by hand from a name and any git repository address.
+  The name becomes the title and is kept when details are fetched. A new project
+  gets a manual source record; a GitHub project also gets a queued details
+  fetch, another host gets a `host:<host>` label. A known project is returned
+  unchanged as `{:existing, item}`; its manual source record is still written
+  (once per day).
+  """
+  @spec add_project(map(), DateTime.t()) ::
+          {:ok, Item.t()} | {:existing, Item.t()} | {:error, Ecto.Changeset.t()}
+  def add_project(attrs, now \\ DateTime.utc_now()) do
+    now = DateTime.truncate(now, :second)
+    changeset = change_manual_project(attrs)
+
+    with {:ok, %{name: name, address: address}} <-
+           Ecto.Changeset.apply_action(changeset, :insert),
+         {:ok, normalized} = Address.normalize(address),
+         {:ok, outcome} <-
+           Repo.transaction(fn -> find_or_create_project(normalized, String.trim(name), now) end) do
       case outcome do
         {:created, item} ->
           broadcast_project(item.id)
@@ -277,20 +299,57 @@ defmodule Singularity.Knowledge do
         {:existing, item} ->
           {:existing, item}
       end
+    else
+      {:error, %Ecto.Changeset{data: %Item{}}} ->
+        {:error,
+         Ecto.Changeset.add_error(
+           %{changeset | action: :insert},
+           :address,
+           "could not be added"
+         )}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
-  defp find_or_create_project(%{external_id: external_id} = address, now) do
+  @doc "Whether the project's details can be fetched automatically (GitHub only)."
+  @spec details_supported?(Item.t()) :: boolean()
+  def details_supported?(%Item{external_id: external_id}),
+    do: String.starts_with?(external_id, "github.com/")
+
+  @doc """
+  Projects added by hand, most recently added first, with `manual_added_at`
+  (the latest manual record) and their labels.
+  """
+  @spec list_manual_projects(pos_integer()) :: [%{item: Item.t(), manual_added_at: DateTime.t()}]
+  def list_manual_projects(limit) do
+    latest_manual =
+      Observation
+      |> where([o], is_nil(o.source_id))
+      |> group_by([o], o.item_id)
+      |> select([o], %{item_id: o.item_id, at: max(o.observed_at)})
+
+    projects_query()
+    |> join(:inner, [i], m in subquery(latest_manual), on: m.item_id == i.id)
+    |> order_by([i, m], desc: m.at, desc: i.id)
+    |> limit(^limit)
+    |> preload(labels: ^labels_query())
+    |> select([i, m], %{item: i, manual_added_at: m.at})
+    |> Repo.all()
+  end
+
+  defp find_or_create_project(%{external_id: external_id} = address, name, now) do
     case Repo.get_by(Item, kind: @project, external_id: external_id) do
       %Item{} = item ->
         insert_manual_observation!(item, now)
         {:existing, item}
 
       nil ->
-        case insert_project(address, now) do
+        case insert_project(address, name, now) do
           {:ok, item} ->
             insert_manual_observation!(item, now)
-            {:ok, _job} = enqueue_details(item.id)
+            after_manual_insert!(item, address, now)
             {:created, item}
 
           {:error, changeset} ->
@@ -299,12 +358,21 @@ defmodule Singularity.Knowledge do
     end
   end
 
-  defp insert_project(%{external_id: external_id, owner: owner, repo: repo, url: url}, now) do
+  defp after_manual_insert!(item, %{github?: true}, _now) do
+    {:ok, _job} = enqueue_details(item.id)
+    :ok
+  end
+
+  defp after_manual_insert!(item, %{host: host}, now),
+    do: sync_auto_labels!(item.id, ["host:" <> String.downcase(host)], now)
+
+  defp insert_project(%{external_id: external_id, url: url}, name, now) do
     %Item{}
     |> Item.changeset(%{
       kind: @project,
       external_id: external_id,
-      title: owner <> "/" <> repo,
+      title: name,
+      custom_title: true,
       url: url,
       first_seen_at: now,
       last_seen_at: now
@@ -323,10 +391,23 @@ defmodule Singularity.Knowledge do
     |> Repo.insert!(on_conflict: :nothing, conflict_target: [:source_id, :item_id, :period])
   end
 
-  @doc "Queues a GitHub details fetch; at most one is incomplete per project."
-  @spec enqueue_details(integer()) :: {:ok, Styx.Job.t()} | {:error, term()}
-  def enqueue_details(item_id) when is_integer(item_id),
-    do: %{item_id: item_id} |> FetchDetailsWorker.new() |> Styx.insert()
+  @doc """
+  Queues a GitHub details fetch; at most one is incomplete per project.
+  Projects on other hosts have no automatic details.
+  """
+  @spec enqueue_details(integer()) ::
+          {:ok, Styx.Job.t()} | {:error, :details_unsupported | term()}
+  def enqueue_details(item_id) when is_integer(item_id) do
+    case get_project(item_id) do
+      %Item{} = item ->
+        if details_supported?(item),
+          do: %{item_id: item_id} |> FetchDetailsWorker.new() |> Styx.insert(),
+          else: {:error, :details_unsupported}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
 
   @doc "Stores fetched GitHub details, clears the last error and recomputes automatic labels."
   @spec put_details(Item.t(), Singularity.GitHub.details(), DateTime.t()) :: {:ok, Item.t()}
@@ -338,7 +419,7 @@ defmodule Singularity.Knowledge do
         item =
           item
           |> Ecto.Changeset.change(
-            title: details.title || item.title,
+            title: if(item.custom_title, do: item.title, else: details.title || item.title),
             summary: details.summary,
             attributes: attributes,
             details_fetched_at: now,

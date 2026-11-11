@@ -45,12 +45,23 @@ defmodule SingularityWeb.ItemComponents do
   attr :project, :map, required: true
 
   def details_status(assigns) do
+    assigns =
+      assign(assigns, :supported?, Singularity.Knowledge.details_supported?(assigns.project))
+
     ~H"""
-    <.dm_badge :if={@project.details_error} variant="error" size="sm" data-role="details-status">
+    <.dm_badge :if={!@supported?} variant="neutral" size="sm" data-role="details-status">
+      {dgettext("knowledge", "No automatic details")}
+    </.dm_badge>
+    <.dm_badge
+      :if={@supported? && @project.details_error}
+      variant="error"
+      size="sm"
+      data-role="details-status"
+    >
       {dgettext("knowledge", "Details failed")}
     </.dm_badge>
     <.dm_badge
-      :if={!@project.details_error && !@project.details_fetched_at}
+      :if={@supported? && !@project.details_error && !@project.details_fetched_at}
       variant="info"
       size="sm"
       data-role="details-status"

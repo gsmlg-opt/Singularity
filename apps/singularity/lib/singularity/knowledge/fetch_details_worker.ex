@@ -15,8 +15,13 @@ defmodule Singularity.Knowledge.FetchDetailsWorker do
   @impl Styx.Worker
   def perform(%Styx.Job{args: %{"item_id" => item_id}}) do
     case Knowledge.get_project(item_id) do
-      nil -> {:cancel, :project_not_found}
-      project -> fetch(project)
+      nil ->
+        {:cancel, :project_not_found}
+
+      project ->
+        if Knowledge.details_supported?(project),
+          do: fetch(project),
+          else: {:cancel, :details_unsupported}
     end
   end
 
