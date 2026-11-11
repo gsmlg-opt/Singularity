@@ -11,96 +11,91 @@
 msgid ""
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:100
+#: lib/singularity_web/components/layouts.ex:96
 #, elixir-autogen, elixir-format
 msgid "Activity"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:116
+#: lib/singularity_web/components/layouts.ex:113
 #, elixir-autogen, elixir-format
 msgid "All knowledge"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:112
+#: lib/singularity_web/components/layouts.ex:109
 #, elixir-autogen, elixir-format
 msgid "Browse"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:149
+#: lib/singularity_web/components/layouts.ex:143
 #, elixir-autogen, elixir-format
 msgid "Collection runs"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:79
+#: lib/singularity_web/components/layouts.ex:75
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:37
+#: lib/singularity_web/components/layouts.ex:33
 #, elixir-autogen, elixir-format
 msgid "Main navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:78
+#: lib/singularity_web/components/layouts.ex:74
+#: lib/singularity_web/components/layouts.ex:86
 #: lib/singularity_web/components/layouts.ex:90
-#: lib/singularity_web/components/layouts.ex:94
 #, elixir-autogen, elixir-format
 msgid "Overview"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:59
+#: lib/singularity_web/components/layouts.ex:55
 #, elixir-autogen, elixir-format
 msgid "Section navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:122
+#: lib/singularity_web/components/layouts.ex:119
 #, elixir-autogen, elixir-format
 msgid "Software projects"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:80
-#: lib/singularity_web/components/layouts.ex:138
+#: lib/singularity_web/components/layouts.ex:76
+#: lib/singularity_web/components/layouts.ex:132
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:140
+#: lib/singularity_web/components/layouts.ex:134
 #, elixir-autogen, elixir-format
 msgid "Sources"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:81
-#: lib/singularity_web/components/layouts.ex:162
+#: lib/singularity_web/components/layouts.ex:77
+#: lib/singularity_web/components/layouts.ex:156
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:178
+#: lib/singularity_web/components/layouts.ex:172
 #, elixir-autogen, elixir-format
 msgid "System status"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:131
-#, elixir-autogen, elixir-format
-msgid "Top labels"
-msgstr ""
-
-#: lib/singularity_web/components/layouts.ex:61
+#: lib/singularity_web/components/layouts.ex:57
 #, elixir-autogen, elixir-format
 msgid "Collapse navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:60
+#: lib/singularity_web/components/layouts.ex:56
 #, elixir-autogen, elixir-format
 msgid "Expand navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:166
+#: lib/singularity_web/components/layouts.ex:160
 #, elixir-autogen, elixir-format
 msgid "Accounts"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:172
+#: lib/singularity_web/components/layouts.ex:166
 #, elixir-autogen, elixir-format
 msgid "Appearance"
 msgstr ""
@@ -117,7 +112,7 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:143
+#: lib/singularity_web/components/layouts.ex:137
 #, elixir-autogen, elixir-format
 msgid "Manual"
 msgstr ""

@@ -55,8 +55,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
     |> stream(:projects, projects, reset: true)
     |> assign(
       projects_empty?: projects == [],
-      has_next: length(projects) == @per_page,
-      top_labels: Knowledge.top_labels(12)
+      has_next: length(projects) == @per_page
     )
   end
 
@@ -110,13 +109,8 @@ defmodule SingularityWeb.KnowledgeLive.Index do
     end
   end
 
-  defp active_item(live_action, top_labels, label) do
-    case Layouts.label_menu_id(top_labels, label) do
-      nil when live_action == :projects -> "knowledge-projects"
-      nil -> "knowledge-all"
-      id -> id
-    end
-  end
+  defp active_item(:projects), do: "knowledge-projects"
+  defp active_item(_index), do: "knowledge-all"
 
   @impl true
   def render(assigns) do
@@ -125,8 +119,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       flash={@flash}
       socket={@socket}
       section={:knowledge}
-      labels={@top_labels}
-      active={active_item(@live_action, @top_labels, @filters.label)}
+      active={active_item(@live_action)}
     >
       <h1 class="text-2xl font-bold">{dgettext("knowledge", "Software projects")}</h1>
 

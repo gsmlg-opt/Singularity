@@ -54,8 +54,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
   def handle_info({:project_updated, id}, %{assigns: %{project: %{id: id}}} = socket),
     do: {:noreply, load(socket, id)}
 
-  def handle_info({:project_updated, _other}, socket),
-    do: {:noreply, assign(socket, top_labels: Knowledge.top_labels(12))}
+  def handle_info({:project_updated, _other}, socket), do: {:noreply, socket}
 
   defp load(socket, id) do
     project = Knowledge.get_project!(id)
@@ -64,8 +63,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
       project: project,
       details_supported?: Knowledge.details_supported?(project),
       item_sources: Knowledge.list_item_sources(id),
-      observations: Knowledge.list_observations(id),
-      top_labels: Knowledge.top_labels(12)
+      observations: Knowledge.list_observations(id)
     )
   end
 
@@ -78,7 +76,6 @@ defmodule SingularityWeb.KnowledgeLive.Show do
       flash={@flash}
       socket={@socket}
       section={:knowledge}
-      labels={@top_labels}
       active="knowledge-projects"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">

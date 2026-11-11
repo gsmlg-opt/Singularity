@@ -20,10 +20,6 @@ defmodule SingularityWeb.Layouts do
   attr :section, :atom, required: true, values: [:overview, :knowledge, :source, :system]
   attr :active, :string, default: "", doc: "id of the active left-menu item"
 
-  attr :labels, :list,
-    default: [],
-    doc: "top labels as {name, count}, listed in the Knowledge menu"
-
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -54,7 +50,7 @@ defmodule SingularityWeb.Layouts do
           id="section-menu"
           sticky
           socket={@socket}
-          groups={left_menu_groups(@section, @labels)}
+          groups={left_menu_groups(@section)}
           active={@active}
           nav_label={gettext("Section navigation")}
           expand_label={gettext("Expand navigation")}
@@ -83,7 +79,7 @@ defmodule SingularityWeb.Layouts do
   end
 
   @doc "Left-menu groups of a section, in the data shape `dm_left_menu` expects."
-  def left_menu_groups(:overview, _labels) do
+  def left_menu_groups(:overview) do
     [
       %{
         id: "overview",
@@ -106,32 +102,30 @@ defmodule SingularityWeb.Layouts do
     ]
   end
 
-  def left_menu_groups(:knowledge, labels) do
-    browse = %{
-      id: "browse",
-      label: gettext("Browse"),
-      items: [
-        %{
-          id: "knowledge-all",
-          label: gettext("All knowledge"),
-          to: "/knowledge",
-          icon: "bookshelf"
-        },
-        %{
-          id: "knowledge-projects",
-          label: gettext("Software projects"),
-          to: "/knowledge/projects",
-          icon: "source-repository"
-        }
-      ]
-    }
-
-    if labels == [],
-      do: [browse],
-      else: [browse, %{id: "labels", label: gettext("Top labels"), items: label_items(labels)}]
+  def left_menu_groups(:knowledge) do
+    [
+      %{
+        id: "browse",
+        label: gettext("Browse"),
+        items: [
+          %{
+            id: "knowledge-all",
+            label: gettext("All knowledge"),
+            to: "/knowledge",
+            icon: "bookshelf"
+          },
+          %{
+            id: "knowledge-projects",
+            label: gettext("Software projects"),
+            to: "/knowledge/projects",
+            icon: "source-repository"
+          }
+        ]
+      }
+    ]
   end
 
-  def left_menu_groups(:source, _labels) do
+  def left_menu_groups(:source) do
     [
       %{
         id: "source",
@@ -155,7 +149,7 @@ defmodule SingularityWeb.Layouts do
     ]
   end
 
-  def left_menu_groups(:system, _labels) do
+  def left_menu_groups(:system) do
     [
       %{
         id: "system",
@@ -182,27 +176,5 @@ defmodule SingularityWeb.Layouts do
         ]
       }
     ]
-  end
-
-  @doc "The left-menu item id of a top label, or nil when the label is not listed."
-  def label_menu_id(labels, name) do
-    labels
-    |> Enum.with_index(1)
-    |> Enum.find_value(fn {{label, _count}, index} ->
-      if label == name, do: "menu-label-#{index}"
-    end)
-  end
-
-  defp label_items(labels) do
-    labels
-    |> Enum.with_index(1)
-    |> Enum.map(fn {{name, _count}, index} ->
-      %{
-        id: "menu-label-#{index}",
-        label: name,
-        to: "/knowledge?" <> URI.encode_query(%{"label" => name}),
-        icon: "tag-outline"
-      }
-    end)
   end
 end

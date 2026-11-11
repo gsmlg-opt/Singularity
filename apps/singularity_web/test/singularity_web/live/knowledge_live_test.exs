@@ -48,7 +48,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert has_element?(view, "#projects [data-role='details-status']", "Details failed")
     end
 
-    test "uses the Knowledge section menu with browse items and top labels", %{conn: conn} do
+    test "uses the Knowledge section menu with browse items only", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/knowledge")
 
       assert has_element?(view, "#top-nav-knowledge[aria-current='page']")
@@ -61,11 +61,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
                "Software projects"
              )
 
-      assert has_element?(
-               view,
-               "#section-menu a[href='/knowledge?label=lang%3Arust']",
-               "lang:rust"
-             )
+      refute has_element?(view, "#section-menu a[href^='/knowledge?label=']")
 
       {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
       assert has_element?(view, "#section-menu-navigation[data-active-nav='knowledge-projects']")

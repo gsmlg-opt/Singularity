@@ -187,7 +187,7 @@ AGENTS.md 的边界规则相应更新：Web 层可调用 `Sources`、`Knowledge`
 左侧菜单：
 
 - 浏览：全部知识；软件项目（这一版两者相同，为以后的知识类型留位置）。
-- 常用 label：按项目数排序的前 12 个，点击即按该 label 筛选。
+- 左侧菜单不列 label。按 label 筛选通过 URL 参数 `label`，从 Overview 的 label 云或徽章进入。
 
 列表页：
 
