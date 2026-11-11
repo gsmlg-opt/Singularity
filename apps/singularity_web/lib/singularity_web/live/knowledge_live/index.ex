@@ -14,7 +14,10 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       Collection.subscribe()
     end
 
-    {:ok, assign(socket, page_title: dgettext("knowledge", "Software projects"))}
+    {:ok,
+     socket
+     |> assign(page_title: dgettext("knowledge", "Software projects"))
+     |> stream_configure(:projects, dom_id: &"project-#{&1.id}")}
   end
 
   @impl true
@@ -48,8 +51,10 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         per_page: @per_page
       )
 
-    assign(socket,
-      projects: projects,
+    socket
+    |> stream(:projects, projects, reset: true)
+    |> assign(
+      projects_empty?: projects == [],
       has_next: length(projects) == @per_page,
       top_labels: Knowledge.top_labels(12)
     )
@@ -164,12 +169,10 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         </div>
       </div>
 
-      <p :if={@projects == []} id="projects-empty">
+      <p :if={@projects_empty?} id="projects-empty">
         {dgettext("knowledge", "No software projects match.")}
       </p>
-      <div id="projects" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <.project_card :for={project <- @projects} project={project} />
-      </div>
+      <.project_table :if={!@projects_empty?} id="projects" rows={@streams.projects} />
 
       <nav class="flex gap-3" aria-label={dgettext("knowledge", "Pagination")}>
         <.link

@@ -13,7 +13,11 @@ defmodule SingularityWeb.OverviewLive.Index do
       Collection.subscribe()
     end
 
-    {:ok, socket |> assign(page_title: dgettext("overview", "Overview")) |> load()}
+    {:ok,
+     socket
+     |> assign(page_title: dgettext("overview", "Overview"))
+     |> stream_configure(:recent, dom_id: &"project-#{&1.id}")
+     |> load()}
   end
 
   @impl true
@@ -23,12 +27,16 @@ defmodule SingularityWeb.OverviewLive.Index do
   defp load(socket) do
     week_ago = DateTime.add(DateTime.utc_now(), -7 * 86_400, :second)
 
-    assign(socket,
+    recent = Knowledge.recent_projects(12)
+
+    socket
+    |> stream(:recent, recent, reset: true)
+    |> assign(
+      recent_empty?: recent == [],
       project_count: Knowledge.count_projects(),
       week_count: Knowledge.count_projects_since(week_ago),
       enabled_sources: Enum.count(Sources.list_sources(), & &1.enabled),
       last_run: List.first(Collection.list_recent_runs(1)),
-      recent: Knowledge.recent_projects(12),
       labels: Knowledge.top_labels(20)
     )
   end
@@ -74,12 +82,10 @@ defmodule SingularityWeb.OverviewLive.Index do
           <h2 class="text-lg font-semibold">{dgettext("overview", "Recently added")}</h2>
           <.link navigate={~p"/knowledge"} id="view-all">{dgettext("overview", "View all")}</.link>
         </div>
-        <p :if={@recent == []} id="recent-empty">
+        <p :if={@recent_empty?} id="recent-empty">
           {dgettext("overview", "No software projects yet. Add one or run a source.")}
         </p>
-        <div id="recent-projects" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <.project_card :for={project <- @recent} project={project} />
-        </div>
+        <.project_table :if={!@recent_empty?} id="recent-projects" rows={@streams.recent} />
       </section>
 
       <section :if={@labels != []} class="space-y-3">

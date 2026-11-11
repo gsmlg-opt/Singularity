@@ -36,6 +36,23 @@ defmodule SingularityWeb.SourceLiveTest do
       assert_enqueued(worker: CollectSourceWorker, args: %{source_id: source.id})
     end
 
+    test "row actions are icon buttons titled with their names", %{conn: conn} do
+      source = source_fixture()
+      {:ok, view, _html} = live(conn, ~p"/source/sources")
+
+      for {id, title} <- [
+            {"collect", "Collect now"},
+            {"toggle", "Disable"},
+            {"edit", "Edit"},
+            {"delete", "Delete"}
+          ] do
+        assert has_element?(view, "##{id}-#{source.id}[title='#{title}'][aria-label='#{title}']")
+        refute has_element?(view, "##{id}-#{source.id}", title)
+      end
+
+      assert has_element?(view, "#edit-#{source.id}[href='/source/sources/#{source.id}/edit']")
+    end
+
     test "toggle and delete", %{conn: conn} do
       source = source_fixture()
       {:ok, view, _html} = live(conn, ~p"/source/sources")

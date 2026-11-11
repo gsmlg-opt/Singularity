@@ -6,30 +6,39 @@ defmodule SingularityWeb.ItemComponents do
 
   use SingularityWeb, :html
 
-  attr :project, :map, required: true
+  @doc """
+  Software projects as a table. `rows` is a stream configured with
+  `dom_id: &"project-\#{&1.id}"`.
+  """
+  attr :id, :string, required: true
+  attr :rows, :any, required: true
 
-  def project_card(assigns) do
+  def project_table(assigns) do
     ~H"""
-    <.dm_card id={"project-#{@project.id}"} class="h-full" shadow="sm">
-      <:title>
-        <.link navigate={~p"/knowledge/projects/#{@project.id}"} class="hover:underline">
-          {@project.title}
-        </.link>
-      </:title>
-      <p :if={@project.summary} class="text-sm text-on-surface-variant line-clamp-3">
-        {@project.summary}
-      </p>
-      <div class="flex flex-wrap items-center gap-3 text-xs text-on-surface-variant">
-        <span class="inline-flex items-center gap-1">
-          <.dm_mdi name="star-outline" class="h-4 w-4" />{format_count(@project.attributes["stars"])}
-        </span>
-        <span :if={@project.attributes["language"]} class="inline-flex items-center gap-1">
-          <.dm_mdi name="code-tags" class="h-4 w-4" />{@project.attributes["language"]}
-        </span>
-        <.details_status project={@project} />
-      </div>
-      <.label_badges labels={@project.labels} />
-    </.dm_card>
+    <.dm_table id={@id} data={@rows} stream hover>
+      <:col :let={project} label={dgettext("knowledge", "Project")}>
+        <div class="min-w-0 max-w-xl">
+          <.link navigate={~p"/knowledge/projects/#{project.id}"} class="font-medium">
+            {project.title}
+          </.link>
+          <p :if={project.summary} class="text-sm text-on-surface-variant line-clamp-1">
+            {project.summary}
+          </p>
+        </div>
+      </:col>
+      <:col :let={project} label={dgettext("knowledge", "Language")}>
+        {project.attributes["language"] || "—"}
+      </:col>
+      <:col :let={project} label={dgettext("knowledge", "Stars")}>
+        {format_count(project.attributes["stars"])}
+      </:col>
+      <:col :let={project} label={dgettext("knowledge", "Labels")}>
+        <.label_badges labels={project.labels} />
+      </:col>
+      <:col :let={project} label={dgettext("knowledge", "Details")}>
+        <.details_status project={project} />
+      </:col>
+    </.dm_table>
     """
   end
 

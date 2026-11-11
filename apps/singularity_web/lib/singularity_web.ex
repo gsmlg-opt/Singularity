@@ -90,6 +90,7 @@ defmodule SingularityWeb do
       import SingularityWeb.FormHelpers
       # Configuration page layout
       import SingularityWeb.SettingsComponents
+      import SingularityWeb.TableComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

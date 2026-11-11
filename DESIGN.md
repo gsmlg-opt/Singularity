@@ -42,9 +42,11 @@
 |---|---|
 | 当前视图的主操作（保存、添加、新建） | `primary`，**每个视图只有一个** |
 | 详情页上的次要操作（立即采集、重新获取、刷新） | `secondary` |
-| 表格行内操作、编辑、启用/停用 | `outline` |
+| 页面或面板上的编辑、启用/停用 | `outline` |
 | 取消、工具栏里的低强调操作 | `ghost` |
 | 删除、清除等破坏性操作 | `error`，并加 `data-confirm` |
+
+表格行内的操作不用上表的文字按钮，见下面的"数据表格"。
 
 moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问题（TODO(upstream): duskmoon-dev/duskmoonui#80）。不在本地覆盖，等上游修复后升级依赖即可。
 
@@ -52,12 +54,20 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 
 | 组件 | 规定 |
 |---|---|
-| `dm_card` | 列表里的知识项、分组内容。默认 surface-container，不加颜色 class |
+| `dm_card` | 详情页上的分组内容（如项目的 GitHub 信息、label）。默认 surface-container，不加颜色 class。**不用卡片展示列表数据** |
 | `dm_stat` | 概览指标。只给最关键的一个指标加 `color="primary"` |
 | `dm_badge` | label 和状态。状态用语义色，分类区分用 primary/secondary/tertiary |
-| `dm_table` | 记录列表（来源、采集记录、观测历史） |
+| `dm_table` | 所有列表数据，见下面的"数据表格" |
 | `dm_input` / `dm_select` | 表单字段，不设颜色；错误信息用 `text-error` |
 | `dm_flash_group` | 只在骨架里出现一次 |
+
+### 数据表格
+
+- **数据展示一律用表格**（`dm_table`，加 `hover`）：知识列表、最近添加、动态、来源、采集记录、观测历史、队列都是表格。不用卡片网格或自拼的列表展示多条数据。
+- 需要行 id（测试、LiveView 更新）时用 stream：`stream_configure(:name, dom_id: …)`，加载时 `stream(…, reset: true)`，表格传 `stream`。空状态用单独的提示文字，不渲染空表格。
+- 第一列是条目名，链接到详情页；次要描述放在名字下面，`text-sm text-on-surface-variant line-clamp-1`。
+- 操作列放最后，表头 `Actions` 右对齐。**行内操作一律是图标按钮**：用 `SingularityWeb.TableComponents` 的 `row_actions` 包住若干 `row_action`，每个 `row_action` 必须给 `label`（操作名，渲染为 `title` 提示和 `aria-label`）和 `icon`。默认 `ghost`；破坏性操作 `variant="error"` 加 `data-confirm`；跳转用 `navigate`。按钮上不写文字。
+- 详情页的单条信息（键值）不是列表数据，继续用键值网格。
 
 ### 配置页
 
@@ -88,12 +98,12 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 ## 6. 布局与间距
 
 - 一个视图只用一种间距尺度：内容页用 `gap-6`，数据密集的列表用 `gap-3` 或 `gap-4`，不要混用。
-- 知识卡片网格用 `grid gap-4 md:grid-cols-2 xl:grid-cols-3`，概览指标用 `grid gap-4 sm:grid-cols-2 lg:grid-cols-4`，键值信息用 `grid grid-cols-[10rem_1fr] gap-1 text-sm`。
-- 不同类型的页面要有各自的布局：概览是指标加最近条目，知识列表是筛选加卡片网格，详情是信息加历史表格，表单是单列 `max-w-lg`。
+- 概览指标用 `grid gap-4 sm:grid-cols-2 lg:grid-cols-4`，键值信息用 `grid grid-cols-[10rem_1fr] gap-1 text-sm`。
+- 不同类型的页面要有各自的布局：概览是指标加最近条目表格，知识列表是筛选加表格，详情是信息加历史表格，表单是单列 `max-w-lg`。
 
 ## 7. 动效
 
-- 只做轻微的悬停反馈（卡片最多 `translateY(-2px)`），一次交互只动一个属性。
+- 只做轻微的悬停反馈（表格行用 `hover` 高亮，可点的卡片最多 `translateY(-2px)`），一次交互只动一个属性。
 - 加载状态用 `dm_loading_spinner` 或骨架屏，不自己写 spinner。
 - 必须遵守 `prefers-reduced-motion`。
 
@@ -107,5 +117,6 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 
        grep -rnE '#[0-9a-fA-F]{3,6}\b|(bg|text|border)-(slate|gray|zinc|neutral|red|blue|green|white|black)' apps/singularity_web/lib apps/singularity_web/assets/css
 
-2. 每个 `dm_btn` 都写了 `variant`，每个视图只有一个 `primary`。
-3. 在本机测试环境或开发服务器上截图，在 moonlight 主题下确认对比度和层级。
+2. 每个 `dm_btn` 都写了 `variant`，每个视图只有一个 `primary`；表格里没有文字按钮，每个 `row_action` 都有 `label`。
+3. 列表数据都在 `dm_table` 里，没有卡片网格。
+4. 在本机测试环境或开发服务器上截图，在 moonlight 主题下确认对比度和层级。

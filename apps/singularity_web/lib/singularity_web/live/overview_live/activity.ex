@@ -15,7 +15,11 @@ defmodule SingularityWeb.OverviewLive.Activity do
       Collection.subscribe()
     end
 
-    {:ok, socket |> assign(page_title: dgettext("overview", "Activity")) |> load()}
+    {:ok,
+     socket
+     |> assign(page_title: dgettext("overview", "Activity"))
+     |> stream_configure(:events, dom_id: fn {type, _at, event} -> event_id(type, event) end)
+     |> load()}
   end
 
   @impl true
@@ -31,7 +35,7 @@ defmodule SingularityWeb.OverviewLive.Activity do
       |> Enum.sort_by(fn {_type, at, _event} -> at end, {:desc, DateTime})
       |> Enum.take(@limit)
 
-    assign(socket, events: events)
+    socket |> stream(:events, events, reset: true) |> assign(events_empty?: events == [])
   end
 
   defp event_id(:addition, %{item: item}), do: "addition-#{item.id}"
@@ -40,26 +44,41 @@ defmodule SingularityWeb.OverviewLive.Activity do
   defp added_via(nil), do: dgettext("overview", "Added manually")
   defp added_via(source), do: dgettext("overview", "Added from %{source}", source: source.name)
 
-  attr :addition, :map, required: true
+  defp event_icon(:addition), do: "plus-box-outline"
+  defp event_icon(:run), do: "history"
 
-  defp addition_event(assigns) do
+  attr :type, :atom, required: true
+  attr :event, :map, required: true
+
+  defp event_summary(%{type: :addition} = assigns) do
     ~H"""
-    <.dm_mdi name="plus-box-outline" class="h-5 w-5" />
-    <.link navigate={~p"/knowledge/projects/#{@addition.item.id}"}>{@addition.item.title}</.link>
-    <span class="text-sm text-on-surface-variant">{added_via(@addition.source)}</span>
+    <.link navigate={~p"/knowledge/projects/#{@event.item.id}"}>{@event.item.title}</.link>
     """
   end
 
-  attr :run, :map, required: true
-
-  defp run_event(assigns) do
+  defp event_summary(%{type: :run} = assigns) do
     ~H"""
-    <.dm_mdi name="history" class="h-5 w-5" />
-    <span>{dgettext("overview", "Collected %{source}", source: @run.source.name)}</span>
-    <.run_status run={@run} />
-    <span class="text-sm text-on-surface-variant">
-      {dngettext("overview", "%{count} item", "%{count} items", @run.item_count)}
-    </span>
+    <span>{dgettext("overview", "Collected %{source}", source: @event.source.name)}</span>
+    """
+  end
+
+  attr :type, :atom, required: true
+  attr :event, :map, required: true
+
+  defp event_details(%{type: :addition} = assigns) do
+    ~H"""
+    <span class="text-sm text-on-surface-variant">{added_via(@event.source)}</span>
+    """
+  end
+
+  defp event_details(%{type: :run} = assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-2">
+      <.run_status run={@event} />
+      <span class="text-sm text-on-surface-variant">
+        {dngettext("overview", "%{count} item", "%{count} items", @event.item_count)}
+      </span>
+    </div>
     """
   end
 
@@ -68,20 +87,23 @@ defmodule SingularityWeb.OverviewLive.Activity do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:overview} active="overview-activity">
       <h1 class="text-2xl font-bold">{dgettext("overview", "Activity")}</h1>
-      <p :if={@events == []} id="activity-empty">
+      <p :if={@events_empty?} id="activity-empty">
         {dgettext("overview", "Nothing has happened yet.")}
       </p>
-      <ol id="activity" class="space-y-2">
-        <li
-          :for={{type, at, event} <- @events}
-          id={event_id(type, event)}
-          class="flex flex-wrap items-center gap-3 rounded border border-outline-variant p-3"
-        >
-          <span class="w-44 shrink-0 text-xs text-on-surface-variant">{format_time(at)}</span>
-          <.addition_event :if={type == :addition} addition={event} />
-          <.run_event :if={type == :run} run={event} />
-        </li>
-      </ol>
+      <.dm_table :if={!@events_empty?} id="activity" data={@streams.events} stream hover>
+        <:col :let={{_type, at, _event}} label={dgettext("overview", "Time")}>
+          <span class="whitespace-nowrap text-sm text-on-surface-variant">{format_time(at)}</span>
+        </:col>
+        <:col :let={{type, _at, event}} label={dgettext("overview", "Event")}>
+          <div class="flex items-center gap-2">
+            <.dm_mdi name={event_icon(type)} class="h-5 w-5 shrink-0" />
+            <.event_summary type={type} event={event} />
+          </div>
+        </:col>
+        <:col :let={{type, _at, event}} label={dgettext("overview", "Details")}>
+          <.event_details type={type} event={event} />
+        </:col>
+      </.dm_table>
     </Layouts.app>
     """
   end

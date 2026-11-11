@@ -11,86 +11,101 @@ msgstr ""
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: lib/singularity_web/live/overview_live/activity.ex:61
+#: lib/singularity_web/live/overview_live/activity.ex:79
 #, elixir-autogen, elixir-format
 msgid "%{count} item"
 msgid_plural "%{count} items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/singularity_web/live/overview_live/activity.ex:18
-#: lib/singularity_web/live/overview_live/activity.ex:70
+#: lib/singularity_web/live/overview_live/activity.ex:20
+#: lib/singularity_web/live/overview_live/activity.ex:89
 #, elixir-autogen, elixir-format
 msgid "Activity"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/activity.ex:41
+#: lib/singularity_web/live/overview_live/activity.ex:45
 #, elixir-autogen, elixir-format
 msgid "Added from %{source}"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/activity.ex:40
+#: lib/singularity_web/live/overview_live/activity.ex:44
 #, elixir-autogen, elixir-format
 msgid "Added manually"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:56
+#: lib/singularity_web/live/overview_live/index.ex:64
 #, elixir-autogen, elixir-format
 msgid "Added this week"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/activity.ex:58
+#: lib/singularity_web/live/overview_live/activity.ex:61
 #, elixir-autogen, elixir-format
 msgid "Collected %{source}"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:61
+#: lib/singularity_web/live/overview_live/index.ex:69
 #, elixir-autogen, elixir-format
 msgid "Enabled sources"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:66
+#: lib/singularity_web/live/overview_live/index.ex:74
 #, elixir-autogen, elixir-format
 msgid "Last collection"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:36
+#: lib/singularity_web/live/overview_live/index.ex:44
 #, elixir-autogen, elixir-format
 msgid "Never"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:78
+#: lib/singularity_web/live/overview_live/index.ex:86
 #, elixir-autogen, elixir-format
 msgid "No software projects yet. Add one or run a source."
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/activity.ex:72
+#: lib/singularity_web/live/overview_live/activity.ex:91
 #, elixir-autogen, elixir-format
 msgid "Nothing has happened yet."
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:16
-#: lib/singularity_web/live/overview_live/index.ex:46
+#: lib/singularity_web/live/overview_live/index.ex:18
+#: lib/singularity_web/live/overview_live/index.ex:54
 #, elixir-autogen, elixir-format
 msgid "Overview"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:86
+#: lib/singularity_web/live/overview_live/index.ex:92
 #, elixir-autogen, elixir-format
 msgid "Popular labels"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:74
+#: lib/singularity_web/live/overview_live/index.ex:82
 #, elixir-autogen, elixir-format
 msgid "Recently added"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:51
+#: lib/singularity_web/live/overview_live/index.ex:59
 #, elixir-autogen, elixir-format
 msgid "Software projects"
 msgstr ""
 
-#: lib/singularity_web/live/overview_live/index.ex:75
+#: lib/singularity_web/live/overview_live/index.ex:83
 #, elixir-autogen, elixir-format
 msgid "View all"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:103
+#, elixir-autogen, elixir-format
+msgid "Details"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:97
+#, elixir-autogen, elixir-format
+msgid "Event"
+msgstr ""
+
+#: lib/singularity_web/live/overview_live/activity.ex:94
+#, elixir-autogen, elixir-format
+msgid "Time"
 msgstr ""

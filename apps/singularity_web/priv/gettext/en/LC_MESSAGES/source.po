@@ -67,7 +67,7 @@ msgstr ""
 msgid "Choose a source type"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/index.ex:97
+#: lib/singularity_web/live/source_live/index.ex:93
 #: lib/singularity_web/live/source_live/show.ex:53
 #, elixir-autogen, elixir-format
 msgid "Collect now"
@@ -95,17 +95,17 @@ msgstr ""
 msgid "Config"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/index.ex:123
+#: lib/singularity_web/live/source_live/index.ex:117
 #, elixir-autogen, elixir-format
 msgid "Delete"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/index.ex:120
+#: lib/singularity_web/live/source_live/index.ex:122
 #, elixir-autogen, elixir-format
 msgid "Delete this source and its records? Projects are kept."
 msgstr ""
 
-#: lib/singularity_web/live/source_live/index.ex:107
+#: lib/singularity_web/live/source_live/index.ex:102
 #, elixir-autogen, elixir-format
 msgid "Disable"
 msgstr ""
@@ -126,7 +126,7 @@ msgstr ""
 msgid "Edit source"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/index.ex:108
+#: lib/singularity_web/live/source_live/index.ex:103
 #, elixir-autogen, elixir-format
 msgid "Enable"
 msgstr ""

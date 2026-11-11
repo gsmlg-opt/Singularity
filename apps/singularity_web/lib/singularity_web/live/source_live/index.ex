@@ -84,45 +84,45 @@ defmodule SingularityWeb.SourceLive.Index do
           </span>
           <span :if={!@runs[source.id]}>—</span>
         </:col>
-        <:col :let={source} label={dgettext("source", "Actions")}>
-          <div class="flex gap-2">
-            <.dm_btn
+        <:col :let={source} label={dgettext("source", "Actions")} label_class="text-right">
+          <.row_actions>
+            <.row_action
               :if={source.enabled}
-              size="sm"
-              variant="outline"
               id={"collect-#{source.id}"}
+              icon="play-circle-outline"
+              label={dgettext("source", "Collect now")}
               phx-click="collect"
               phx-value-id={source.id}
-            >
-              {dgettext("source", "Collect now")}
-            </.dm_btn>
-            <.dm_btn
-              size="sm"
-              variant="outline"
+            />
+            <.row_action
               id={"toggle-#{source.id}"}
+              icon={if source.enabled, do: "pause-circle-outline", else: "check-circle-outline"}
+              label={
+                if source.enabled,
+                  do: dgettext("source", "Disable"),
+                  else: dgettext("source", "Enable")
+              }
               phx-click="toggle"
               phx-value-id={source.id}
-            >
-              {if source.enabled,
-                do: dgettext("source", "Disable"),
-                else: dgettext("source", "Enable")}
-            </.dm_btn>
-            <.link navigate={~p"/source/sources/#{source.id}/edit"}>
-              <.dm_btn size="sm" variant="outline">{dgettext("source", "Edit")}</.dm_btn>
-            </.link>
-            <.dm_btn
-              size="sm"
-              variant="error"
+            />
+            <.row_action
+              id={"edit-#{source.id}"}
+              icon="pencil-outline"
+              label={dgettext("source", "Edit")}
+              navigate={~p"/source/sources/#{source.id}/edit"}
+            />
+            <.row_action
               id={"delete-#{source.id}"}
+              icon="delete-outline"
+              label={dgettext("source", "Delete")}
+              variant="error"
               phx-click="delete"
               phx-value-id={source.id}
               data-confirm={
                 dgettext("source", "Delete this source and its records? Projects are kept.")
               }
-            >
-              {dgettext("source", "Delete")}
-            </.dm_btn>
-          </div>
+            />
+          </.row_actions>
         </:col>
       </.dm_table>
     </Layouts.app>
