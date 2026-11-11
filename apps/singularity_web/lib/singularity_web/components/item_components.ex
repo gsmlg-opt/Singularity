@@ -49,6 +49,14 @@ defmodule SingularityWeb.ItemComponents do
       assign(assigns, :supported?, Singularity.Knowledge.details_supported?(assigns.project))
 
     ~H"""
+    <.dm_badge
+      :if={@project.removal_due_at}
+      variant="warning"
+      size="sm"
+      data-role="removal-status"
+    >
+      {dgettext("knowledge", "Removal on %{date}", date: format_date(@project.removal_due_at))}
+    </.dm_badge>
     <.dm_badge :if={!@supported?} variant="neutral" size="sm" data-role="details-status">
       {dgettext("knowledge", "No automatic details")}
     </.dm_badge>
@@ -105,4 +113,5 @@ defmodule SingularityWeb.ItemComponents do
 
   def format_date(nil), do: "—"
   def format_date(iso8601) when is_binary(iso8601), do: String.slice(iso8601, 0, 10)
+  def format_date(%DateTime{} = at), do: Calendar.strftime(at, "%Y-%m-%d")
 end

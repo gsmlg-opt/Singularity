@@ -140,4 +140,28 @@ defmodule Singularity.GitHubTest do
       assert {:error, {:transport, "nxdomain"}} = GitHub.fetch_repo("a", "b")
     end
   end
+
+  describe "fetch_starred/3" do
+    setup do
+      HTTP.Test.verify_on_exit!()
+    end
+
+    test "requests one page with the star media type and a token" do
+      HTTP.Test.expect(GitHub, fn request ->
+        assert request.url.path == "/users/gsmlg/starred"
+        assert URI.decode_query(request.url.query) == %{"per_page" => "100", "page" => "2"}
+        assert HTTP.Headers.get(request.headers, "accept") == "application/vnd.github.star+json"
+        assert HTTP.Headers.get(request.headers, "authorization") == "Bearer secret"
+        HTTP.Test.response(200, ~s([{"starred_at": "2026-01-01T00:00:00Z", "repo": {}}]))
+      end)
+
+      assert {:ok, [%{"starred_at" => "2026-01-01T00:00:00Z"}]} =
+               GitHub.fetch_starred("gsmlg", 2, token: "secret")
+    end
+
+    test "rejects a body that is not a list" do
+      HTTP.Test.expect(GitHub, fn _request -> HTTP.Test.response(200, "{}") end)
+      assert {:error, :invalid_response} = GitHub.fetch_starred("gsmlg", 1)
+    end
+  end
 end

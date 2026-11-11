@@ -1,5 +1,9 @@
 defmodule Singularity.Collector.Entry do
-  @moduledoc "One collected object as reported by a collector."
+  @moduledoc """
+  One collected object as reported by a collector. `period` overrides the
+  result's period for this entry's observation; `details` are GitHub details
+  already in hand, stored as freshly fetched instead of queueing a fetch.
+  """
 
   @enforce_keys [:item_kind, :external_id, :title, :url]
   defstruct [
@@ -10,6 +14,8 @@ defmodule Singularity.Collector.Entry do
     :summary,
     :published_at,
     :rank,
+    :period,
+    :details,
     item_attributes: %{},
     observation_attributes: %{},
     raw: %{}
@@ -23,6 +29,8 @@ defmodule Singularity.Collector.Entry do
           summary: String.t() | nil,
           published_at: DateTime.t() | nil,
           rank: pos_integer() | nil,
+          period: String.t() | nil,
+          details: Singularity.GitHub.details() | nil,
           item_attributes: map(),
           observation_attributes: map(),
           raw: map()

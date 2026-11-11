@@ -42,7 +42,7 @@ Singularity 是个人知识库，不是采集软件。v2 把 v1 的"采集条目
 - label 的层级、颜色、重命名。
 - 全文搜索（只按 `owner/repo` 和描述做 `ILIKE` 匹配）。
 - 登录、agent、Hacker News。
-- 删除软件项目。
+- 删除软件项目（已由 `2026-11-11-singularity-github-stars-design.md` 取代：没有来源保留的项目 30 天后自动删除）。
 
 ## 3. 数据模型
 

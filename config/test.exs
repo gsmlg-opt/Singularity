@@ -24,6 +24,7 @@ config :singularity, Styx, testing: :manual
 
 config :singularity, :collectors, [
   Singularity.Collectors.GithubTrending,
+  Singularity.Collectors.GithubStars,
   Singularity.Test.FakeCollector
 ]
 

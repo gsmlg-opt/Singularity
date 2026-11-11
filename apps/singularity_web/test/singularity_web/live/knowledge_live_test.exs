@@ -219,4 +219,58 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert render(view) =~ "Updated summary"
     end
   end
+
+  describe "sources and removal" do
+    setup do
+      stars = source_fixture(name: "GitHub Stars · gsmlg")
+      project = project_fixture(title: "acme/leaving", removal_due_at: ~U[2026-12-10 08:00:00Z])
+
+      Singularity.Repo.insert!(%Singularity.Knowledge.ItemSource{
+        item_id: project.id,
+        source_id: stars.id,
+        added_at: ~U[2026-11-01 08:00:00Z],
+        removed_at: ~U[2026-11-10 08:00:00Z]
+      })
+
+      Singularity.Repo.insert!(%Singularity.Knowledge.ItemSource{
+        item_id: project_fixture(title: "acme/kept").id,
+        source_id: nil,
+        added_at: ~U[2026-11-01 08:00:00Z]
+      })
+
+      %{project: project, stars: stars}
+    end
+
+    test "the project page shows how it was added and when it will be removed", %{
+      conn: conn,
+      project: project,
+      stars: stars
+    } do
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert has_element?(view, "#item-sources a[href='/source/sources/#{stars.id}']", "gsmlg")
+      assert has_element?(view, "#item-sources", "2026-11-01 08:00 UTC")
+      assert has_element?(view, "#item-sources", "Left on 2026-11-10")
+      assert has_element?(view, "#removal-notice", "removed on 2026-12-10")
+    end
+
+    test "a project added by hand shows as active", %{conn: conn} do
+      kept = Knowledge.list_projects(q: "acme/kept") |> hd()
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{kept.id}")
+
+      assert has_element?(view, "#item-sources", "Added manually")
+      assert has_element?(view, "#item-sources", "Active")
+      refute has_element?(view, "#removal-notice")
+    end
+
+    test "lists flag projects due for removal", %{conn: conn, project: project} do
+      {:ok, view, _html} = live(conn, ~p"/knowledge")
+
+      assert has_element?(
+               view,
+               "#project-#{project.id} [data-role='removal-status']",
+               "Removal on 2026-12-10"
+             )
+    end
+  end
 end

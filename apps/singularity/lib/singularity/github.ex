@@ -7,6 +7,7 @@ defmodule Singularity.GitHub do
   alias Singularity.HttpClient
 
   @api "https://api.github.com"
+  @per_page 100
 
   @type details :: %{title: String.t() | nil, summary: String.t() | nil, attributes: map()}
   @type error ::
@@ -24,9 +25,33 @@ defmodule Singularity.GitHub do
   def fetch_repo(owner, repo, opts \\ []) do
     url = "#{@api}/repos/#{encode(owner)}/#{encode(repo)}"
 
-    headers =
-      [{"Accept", "application/vnd.github+json"}, {"User-Agent", "Singularity"}] ++
-        authorization(opts[:token])
+    with {:ok, %{} = json} <- get_json(url, "application/vnd.github+json", opts),
+         do: {:ok, parse_repo(json)}
+  end
+
+  @doc """
+  One page (100 per page, from 1) of `GET /users/:user/starred` with the star
+  media type: each element has `starred_at` and the full `repo` object.
+  Options as for `fetch_repo/3`.
+  """
+  @spec fetch_starred(String.t(), pos_integer(), keyword()) :: {:ok, [map()]} | {:error, error()}
+  def fetch_starred(user, page, opts \\ []) when is_integer(page) and page > 0 do
+    url = "#{@api}/users/#{encode(user)}/starred?per_page=#{@per_page}&page=#{page}"
+
+    with {:ok, json} when is_list(json) <-
+           get_json(url, "application/vnd.github.star+json", opts) do
+      {:ok, json}
+    else
+      {:ok, _not_a_list} -> {:error, :invalid_response}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc "Page size of `fetch_starred/3`."
+  def per_page, do: @per_page
+
+  defp get_json(url, accept, opts) do
+    headers = [{"Accept", accept}, {"User-Agent", "Singularity"}] ++ authorization(opts[:token])
 
     case HttpClient.get(url, headers, adapter()) do
       {:ok, %{status: 200, body: body}} ->
@@ -69,7 +94,7 @@ defmodule Singularity.GitHub do
 
   defp decode(body) do
     case JSON.decode(body) do
-      {:ok, %{} = json} -> {:ok, parse_repo(json)}
+      {:ok, json} when is_map(json) or is_list(json) -> {:ok, json}
       _other -> {:error, :invalid_response}
     end
   end

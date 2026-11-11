@@ -2,7 +2,7 @@
 
 自托管的个人知识库。知识条目是核心；采集只是条目的一种来源。用户配置信息来源，系统收集后沉淀为可回溯的知识条目。设计、界面和数据模型都以知识条目为中心，不以采集为中心。
 
-当前设计：`docs/superpowers/specs/2026-11-11-singularity-knowledge-v2-design.md`（v1 设计 `2026-11-09-singularity-collector-v1-design.md` 中未被它取代的部分仍然有效）。
+当前设计：`docs/superpowers/specs/2026-11-11-singularity-knowledge-v2-design.md`，以及在它之上的 `2026-11-11-singularity-manual-projects-design.md`、`2026-11-11-singularity-github-stars-design.md`（v1 设计 `2026-11-09-singularity-collector-v1-design.md` 中未被它取代的部分仍然有效）。
 
 ## 技术栈
 

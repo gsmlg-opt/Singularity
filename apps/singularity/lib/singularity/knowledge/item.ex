@@ -19,8 +19,10 @@ defmodule Singularity.Knowledge.Item do
     field :details_fetched_at, :utc_datetime
     field :details_error, :string
     field :custom_title, :boolean, default: false
+    field :removal_due_at, :utc_datetime
     has_many :observations, Singularity.Knowledge.Observation
     has_many :labels, Singularity.Knowledge.Label
+    has_many :item_sources, Singularity.Knowledge.ItemSource
     timestamps(type: :utc_datetime)
   end
 

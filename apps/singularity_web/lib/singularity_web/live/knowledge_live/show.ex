@@ -63,6 +63,7 @@ defmodule SingularityWeb.KnowledgeLive.Show do
     assign(socket,
       project: project,
       details_supported?: Knowledge.details_supported?(project),
+      item_sources: Knowledge.list_item_sources(id),
       observations: Knowledge.list_observations(id),
       top_labels: Knowledge.top_labels(12)
     )
@@ -84,6 +85,14 @@ defmodule SingularityWeb.KnowledgeLive.Show do
         <h1 class="text-2xl font-bold">{@project.title}</h1>
         <.details_status project={@project} />
       </div>
+
+      <.dm_alert :if={@project.removal_due_at} id="removal-notice" variant="warning">
+        {dgettext(
+          "knowledge",
+          "No source keeps this project any more. It will be removed on %{date} unless a source adds it again.",
+          date: format_date(@project.removal_due_at)
+        )}
+      </.dm_alert>
 
       <div class="grid gap-6 lg:grid-cols-3">
         <.dm_card :if={!@details_supported?} id="repository" class="lg:col-span-2">
@@ -213,6 +222,25 @@ defmodule SingularityWeb.KnowledgeLive.Show do
           <.field_errors form={@label_form} field={:name} />
         </.dm_card>
       </div>
+
+      <h2 class="text-lg font-semibold">{dgettext("knowledge", "Sources")}</h2>
+      <.dm_table id="item-sources" data={@item_sources}>
+        <:col :let={kept} label={dgettext("knowledge", "Source")}>
+          <.link :if={kept.source} navigate={~p"/source/sources/#{kept.source.id}"}>
+            {kept.source.name}
+          </.link>
+          <span :if={!kept.source}>{dgettext("knowledge", "Added manually")}</span>
+        </:col>
+        <:col :let={kept} label={dgettext("knowledge", "Added")}>{format_time(kept.added_at)}</:col>
+        <:col :let={kept} label={dgettext("knowledge", "Status")}>
+          <.dm_badge :if={!kept.removed_at} variant="success" size="sm">
+            {dgettext("knowledge", "Active")}
+          </.dm_badge>
+          <.dm_badge :if={kept.removed_at} variant="neutral" size="sm">
+            {dgettext("knowledge", "Left on %{date}", date: format_date(kept.removed_at))}
+          </.dm_badge>
+        </:col>
+      </.dm_table>
 
       <h2 class="text-lg font-semibold">{dgettext("knowledge", "Source records")}</h2>
       <.dm_table id="observations" data={@observations}>

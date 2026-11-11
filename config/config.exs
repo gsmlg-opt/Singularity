@@ -19,10 +19,17 @@ config :singularity, Styx,
   plugins: [
     {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
     {Styx.Lifeline, rescue_after: {30, :minutes}},
-    {Styx.Cron, crontab: [{"* * * * *", Singularity.Collection.ScheduleWorker}]}
+    {Styx.Cron,
+     crontab: [
+       {"* * * * *", Singularity.Collection.ScheduleWorker},
+       {"0 3 * * *", Singularity.Knowledge.PurgeWorker}
+     ]}
   ]
 
-config :singularity, :collectors, [Singularity.Collectors.GithubTrending]
+config :singularity, :collectors, [
+  Singularity.Collectors.GithubTrending,
+  Singularity.Collectors.GithubStars
+]
 
 config :singularity_web,
   ecto_repos: [Singularity.Repo],

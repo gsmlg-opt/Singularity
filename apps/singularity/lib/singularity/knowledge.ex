@@ -4,7 +4,17 @@ defmodule Singularity.Knowledge do
   import Ecto.Query
 
   alias Singularity.Collector.{Entry, Result}
-  alias Singularity.Knowledge.{Address, FetchDetailsWorker, Item, Label, Labels, Observation}
+
+  alias Singularity.Knowledge.{
+    Address,
+    FetchDetailsWorker,
+    Item,
+    ItemSource,
+    Label,
+    Labels,
+    Observation
+  }
+
   alias Singularity.Repo
   alias Singularity.Sources.Source
 
@@ -14,27 +24,110 @@ defmodule Singularity.Knowledge do
   # title, summary and attributes come from GitHub details; collected values only seed new items.
   @replace_on_conflict [:last_seen_at, :updated_at]
   @details_ttl_seconds 24 * 60 * 60
+  # A project no source keeps any more is deleted this long after it left the last one.
+  @removal_grace_days 30
+  # A complete list (thousands of stars) is written in one transaction.
+  @record_timeout :timer.minutes(10)
 
   @doc """
-  Upserts items and inserts one observation per entry for the result's period,
-  atomically. Trending entries add a `trending:<since>` label; software projects
-  without fresh details get a details fetch queued in the same transaction.
+  Upserts items and inserts one observation per entry (for the entry's period,
+  else the result's), atomically. Every item is kept by the source. Trending
+  entries add a `trending:<since>` label. Entries carrying `details` store them;
+  other software projects without fresh details get a fetch queued.
+
+  For a complete result (with nothing skipped), items the source kept but no
+  longer lists leave it; one that no source keeps any more is due for removal
+  #{@removal_grace_days} days later.
   """
   @spec record(Source.t(), Result.t(), DateTime.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def record(%Source{} = source, %Result{} = result, %DateTime{} = now) do
     now = DateTime.truncate(now, :second)
 
-    Repo.transaction(fn ->
-      Enum.each(result.entries, fn entry ->
-        item = upsert_item!(entry, now)
-        insert_observation!(item, source, result.period, entry, now)
-        add_trending_label!(item, entry, now)
-        maybe_enqueue_details!(item, now)
-      end)
+    Repo.transaction(
+      fn ->
+        item_ids =
+          Enum.map(result.entries, fn entry ->
+            item = upsert_item!(entry, now)
+            insert_observation!(item, source, entry.period || result.period, entry, now)
+            add_trending_label!(item, entry, now)
+            keep_details!(item, entry, now)
+            item.id
+          end)
 
-      length(result.entries)
-    end)
+        keep!(item_ids, source.id, now)
+        if result.complete and result.skipped == 0, do: leave!(source.id, item_ids, now)
+        length(result.entries)
+      end,
+      timeout: @record_timeout
+    )
+  end
+
+  defp keep_details!(item, %Entry{details: nil}, now), do: maybe_enqueue_details!(item, now)
+  defp keep_details!(item, %Entry{details: details}, now), do: apply_details!(item, details, now)
+
+  # The source (nil = by hand) keeps these items: rows are created or reopened,
+  # and a pending removal is called off.
+  defp keep!(item_ids, source_id, now) do
+    item_ids = Enum.uniq(item_ids)
+
+    item_ids
+    |> Enum.map(
+      &%{item_id: &1, source_id: source_id, added_at: now, inserted_at: now, updated_at: now}
+    )
+    |> Enum.chunk_every(1000)
+    |> Enum.each(
+      &Repo.insert_all(ItemSource, &1,
+        on_conflict: [set: [removed_at: nil, updated_at: now]],
+        conflict_target: [:item_id, :source_id]
+      )
+    )
+
+    Item
+    |> where([i], i.id in ^item_ids and not is_nil(i.removal_due_at))
+    |> Repo.update_all(set: [removal_due_at: nil, updated_at: now])
+
+    :ok
+  end
+
+  defp leave!(source_id, listed_ids, now) do
+    {_count, left_ids} =
+      ItemSource
+      |> where([s], s.source_id == ^source_id and is_nil(s.removed_at))
+      |> where([s], s.item_id not in ^listed_ids)
+      |> select([s], s.item_id)
+      |> Repo.update_all(set: [removed_at: now, updated_at: now])
+
+    kept = from(s in ItemSource, where: is_nil(s.removed_at), select: s.item_id)
+
+    Item
+    |> where([i], i.id in ^left_ids and i.id not in subquery(kept))
+    |> Repo.update_all(
+      set: [removal_due_at: DateTime.add(now, @removal_grace_days, :day), updated_at: now]
+    )
+
+    :ok
+  end
+
+  @doc "The sources that added the item (`source` nil = by hand), oldest first."
+  @spec list_item_sources(integer()) :: [ItemSource.t()]
+  def list_item_sources(item_id) do
+    ItemSource
+    |> where(item_id: ^item_id)
+    |> order_by(asc: :added_at, asc: :id)
+    |> preload(:source)
+    |> Repo.all()
+  end
+
+  @doc "Deletes the projects whose removal is due. Returns how many were deleted."
+  @spec purge_removed(DateTime.t()) :: non_neg_integer()
+  def purge_removed(%DateTime{} = now \\ DateTime.utc_now()) do
+    {count, _rows} =
+      Item
+      |> where([i], not is_nil(i.removal_due_at) and i.removal_due_at <= ^now)
+      |> Repo.delete_all()
+
+    count
   end
 
   defp add_trending_label!(
@@ -343,12 +436,14 @@ defmodule Singularity.Knowledge do
     case Repo.get_by(Item, kind: @project, external_id: external_id) do
       %Item{} = item ->
         insert_manual_observation!(item, now)
+        keep!([item.id], nil, now)
         {:existing, item}
 
       nil ->
         case insert_project(address, name, now) do
           {:ok, item} ->
             insert_manual_observation!(item, now)
+            keep!([item.id], nil, now)
             after_manual_insert!(item, address, now)
             {:created, item}
 
@@ -411,29 +506,29 @@ defmodule Singularity.Knowledge do
 
   @doc "Stores fetched GitHub details, clears the last error and recomputes automatic labels."
   @spec put_details(Item.t(), Singularity.GitHub.details(), DateTime.t()) :: {:ok, Item.t()}
-  def put_details(%Item{} = item, %{attributes: attributes} = details, %DateTime{} = now) do
+  def put_details(%Item{} = item, details, %DateTime{} = now) do
     now = DateTime.truncate(now, :second)
 
-    {:ok, item} =
-      Repo.transaction(fn ->
-        item =
-          item
-          |> Ecto.Changeset.change(
-            title: if(item.custom_title, do: item.title, else: details.title || item.title),
-            summary: details.summary,
-            attributes: attributes,
-            details_fetched_at: now,
-            details_error: nil
-          )
-          |> Repo.update!()
-
-        names = Labels.auto_labels(attributes, observation_sinces(item.id))
-        sync_auto_labels!(item.id, names, now)
-        item
-      end)
-
+    {:ok, item} = Repo.transaction(fn -> apply_details!(item, details, now) end)
     broadcast_project(item.id)
     {:ok, item}
+  end
+
+  defp apply_details!(%Item{} = item, %{attributes: attributes} = details, now) do
+    item =
+      item
+      |> Ecto.Changeset.change(
+        title: if(item.custom_title, do: item.title, else: details.title || item.title),
+        summary: details.summary,
+        attributes: attributes,
+        details_fetched_at: now,
+        details_error: nil
+      )
+      |> Repo.update!()
+
+    names = Labels.auto_labels(attributes, observation_sinces(item.id))
+    sync_auto_labels!(item.id, names, now)
+    item
   end
 
   @doc "Records why the last details fetch failed."

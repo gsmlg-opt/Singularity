@@ -11,22 +11,23 @@
 msgid ""
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:210
+#: lib/singularity_web/live/knowledge_live/show.ex:219
 #, elixir-autogen, elixir-format
 msgid "Add"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:207
+#: lib/singularity_web/live/knowledge_live/show.ex:216
 #, elixir-autogen, elixir-format
 msgid "Add label"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:221
+#: lib/singularity_web/live/knowledge_live/show.ex:232
+#: lib/singularity_web/live/knowledge_live/show.ex:249
 #, elixir-autogen, elixir-format
 msgid "Added manually"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:153
+#: lib/singularity_web/live/knowledge_live/show.ex:162
 #, elixir-autogen, elixir-format
 msgid "Archived"
 msgstr ""
@@ -41,17 +42,17 @@ msgstr ""
 msgid "Clear label filter"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:149
+#: lib/singularity_web/live/knowledge_live/show.ex:158
 #, elixir-autogen, elixir-format
 msgid "Created"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:61
+#: lib/singularity_web/components/item_components.ex:69
 #, elixir-autogen, elixir-format
 msgid "Details failed"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:159
+#: lib/singularity_web/live/knowledge_live/show.ex:168
 #, elixir-autogen, elixir-format
 msgid "Details fetched"
 msgstr ""
@@ -61,27 +62,27 @@ msgstr ""
 msgid "Details will be fetched again shortly"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:167
+#: lib/singularity_web/live/knowledge_live/show.ex:176
 #, elixir-autogen, elixir-format
 msgid "Fetch again"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:69
+#: lib/singularity_web/components/item_components.ex:77
 #, elixir-autogen, elixir-format
 msgid "Fetching details"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:143
+#: lib/singularity_web/live/knowledge_live/show.ex:152
 #, elixir-autogen, elixir-format
 msgid "Forks"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:119
+#: lib/singularity_web/live/knowledge_live/show.ex:128
 #, elixir-autogen, elixir-format
 msgid "GitHub details"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:137
+#: lib/singularity_web/live/knowledge_live/show.ex:146
 #, elixir-autogen, elixir-format
 msgid "Homepage"
 msgstr ""
@@ -92,23 +93,23 @@ msgid "Label"
 msgstr ""
 
 #: lib/singularity_web/components/item_components.ex:35
-#: lib/singularity_web/live/knowledge_live/show.ex:173
+#: lib/singularity_web/live/knowledge_live/show.ex:182
 #, elixir-autogen, elixir-format
 msgid "Labels"
 msgstr ""
 
 #: lib/singularity_web/components/item_components.ex:29
-#: lib/singularity_web/live/knowledge_live/show.ex:145
+#: lib/singularity_web/live/knowledge_live/show.ex:154
 #, elixir-autogen, elixir-format
 msgid "Language"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:151
+#: lib/singularity_web/live/knowledge_live/show.ex:160
 #, elixir-autogen, elixir-format
 msgid "Last pushed"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:147
+#: lib/singularity_web/live/knowledge_live/show.ex:156
 #, elixir-autogen, elixir-format
 msgid "License"
 msgstr ""
@@ -118,7 +119,7 @@ msgstr ""
 msgid "Next"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:157
+#: lib/singularity_web/live/knowledge_live/show.ex:166
 #, elixir-autogen, elixir-format
 msgid "No"
 msgstr ""
@@ -133,7 +134,7 @@ msgstr ""
 msgid "Pagination"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:223
+#: lib/singularity_web/live/knowledge_live/show.ex:251
 #, elixir-autogen, elixir-format
 msgid "Period"
 msgstr ""
@@ -143,7 +144,7 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:224
+#: lib/singularity_web/live/knowledge_live/show.ex:252
 #, elixir-autogen, elixir-format
 msgid "Rank"
 msgstr ""
@@ -153,7 +154,7 @@ msgstr ""
 msgid "Recently added"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:189
+#: lib/singularity_web/live/knowledge_live/show.ex:198
 #, elixir-autogen, elixir-format
 msgid "Remove label %{name}"
 msgstr ""
@@ -174,34 +175,35 @@ msgstr ""
 msgid "Sort by"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:220
+#: lib/singularity_web/live/knowledge_live/show.ex:228
+#: lib/singularity_web/live/knowledge_live/show.ex:248
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:217
+#: lib/singularity_web/live/knowledge_live/show.ex:245
 #, elixir-autogen, elixir-format
 msgid "Source records"
 msgstr ""
 
 #: lib/singularity_web/components/item_components.ex:32
 #: lib/singularity_web/live/knowledge_live/index.ex:155
-#: lib/singularity_web/live/knowledge_live/show.ex:141
+#: lib/singularity_web/live/knowledge_live/show.ex:150
 #, elixir-autogen, elixir-format
 msgid "Stars"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:225
+#: lib/singularity_web/live/knowledge_live/show.ex:253
 #, elixir-autogen, elixir-format
 msgid "Stars in period"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:219
+#: lib/singularity_web/live/knowledge_live/show.ex:247
 #, elixir-autogen, elixir-format
 msgid "Time"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:156
+#: lib/singularity_web/live/knowledge_live/show.ex:165
 #, elixir-autogen, elixir-format
 msgid "Yes"
 msgstr ""
@@ -221,27 +223,62 @@ msgstr ""
 msgid "Project"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:94
+#: lib/singularity_web/live/knowledge_live/show.ex:103
 #, elixir-autogen, elixir-format
 msgid "Address"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:111
+#: lib/singularity_web/live/knowledge_live/show.ex:120
 #, elixir-autogen, elixir-format
 msgid "Details are fetched automatically only for GitHub; labels for this project are added by hand."
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:92
+#: lib/singularity_web/live/knowledge_live/show.ex:101
 #, elixir-autogen, elixir-format
 msgid "Host"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:53
+#: lib/singularity_web/components/item_components.ex:61
 #, elixir-autogen, elixir-format
 msgid "No automatic details"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:90
+#: lib/singularity_web/live/knowledge_live/show.ex:99
 #, elixir-autogen, elixir-format
 msgid "Repository"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:237
+#, elixir-autogen, elixir-format
+msgid "Active"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:234
+#, elixir-autogen, elixir-format
+msgid "Added"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:240
+#, elixir-autogen, elixir-format
+msgid "Left on %{date}"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:90
+#, elixir-autogen, elixir-format
+msgid "No source keeps this project any more. It will be removed on %{date} unless a source adds it again."
+msgstr ""
+
+#: lib/singularity_web/components/item_components.ex:58
+#, elixir-autogen, elixir-format
+msgid "Removal on %{date}"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:226
+#, elixir-autogen, elixir-format
+msgid "Sources"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/show.ex:235
+#, elixir-autogen, elixir-format
+msgid "Status"
 msgstr ""
