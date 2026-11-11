@@ -91,6 +91,7 @@ defmodule SingularityWeb do
       # Configuration page layout
       import SingularityWeb.SettingsComponents
       import SingularityWeb.TableComponents
+      import SingularityWeb.Outbound, only: [external_link: 1]
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

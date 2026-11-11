@@ -119,6 +119,7 @@ defmodule SingularityWeb.ItemComponents do
     source
     |> MDEx.parse_document!(@markdown_options ++ [plugins: [MDExGFM]])
     |> resolve_addresses(repository)
+    |> route_outbound()
     |> MDEx.to_html!(@markdown_options)
     |> Phoenix.HTML.raw()
   end
@@ -135,6 +136,7 @@ defmodule SingularityWeb.ItemComponents do
 
   def repository_bases(_project), do: nil
 
+  @html_href ~r/\b(href)\s*=\s*(["'])([^"']*)\2/i
   @html_address ~r/\b(src|href)\s*=\s*(["'])([^"']*)\2/i
 
   defp resolve_addresses(document, nil), do: document
@@ -162,6 +164,33 @@ defmodule SingularityWeb.ItemComponents do
     end)
   end
 
+  # Links to other sites go through the confirmation page; images load directly.
+  defp route_outbound(document) do
+    MDEx.traverse_and_update(document, fn
+      %MDEx.Link{url: url} = node ->
+        %{node | url: outbound(url)}
+
+      %{__struct__: html, literal: literal} = node
+      when html in [MDEx.HtmlBlock, MDEx.HtmlInline] ->
+        literal =
+          Regex.replace(@html_href, literal, fn _all, attribute, quote, url ->
+            "#{attribute}=#{quote}#{url |> unescape_html() |> outbound() |> escape_html()}#{quote}"
+          end)
+
+        %{node | literal: literal}
+
+      node ->
+        node
+    end)
+  end
+
+  defp outbound(url) do
+    if SingularityWeb.Outbound.web?(url), do: SingularityWeb.Outbound.path(url), else: url
+  end
+
+  defp unescape_html(url), do: String.replace(url, "&amp;", "&")
+  defp escape_html(url), do: String.replace(url, "&", "&amp;")
+
   # Absolute URLs, protocol-relative ones and fragments stay; "/x" is the repository root.
   defp absolute(url, base) do
     cond do
@@ -175,6 +204,8 @@ defmodule SingularityWeb.ItemComponents do
   @doc "One line of Markdown (a GitHub description): emoji shortcodes and inline marks, sanitized."
   def inline_markdown(text) when is_binary(text) do
     text
+    |> MDEx.parse_document!(@markdown_options)
+    |> route_outbound()
     |> MDEx.to_html!(@markdown_options)
     |> String.trim()
     |> String.replace_prefix("<p>", "")

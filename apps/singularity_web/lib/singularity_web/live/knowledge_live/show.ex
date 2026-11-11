@@ -184,28 +184,21 @@ defmodule SingularityWeb.KnowledgeLive.Show do
             <.dm_mdi name="scale-balance" class="h-4 w-4" />{@project.attributes["license"]}
           </li>
           <li :if={web_url?(@project.url)}>
-            <a
-              href={@project.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 text-primary"
-            >
+            <.external_link href={@project.url} class="inline-flex items-center gap-1 text-primary">
               <.dm_mdi
                 name={if @details_supported?, do: "github", else: "source-repository"}
                 class="h-4 w-4"
               />
               {if @details_supported?, do: "GitHub", else: dgettext("knowledge", "Repository")}
-            </a>
+            </.external_link>
           </li>
-          <li :if={@project.attributes["homepage"]}>
-            <a
+          <li :if={web_url?(@project.attributes["homepage"] || "")}>
+            <.external_link
               href={@project.attributes["homepage"]}
-              target="_blank"
-              rel="noopener noreferrer"
               class="inline-flex items-center gap-1 text-primary"
             >
               <.dm_mdi name="open-in-new" class="h-4 w-4" />{dgettext("knowledge", "Homepage")}
-            </a>
+            </.external_link>
           </li>
         </ul>
       </header>
@@ -302,15 +295,9 @@ defmodule SingularityWeb.KnowledgeLive.Show do
               <dd>{@project.external_id |> String.split("/") |> hd()}</dd>
               <dt class="text-on-surface-variant">{dgettext("knowledge", "Address")}</dt>
               <dd class="break-all">
-                <a
-                  :if={web_url?(@project.url)}
-                  href={@project.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-primary"
-                >
+                <.external_link :if={web_url?(@project.url)} href={@project.url} class="text-primary">
                   {@project.url}
-                </a>
+                </.external_link>
                 <code :if={!web_url?(@project.url)}>{@project.url}</code>
               </dd>
             </dl>

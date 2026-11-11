@@ -1,0 +1,15 @@
+<main id="outbound" class="flex min-h-screen items-center justify-center bg-surface px-4">
+  <.dm_card class="w-full max-w-xl">
+    <div class="space-y-5">
+      <h1 class="text-2xl font-bold">{gettext("Leaving Singularity")}</h1>
+      <p id="outbound-invalid" class="text-on-surface-variant">
+        {gettext("This is not a web address.")}
+      </p>
+      <div class="flex justify-end">
+        <.dm_btn id="outbound-back" variant="ghost" href={@back}>
+          <.dm_mdi name="arrow-left" class="h-4 w-4" />{gettext("Back")}
+        </.dm_btn>
+      </div>
+    </div>
+  </.dm_card>
+</main>

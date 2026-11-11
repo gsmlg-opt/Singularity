@@ -100,16 +100,16 @@ msgstr ""
 msgid "Appearance"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:441
-#: lib/singularity_web/live/knowledge_live/show.ex:470
+#: lib/singularity_web/live/knowledge_live/show.ex:428
+#: lib/singularity_web/live/knowledge_live/show.ex:457
 #: lib/singularity_web/live/source_live/manual.ex:141
 #: lib/singularity_web/live/system_live/accounts.ex:134
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:422
-#: lib/singularity_web/live/knowledge_live/show.ex:451
+#: lib/singularity_web/live/knowledge_live/show.ex:409
+#: lib/singularity_web/live/knowledge_live/show.ex:438
 #: lib/singularity_web/live/source_live/manual.ex:112
 #: lib/singularity_web/live/system_live/accounts.ex:113
 #, elixir-autogen, elixir-format
@@ -121,7 +121,35 @@ msgstr ""
 msgid "Manual"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:444
+#: lib/singularity_web/live/knowledge_live/show.ex:431
 #, elixir-autogen, elixir-format
 msgid "Save"
+msgstr ""
+
+#: lib/singularity_web/controllers/outbound_html/invalid.html.heex:10
+#: lib/singularity_web/controllers/outbound_html/show.html.heex:17
+#, elixir-autogen, elixir-format
+msgid "Back"
+msgstr ""
+
+#: lib/singularity_web/controllers/outbound_html/show.html.heex:20
+#, elixir-autogen, elixir-format
+msgid "Continue to %{host}"
+msgstr ""
+
+#: lib/singularity_web/controllers/outbound_controller.ex:12
+#: lib/singularity_web/controllers/outbound_html/invalid.html.heex:4
+#: lib/singularity_web/controllers/outbound_html/show.html.heex:6
+#, elixir-autogen, elixir-format
+msgid "Leaving Singularity"
+msgstr ""
+
+#: lib/singularity_web/controllers/outbound_html/invalid.html.heex:6
+#, elixir-autogen, elixir-format
+msgid "This is not a web address."
+msgstr ""
+
+#: lib/singularity_web/controllers/outbound_html/show.html.heex:9
+#, elixir-autogen, elixir-format
+msgid "This link goes to another site. Check the address before you continue."
 msgstr ""

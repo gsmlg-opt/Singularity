@@ -101,6 +101,12 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 
 Markdown 一律用 `ItemComponents.markdown/1` 渲染（服务端渲染并 sanitize），长内容在卡片里限高滚动。`markdown-body` 里图片恢复为 inline 的规则在 `assets/css/app.css`，标记为 `WORKAROUND(upstream): duskmoon-dev/duskmoonui#86`；上游修复后删除。
 
+### 外部链接
+
+- 指向站外的链接一律用 `external_link`（`SingularityWeb.Outbound`）。它会先经过确认页 `/out`，用户确认后才跳转。
+- 不直接写站外 `href`，也不加 `target="_blank"`：确认页的"返回"需要在同一个标签页里回到原页面。
+- Markdown 内容中的链接由 `ItemComponents.markdown/1` 自动改为经过 `/out`。
+
 ## 5. 排版
 
 | 元素 | class |

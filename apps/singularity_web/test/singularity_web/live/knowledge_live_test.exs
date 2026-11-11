@@ -145,8 +145,18 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert has_element?(view, "#project-facts", "26,710")
       assert has_element?(view, "#project-facts", "Apache-2.0")
       assert has_element?(view, "#github-details", "2011-01-09")
-      assert has_element?(view, "#project-facts a[href='https://elixir-lang.org/']")
-      assert has_element?(view, "#project-facts a[href='https://github.com/elixir-lang/elixir']")
+
+      assert has_element?(
+               view,
+               ~s(#project-facts a[href="/out?to=https%3A%2F%2Felixir-lang.org%2F"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#project-facts a[href="/out?to=https%3A%2F%2Fgithub.com%2Felixir-lang%2Felixir"])
+             )
+
+      refute has_element?(view, "#project-facts a[target='_blank']")
       assert has_element?(view, "#observations", "Trending daily")
       assert has_element?(view, "#observations", "Added manually")
       assert has_element?(view, "#observations", "45")
@@ -329,9 +339,37 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert has_element?(view, ~s(#readme-body img[src="#{raw}assets/logo.png"]))
       assert has_element?(view, ~s(#readme-body img[src="#{raw}docs/shot.png"]))
       assert has_element?(view, ~s(#readme-body img[src="https://example.com/ci.svg"]))
-      assert has_element?(view, ~s(#readme-body a[href="#{blob}docs/guide.md"]))
-      assert has_element?(view, ~s(#readme-body a[href="https://site.example"]))
+      assert has_element?(view, ~s(#readme-body a[href="#{out("#{blob}docs/guide.md")}"]))
+      assert has_element?(view, ~s(#readme-body a[href="#{out("https://site.example")}"]))
+      assert has_element?(view, ~s(#readme-body a[href="#top"]))
       refute has_element?(view, "#readme-body br")
+    end
+
+    test "links in the instruction, description and README HTML leave through /out", %{
+      conn: conn
+    } do
+      project =
+        project_fixture(
+          summary: "See [docs](https://docs.example/a?b=1&c=2)",
+          instruction: "Read [the guide](https://guide.example) or [mail](mailto:a@b.example).",
+          readme: ~s(<p><a href="https://html.example/x?y=1&amp;z=2">Site</a></p>),
+          readme_fetched_at: now()
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert has_element?(
+               view,
+               ~s(#project-summary a[href="#{out("https://docs.example/a?b=1&c=2")}"])
+             )
+
+      assert has_element?(view, ~s(#instruction-body a[href="#{out("https://guide.example")}"]))
+      assert has_element?(view, ~s(#instruction-body a[href="mailto:a@b.example"]))
+
+      assert has_element?(
+               view,
+               ~s(#readme-body a[href="#{out("https://html.example/x?y=1&z=2")}"])
+             )
     end
 
     test "edits the instruction in a modal", %{conn: conn} do
@@ -402,4 +440,6 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       assert has_element?(view, "#project-#{fresh.id}")
     end
   end
+
+  defp out(url), do: SingularityWeb.Outbound.path(url)
 end

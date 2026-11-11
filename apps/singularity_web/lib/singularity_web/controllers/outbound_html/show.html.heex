@@ -1,0 +1,26 @@
+<main id="outbound" class="flex min-h-screen items-center justify-center bg-surface px-4">
+  <.dm_card class="w-full max-w-xl">
+    <div class="space-y-5">
+      <div class="flex items-center gap-3">
+        <.dm_mdi name="open-in-new" class="h-6 w-6" />
+        <h1 class="text-2xl font-bold">{gettext("Leaving Singularity")}</h1>
+      </div>
+      <p class="text-on-surface-variant">
+        {gettext("This link goes to another site. Check the address before you continue.")}
+      </p>
+      <div class="space-y-2 rounded-lg border border-outline-variant bg-surface-container-high p-4">
+        <p id="outbound-host" class="text-lg font-semibold">{@host}</p>
+        <code id="outbound-url" class="block break-all text-sm text-on-surface-variant">{@to}</code>
+      </div>
+      <div class="flex flex-wrap justify-end gap-2">
+        <.dm_btn id="outbound-back" variant="ghost" href={@back}>
+          <.dm_mdi name="arrow-left" class="h-4 w-4" />{gettext("Back")}
+        </.dm_btn>
+        <.dm_btn id="outbound-continue" variant="primary" href={@to}>
+          {gettext("Continue to %{host}", host: @host)}
+          <.dm_mdi name="arrow-right" class="h-4 w-4" />
+        </.dm_btn>
+      </div>
+    </div>
+  </.dm_card>
+</main>
