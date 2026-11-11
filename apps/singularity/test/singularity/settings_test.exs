@@ -48,9 +48,9 @@ defmodule Singularity.SettingsTest do
   end
 
   describe "theme" do
-    test "defaults to moonlight" do
-      assert Settings.theme() == "moonlight"
-      assert hd(Settings.themes()) == "moonlight"
+    test "defaults to following the system" do
+      assert Settings.theme() == "auto"
+      assert Settings.themes() == ["auto", "sunshine", "moonlight"]
     end
 
     test "stores a known theme and rejects unknown ones" do

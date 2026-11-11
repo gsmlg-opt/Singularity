@@ -4,7 +4,7 @@
 
 ## 1. 主题
 
-- 根元素的 `data-theme` 来自 `Settings.theme()`，默认 `moonlight`（与 backplane 一致），在 System → Appearance 里切换。CSS 同时引入 `sunshine` 和 `moonlight`；新增主题要同时改 CSS 引入和 `Settings.themes/0`。
+- 主题偏好来自 `Settings.theme()`：`auto`（跟随系统，默认，与 backplane 一致）、`sunshine`（浅色）、`moonlight`（深色），在 System → Appearance 里切换。根布局对浅色、深色直接渲染 `data-theme`；`auto` 由 `<head>` 里的内联脚本在首次绘制前按 `prefers-color-scheme` 解析，并跟随系统变化。CSS 同时引入 `sunshine` 和 `moonlight`；新增主题要同时改 CSS 引入、`Settings.themes/0` 和这段脚本。
 - `<body class="bg-surface text-on-surface">`，每个页面都从 surface 开始。
 - 不在应用栏放主题切换器；主题是系统配置。
 
@@ -61,11 +61,14 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 
 ### 配置页
 
-系统配置（账户、外观等）统一用 `SingularityWeb.SettingsComponents`，不在页面上直接摆表单：
+系统配置分两类，交互方式不同：
+
+- **偏好选择**（主题等，从几个固定选项里选一个）：直接在页面上展示，用分段控件（`segment-control`，`role="radiogroup"`），点击即保存、即生效，不用 modal，也没有保存按钮。参照 backplane 的 Appearance：`<h1>`、一行说明、下面就是控件。
+- **需要填写或添加的配置数据**（账户令牌等）：用 `SingularityWeb.SettingsComponents`，数据在 modal 里编辑，规则如下。
 
 - 页面结构：`<h1>` 下面是一个 `settings_container`。同类配置有多项时（如账户），左边列出各项（`entries`），右边是选中项的面板；只有一项时不传 `entries`。
 - 面板以 `settings_header` 开头：小标题（eyebrow）、标题、说明，右侧放操作按钮。下面用键值网格展示当前状态。
-- **配置数据在 modal 里编辑**：点"Configure"（`outline`）用 `command="show-modal"` 打开 `dm_modal`，modal 里放表单，底部是 `ghost` 的取消和 `primary` 的保存。保存成功后用 `push_navigate`（或需要换根布局时用 `redirect`）回到本页，modal 随页面重新挂载而关闭；校验失败时留在 modal 里显示错误。
+- **填写类数据在 modal 里编辑**：点"Configure"（`outline`）用 `command="show-modal"` 打开 `dm_modal`，modal 里放表单，底部是 `ghost` 的取消和 `primary` 的保存。保存成功后用 `push_navigate`（或需要换根布局时用 `redirect`）回到本页，modal 随页面重新挂载而关闭；校验失败时留在 modal 里显示错误。
 - 破坏性操作（清除令牌等）放在 header 的操作区，`error` 加 `data-confirm`。
 - 新增一类账户：在 `entries` 里加一项，再加对应的面板，不新增左侧菜单项。
 

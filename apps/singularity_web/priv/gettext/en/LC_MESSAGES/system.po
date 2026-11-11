@@ -120,9 +120,8 @@ msgstr ""
 msgid "Accounts"
 msgstr ""
 
-#: lib/singularity_web/live/system_live/appearance.ex:11
-#: lib/singularity_web/live/system_live/appearance.ex:39
-#: lib/singularity_web/live/system_live/appearance.ex:44
+#: lib/singularity_web/live/system_live/appearance.ex:13
+#: lib/singularity_web/live/system_live/appearance.ex:42
 #, elixir-autogen, elixir-format
 msgid "Appearance"
 msgstr ""
@@ -132,15 +131,7 @@ msgstr ""
 msgid "Clear the GitHub token?"
 msgstr ""
 
-#: lib/singularity_web/live/system_live/appearance.ex:45
-#: lib/singularity_web/live/system_live/appearance.ex:69
-#: lib/singularity_web/live/system_live/appearance.ex:73
-#, elixir-autogen, elixir-format
-msgid "Colour theme"
-msgstr ""
-
 #: lib/singularity_web/live/system_live/accounts.ex:99
-#: lib/singularity_web/live/system_live/appearance.ex:57
 #, elixir-autogen, elixir-format
 msgid "Configure"
 msgstr ""
@@ -160,19 +151,9 @@ msgstr ""
 msgid "Create a personal access token on GitHub; read access to public repositories is enough."
 msgstr ""
 
-#: lib/singularity_web/live/system_live/appearance.ex:63
-#, elixir-autogen, elixir-format
-msgid "Current theme"
-msgstr ""
-
 #: lib/singularity_web/live/system_live/accounts.ex:155
 #, elixir-autogen, elixir-format
 msgid "From environment"
-msgstr ""
-
-#: lib/singularity_web/live/system_live/appearance.ex:32
-#, elixir-autogen, elixir-format
-msgid "Moonlight (dark)"
 msgstr ""
 
 #: lib/singularity_web/live/system_live/accounts.ex:109
@@ -180,29 +161,9 @@ msgstr ""
 msgid "Rate limit"
 msgstr ""
 
-#: lib/singularity_web/live/system_live/appearance.ex:107
-#, elixir-autogen, elixir-format
-msgid "Save theme"
-msgstr ""
-
 #: lib/singularity_web/live/system_live/accounts.ex:105
 #, elixir-autogen, elixir-format
 msgid "Status"
-msgstr ""
-
-#: lib/singularity_web/live/system_live/appearance.ex:33
-#, elixir-autogen, elixir-format
-msgid "Sunshine (light)"
-msgstr ""
-
-#: lib/singularity_web/live/system_live/appearance.ex:48
-#, elixir-autogen, elixir-format
-msgid "The theme applies to every page of this Singularity."
-msgstr ""
-
-#: lib/singularity_web/live/system_live/appearance.ex:24
-#, elixir-autogen, elixir-format
-msgid "Theme saved"
 msgstr ""
 
 #: lib/singularity_web/live/system_live/accounts.ex:107
@@ -210,7 +171,32 @@ msgstr ""
 msgid "Token"
 msgstr ""
 
-#: lib/singularity_web/live/system_live/appearance.ex:28
+#: lib/singularity_web/live/system_live/appearance.ex:23
 #, elixir-autogen, elixir-format
 msgid "Unknown theme"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/appearance.ex:29
+#, elixir-autogen, elixir-format
+msgid "Auto"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/appearance.ex:44
+#, elixir-autogen, elixir-format
+msgid "Choose the theme: automatic, light or dark."
+msgstr ""
+
+#: lib/singularity_web/live/system_live/appearance.ex:31
+#, elixir-autogen, elixir-format
+msgid "Dark"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/appearance.ex:30
+#, elixir-autogen, elixir-format
+msgid "Light"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/appearance.ex:57
+#, elixir-autogen, elixir-format
+msgid "Theme"
 msgstr ""

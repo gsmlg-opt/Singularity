@@ -8,8 +8,9 @@ defmodule Singularity.Settings do
 
   @github_token "github_token"
   @theme "theme"
-  # The DuskMoon themes the stylesheet imports; the first is the default.
-  @themes ["moonlight", "sunshine"]
+  # Theme preferences: "auto" follows the system light/dark setting, the others
+  # are the DuskMoon themes the stylesheet imports. The first is the default.
+  @themes ["auto", "sunshine", "moonlight"]
 
   @doc "The stored token, else the GITHUB_TOKEN environment variable, else nil."
   @spec get_github_token() :: String.t() | nil
@@ -42,11 +43,11 @@ defmodule Singularity.Settings do
     :ok
   end
 
-  @doc "The colour themes the interface ships with, default first."
+  @doc "The theme preferences, default first."
   @spec themes() :: [String.t()]
   def themes, do: @themes
 
-  @doc "The chosen colour theme, or the default when none was chosen."
+  @doc "The chosen theme preference, or the default when none was chosen."
   @spec theme() :: String.t()
   def theme do
     case get(@theme) do

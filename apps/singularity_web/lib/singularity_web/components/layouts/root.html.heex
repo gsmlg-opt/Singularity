@@ -1,9 +1,30 @@
 <!DOCTYPE html>
-<html lang="en" data-theme={@theme} class="h-full">
+<html
+  lang="en"
+  data-theme={@theme != "auto" && @theme}
+  data-theme-preference={@theme}
+  class="h-full"
+>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
+    <script>
+      // Resolves the "auto" theme preference from the system setting before the
+      // first paint and follows its changes; app.js reuses applyThemePreference.
+      (() => {
+        const root = document.documentElement
+        const dark = window.matchMedia("(prefers-color-scheme: dark)")
+        const apply = (preference) => {
+          root.dataset.themePreference = preference
+          root.dataset.theme =
+            preference === "auto" ? (dark.matches ? "moonlight" : "sunshine") : preference
+        }
+        window.applyThemePreference = apply
+        apply(root.dataset.themePreference)
+        dark.addEventListener("change", () => apply(root.dataset.themePreference))
+      })()
+    </script>
     <.live_title default="Singularity">{assigns[:page_title]}</.live_title>
     <link
       phx-track-static

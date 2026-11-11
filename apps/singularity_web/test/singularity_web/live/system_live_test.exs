@@ -61,16 +61,21 @@ defmodule SingularityWeb.SystemLiveTest do
     assert html =~ "can&#39;t be blank"
   end
 
-  test "appearance saves the colour theme and the root layout uses it", %{conn: conn} do
+  test "appearance applies the theme preference on the page", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/system/appearance")
-    assert html =~ ~s(data-theme="moonlight")
-    assert has_element?(view, "dialog#theme-modal #theme-moonlight[checked]")
+    assert html =~ ~s(data-theme-preference="auto")
+    assert has_element?(view, "#theme-auto[aria-checked='true'].segment-item-active")
+    refute has_element?(view, "dialog")
 
-    assert {:error, {:redirect, %{to: "/system/appearance"}}} =
-             view |> form("#theme-form", appearance: %{theme: "sunshine"}) |> render_submit()
-
+    view |> element("#theme-sunshine") |> render_click()
+    assert_push_event view, "theme-changed", %{theme: "sunshine"}
+    assert has_element?(view, "#theme-sunshine[aria-checked='true']")
+    assert has_element?(view, "#theme-auto[aria-checked='false']")
     assert Settings.theme() == "sunshine"
-    assert html_response(get(conn, ~p"/system/appearance"), 200) =~ ~s(data-theme="sunshine")
+
+    html = html_response(get(conn, ~p"/system/appearance"), 200)
+    assert html =~ ~s(data-theme="sunshine")
+    assert html =~ ~s(data-theme-preference="sunshine")
   end
 
   test "status shows the version and queue counts", %{conn: conn} do

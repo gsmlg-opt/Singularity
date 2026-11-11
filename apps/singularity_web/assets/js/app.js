@@ -23,6 +23,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
 
 liveSocket.connect()
 
+// System → Appearance saves the theme preference; apply it without a reload.
+window.addEventListener("phx:theme-changed", (event) => window.applyThemePreference(event.detail.theme))
+
 // Expose liveSocket on window for web console debug logs and latency simulation:
 // >> liveSocket.enableDebug()
 // >> liveSocket.enableLatencySim(1000)

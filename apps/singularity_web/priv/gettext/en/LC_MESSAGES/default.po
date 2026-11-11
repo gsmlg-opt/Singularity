@@ -111,13 +111,11 @@ msgid "Appearance"
 msgstr ""
 
 #: lib/singularity_web/live/system_live/accounts.ex:134
-#: lib/singularity_web/live/system_live/appearance.ex:104
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
 #: lib/singularity_web/live/system_live/accounts.ex:113
-#: lib/singularity_web/live/system_live/appearance.ex:68
 #, elixir-autogen, elixir-format
 msgid "Close"
 msgstr ""
