@@ -22,7 +22,7 @@ defmodule SingularityWeb.ItemComponents do
             {project.title}
           </.link>
           <p :if={project.summary} class="text-sm text-on-surface-variant line-clamp-1">
-            {project.summary}
+            {inline_markdown(project.summary)}
           </p>
         </div>
       </:col>
@@ -87,22 +87,99 @@ defmodule SingularityWeb.ItemComponents do
     """
   end
 
+  @markdown_options [
+    extension: [shortcodes: true],
+    render: [unsafe: true, hardbreaks: false],
+    sanitize: MDEx.Document.default_sanitize_options()
+  ]
+
   attr :id, :string, required: true
   attr :source, :string, required: true
 
+  attr :repository, :map,
+    default: nil,
+    doc:
+      "`%{raw: base, blob: base}` from `repository_bases/1`: relative images and links resolve against it"
+
   @doc """
-  Markdown rendered on the server. Sources are untrusted (READMEs come from
-  other people's repositories), so only GFM is enabled and the HTML is sanitized.
+  Markdown rendered on the server, styled by the design system's `markdown-body`.
+  Sources are untrusted (READMEs come from other people's repositories): only
+  GFM is enabled and the HTML is sanitized. With `repository`, relative image
+  and link addresses point into that repository, as they do on GitHub.
   """
   def markdown(assigns) do
+    assigns = assign(assigns, :html, render_markdown(assigns.source, assigns.repository))
+
     ~H"""
-    <.dm_markdown_body
-      id={@id}
-      source={@source}
-      plugins={[MDExGFM]}
-      options={[render: [unsafe: true], sanitize: MDEx.Document.default_sanitize_options()]}
-    />
+    <div id={@id} class="markdown-body">{@html}</div>
     """
+  end
+
+  defp render_markdown(source, repository) do
+    source
+    |> MDEx.parse_document!(@markdown_options ++ [plugins: [MDExGFM]])
+    |> resolve_addresses(repository)
+    |> MDEx.to_html!(@markdown_options)
+    |> Phoenix.HTML.raw()
+  end
+
+  @doc "Where a GitHub project's relative README addresses point, or nil off GitHub."
+  def repository_bases(%{external_id: "github.com/" <> path, attributes: attributes}) do
+    branch = attributes["default_branch"] || "HEAD"
+
+    %{
+      raw: "https://raw.githubusercontent.com/#{path}/#{branch}/",
+      blob: "https://github.com/#{path}/blob/#{branch}/"
+    }
+  end
+
+  def repository_bases(_project), do: nil
+
+  @html_address ~r/\b(src|href)\s*=\s*(["'])([^"']*)\2/i
+
+  defp resolve_addresses(document, nil), do: document
+
+  defp resolve_addresses(document, %{raw: raw, blob: blob}) do
+    MDEx.traverse_and_update(document, fn
+      %MDEx.Image{url: url} = node ->
+        %{node | url: absolute(url, raw)}
+
+      %MDEx.Link{url: url} = node ->
+        %{node | url: absolute(url, blob)}
+
+      %{__struct__: html, literal: literal} = node
+      when html in [MDEx.HtmlBlock, MDEx.HtmlInline] ->
+        literal =
+          Regex.replace(@html_address, literal, fn _all, attribute, quote, url ->
+            base = if String.downcase(attribute) == "src", do: raw, else: blob
+            "#{attribute}=#{quote}#{absolute(url, base)}#{quote}"
+          end)
+
+        %{node | literal: literal}
+
+      node ->
+        node
+    end)
+  end
+
+  # Absolute URLs, protocol-relative ones and fragments stay; "/x" is the repository root.
+  defp absolute(url, base) do
+    cond do
+      url == "" or String.starts_with?(url, ["#", "//"]) -> url
+      Regex.match?(~r/^[a-z][a-z0-9+.-]*:/i, url) -> url
+      String.starts_with?(url, "/") -> base <> String.trim_leading(url, "/")
+      true -> base |> URI.merge(url) |> URI.to_string()
+    end
+  end
+
+  @doc "One line of Markdown (a GitHub description): emoji shortcodes and inline marks, sanitized."
+  def inline_markdown(text) when is_binary(text) do
+    text
+    |> MDEx.to_html!(@markdown_options)
+    |> String.trim()
+    |> String.replace_prefix("<p>", "")
+    |> String.replace_suffix("</p>", "")
+    |> Phoenix.HTML.raw()
   end
 
   attr :labels, :list, required: true

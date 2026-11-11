@@ -74,7 +74,18 @@
   - 获取过、但没有 README：显示 "This repository has no README."。
   - GitHub 项目，还没获取过：显示 "README not fetched yet."。
   - 非 GitHub 项目：显示 "README is fetched automatically only for GitHub."。
-- **Markdown 渲染**：用 `dm_markdown_body`，插件只用 `MDExGFM`，开启 MDEx sanitize（README 来自第三方）。Instruction 也用同样的渲染方式。
+- **Markdown 渲染**：`ItemComponents.markdown/1` 在服务端用 MDEx 渲染，外层是设计系统的 `markdown-body`。
+  - 插件只用 `MDExGFM`。
+  - 开启 emoji shortcode。
+  - 不把换行渲染成 `<br>`（与 GitHub 一致）。
+  - 开启 MDEx sanitize，因为 README 来自第三方。
+  - README 中的相对地址按仓库解析：
+    - 图片（Markdown 和 HTML 的 `src`）解析到 `https://raw.githubusercontent.com/<owner>/<repo>/<默认分支>/`。
+    - 链接（Markdown 和 HTML 的 `href`）解析到 `https://github.com/<owner>/<repo>/blob/<默认分支>/`。
+    - `/` 开头的地址相对仓库根。
+    - 绝对地址和 `#` 锚点不变。
+  - Instruction 用同样的渲染方式，但不解析相对地址。
+  - 项目描述（GitHub description）按单行 Markdown 渲染，`:tada:` 这类 shortcode 显示为 emoji。
 
 **列表**
 
@@ -95,7 +106,6 @@
 
 ## 不做
 
-- README 中相对路径的图片和链接改写为绝对地址。
 - 非 GitHub 仓库的 README。
 - instruction 的自动采集（另写 spec）。
 - 废弃项目从知识库中移除或隐藏。

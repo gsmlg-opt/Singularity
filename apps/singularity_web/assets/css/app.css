@@ -31,3 +31,10 @@
   --color-primary-container: var(--color-secondary-content);
   --color-on-primary-container: var(--color-secondary);
 }
+
+/* WORKAROUND(upstream): duskmoon-dev/duskmoonui#86 — Tailwind preflight makes
+   images block-level and .markdown-body does not reset them, so README badge
+   rows stack. Remove once @duskmoon-dev/core sets this itself. */
+.markdown-body img {
+  display: inline;
+}

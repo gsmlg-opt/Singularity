@@ -82,6 +82,25 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 - 破坏性操作（清除令牌等）放在 header 的操作区，`error` 加 `data-confirm`。
 - 新增一类账户：在 `entries` 里加一项，再加对应的面板，不新增左侧菜单项。
 
+### 详情页（软件项目）
+
+参照 `KnowledgeLive.Show`，从上到下依次是：
+
+1. **页头**（不放在卡片里）：
+   - `<h1>` 和状态徽标。
+   - 下面一行描述（`text-on-surface-variant`）。
+   - 再下面一行关键事实：图标加数值，`text-sm text-on-surface-variant`，数值用 `text-on-surface`；外链用 `text-primary`。
+   - 页面级操作放在右上角：`secondary` 的重新获取，`outline` 的编辑或标记。
+2. **状态提示**：用 warning `dm_alert`，例如待移除、已废弃。
+3. **两栏**（`grid items-start gap-6 lg:grid-cols-3`）：
+   - 主栏 `lg:col-span-2`：叙述性内容（Instruction、README）。
+   - 侧栏：键值信息（About）和 label。
+   - 卡片标题用 `<h2 class="text-lg font-semibold">`，卡片自己的操作放在标题右侧。
+   - 空内容用虚线框提示（`border border-dashed border-outline-variant`）。
+4. **历史表格**：全宽，每个表格上面是一个 `<h2>`（来源、来源记录）。
+
+Markdown 一律用 `ItemComponents.markdown/1` 渲染（服务端渲染并 sanitize），长内容在卡片里限高滚动。`markdown-body` 里图片恢复为 inline 的规则在 `assets/css/app.css`，标记为 `WORKAROUND(upstream): duskmoon-dev/duskmoonui#86`；上游修复后删除。
+
 ## 5. 排版
 
 | 元素 | class |

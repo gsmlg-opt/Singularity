@@ -100,16 +100,16 @@ msgstr ""
 msgid "Appearance"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:368
-#: lib/singularity_web/live/knowledge_live/show.ex:397
+#: lib/singularity_web/live/knowledge_live/show.ex:441
+#: lib/singularity_web/live/knowledge_live/show.ex:470
 #: lib/singularity_web/live/source_live/manual.ex:141
 #: lib/singularity_web/live/system_live/accounts.ex:134
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:349
-#: lib/singularity_web/live/knowledge_live/show.ex:378
+#: lib/singularity_web/live/knowledge_live/show.ex:422
+#: lib/singularity_web/live/knowledge_live/show.ex:451
 #: lib/singularity_web/live/source_live/manual.ex:112
 #: lib/singularity_web/live/system_live/accounts.ex:113
 #, elixir-autogen, elixir-format
@@ -121,7 +121,7 @@ msgstr ""
 msgid "Manual"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/show.ex:371
+#: lib/singularity_web/live/knowledge_live/show.ex:444
 #, elixir-autogen, elixir-format
 msgid "Save"
 msgstr ""

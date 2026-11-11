@@ -142,11 +142,11 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       {:ok, view, html} = live(conn, ~p"/knowledge/projects/#{project.id}")
 
       assert html =~ "Simple from zero to scale"
-      assert has_element?(view, "#github-details", "26,710")
-      assert has_element?(view, "#github-details", "Apache-2.0")
+      assert has_element?(view, "#project-facts", "26,710")
+      assert has_element?(view, "#project-facts", "Apache-2.0")
       assert has_element?(view, "#github-details", "2011-01-09")
-      assert has_element?(view, "#github-details a[href='https://elixir-lang.org/']")
-      assert has_element?(view, "#github-details a[href='https://github.com/elixir-lang/elixir']")
+      assert has_element?(view, "#project-facts a[href='https://elixir-lang.org/']")
+      assert has_element?(view, "#project-facts a[href='https://github.com/elixir-lang/elixir']")
       assert has_element?(view, "#observations", "Trending daily")
       assert has_element?(view, "#observations", "Added manually")
       assert has_element?(view, "#observations", "45")
@@ -294,6 +294,44 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       off_github = project_fixture(external_id: "gitlab.com/a/b", url: "https://gitlab.com/a/b")
       {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{off_github.id}")
       assert has_element?(view, "#readme-state", "only for GitHub")
+    end
+
+    test "renders emoji shortcodes in the description, sanitized", %{conn: conn} do
+      project = project_fixture(summary: "Charts :bar_chart: for all <script>x()</script>:tada:")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert has_element?(view, "#project-summary", "Charts 📊 for all")
+      assert has_element?(view, "#project-summary", "🎉")
+      refute render(view) =~ "x()"
+    end
+
+    test "README addresses resolve into the repository; lines are not hard breaks", %{conn: conn} do
+      readme = """
+      <p align="center"><img src="./assets/logo.png" alt="Logo"></p>
+
+      ![CI](https://example.com/ci.svg)
+      ![Shot](docs/shot.png)
+      [Guide](/docs/guide.md) [Top](#top) [Site](https://site.example)
+      """
+
+      project =
+        project_fixture(
+          title: "acme/rocket",
+          readme: readme,
+          readme_fetched_at: now(),
+          attributes: %{"default_branch" => "main"}
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+      raw = "https://raw.githubusercontent.com/acme/rocket/main/"
+      blob = "https://github.com/acme/rocket/blob/main/"
+
+      assert has_element?(view, ~s(#readme-body img[src="#{raw}assets/logo.png"]))
+      assert has_element?(view, ~s(#readme-body img[src="#{raw}docs/shot.png"]))
+      assert has_element?(view, ~s(#readme-body img[src="https://example.com/ci.svg"]))
+      assert has_element?(view, ~s(#readme-body a[href="#{blob}docs/guide.md"]))
+      assert has_element?(view, ~s(#readme-body a[href="https://site.example"]))
+      refute has_element?(view, "#readme-body br")
     end
 
     test "edits the instruction in a modal", %{conn: conn} do
