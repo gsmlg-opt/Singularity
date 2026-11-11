@@ -66,7 +66,7 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 - **数据展示一律用表格**（`dm_table`，加 `hover`）：知识列表、最近添加、动态、来源、采集记录、观测历史、队列都是表格。不用卡片网格或自拼的列表展示多条数据。
 - 需要行 id（测试、LiveView 更新）时用 stream：`stream_configure(:name, dom_id: …)`，加载时 `stream(…, reset: true)`，表格传 `stream`。空状态用单独的提示文字，不渲染空表格。
 - 第一列是条目名，链接到详情页；次要描述放在名字下面，`text-sm text-on-surface-variant line-clamp-1`。
-- 操作列放最后，表头 `Actions` 右对齐。**行内操作一律是图标按钮**：用 `SingularityWeb.TableComponents` 的 `row_actions` 包住若干 `row_action`，每个 `row_action` 必须给 `label`（操作名，渲染为 `title` 提示和 `aria-label`）和 `icon`。默认 `ghost`；破坏性操作 `variant="error"` 加 `data-confirm`；跳转用 `navigate`。按钮上不写文字。
+- 操作列放最后，表头 `Actions` 右对齐。**行内操作一律是图标按钮**：用 `SingularityWeb.TableComponents` 的 `row_actions` 包住若干 `row_action`，每个 `row_action` 必须给 `label`（操作名，渲染为 `title` 提示和 `aria-label`）和 `icon`。按钮都是 `ghost`；破坏性操作加 `destructive`（图标变成 `text-error`，不用整块红底，避免每行一个红块）和 `data-confirm`；跳转用 `navigate`。按钮上不写文字。
 - 详情页的单条信息（键值）不是列表数据，继续用键值网格。
 
 ### 配置页

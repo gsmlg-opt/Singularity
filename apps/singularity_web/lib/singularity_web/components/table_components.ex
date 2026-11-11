@@ -7,18 +7,19 @@ defmodule SingularityWeb.TableComponents do
 
   @doc """
   A row action: an icon-only button whose `title` (and accessible name) is the
-  action's name. Destructive actions pass `variant="error"` and `data-confirm`.
+  action's name. Destructive actions set `destructive` (a red icon on the same
+  ghost button) and `data-confirm`.
   """
   attr :icon, :string, required: true
   attr :label, :string, required: true, doc: "the action's name, shown as the tooltip"
-  attr :variant, :string, default: "ghost"
+  attr :destructive, :boolean, default: false
   attr :navigate, :string, default: nil
   attr :rest, :global
 
   def row_action(assigns) do
     ~H"""
     <.dm_btn
-      variant={@variant}
+      variant="ghost"
       size="sm"
       shape="square"
       navigate={@navigate}
@@ -26,7 +27,7 @@ defmodule SingularityWeb.TableComponents do
       aria-label={@label}
       {@rest}
     >
-      <.dm_mdi name={@icon} class="h-4 w-4" />
+      <.dm_mdi name={@icon} class={["h-4 w-4", @destructive && "text-error"]} />
     </.dm_btn>
     """
   end

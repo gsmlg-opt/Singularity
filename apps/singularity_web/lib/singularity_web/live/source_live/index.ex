@@ -115,7 +115,7 @@ defmodule SingularityWeb.SourceLive.Index do
               id={"delete-#{source.id}"}
               icon="delete-outline"
               label={dgettext("source", "Delete")}
-              variant="error"
+              destructive
               phx-click="delete"
               phx-value-id={source.id}
               data-confirm={
