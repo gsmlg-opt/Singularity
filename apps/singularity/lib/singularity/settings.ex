@@ -1,5 +1,5 @@
 defmodule Singularity.Settings do
-  @moduledoc "System configuration in the settings table: the GitHub token and which default sources were seeded."
+  @moduledoc "System configuration in the settings table: the GitHub token, the colour theme and which default sources were seeded."
 
   import Ecto.Query
 
@@ -7,6 +7,9 @@ defmodule Singularity.Settings do
   alias Singularity.Settings.Setting
 
   @github_token "github_token"
+  @theme "theme"
+  # The DuskMoon themes the stylesheet imports; the first is the default.
+  @themes ["moonlight", "sunshine"]
 
   @doc "The stored token, else the GITHUB_TOKEN environment variable, else nil."
   @spec get_github_token() :: String.t() | nil
@@ -38,6 +41,23 @@ defmodule Singularity.Settings do
     Setting |> where(key: @github_token) |> Repo.delete_all()
     :ok
   end
+
+  @doc "The colour themes the interface ships with, default first."
+  @spec themes() :: [String.t()]
+  def themes, do: @themes
+
+  @doc "The chosen colour theme, or the default when none was chosen."
+  @spec theme() :: String.t()
+  def theme do
+    case get(@theme) do
+      theme when theme in @themes -> theme
+      _unset -> hd(@themes)
+    end
+  end
+
+  @spec put_theme(String.t()) :: {:ok, Setting.t()} | {:error, :unknown_theme}
+  def put_theme(theme) when theme in @themes, do: put(@theme, theme)
+  def put_theme(_theme), do: {:error, :unknown_theme}
 
   @doc "The stored value for `key`, or nil."
   @spec get(String.t()) :: String.t() | nil

@@ -7,7 +7,7 @@ defmodule SingularityWeb.NavigationTest do
     {"/", "Overview"},
     {"/knowledge", "Knowledge"},
     {"/source/sources", "Source"},
-    {"/system/github", "System"}
+    {"/system/accounts", "System"}
   ]
 
   @sections [
@@ -20,8 +20,12 @@ defmodule SingularityWeb.NavigationTest do
        {"/source/add", "Add project"},
        {"/source/runs", "Collection runs"}
      ]},
-    {"/system/github", "system", "system-github",
-     [{"/system/github", "GitHub"}, {"/system/status", "System status"}]}
+    {"/system/accounts", "system", "system-accounts",
+     [
+       {"/system/accounts", "Accounts"},
+       {"/system/appearance", "Appearance"},
+       {"/system/status", "System status"}
+     ]}
   ]
 
   test "the appbar has four sections, each with its own left menu", %{conn: conn} do

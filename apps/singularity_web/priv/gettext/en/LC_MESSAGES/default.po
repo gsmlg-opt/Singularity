@@ -36,11 +36,6 @@ msgstr ""
 msgid "Collection runs"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:164
-#, elixir-autogen, elixir-format
-msgid "GitHub"
-msgstr ""
-
 #: lib/singularity_web/components/layouts.ex:79
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
@@ -85,7 +80,7 @@ msgstr ""
 msgid "System"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:167
+#: lib/singularity_web/components/layouts.ex:178
 #, elixir-autogen, elixir-format
 msgid "System status"
 msgstr ""
@@ -103,4 +98,26 @@ msgstr ""
 #: lib/singularity_web/components/layouts.ex:60
 #, elixir-autogen, elixir-format
 msgid "Expand navigation"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:166
+#, elixir-autogen, elixir-format
+msgid "Accounts"
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:172
+#, elixir-autogen, elixir-format
+msgid "Appearance"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/accounts.ex:134
+#: lib/singularity_web/live/system_live/appearance.ex:104
+#, elixir-autogen, elixir-format
+msgid "Cancel"
+msgstr ""
+
+#: lib/singularity_web/live/system_live/accounts.ex:113
+#: lib/singularity_web/live/system_live/appearance.ex:68
+#, elixir-autogen, elixir-format
+msgid "Close"
 msgstr ""

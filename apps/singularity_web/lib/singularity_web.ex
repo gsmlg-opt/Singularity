@@ -86,6 +86,8 @@ defmodule SingularityWeb do
       use PhoenixDuskmoon.Component
       # Form errors through the errors domain
       import SingularityWeb.FormHelpers
+      # Configuration page layout
+      import SingularityWeb.SettingsComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

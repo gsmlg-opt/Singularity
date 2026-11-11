@@ -4,9 +4,9 @@
 
 ## 1. 主题
 
-- 根元素固定 `data-theme="moonlight"`（与 backplane 一致），CSS 同时引入 `sunshine` 和 `moonlight`。
+- 根元素的 `data-theme` 来自 `Settings.theme()`，默认 `moonlight`（与 backplane 一致），在 System → Appearance 里切换。CSS 同时引入 `sunshine` 和 `moonlight`；新增主题要同时改 CSS 引入和 `Settings.themes/0`。
 - `<body class="bg-surface text-on-surface">`，每个页面都从 surface 开始。
-- 暂不提供主题切换。要加时使用 `<.dm_theme_switcher />`，放在应用栏右侧。
+- 不在应用栏放主题切换器；主题是系统配置。
 
 ## 2. 页面骨架
 
@@ -58,6 +58,16 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 | `dm_table` | 记录列表（来源、采集记录、观测历史） |
 | `dm_input` / `dm_select` | 表单字段，不设颜色；错误信息用 `text-error` |
 | `dm_flash_group` | 只在骨架里出现一次 |
+
+### 配置页
+
+系统配置（账户、外观等）统一用 `SingularityWeb.SettingsComponents`，不在页面上直接摆表单：
+
+- 页面结构：`<h1>` 下面是一个 `settings_container`。同类配置有多项时（如账户），左边列出各项（`entries`），右边是选中项的面板；只有一项时不传 `entries`。
+- 面板以 `settings_header` 开头：小标题（eyebrow）、标题、说明，右侧放操作按钮。下面用键值网格展示当前状态。
+- **配置数据在 modal 里编辑**：点"Configure"（`outline`）用 `command="show-modal"` 打开 `dm_modal`，modal 里放表单，底部是 `ghost` 的取消和 `primary` 的保存。保存成功后用 `push_navigate`（或需要换根布局时用 `redirect`）回到本页，modal 随页面重新挂载而关闭；校验失败时留在 modal 里显示错误。
+- 破坏性操作（清除令牌等）放在 header 的操作区，`error` 加 `data-confirm`。
+- 新增一类账户：在 `entries` 里加一项，再加对应的面板，不新增左侧菜单项。
 
 ## 5. 排版
 

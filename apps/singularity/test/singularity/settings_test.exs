@@ -46,4 +46,18 @@ defmodule Singularity.SettingsTest do
     assert {:error, changeset} = Settings.put_github_token("   ")
     assert %{value: ["can't be blank"]} = errors_on(changeset)
   end
+
+  describe "theme" do
+    test "defaults to moonlight" do
+      assert Settings.theme() == "moonlight"
+      assert hd(Settings.themes()) == "moonlight"
+    end
+
+    test "stores a known theme and rejects unknown ones" do
+      assert {:ok, _setting} = Settings.put_theme("sunshine")
+      assert Settings.theme() == "sunshine"
+      assert {:error, :unknown_theme} = Settings.put_theme("neon")
+      assert Settings.theme() == "sunshine"
+    end
+  end
 end

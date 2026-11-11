@@ -228,9 +228,10 @@ AGENTS.md 的边界规则相应更新：Web 层可调用 `Sources`、`Knowledge`
 
 ### 7.4 System（`/system/...`）
 
-左侧菜单：GitHub、系统状态。
+左侧菜单：Accounts、Appearance、系统状态。
 
-- `/system/github`：令牌状态（未设置、来自环境变量、已设置 ••••abcd），设置令牌和清除令牌。
+- `/system/accounts`、`/system/accounts/:account`：外部账户。左边是账户列表（目前只有 GitHub），右边是选中账户的面板：令牌状态（未设置、来自环境变量、已设置 ••••abcd），在 modal 里设置令牌，可以清除令牌。以后的账户只加列表项和面板。
+- `/system/appearance`：颜色主题（moonlight、sunshine），在 modal 里选择，保存在 settings 表（key `theme`），根布局据此渲染 `data-theme`。
 - `/system/status`：版本、各队列的任务数。
 
 旧路由 `/items/:id` 和 `/sources...` 删除，不做重定向（v1 数据已丢弃）。

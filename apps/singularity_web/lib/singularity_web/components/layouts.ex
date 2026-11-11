@@ -78,7 +78,7 @@ defmodule SingularityWeb.Layouts do
       %{section: :overview, label: gettext("Overview"), to: "/"},
       %{section: :knowledge, label: gettext("Knowledge"), to: "/knowledge"},
       %{section: :source, label: gettext("Source"), to: "/source/sources"},
-      %{section: :system, label: gettext("System"), to: "/system/github"}
+      %{section: :system, label: gettext("System"), to: "/system/accounts"}
     ]
   end
 
@@ -161,7 +161,18 @@ defmodule SingularityWeb.Layouts do
         id: "system",
         label: gettext("System"),
         items: [
-          %{id: "system-github", label: gettext("GitHub"), to: "/system/github", icon: "github"},
+          %{
+            id: "system-accounts",
+            label: gettext("Accounts"),
+            to: "/system/accounts",
+            icon: "account-key-outline"
+          },
+          %{
+            id: "system-appearance",
+            label: gettext("Appearance"),
+            to: "/system/appearance",
+            icon: "palette-outline"
+          },
           %{
             id: "system-status",
             label: gettext("System status"),
