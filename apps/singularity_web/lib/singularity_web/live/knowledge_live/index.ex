@@ -30,6 +30,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       socket.assigns.filters
       | q: blank_to_nil(params["q"]),
         sort: parse_sort(params["sort"]),
+        status: parse_status(params["status"]),
         page: 1
     }
 
@@ -45,6 +46,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
     projects =
       Knowledge.list_projects(
         label: filters.label,
+        status: filters.status,
         q: filters.q,
         sort: filters.sort,
         page: filters.page,
@@ -64,12 +66,17 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       label: blank_to_nil(params["label"]),
       q: blank_to_nil(params["q"]),
       sort: parse_sort(params["sort"]),
+      status: parse_status(params["status"]),
       page: parse_page(params["page"])
     }
   end
 
   defp parse_sort("stars"), do: :stars
   defp parse_sort(_recent), do: :recent
+
+  defp parse_status("active"), do: :active
+  defp parse_status("deprecated"), do: :deprecated
+  defp parse_status(_all), do: nil
 
   defp parse_page(value) when is_binary(value) do
     case Integer.parse(value) do
@@ -96,6 +103,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         {"label", filters.label},
         {"q", filters.q},
         {"sort", if(filters.sort == :stars, do: "stars")},
+        {"status", filters.status && Atom.to_string(filters.status)},
         {"page", if(filters.page > 1, do: filters.page)}
       ]
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -146,6 +154,17 @@ defmodule SingularityWeb.KnowledgeLive.Index do
             options={[
               {"recent", dgettext("knowledge", "Recently added")},
               {"stars", dgettext("knowledge", "Stars")}
+            ]}
+          />
+          <.dm_select
+            id="filter-status"
+            name="filters[status]"
+            label={dgettext("knowledge", "Status")}
+            value={if @filters.status, do: Atom.to_string(@filters.status), else: ""}
+            options={[
+              {"", dgettext("knowledge", "All")},
+              {"active", dgettext("knowledge", "Active")},
+              {"deprecated", dgettext("knowledge", "Deprecated")}
             ]}
           />
         </form>

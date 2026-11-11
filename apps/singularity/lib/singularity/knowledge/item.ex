@@ -20,6 +20,11 @@ defmodule Singularity.Knowledge.Item do
     field :details_error, :string
     field :custom_title, :boolean, default: false
     field :removal_due_at, :utc_datetime
+    field :readme, :string
+    field :readme_fetched_at, :utc_datetime
+    field :instruction, :string
+    field :deprecated_at, :utc_datetime
+    field :deprecation_reason, :string
     has_many :observations, Singularity.Knowledge.Observation
     has_many :labels, Singularity.Knowledge.Label
     has_many :item_sources, Singularity.Knowledge.ItemSource

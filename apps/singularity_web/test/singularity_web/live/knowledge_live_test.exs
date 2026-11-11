@@ -269,4 +269,99 @@ defmodule SingularityWeb.KnowledgeLiveTest do
              )
     end
   end
+
+  describe "README, instruction and deprecation" do
+    test "renders the README sanitized and shows the README states", %{conn: conn} do
+      with_readme =
+        project_fixture(
+          readme: "# Rocket\n\nGoes **up**.<script>alert(1)</script>",
+          readme_fetched_at: now()
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{with_readme.id}")
+      assert has_element?(view, "#readme-body h1", "Rocket")
+      assert has_element?(view, "#readme-body strong", "up")
+      refute render(view) =~ "alert(1)"
+
+      none = project_fixture(readme_fetched_at: now())
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{none.id}")
+      assert has_element?(view, "#readme-state", "This repository has no README.")
+
+      pending = project_fixture()
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{pending.id}")
+      assert has_element?(view, "#readme-state", "README not fetched yet.")
+
+      off_github = project_fixture(external_id: "gitlab.com/a/b", url: "https://gitlab.com/a/b")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{off_github.id}")
+      assert has_element?(view, "#readme-state", "only for GitHub")
+    end
+
+    test "edits the instruction in a modal", %{conn: conn} do
+      project = project_fixture()
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert has_element?(view, "#instruction", "No instruction yet.")
+      assert has_element?(view, "#edit-instruction[commandfor='instruction-modal']")
+
+      {:ok, view, _html} =
+        view
+        |> form("#instruction-form", project: %{instruction: "A **rocket** engine."})
+        |> render_submit()
+        |> follow_redirect(conn)
+
+      assert has_element?(view, "#instruction-body strong", "rocket")
+      assert Knowledge.get_project!(project.id).instruction == "A **rocket** engine."
+
+      view
+      |> form("#instruction-form", project: %{instruction: String.duplicate("x", 20_001)})
+      |> render_submit()
+
+      assert has_element?(view, "#instruction-modal", "should be at most")
+    end
+
+    test "marks and clears deprecation", %{conn: conn} do
+      project = project_fixture()
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+      refute has_element?(view, "#deprecation-notice")
+
+      {:ok, view, _html} =
+        view
+        |> form("#deprecate-form", deprecation: %{reason: "Superseded by acme/next"})
+        |> render_submit()
+        |> follow_redirect(conn)
+
+      assert has_element?(view, "#deprecation-notice", "Superseded by acme/next")
+      assert has_element?(view, "[data-role='deprecated-status']", "Deprecated")
+
+      view |> element("#undeprecate") |> render_click()
+      refute has_element?(view, "#deprecation-notice")
+      assert has_element?(view, "#open-deprecate")
+    end
+
+    test "an archived GitHub project is deprecated without an undo", %{conn: conn} do
+      project = project_fixture(attributes: %{"archived" => true})
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects/#{project.id}")
+
+      assert has_element?(view, "#deprecation-notice", "archived on GitHub")
+      refute has_element?(view, "#undeprecate")
+    end
+
+    test "lists flag deprecated projects and filter by status", %{conn: conn} do
+      old = project_fixture(title: "acme/old", deprecated_at: now())
+      fresh = project_fixture(title: "acme/fresh")
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      assert has_element?(view, "#project-#{old.id} [data-role='deprecated-status']")
+      refute has_element?(view, "#project-#{fresh.id} [data-role='deprecated-status']")
+
+      view |> form("#project-filters", filters: %{status: "deprecated"}) |> render_change()
+      assert_patch(view, ~p"/knowledge?status=deprecated")
+      assert has_element?(view, "#project-#{old.id}")
+      refute has_element?(view, "#project-#{fresh.id}")
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge?status=active")
+      refute has_element?(view, "#project-#{old.id}")
+      assert has_element?(view, "#project-#{fresh.id}")
+    end
+  end
 end

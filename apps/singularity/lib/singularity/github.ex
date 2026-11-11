@@ -8,6 +8,7 @@ defmodule Singularity.GitHub do
 
   @api "https://api.github.com"
   @per_page 100
+  @readme_max_length 200_000
 
   @type details :: %{title: String.t() | nil, summary: String.t() | nil, attributes: map()}
   @type error ::
@@ -47,15 +48,33 @@ defmodule Singularity.GitHub do
     end
   end
 
+  @doc """
+  The repository's README as raw Markdown (`GET /repos/:owner/:repo/readme`).
+  `{:error, :not_found}` when it has none. Invalid UTF-8 is replaced; text
+  beyond #{@readme_max_length} characters is cut. Options as for `fetch_repo/3`.
+  """
+  @spec fetch_readme(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, error()}
+  def fetch_readme(owner, repo, opts \\ []) do
+    url = "#{@api}/repos/#{encode(owner)}/#{encode(repo)}/readme"
+
+    with {:ok, body} <- get(url, "application/vnd.github.raw+json", opts) do
+      {:ok, body |> String.replace_invalid() |> String.slice(0, @readme_max_length)}
+    end
+  end
+
   @doc "Page size of `fetch_starred/3`."
   def per_page, do: @per_page
 
   defp get_json(url, accept, opts) do
+    with {:ok, body} <- get(url, accept, opts), do: decode(body)
+  end
+
+  defp get(url, accept, opts) do
     headers = [{"Accept", accept}, {"User-Agent", "Singularity"}] ++ authorization(opts[:token])
 
     case HttpClient.get(url, headers, adapter()) do
       {:ok, %{status: 200, body: body}} ->
-        decode(body)
+        {:ok, body}
 
       {:ok, %{status: 404}} ->
         {:error, :not_found}

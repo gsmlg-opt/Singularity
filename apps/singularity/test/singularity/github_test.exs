@@ -164,4 +164,44 @@ defmodule Singularity.GitHubTest do
       assert {:error, :invalid_response} = GitHub.fetch_starred("gsmlg", 1)
     end
   end
+
+  describe "fetch_readme/3" do
+    setup do
+      HTTP.Test.verify_on_exit!()
+    end
+
+    test "returns the raw README" do
+      HTTP.Test.expect(GitHub, fn request ->
+        assert request.url.path == "/repos/elixir-lang/elixir/readme"
+        assert HTTP.Headers.get(request.headers, "accept") == "application/vnd.github.raw+json"
+        HTTP.Test.response(200, "# Elixir\n\nA language.")
+      end)
+
+      assert {:ok, "# Elixir\n\nA language."} = GitHub.fetch_readme("elixir-lang", "elixir")
+    end
+
+    test "maps a missing README and rate limits" do
+      HTTP.Test.expect(GitHub, fn _request -> HTTP.Test.status(404) end)
+      assert {:error, :not_found} = GitHub.fetch_readme("a", "b")
+
+      HTTP.Test.expect(GitHub, fn _request ->
+        HTTP.Test.status(429) |> HTTP.Test.headers([{"retry-after", "9"}])
+      end)
+
+      assert {:error, {:rate_limited, 9}} = GitHub.fetch_readme("a", "b")
+    end
+
+    test "replaces invalid UTF-8 and cuts very long READMEs" do
+      HTTP.Test.expect(GitHub, 2, fn request ->
+        case request.url.path do
+          "/repos/a/bad/readme" -> HTTP.Test.response(200, <<"ok ", 0xFF, " end">>)
+          "/repos/a/long/readme" -> HTTP.Test.response(200, String.duplicate("x", 200_010))
+        end
+      end)
+
+      assert {:ok, "ok \uFFFD end"} = GitHub.fetch_readme("a", "bad")
+      assert {:ok, long} = GitHub.fetch_readme("a", "long")
+      assert String.length(long) == 200_000
+    end
+  end
 end

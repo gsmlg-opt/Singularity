@@ -50,6 +50,14 @@ defmodule SingularityWeb.ItemComponents do
 
     ~H"""
     <.dm_badge
+      :if={Singularity.Knowledge.deprecated?(@project)}
+      variant="warning"
+      size="sm"
+      data-role="deprecated-status"
+    >
+      {dgettext("knowledge", "Deprecated")}
+    </.dm_badge>
+    <.dm_badge
       :if={@project.removal_due_at}
       variant="warning"
       size="sm"
@@ -76,6 +84,24 @@ defmodule SingularityWeb.ItemComponents do
     >
       {dgettext("knowledge", "Fetching details")}
     </.dm_badge>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :source, :string, required: true
+
+  @doc """
+  Markdown rendered on the server. Sources are untrusted (READMEs come from
+  other people's repositories), so only GFM is enabled and the HTML is sanitized.
+  """
+  def markdown(assigns) do
+    ~H"""
+    <.dm_markdown_body
+      id={@id}
+      source={@source}
+      plugins={[MDExGFM]}
+      options={[render: [unsafe: true], sanitize: MDEx.Document.default_sanitize_options()]}
+    />
     """
   end
 

@@ -22,7 +22,8 @@ config :singularity, Styx,
     {Styx.Cron,
      crontab: [
        {"* * * * *", Singularity.Collection.ScheduleWorker},
-       {"0 3 * * *", Singularity.Knowledge.PurgeWorker}
+       {"0 3 * * *", Singularity.Knowledge.PurgeWorker},
+       {"15 * * * *", Singularity.Knowledge.ReadmeRefreshWorker}
      ]}
   ]
 

@@ -19,9 +19,37 @@ defmodule SingularityWeb.KnowledgeLive.Show do
   @impl true
   def handle_event("refetch", _params, %{assigns: %{details_supported?: true}} = socket) do
     {:ok, _job} = Knowledge.enqueue_details(socket.assigns.project.id)
+    {:ok, _job} = Knowledge.enqueue_readme(socket.assigns.project.id)
 
     {:noreply,
      put_flash(socket, :info, dgettext("knowledge", "Details will be fetched again shortly"))}
+  end
+
+  def handle_event("save_instruction", %{"project" => params}, socket) do
+    case Knowledge.update_instruction(socket.assigns.project, params) do
+      {:ok, project} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, dgettext("knowledge", "Instruction saved"))
+         |> push_navigate(to: ~p"/knowledge/projects/#{project.id}")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, instruction_form: to_form(changeset, as: :project))}
+    end
+  end
+
+  def handle_event("deprecate", %{"deprecation" => %{"reason" => reason}}, socket) do
+    {:ok, project} = Knowledge.deprecate(socket.assigns.project, reason)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, dgettext("knowledge", "Marked as deprecated"))
+     |> push_navigate(to: ~p"/knowledge/projects/#{project.id}")}
+  end
+
+  def handle_event("undeprecate", _params, socket) do
+    {:ok, project} = Knowledge.undeprecate(socket.assigns.project)
+    {:noreply, load(socket, project.id)}
   end
 
   # Tracks the typed value so resetting the form after a save reaches the browser.
@@ -62,6 +90,8 @@ defmodule SingularityWeb.KnowledgeLive.Show do
     assign(socket,
       project: project,
       details_supported?: Knowledge.details_supported?(project),
+      deprecated?: Knowledge.deprecated?(project),
+      instruction_form: to_form(Knowledge.change_instruction(project), as: :project),
       item_sources: Knowledge.list_item_sources(id),
       observations: Knowledge.list_observations(id)
     )
@@ -80,8 +110,44 @@ defmodule SingularityWeb.KnowledgeLive.Show do
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-2xl font-bold">{@project.title}</h1>
-        <.details_status project={@project} />
+        <div class="flex flex-wrap items-center gap-2">
+          <.details_status project={@project} />
+          <.dm_btn
+            :if={!@project.deprecated_at}
+            id="open-deprecate"
+            size="sm"
+            variant="outline"
+            command="show-modal"
+            commandfor="deprecate-modal"
+          >
+            <.dm_mdi name="archive-alert-outline" class="h-4 w-4" />
+            {dgettext("knowledge", "Mark deprecated")}
+          </.dm_btn>
+          <.dm_btn
+            :if={@project.deprecated_at}
+            id="undeprecate"
+            size="sm"
+            variant="outline"
+            phx-click="undeprecate"
+            data-confirm={dgettext("knowledge", "Clear the deprecated mark?")}
+          >
+            <.dm_mdi name="archive-arrow-up-outline" class="h-4 w-4" />
+            {dgettext("knowledge", "Not deprecated")}
+          </.dm_btn>
+        </div>
       </div>
+
+      <.dm_alert :if={@deprecated?} id="deprecation-notice" variant="warning">
+        <span :if={@project.deprecated_at}>
+          {dgettext("knowledge", "Deprecated since %{date}.",
+            date: format_date(@project.deprecated_at)
+          )}
+          {@project.deprecation_reason}
+        </span>
+        <span :if={!@project.deprecated_at}>
+          {dgettext("knowledge", "Deprecated: archived on GitHub.")}
+        </span>
+      </.dm_alert>
 
       <.dm_alert :if={@project.removal_due_at} id="removal-notice" variant="warning">
         {dgettext(
@@ -90,6 +156,25 @@ defmodule SingularityWeb.KnowledgeLive.Show do
           date: format_date(@project.removal_due_at)
         )}
       </.dm_alert>
+
+      <.dm_card id="instruction">
+        <:title>{dgettext("knowledge", "Instruction")}</:title>
+        <.markdown :if={@project.instruction} id="instruction-body" source={@project.instruction} />
+        <p :if={!@project.instruction} class="text-sm text-on-surface-variant">
+          {dgettext("knowledge", "No instruction yet.")}
+        </p>
+        <:action>
+          <.dm_btn
+            id="edit-instruction"
+            size="sm"
+            variant="outline"
+            command="show-modal"
+            commandfor="instruction-modal"
+          >
+            <.dm_mdi name="pencil-outline" class="h-4 w-4" />{dgettext("knowledge", "Edit")}
+          </.dm_btn>
+        </:action>
+      </.dm_card>
 
       <div class="grid gap-6 lg:grid-cols-3">
         <.dm_card :if={!@details_supported?} id="repository" class="lg:col-span-2">
@@ -220,6 +305,16 @@ defmodule SingularityWeb.KnowledgeLive.Show do
         </.dm_card>
       </div>
 
+      <.dm_card id="readme">
+        <:title>README</:title>
+        <div :if={@project.readme} class="max-h-[40rem] overflow-y-auto">
+          <.markdown id="readme-body" source={@project.readme} />
+        </div>
+        <p :if={!@project.readme} id="readme-state" class="text-sm text-on-surface-variant">
+          {readme_state(@project, @details_supported?)}
+        </p>
+      </.dm_card>
+
       <h2 class="text-lg font-semibold">{dgettext("knowledge", "Sources")}</h2>
       <.dm_table id="item-sources" data={@item_sources}>
         <:col :let={kept} label={dgettext("knowledge", "Source")}>
@@ -251,7 +346,72 @@ defmodule SingularityWeb.KnowledgeLive.Show do
           {format_count(obs.attributes["stars_in_period"])}
         </:col>
       </.dm_table>
+      <.dm_modal id="instruction-modal" close_label={gettext("Close")}>
+        <:title>{dgettext("knowledge", "Edit instruction")}</:title>
+        <:body>
+          <.form
+            for={@instruction_form}
+            id="instruction-form"
+            phx-submit="save_instruction"
+            class="space-y-4"
+          >
+            <.dm_textarea
+              id="instruction-text"
+              name={@instruction_form[:instruction].name}
+              value={@instruction_form[:instruction].value}
+              label={dgettext("knowledge", "What this software is and does (Markdown)")}
+              rows={12}
+            />
+            <.field_errors form={@instruction_form} field={:instruction} />
+            <div class="flex justify-end gap-2">
+              <.dm_btn type="button" variant="ghost" command="close" commandfor="instruction-modal">
+                {gettext("Cancel")}
+              </.dm_btn>
+              <.dm_btn type="submit" variant="primary" id="save-instruction">
+                {gettext("Save")}
+              </.dm_btn>
+            </div>
+          </.form>
+        </:body>
+      </.dm_modal>
+
+      <.dm_modal id="deprecate-modal" close_label={gettext("Close")}>
+        <:title>{dgettext("knowledge", "Mark deprecated")}</:title>
+        <:body>
+          <.form
+            for={%{}}
+            as={:deprecation}
+            id="deprecate-form"
+            phx-submit="deprecate"
+            class="space-y-4"
+          >
+            <.dm_input
+              id="deprecation-reason"
+              name="deprecation[reason]"
+              value=""
+              label={dgettext("knowledge", "Reason (optional)")}
+              autocomplete="off"
+            />
+            <div class="flex justify-end gap-2">
+              <.dm_btn type="button" variant="ghost" command="close" commandfor="deprecate-modal">
+                {gettext("Cancel")}
+              </.dm_btn>
+              <.dm_btn type="submit" variant="primary" id="confirm-deprecate">
+                {dgettext("knowledge", "Mark deprecated")}
+              </.dm_btn>
+            </div>
+          </.form>
+        </:body>
+      </.dm_modal>
     </Layouts.app>
     """
   end
+
+  defp readme_state(_project, false),
+    do: dgettext("knowledge", "README is fetched automatically only for GitHub.")
+
+  defp readme_state(%{readme_fetched_at: nil}, true),
+    do: dgettext("knowledge", "README not fetched yet.")
+
+  defp readme_state(_project, true), do: dgettext("knowledge", "This repository has no README.")
 end

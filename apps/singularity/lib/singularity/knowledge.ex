@@ -8,6 +8,7 @@ defmodule Singularity.Knowledge do
   alias Singularity.Knowledge.{
     Address,
     FetchDetailsWorker,
+    FetchReadmeWorker,
     Item,
     ItemSource,
     Label,
@@ -28,6 +29,8 @@ defmodule Singularity.Knowledge do
   @removal_grace_days 30
   # A complete list (thousands of stars) is written in one transaction.
   @record_timeout :timer.minutes(10)
+  @readme_ttl_days 30
+  @instruction_max_length 20_000
 
   @doc """
   Upserts items and inserts one observation per entry (for the entry's period,
@@ -210,7 +213,8 @@ defmodule Singularity.Knowledge do
     do: Phoenix.PubSub.broadcast(Singularity.PubSub, @topic, {:project_updated, item_id})
 
   @doc """
-  Software projects with labels preloaded. Options: `:label`, `:q` (ILIKE on
+  Software projects with labels preloaded. Options: `:label`, `:status`
+  (`:active` or `:deprecated`), `:q` (ILIKE on
   owner/repo and description), `:sort` (`:recent` or `:stars`), `:page`
   (default 1) and `:per_page` (default 30).
   """
@@ -221,6 +225,7 @@ defmodule Singularity.Knowledge do
 
     projects_query()
     |> filter_label(opts[:label])
+    |> filter_status(opts[:status])
     |> search(opts[:q])
     |> sort_projects(Keyword.get(opts, :sort, :recent))
     |> limit(^per_page)
@@ -231,6 +236,21 @@ defmodule Singularity.Knowledge do
 
   defp projects_query, do: where(Item, [i], i.kind == ^@project)
   defp labels_query, do: order_by(Label, asc: :name)
+
+  defp filter_status(query, :deprecated), do: where(query, ^deprecated_condition())
+
+  defp filter_status(query, :active),
+    do: where(query, ^dynamic([i], not (^deprecated_condition())))
+
+  defp filter_status(query, _all), do: query
+
+  defp deprecated_condition do
+    dynamic(
+      [i],
+      not is_nil(i.deprecated_at) or
+        fragment("coalesce((?->>'archived')::boolean, false)", i.attributes)
+    )
+  end
 
   defp filter_label(query, label) when label in [nil, ""], do: query
 
@@ -455,6 +475,7 @@ defmodule Singularity.Knowledge do
 
   defp after_manual_insert!(item, %{github?: true}, _now) do
     {:ok, _job} = enqueue_details(item.id)
+    {:ok, _job} = enqueue_readme(item.id)
     :ok
   end
 
@@ -529,6 +550,116 @@ defmodule Singularity.Knowledge do
     names = Labels.auto_labels(attributes, observation_sinces(item.id))
     sync_auto_labels!(item.id, names, now)
     item
+  end
+
+  @doc "Queues a README fetch (GitHub projects only); at most one is incomplete per project."
+  @spec enqueue_readme(integer()) ::
+          {:ok, Styx.Job.t()} | {:error, :details_unsupported | :not_found | term()}
+  def enqueue_readme(item_id) when is_integer(item_id) do
+    case get_project(item_id) do
+      %Item{} = item ->
+        if details_supported?(item),
+          do: %{item_id: item_id} |> FetchReadmeWorker.new() |> Styx.insert(),
+          else: {:error, :details_unsupported}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Queues README fetches for up to `limit` GitHub projects whose README was
+  never fetched or is older than #{@readme_ttl_days} days, never-fetched first.
+  Returns how many were queued.
+  """
+  @spec enqueue_stale_readmes(DateTime.t(), pos_integer()) :: non_neg_integer()
+  def enqueue_stale_readmes(%DateTime{} = now, limit) do
+    stale_before = DateTime.add(now, -@readme_ttl_days, :day)
+
+    projects_query()
+    |> where([i], like(i.external_id, "github.com/%"))
+    |> where([i], is_nil(i.readme_fetched_at) or i.readme_fetched_at < ^stale_before)
+    |> order_by([i], asc_nulls_first: i.readme_fetched_at, asc: i.id)
+    |> limit(^limit)
+    |> select([i], i.id)
+    |> Repo.all()
+    # One insert per job: uniqueness keeps a project's pending fetch single.
+    |> Enum.map(fn id ->
+      {:ok, _job} = %{item_id: id} |> FetchReadmeWorker.new() |> Styx.insert()
+    end)
+    |> length()
+  end
+
+  @doc "Stores the fetched README; `nil` means the repository has none."
+  @spec put_readme(Item.t(), String.t() | nil, DateTime.t()) :: {:ok, Item.t()}
+  def put_readme(%Item{} = item, readme, %DateTime{} = now)
+      when is_binary(readme) or is_nil(readme) do
+    item =
+      item
+      |> Ecto.Changeset.change(readme: readme, readme_fetched_at: DateTime.truncate(now, :second))
+      |> Repo.update!()
+
+    broadcast_project(item.id)
+    {:ok, item}
+  end
+
+  @doc "Deprecated by hand, or archived on GitHub."
+  @spec deprecated?(Item.t()) :: boolean()
+  def deprecated?(%Item{deprecated_at: %DateTime{}}), do: true
+  def deprecated?(%Item{attributes: %{"archived" => true}}), do: true
+  def deprecated?(%Item{}), do: false
+
+  @doc "Whether GitHub reports the project as archived (deprecated regardless of the manual mark)."
+  @spec archived?(Item.t()) :: boolean()
+  def archived?(%Item{attributes: attributes}), do: attributes["archived"] == true
+
+  @doc "Marks the project deprecated by hand, with an optional reason."
+  @spec deprecate(Item.t(), String.t() | nil, DateTime.t()) :: {:ok, Item.t()}
+  def deprecate(%Item{} = item, reason, now \\ DateTime.utc_now()) do
+    reason = if is_binary(reason), do: String.trim(reason)
+
+    item
+    |> Ecto.Changeset.change(
+      deprecated_at: DateTime.truncate(now, :second),
+      deprecation_reason: if(reason in [nil, ""], do: nil, else: String.slice(reason, 0, 1000))
+    )
+    |> update_project()
+  end
+
+  @doc "Clears the manual deprecation; an archived GitHub project stays deprecated."
+  @spec undeprecate(Item.t()) :: {:ok, Item.t()}
+  def undeprecate(%Item{} = item) do
+    item
+    |> Ecto.Changeset.change(deprecated_at: nil, deprecation_reason: nil)
+    |> update_project()
+  end
+
+  @doc "A changeset for the project's instruction (our own Markdown introduction)."
+  @spec change_instruction(Item.t(), map()) :: Ecto.Changeset.t()
+  def change_instruction(%Item{} = item, attrs \\ %{}) do
+    item
+    |> Ecto.Changeset.cast(attrs, [:instruction], empty_values: [])
+    |> Ecto.Changeset.update_change(:instruction, &blank_to_nil/1)
+    |> Ecto.Changeset.validate_length(:instruction, max: @instruction_max_length)
+  end
+
+  @doc "Saves the instruction; blank text clears it."
+  @spec update_instruction(Item.t(), map()) :: {:ok, Item.t()} | {:error, Ecto.Changeset.t()}
+  def update_instruction(%Item{} = item, attrs) do
+    item |> change_instruction(attrs) |> update_project()
+  end
+
+  defp update_project(changeset) do
+    with {:ok, item} <- Repo.update(changeset) do
+      broadcast_project(item.id)
+      {:ok, item}
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+
+  defp blank_to_nil(text) do
+    if String.trim(text) == "", do: nil, else: text
   end
 
   @doc "Records why the last details fetch failed."
