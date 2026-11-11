@@ -50,6 +50,8 @@ defmodule SingularityWeb do
     quote do
       use Phoenix.LiveView
 
+      on_mount SingularityWeb.StaticReload
+
       unquote(html_helpers())
     end
   end
