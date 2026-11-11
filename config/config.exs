@@ -15,7 +15,13 @@ config :singularity,
 
 config :singularity, Styx,
   repo: Singularity.Repo,
-  queues: [default: 5, collect: 1, details: 1],
+  # Requests to one site share a queue and its rate limit (see the fetch rate limits spec).
+  queues: [
+    default: 5,
+    collect: 1,
+    github_web: [limit: 1, rate_limit: [allowed: 1, period: 30]],
+    github_api: [limit: 1, rate_limit: [allowed: 1, period: 2]]
+  ],
   plugins: [
     {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
     {Styx.Lifeline, rescue_after: {30, :minutes}},

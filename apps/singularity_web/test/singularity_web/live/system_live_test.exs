@@ -83,7 +83,7 @@ defmodule SingularityWeb.SystemLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/system/status")
     assert html =~ to_string(Application.spec(:singularity, :vsn))
-    assert has_element?(view, "#queue-details-available", "1")
+    assert has_element?(view, "#queue-github_api-available", "1")
     assert has_element?(view, "#queue-collect-available", "0")
     assert has_element?(view, "#section-menu-navigation[data-active-nav='system-status']")
   end

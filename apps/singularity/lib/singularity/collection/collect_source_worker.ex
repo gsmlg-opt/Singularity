@@ -1,4 +1,5 @@
 defmodule Singularity.Collection.CollectSourceWorker do
+  # The queue is chosen per source type when enqueued (`Collection.enqueue/1`).
   use Styx.Worker,
     queue: :collect,
     max_attempts: 3,
@@ -13,6 +14,7 @@ defmodule Singularity.Collection.CollectSourceWorker do
         case Collection.run(source) do
           {:ok, _run} -> :ok
           {:error, :unavailable} -> {:cancel, :source_type_unavailable}
+          {:error, {:rate_limited, seconds}, _run} -> {:snooze, seconds}
           {:error, reason, _run} -> {:error, reason}
         end
 

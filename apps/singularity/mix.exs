@@ -41,7 +41,7 @@ defmodule Singularity.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.2"},
-      {:styx, "~> 0.1.1"},
+      {:styx, "~> 0.2.0"},
       {:http_fetch, "~> 1.0.0-rc.11"},
       {:http_test, "~> 1.0.0-rc.11", only: :test},
       {:floki, ">= 0.30.0"}

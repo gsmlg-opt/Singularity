@@ -32,7 +32,7 @@ defmodule Singularity.KnowledgeAddProjectTest do
              }
            ] = Repo.all(Observation)
 
-    assert_enqueued(worker: FetchDetailsWorker, args: %{item_id: item.id}, queue: :details)
+    assert_enqueued(worker: FetchDetailsWorker, args: %{item_id: item.id}, queue: :github_api)
     item_id = item.id
     assert_receive {:project_updated, ^item_id}
   end

@@ -4,6 +4,7 @@ defmodule Singularity.GitHub do
   JSON into project details is the pure `parse_repo/1`.
   """
 
+  alias Singularity.GitHub.Quota
   alias Singularity.HttpClient
 
   @api "https://api.github.com"
@@ -71,8 +72,15 @@ defmodule Singularity.GitHub do
 
   defp get(url, accept, opts) do
     headers = [{"Accept", accept}, {"User-Agent", "Singularity"}] ++ authorization(opts[:token])
+    now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    case HttpClient.get(url, headers, adapter()) do
+    with :ok <- check_quota(now) do
+      url |> HttpClient.get(headers, adapter()) |> record_quota() |> handle(now)
+    end
+  end
+
+  defp handle(response, now) do
+    case response do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 
@@ -80,7 +88,7 @@ defmodule Singularity.GitHub do
         {:error, :not_found}
 
       {:ok, %{status: status, headers: response_headers}} when status in [403, 429] ->
-        rate_limited(status, response_headers, Keyword.get(opts, :now, DateTime.utc_now()))
+        rate_limited(status, response_headers, now)
 
       {:ok, %{status: status}} ->
         {:error, {:http_status, status}}
@@ -165,6 +173,24 @@ defmodule Singularity.GitHub do
   defp authorization(_token), do: []
 
   defp encode(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
+
+  # The quota table (`Singularity.GitHub.Quota` by default; `nil` disables it, as in tests).
+  defp quota,
+    do: :singularity |> Application.get_env(__MODULE__, []) |> Keyword.get(:quota, Quota)
+
+  defp check_quota(now) do
+    case quota() do
+      nil -> :ok
+      table -> Quota.check(table, now)
+    end
+  end
+
+  defp record_quota({:ok, %{headers: headers}} = response) do
+    if table = quota(), do: Quota.record(table, headers)
+    response
+  end
+
+  defp record_quota(response), do: response
 
   defp adapter, do: :singularity |> Application.get_env(__MODULE__, []) |> Keyword.get(:adapter)
 end

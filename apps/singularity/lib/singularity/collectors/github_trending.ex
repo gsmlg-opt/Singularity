@@ -18,6 +18,9 @@ defmodule Singularity.Collectors.GithubTrending do
   def label, do: "GitHub Trending"
 
   @impl true
+  def queue, do: :github_web
+
+  @impl true
   def config_fields do
     [
       %{
@@ -63,6 +66,12 @@ defmodule Singularity.Collectors.GithubTrending do
         period = now |> DateTime.to_date() |> Date.to_iso8601()
         {:ok, %Result{period: period, entries: entries, skipped: skipped}}
 
+      {:ok, %{status: 429, headers: headers}} ->
+        case headers |> HTTP.Headers.get("retry-after") |> retry_after() do
+          nil -> {:error, {:http_status, 429}}
+          seconds -> {:error, {:rate_limited, seconds}}
+        end
+
       {:ok, %{status: status}} ->
         {:error, {:http_status, status}}
 
@@ -70,6 +79,15 @@ defmodule Singularity.Collectors.GithubTrending do
         error
     end
   end
+
+  defp retry_after(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {seconds, ""} when seconds > 0 -> seconds
+      _other -> nil
+    end
+  end
+
+  defp retry_after(_value), do: nil
 
   def trending_url(config) do
     base =

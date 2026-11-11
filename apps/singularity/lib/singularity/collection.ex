@@ -12,8 +12,18 @@ defmodule Singularity.Collection do
 
   def subscribe, do: Phoenix.PubSub.subscribe(Singularity.PubSub, @topic)
 
-  def enqueue(source_id) when is_integer(source_id),
-    do: %{source_id: source_id} |> CollectSourceWorker.new() |> Styx.insert()
+  @doc "Queues a collection in the queue of the source's collector (see `Collector.queue/1`)."
+  def enqueue(source_id) when is_integer(source_id) do
+    queue =
+      with %Source{kind: kind} <- Repo.get(Source, source_id),
+           {:ok, collector} <- Collector.fetch_module(kind) do
+        Collector.queue(collector)
+      else
+        _unknown -> :collect
+      end
+
+    %{source_id: source_id} |> CollectSourceWorker.new(queue: queue) |> Styx.insert()
+  end
 
   @spec run(Source.t(), DateTime.t()) ::
           {:ok, FetchRun.t()} | {:error, term(), FetchRun.t()} | {:error, :unavailable}

@@ -5,7 +5,7 @@ defmodule Singularity.Knowledge.FetchReadmeWorker do
   """
 
   use Styx.Worker,
-    queue: :details,
+    queue: :github_api,
     max_attempts: 5,
     unique: [keys: [:item_id], states: :incomplete, period: :infinity]
 

@@ -7,7 +7,7 @@
 ## 技术栈
 
 - Elixir umbrella：`apps/singularity`（领域与采集），`apps/singularity_web`（Phoenix LiveView + phoenix_duskmoon）。
-- PostgreSQL；后台任务用 Styx（自维护的 Oban fork）；HTTP 用 http_fetch（统一经过 `Singularity.HttpClient`，测试用 http_test 的 fixture）；HTML 解析用 Floki。
+- PostgreSQL；后台任务用 Styx（自维护的 Oban fork，队列支持 `rate_limit`，对外请求按站点分队列限速，见 `2026-11-12-singularity-fetch-rate-limits-design.md`）；HTTP 用 http_fetch（统一经过 `Singularity.HttpClient`，测试用 http_test 的 fixture）；HTML 解析用 Floki。
 - 界面文字全部经 gettext（`SingularityWeb.Gettext`，msgid 用英文，默认 locale `en`）。按区域分 domain：`overview`、`knowledge`、`source`、`system`；通用文字和布局放 `default`；changeset 错误放 `errors`。
 - `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection`、`Singularity.Settings`、`Singularity.System` 的公开函数，不直接访问 Repo、schema 或 `Singularity.Collector`。Web 表单提交的数据一律交给对应上下文的服务函数处理。
 
@@ -20,6 +20,7 @@
 1. 在 `Singularity.Collectors.<Name>` 实现 `Singularity.Collector` 的全部回调。
 2. 把"获取"和"纯函数解析"分开；获取用 `Singularity.HttpClient`，adapter 从应用配置读取；解析部分用真实响应的 fixture 测试，覆盖正常、空结果、单条损坏三种情况。
 3. 在 `config :singularity, :collectors` 中注册。
+3a. 对外请求必须限速：用 `queue/0` 把采集任务放进目标站点的限速队列（如 `:github_web`、`:github_api`）。新站点在 `config :singularity, Styx` 里加一个带 `rate_limit` 的队列。一个任务要发多个请求时，在请求之间等待，间隔与队列的限速一致。
 4. （可选）在 `SingularityWeb.ItemComponents` 中加一个 kind 专属的展示组件。
 
 如果新增类型时必须改框架或加 migration，说明框架有缺陷，要先更新 spec。

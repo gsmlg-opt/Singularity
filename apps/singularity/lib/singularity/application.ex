@@ -9,6 +9,7 @@ defmodule Singularity.Application do
   def start(_type, _args) do
     children = [
       Singularity.Repo,
+      Singularity.GitHub.Quota,
       {Styx, Application.fetch_env!(:singularity, Styx)},
       {DNSCluster, query: Application.get_env(:singularity, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Singularity.PubSub}

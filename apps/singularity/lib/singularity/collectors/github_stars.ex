@@ -20,6 +20,9 @@ defmodule Singularity.Collectors.GithubStars do
   def kind, do: "github_stars"
 
   @impl true
+  def queue, do: :github_api
+
+  @impl true
   def label, do: "GitHub Stars"
 
   @impl true
@@ -54,6 +57,10 @@ defmodule Singularity.Collectors.GithubStars do
     do: {:error, :too_many_stars}
 
   defp fetch_pages(user, page, acc, opts) do
+    # The github_api queue runs one job at a time; spacing the pages keeps this job
+    # within the same request budget as single-request jobs.
+    if page > 1, do: Process.sleep(page_interval())
+
     case GitHub.fetch_starred(user, page, opts) do
       {:ok, stars} when length(stars) < @per_page ->
         {:ok, Enum.concat(Enum.reverse([stars | acc]))}
@@ -111,4 +118,7 @@ defmodule Singularity.Collectors.GithubStars do
   end
 
   defp parse_star(_star, _user), do: :error
+
+  defp page_interval,
+    do: :singularity |> Application.get_env(__MODULE__, []) |> Keyword.get(:page_interval, 2_000)
 end

@@ -13,9 +13,15 @@ defmodule Singularity.SystemTest do
     status = Singularity.System.status()
 
     assert status.version == to_string(Application.spec(:singularity, :vsn))
-    assert Enum.map(status.queues, & &1.name) == ["collect", "default", "details"]
+
+    assert Enum.map(status.queues, & &1.name) == [
+             "collect",
+             "default",
+             "github_api",
+             "github_web"
+           ]
 
     assert %{available: 1, executing: 0, retryable: 0} =
-             Enum.find(status.queues, &(&1.name == "details"))
+             Enum.find(status.queues, &(&1.name == "github_api"))
   end
 end

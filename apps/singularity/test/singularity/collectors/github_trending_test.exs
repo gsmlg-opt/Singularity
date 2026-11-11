@@ -119,6 +119,24 @@ defmodule Singularity.Collectors.GithubTrendingTest do
                )
     end
 
+    test "maps a 429 with retry-after to a rate limit" do
+      HTTP.Test.expect(GithubTrending, fn _request ->
+        "slow down" |> HTTP.Test.text(429) |> HTTP.Test.headers([{"retry-after", "90"}])
+      end)
+
+      assert {:error, {:rate_limited, 90}} =
+               GithubTrending.fetch(
+                 %{"language" => "", "since" => "daily"},
+                 ~U[2026-11-09 00:00:00Z]
+               )
+    end
+
+    test "collects through the rate limited github.com queue" do
+      assert GithubTrending.queue() == :github_web
+      assert Singularity.Collectors.GithubStars.queue() == :github_api
+      assert Singularity.Collector.queue(Singularity.Test.FakeCollector) == :collect
+    end
+
     test "maps transport failures to errors instead of raising" do
       HTTP.Test.expect(GithubTrending, fn _request -> HTTP.Test.transport_error(:econnrefused) end)
 

@@ -77,6 +77,13 @@ defmodule Singularity.CollectionTest do
       assert {:cancel, _} = perform_job(CollectSourceWorker, %{source_id: -1})
     end
 
+    test "snoozes a rate limited collection" do
+      Process.put(:fake_collector_response, fn _c, _n -> {:error, {:rate_limited, 120}} end)
+
+      assert {:snooze, 120} =
+               perform_job(CollectSourceWorker, %{source_id: source_fixture().id})
+    end
+
     test "returns an error so Styx retries failed collections" do
       Process.put(:fake_collector_response, fn _c, _n -> {:error, :boom} end)
       assert {:error, :boom} = perform_job(CollectSourceWorker, %{source_id: source_fixture().id})
@@ -88,6 +95,24 @@ defmodule Singularity.CollectionTest do
     assert {:ok, _} = Collection.enqueue(source.id)
     assert {:ok, _} = Collection.enqueue(source.id)
     assert length(all_enqueued(worker: CollectSourceWorker)) == 1
+  end
+
+  test "enqueue/1 uses the queue of the source's collector" do
+    fake = source_fixture()
+    trending = source_fixture(kind: "github_trending", config: %{"since" => "daily"})
+    stars = source_fixture(kind: "github_stars", config: %{"user" => "gsmlg"})
+
+    for source <- [fake, trending, stars], do: {:ok, _job} = Collection.enqueue(source.id)
+
+    assert_enqueued(worker: CollectSourceWorker, args: %{source_id: fake.id}, queue: :collect)
+
+    assert_enqueued(
+      worker: CollectSourceWorker,
+      args: %{source_id: trending.id},
+      queue: :github_web
+    )
+
+    assert_enqueued(worker: CollectSourceWorker, args: %{source_id: stars.id}, queue: :github_api)
   end
 
   test "ScheduleWorker enqueues due sources" do
