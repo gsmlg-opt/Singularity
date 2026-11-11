@@ -277,7 +277,7 @@ AGENTS.md 的边界规则相应更新：Web 层可调用 `Sources`、`Knowledge`
 ## 10. 交付
 
 - 验证门槛同 AGENTS.md：format、warnings-as-errors 编译、测试。
-- 部署：`deploy/local/deploy.sh`，在 http://10.100.10.10:4120/ 验收以下项目：
+- 本机测试环境：`devenv up -d` 的 `singularity` 进程（见 AGENTS.md），在 http://10.100.10.10:4120/ 验收以下项目：
   - appbar 加四个顶级菜单和各自的左侧菜单
   - Overview 首页和 Knowledge 列表
   - 手动添加 `elixir-lang/elixir` 并看到详情和 label

@@ -39,8 +39,10 @@ Styx、phoenix_duskmoon、duskmoon_bundler、http_fetch、http_test 都是自维
 
     devenv up -d
     devenv shell -- mix format --check-formatted
-    devenv shell -- mix compile --warnings-as-errors
+    devenv shell -- env MIX_ENV=test mix compile --warnings-as-errors
     devenv shell -- mix test
+
+编译检查用 `MIX_ENV=test`：`_build/dev` 归 `devenv up` 里运行的开发服务器所有，在 dev 环境另外编译会和它的代码重载冲突。
 
 改了界面文字后，在提交前更新翻译模板：
 
@@ -48,8 +50,13 @@ Styx、phoenix_duskmoon、duskmoon_bundler、http_fetch、http_test 都是自维
 
 ## 本机测试环境
 
-每个版本开发完成后，都要部署到本机测试环境，给用户看效果：
+本机测试环境就是 devenv 的服务，不用 Docker：
 
-    deploy/local/deploy.sh
+    devenv up -d
+    devenv processes list
+    devenv processes logs singularity
 
-它会用当前代码构建 release 镜像，连同独立的 Postgres 一起用 Docker Compose 启动，地址是 http://10.100.10.10:4120/。数据保存在 `singularity-test_db` 卷里，重新部署不会丢失。配置在 `deploy/local/.env`（不进 git）。
+- `postgres`：只监听 unix socket（`listen_addresses = ""`，`PGHOST` 指向 socket），不占 TCP 端口，避免和其他项目冲突。
+- `singularity`：开发服务器，地址 http://10.100.10.10:4120/（`PORT=4120`、`PHX_IP=0.0.0.0`）。由 `watchexec` 监控：`config/`、各 `mix.exs`、`mix.lock`、迁移有变化，静默 15 秒后重启一次（debounce 15s）；每次启动先 `deps.get`、`ecto.create`、`ecto.migrate`。代码、模板、样式由 Phoenix 代码重载和 DuskmoonBundler 原地更新，不重启。进程崩溃由 devenv 自动重启。
+
+每个版本开发完成后，确认 `devenv processes list` 里两个进程都是 ready，在上面的地址截图验收，再交给用户看效果。

@@ -15,5 +15,3 @@ node_modules/
 # Ignore .fetch files in case you like to edit your project deps locally.
 /.fetch
 
-# Local test environment settings (secret key)
-/deploy/local/.env
