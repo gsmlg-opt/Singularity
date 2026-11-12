@@ -35,6 +35,8 @@ config :singularity, Singularity.GitHub, adapter: {HTTP.Test, Singularity.GitHub
 
 config :singularity, Singularity.Collectors.GithubStars, page_interval: 0
 
+config :singularity, :document_extractor, Singularity.Test.FakeExtractor
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :singularity_web, SingularityWeb.Endpoint,

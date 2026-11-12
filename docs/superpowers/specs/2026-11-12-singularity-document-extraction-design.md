@@ -53,7 +53,7 @@ opts 只会带 `:mime_type`。
 ### 3.3 `Singularity.Documents.XbergExtractor`
 
 - 唯一引用 `Xberg.*` 的模块。
-- 用 `kind: :uri` 传本地路径，不用 `kind: :bytes`。xberg 1.3.10 在调用 NIF 前用 `Jason.encode!` 编码输入，非 UTF-8 的二进制很可能编码失败。
+- 用 `kind: :uri` 传本地路径，不用 `kind: :bytes`。xberg 1.3.10 在调用 NIF 前用 `Jason.encode!` 编码输入，非 UTF-8 的二进制（如 PDF）会抛 `Jason.EncodeError`（已验证）。
 - 配置 `output_format: :markdown`，OCR 关闭。
 - 取 `output.results` 的第一个结果，映射为 §3.2 的返回结构。
 - 任何错误（`{:error, _}`、异常、空结果）都返回 `{:error, {:extract_failed, message}}`，不抛异常。
@@ -67,7 +67,8 @@ opts 只会带 `:mime_type`。
   - `:mime_type` 透传给提取器。
 - `Singularity.Documents.XbergExtractorTest`：直接调用真实的 xberg，默认运行。fixture 放在 `apps/singularity/test/fixtures/documents/`：
   - `sample.md`、`sample.html`、`sample.pdf`：断言提取出的文字和 MIME 类型。
-  - `corrupt.pdf`：返回 `{:error, {:extract_failed, _}}`。
+  - `corrupt.pdf`：返回 `{:error, {:extract_failed, _}}`。fixture 必须是 xberg 无法解析的 PDF；只截断尾部的 PDF 会被 xberg 容错，返回空内容的 `{:ok, _}`。
+- 内容为空不算失败（例如关闭 OCR 时的扫描件），仍返回 `{:ok, _}`。
 - 发布检查：`MIX_ENV=prod mix release` 后，在 release 中运行 `Singularity.Documents.extract/2` 处理 `sample.pdf`，能正常返回。
 
 ## 5. 不做

@@ -44,7 +44,8 @@ defmodule Singularity.MixProject do
       {:styx, "~> 0.2.0"},
       {:http_fetch, "~> 1.0.0-rc.11"},
       {:http_test, "~> 1.0.0-rc.11", only: :test},
-      {:floki, ">= 0.30.0"}
+      {:floki, ">= 0.30.0"},
+      {:xberg, "~> 1.3.10"}
     ]
   end
 
