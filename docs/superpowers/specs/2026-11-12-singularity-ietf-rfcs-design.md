@@ -1,224 +1,350 @@
-# IETF RFC 来源
+# IETF RFC source
 
-日期：2026-11-12。在 v2（`2026-11-11-singularity-knowledge-v2-design.md`）、手动项目和 GitHub Stars 设计之上。本文取代 v2 "不做"中的"软件项目以外的知识类型"一项，只针对 IETF RFC。
+Date: 2026-11-12. Builds on v2 (`2026-11-11-singularity-knowledge-v2-design.md`), manual projects, GitHub Stars, fetch rate limits and document extraction (`2026-11-12-singularity-document-extraction-design.md`). It lifts v2's "no knowledge kinds other than software projects" for IETF RFCs only.
 
-## 1. 目标
+## 1. Goal
 
-IETF RFC 作为单独一类知识条目进入知识库，包含完整元数据和全文。数据从 RFC Editor 官方 rsync 同步，每月检查一次更新。
+IETF RFCs become their own category of knowledge item, with full metadata and full text stored as Markdown. They are synced from the RFC Editor's official rsync service and checked once a month. Every sync is recorded, along with what it changed.
 
-成功标准：
+Success criteria:
 
-1. 在 Source 中添加一个 "IETF RFCs" 来源后，首次采集把全部 RFC（约 1 万篇）写成 `ietf_rfc` 知识条目，每篇都有元数据和全文。
-2. 之后每月采集一次。rsync 只传输有变化的文件；只有全文真正变化的条目才会更新 `content` 和 `content_updated_at`。
-3. Knowledge 左侧菜单有 "IETF RFCs"：列表可搜索、可按 label 筛选；详情页显示元数据、相关 RFC（可跳转）、label 和全文。
-4. 同步文件保存在统一配置的数据目录下，以后的其它同步数据也放在这个目录下。
-5. Overview 页面（统计、最近加入、label 云、动态）仍然只统计软件项目，不会被 RFC 刷屏。
+1. After adding an "IETF RFCs" source, the first run turns every RFC (about 10,000) into a `ietf_rfc` item with metadata and Markdown content.
+2. Later runs happen monthly. rsync only transfers changed files, and only items whose content actually changed get new `content` and `content_updated_at`.
+3. Every run is recorded with counts of added, updated and removed items. A run's detail page lists each changed item with field-level before/after and a diff of its content.
+4. Knowledge has an "IETF RFCs" entry. The list can be searched and filtered by label. The detail page shows metadata, related RFCs (linked), labels, Markdown content and the item's change history.
+5. Synced files live under one configured data directory, which later sync features share.
+6. The Overview section (stats, recently added, label cloud, activity) still counts software projects only.
 
-## 2. 数据目录
+## 2. Data directory
 
-所有需要在本地保存同步文件的功能，共用一个数据根目录。
+Every feature that keeps synced files on disk shares one root.
 
-- 配置：`config :singularity, :data_dir`。
-  - dev：`<项目根>/tmp/data`（已被 `.gitignore` 的 `/tmp/` 覆盖）。
-  - test：`<项目根>/tmp/test-data`。
-  - prod：`runtime.exs` 读环境变量 `DATA_DIR`，默认 `/var/lib/singularity`。
-- `Singularity.DataDir.path!(name)`：返回 `<data_dir>/<name>`，目录不存在时创建（`File.mkdir_p!`）。`name` 是固定的子目录名，每个功能各用一个。
-- 这一版只有一个子目录：`ietf-rfcs`。
-- 部署需要把 `DATA_DIR` 挂成持久卷。
+- Config `config :singularity, :data_dir`:
+  - dev: `<project root>/tmp/data` (already ignored through `/tmp/`).
+  - test: `<project root>/tmp/test-data`.
+  - prod: `runtime.exs` reads `DATA_DIR`, default `/var/lib/singularity`.
+- `Singularity.DataDir.path!(name)` returns `<data_dir>/<name>` and creates it (`File.mkdir_p!`). `name` is a fixed subdirectory per feature.
+- This version uses one: `ietf-rfcs`.
+- Deployments mount `DATA_DIR` as a persistent volume.
 
-## 3. 数据模型
+## 3. Data model
 
-一份 migration。
+One migration.
 
-### 3.1 items 新增通用列
+### 3.1 Generic columns on `items`
 
-| 列 | 说明 |
+| Column | Meaning |
 |---|---|
-| `content` | text，可空。条目的全文。通用列，不专属于 RFC；以后导入的文档也用它 |
-| `content_updated_at` | utc_datetime，可空。`content` 最近一次真正变化的时间。内容不变时不写 |
+| `content` | text, nullable. The item's full text as Markdown. Not RFC-specific; imported documents will use it too |
+| `content_updated_at` | utc_datetime, nullable. When `content` last actually changed. Not touched when the content is unchanged |
 
-### 3.2 `ietf_rfc` 条目
+### 3.2 `ietf_rfc` items
 
-- `kind` = `"ietf_rfc"`。
-- `external_id` = `rfc<编号>`，如 `rfc8446`。
-- `title` = JSON 的 `title`。
-- `url` = `https://www.rfc-editor.org/rfc/rfc<编号>`。
-- `summary` = JSON 的 `abstract`；为空字符串时为 `nil`。
-- `published_at` = 发布月份第一天 00:00 UTC。`pub_date` 形如 `"August 2018"`，无法解析时为 `nil`。
-- `attributes`（键为字符串）：
+- `kind` = `"ietf_rfc"`.
+- `external_id` = `rfc<number>`, e.g. `rfc8446`.
+- `title` = the JSON `title`.
+- `url` = `https://www.rfc-editor.org/rfc/rfc<number>`.
+- `summary` = the JSON `abstract`, or `nil` when it is empty.
+- `published_at` = midnight UTC on the first day of the publication month. `pub_date` looks like `"August 2018"`; when it cannot be parsed, `nil`.
+- `attributes` (string keys):
 
-| 键 | 来源 |
+| Key | From |
 |---|---|
-| `number` | 整数，取自 `doc_id` |
-| `authors` | 列表 |
+| `number` | integer, from `doc_id` |
+| `authors` | list |
 | `status` | `status` |
-| `stream_source` | `source`（工作组或来源，如 `"Transport Layer Security"`、`"Legacy"`） |
-| `keywords` | 列表 |
-| `obsoletes`、`obsoleted_by`、`updates`、`updated_by`、`see_also` | 列表，元素规范化为 `rfc<编号>` 小写 |
+| `stream_source` | `source` (working group or origin, e.g. `"Transport Layer Security"`, `"Legacy"`) |
+| `keywords` | list |
+| `obsoletes`, `obsoleted_by`, `updates`, `updated_by`, `see_also` | lists, entries normalized to lowercase `rfc<number>` |
 | `doi` | `doi` |
 | `errata_url` | `errata_url` |
-| `page_count` | 整数；无法解析时为 `nil` |
+| `page_count` | integer, `nil` when it cannot be parsed |
 | `draft` | `draft` |
-| `formats` | `format` 列表 |
+| `formats` | the `format` list |
+| `content_source` | `"html"` or `"text"`: which file the Markdown was made from |
 
-- 自动 label：
-  - `status:<slug>`：`status` 转小写，空格换成 `-`，如 `status:proposed-standard`。
-  - `obsoleted`：当 `obsoleted_by` 不为空时添加。
-  - 关键词不生成 label。
-- 来源记录（observation）：`period` = 发布月份 `YYYY-MM`（无法解析时为 `"unknown"`）。唯一约束 `(source_id, item_id, period)` 保证每篇 RFC 对同一来源只有一条记录，每月采集不会新增行。
+- Automatic labels:
+  - `status:<slug>`: `status` lowercased, spaces replaced with `-`, e.g. `status:proposed-standard`.
+  - `obsoleted`: when `obsoleted_by` is not empty.
+  - Keywords do not become labels.
+- Observation `period` = the publication month `YYYY-MM` (`"unknown"` when it cannot be parsed). With the unique key `(source_id, item_id, period)`, each RFC has exactly one observation per source, and monthly runs add no observation rows.
 
-## 4. 采集框架的改动
+### 3.3 `item_changes` (new table)
 
-### 4.1 `Singularity.Collector.Entry` 新增两个字段
+One row per item that a run changed.
 
-默认都是 `nil`，现有 collector 不受影响。
+| Column | Meaning |
+|---|---|
+| `fetch_run_id` | FK to `fetch_runs`, `on_delete: :delete_all` |
+| `item_id` | FK to `items`, nullable, `on_delete: :nilify_all` |
+| `kind`, `external_id`, `title` | snapshots, so the record reads well after the item is deleted |
+| `change` | `"added"`, `"updated"` or `"removed"` |
+| `fields` | map, field-level changes for `"updated"`: `%{"title" => %{"old" => ..., "new" => ...}, "attributes.obsoleted_by" => %{"old" => [...], "new" => [...]}}`. Empty for the other changes |
+| `content_diff` | text, nullable. Unified line diff of `content` (3 lines of context) when it changed |
+| `inserted_at` | utc_datetime |
 
-- `content_path`：这一条的全文文件路径。
-- `labels`：字符串列表。不为 `nil` 时，它就是条目全部的自动 label：
-  - 不在列表中的 `origin = "auto"` label 删除。
-  - 手动 label 不动。
-  - 与手动 label 同名时保留手动的。
+Indexes on `fetch_run_id` and `(item_id, inserted_at)`.
 
-### 4.2 `Singularity.Knowledge.record/3`
+Meaning of `change`:
 
-- **采集值是否权威**：
-  - 只有 `software_project` 的标题、描述、attributes 以 GitHub 详情为准，保持现状：冲突时只更新 `last_seen_at`、`updated_at`。
-  - 其它 kind 的采集值是权威的。冲突时还要覆盖 `title`、`url`、`summary`、`published_at`、`attributes`。
-- **写入全文**：
-  - 在事务开始时，用一次查询取出本次条目所属 kind 已有条目的 `md5(content)`。
-  - 对每个带 `content_path` 的条目逐个读取文件，计算 md5 并与已有值比较。
-  - 只有不同时才更新 `content` 和 `content_updated_at = now`。
-  - 文件按 UTF-8 读取；不是合法 UTF-8 的字节按 Latin-1 转换（早期 RFC 中有少量非 ASCII 字节），保证写入的是合法文本。
-  - 文件读取失败时，这一条不写全文，不中断整个事务，并计入日志。
-- **label**：`entry.labels` 不为 `nil` 时，按 4.1 的规则同步自动 label。
-- 其余逻辑（keep、leave、observation、软件项目的详情获取）不变。
-- **首次写入的规模**：首次写入约 1 万条、约 545 MB 全文。现有事务超时是 10 分钟，Styx Lifeline 在任务执行 30 分钟后会把它救回。实现时在 dev 环境做一次真实的首次同步，记录 rsync 和 `record/3` 各自的耗时。超过任一限制时调大对应的超时，并把实测数据写回本节。
+- `added`: the source starts keeping the item, either by creating its `item_sources` row or by reopening a removed one. A new item, or one this source did not list before.
+- `updated`: an item the source already kept, whose authoritative fields or content differ from the stored values (see 4.2).
+- `removed`: the item left the source (`leave!`) in this run.
 
-## 5. Collector：`Singularity.Collectors.IetfRfc`
+### 3.4 Counters on `fetch_runs`
 
-### 5.1 回调
+`added_count`, `updated_count`, `removed_count`: integers, default 0. They are written when the run finishes.
 
-| 回调 | 值 |
+## 4. Changes to the collection framework
+
+### 4.1 `Singularity.Collector.Entry`
+
+Two new fields, both `nil` by default, so existing collectors are unaffected:
+
+- `content_path`: a file whose text is this item's Markdown content.
+- `labels`: a list of strings. When it is not `nil`, it is the item's complete set of automatic labels:
+  - Labels with `origin = "auto"` that are not in the list are deleted.
+  - Manual labels are untouched.
+  - A name that is already a manual label stays manual.
+
+### 4.2 `Singularity.Knowledge.record/4`
+
+The signature becomes `record(source, result, now, fetch_run_id)`. It returns `{:ok, %{count: n, added: a, updated: u, removed: r}}`. `Collection.run/2` passes the run id and stores the counters on the run.
+
+- **Authoritative values.**
+  - `software_project` keeps today's behavior: its title, description and attributes come from GitHub details, so a conflict only updates `last_seen_at` and `updated_at`.
+  - For every other kind, the collected values are authoritative. A conflict also overwrites `title`, `url`, `summary`, `published_at` and `attributes`.
+- **Content.**
+  - At the start, one query loads `md5(content)` for the existing items of the result's kinds.
+  - For each entry with a `content_path`, the file is read and its md5 is compared with the stored one.
+  - Only when they differ, `content` is written and `content_updated_at` is set to `now`.
+  - Files are read one at a time. Files that are not valid UTF-8 are converted from Latin-1, so stored text is always valid.
+  - When a file cannot be read, the entry keeps its old content, the error is logged, and the transaction continues.
+- **Labels.** When `entry.labels` is not `nil`, automatic labels are synced as in 4.1.
+- **Change tracking.**
+  - Before upserting an authoritative item, its current authoritative fields are loaded. After the upsert they are compared:
+    - `title`, `url`, `summary` and `published_at` are compared as whole values.
+    - `attributes` are compared key by key, giving names like `attributes.<key>`.
+  - When content changes on an existing item, the old content is loaded for that item only. Then `Singularity.Knowledge.TextDiff.unified(old, new)` is stored as `content_diff`.
+  - An existing item with field or content differences gets one `updated` row.
+  - `added` rows come from `keep!`: open `item_sources` rows are loaded before inserting, so new and reopened rows can be told apart.
+  - `removed` rows come from `leave!`.
+  - An `added` item gets no `updated` row in the same run.
+  - Fields that change on every run (`last_seen_at`, `updated_at`) are never recorded.
+  - `software_project` items only get `added` and `removed` rows. Their metadata changes come from the details task, not from runs, and are out of scope.
+- Everything else (observations, project detail fetching, removal grace period) is unchanged.
+- **First-run size.** The first RFC run writes about 10,000 items and about 10,000 `added` rows. The transaction timeout is 10 minutes today, and Styx Lifeline rescues jobs after 30 minutes. The implementation runs one real first sync in dev and records how long rsync, conversion and `record/4` each take. If any limit is exceeded, raise that timeout and write the measurements back into this section.
+
+### 4.3 `Singularity.Knowledge.TextDiff`
+
+Pure functions.
+
+- `unified(old, new, context \\ 3)`: splits both texts into lines, diffs them with `List.myers_difference/2`, and returns unified-diff hunks (`@@ -a,b +c,d @@`, lines prefixed with ` `, `-`, `+`).
+- No hunks means no difference, and the result is `""`.
+- Diffs longer than 1 MB are cut at a line boundary and end with the line `… diff truncated`.
+
+## 5. Collector: `Singularity.Collectors.IetfRfc`
+
+### 5.1 Callbacks
+
+| Callback | Value |
 |---|---|
 | `kind/0` | `"ietf_rfc"` |
 | `label/0` | `"IETF RFCs"` |
 | `config_fields/0` | `[]` |
 | `validate_config/1` | `{:ok, %{}}` |
-| `default_interval_minutes/0` | `43_200`（30 天） |
+| `default_interval_minutes/0` | `43_200` (30 days) |
 | `queue/0` | `:rfc_editor` |
 
-新队列：`rfc_editor: [limit: 1, rate_limit: [allowed: 1, period: 3600]]`。
+New queue: `rfc_editor: [limit: 1, rate_limit: [allowed: 1, period: 60]]`.
 
-### 5.2 获取
+### 5.2 Fetching
 
-`fetch/2` 做两件事：
+The mirror is `Singularity.DataDir.path!("ietf-rfcs")`. `fetch/2` makes two rsync calls and waits between them; the wait matches the queue's rate limit. It is configurable as `request_interval`: 60 seconds by default, 0 in tests.
 
-1. 用 `Singularity.DataDir.path!("ietf-rfcs")` 得到镜像目录。
-2. 调用 rsync 运行器同步：
+1. Metadata and plain text:
 
        rsync -rt --delete --timeout=600 \
          --include='rfc*.json' --include='rfc*.txt' --exclude='*' \
-         rsync.rfc-editor.org::rfcs/ <镜像目录>/
+         rsync.rfc-editor.org::rfcs/ <mirror>/
 
-   只连接一次，元数据和全文来自同一时刻。
+2. HTML for v3 RFCs only:
+   - v3 RFCs are those whose JSON `format` contains `"XML"`. Their names are written as `rfc<number>.html`, one per line, to `<mirror>/html-files.txt`.
+   - Then:
 
-- rsync 运行器从应用配置读取：`config :singularity, Singularity.Collectors.IetfRfc, rsync: module`。
-  - 默认 `Singularity.Collectors.IetfRfc.Rsync`，用 `System.cmd/3` 调用 `rsync`。
-  - 返回 `:ok` 或 `{:error, {:rsync, exit_status, output_tail}}`。
-  - 找不到 `rsync` 可执行文件时，返回 `{:error, :rsync_not_found}`。
-- rsync 失败时，`fetch/2` 返回 `{:error, reason}`，由 Styx 重试。镜像目录保留，下次续传。
+         rsync -rt --timeout=600 --files-from=<mirror>/html-files.txt \
+           rsync.rfc-editor.org::rfcs/ <mirror>/
 
-### 5.3 解析（纯函数）
+   - This call has no `--delete`. HTML for RFCs that are no longer listed is removed locally, by comparing against the list.
 
-- `parse_dir(dir)` 遍历 `rfc<数字>.json` 文件。`rfcThis.json`、`-n.json` 等不匹配的文件名直接忽略，不计入 skipped。
-- 对每个 JSON 调用 `parse_rfc(json_map, txt_path_or_nil)`，生成 `Entry`。
-  - 对应的 `rfc<数字>.txt` 存在时，`content_path` 指向它；不存在时为 `nil`。
-  - JSON 无法解码或缺少 `doc_id`、`title` 时，计入 `skipped`，不中断。
-- 返回 `%Result{period: "YYYY-MM"（采集当月）, entries: entries, skipped: n, complete: true}`。
-- `skipped == 0` 时，RFC Editor 不再列出的 RFC 离开来源，适用现有的 30 天删除规则。
+The runner is read from config: `config :singularity, Singularity.Collectors.IetfRfc, rsync: module`.
 
-### 5.4 注册
+- The default is `Singularity.Collectors.IetfRfc.Rsync`, which calls `rsync` with `System.cmd/3`.
+- It returns `:ok` or `{:error, {:rsync, exit_status, output_tail}}`.
+- It returns `{:error, :rsync_not_found}` when there is no `rsync` executable.
 
-- 在 `config :singularity, :collectors` 中加入 `Singularity.Collectors.IetfRfc`。
-- 在 test 配置中把 rsync 运行器换成测试替身。
+When either rsync call fails, `fetch/2` returns `{:error, reason}` and Styx retries. The mirror is kept, so the next attempt resumes.
 
-## 6. Knowledge 服务函数
+### 5.3 Markdown conversion
 
-- `list_rfcs(opts)`，选项：
-  - `:q`：数字时按编号精确匹配；否则对 `title` 做 ILIKE。
-  - `:label`
-  - `:page`、`:per_page`（默认 50）
-  - 排序：编号倒序
-- `count_rfcs(opts)`：与 `list_rfcs` 的筛选条件相同，用于分页。
-- `get_rfc!(number)`：按编号取，预载 labels。
-- `get_rfcs_by_external_ids(ids)`：给详情页的相关 RFC 用；返回 `%{external_id => item}`，不存在的不返回。
-- `add_label/2`、`remove_label/2`：现有函数直接适用于 RFC 条目。
+Converted Markdown is cached at `<mirror>/markdown/rfc<number>.md`.
 
-## 7. 界面
+- `<mirror>/markdown/VERSION` holds the converter version, an integer constant in the collector. When it differs from the constant, every cached file is regenerated.
+- Otherwise a file is regenerated only when it is missing or older than its source file.
+- Bumping the version is a deliberate change. The next run records every RFC whose Markdown changed as `updated`, with a diff. That is expected, and it shows what the new converter changed.
 
-按 `DESIGN.md`。文字放 gettext 的 `knowledge` domain。
+Source and conversion:
 
-- Knowledge 左侧菜单在 "Software projects" 后加 "IETF RFCs"。
-- `/knowledge/ietf-rfcs` 列表：
-  - 工具栏：搜索框（编号或标题）；当前 label 筛选（可清除）。
-  - 表格列：编号（`RFC 8446`，链接到详情）、标题、status 徽章、发布日期（月份）。
-  - 分页。
-- `/knowledge/ietf-rfcs/:number` 详情：
-  - 头部：`RFC 8446`、标题、status 徽章；外部链接（原文、DOI、勘误）经过 `/out`。
-  - 元数据卡片：作者、工作组（`stream_source`）、发布月份、页数、draft、关键词。
-  - 相关 RFC 卡片：
-    - 分 Obsoletes、Obsoleted by、Updates、Updated by、See also 五组，空组不显示。
-    - 每项链接到对应的详情页；库里没有的 RFC 只显示编号，不加链接。
-  - label 卡片：显示自动 label 和手动 label，可增删手动 label。
-  - 全文卡片：等宽字体的 `<pre>`，卡片内限高滚动。没有全文时显示 "Full text not synced yet."。
-- 订阅 `"knowledge"` 主题；采集完成后列表刷新。
-- Overview（统计、最近加入、label 云、动态）不变，继续只统计软件项目。
+- **v3 RFCs with an HTML file:**
+  - Run `Singularity.Documents.extract/2` on the HTML, then `Markdown.clean_html/1` (pure):
+    - Drop everything before the first line starting with `# RFC ` (xberg's front matter and the header table, which duplicate the metadata).
+    - Remove pilcrow links `[¶](#…)`.
+    - Turn in-page links `[text](#…)` into `text`.
+    - Rewrite `](./rfc<number>)` to `](https://www.rfc-editor.org/rfc/rfc<number>)`.
+  - `content_source = "html"`.
+  - When extraction fails, fall back to the plain-text conversion below, log a warning, and set `content_source = "text"`.
+- **Every other RFC:**
+  - `Markdown.from_text/1` (pure) wraps the original `.txt` in a ```` ```text ```` fence and keeps it byte for byte. When the text itself contains three backticks, the fence uses more backticks than the longest run.
+  - xberg is not used on plain text: it reflows lines and destroys ASCII diagrams.
+  - `content_source = "text"`.
+- **No `.txt` and no usable HTML:** `content_path` is `nil` and the item has no content.
 
-## 8. 向量搜索的接入点（这一版不实现）
+### 5.4 Parsing (pure)
 
-以后的向量搜索使用 Qdrant，另写 spec。这一版只保证以下约定成立：
+- `parse_dir(mirror)` walks the `rfc<digits>.json` files. Other names such as `rfcThis.json` and `-n.json` are ignored and not counted as skipped.
+- `parse_rfc(json_map, markdown_path_or_nil)` builds an `Entry` with attributes, `labels` (3.2), `period` and `content_path`.
+- JSON that cannot be decoded, or that lacks `doc_id` or `title`, counts toward `skipped` and does not stop the run.
+- The result is `%Result{period: "<YYYY-MM of the run>", entries: entries, skipped: n, complete: true}`.
+- With `skipped == 0`, RFCs the RFC Editor no longer lists leave the source, and the existing 30-day removal applies.
 
-- 任何 kind 的全文都在 `items.content` 中。
-- `content_updated_at` 只在内容真正变化时更新，可以作为增量索引的水位线。索引器记住上次处理到的时间，只处理 `content_updated_at` 晚于它的条目；全量重建时把水位线清零。
-- Qdrant 中的 point id 用 `items.id`。条目被删除时，以后由索引器对账清理。
+### 5.5 Registration
 
-这一版不加 Qdrant 依赖、不加服务、不加任何索引代码。
+- Add `Singularity.Collectors.IetfRfc` to `config :singularity, :collectors`.
+- In test config, the rsync runner is a test double and `request_interval` is 0.
 
-## 9. 环境与部署
+## 6. Service functions
 
-- `devenv.nix` 的 packages 加 `pkgs.rsync`。
-- Dockerfile 的运行阶段 `apt-get install` 加 `rsync`。
-- 生产环境设置 `DATA_DIR`，并挂载持久卷。
+`Singularity.Knowledge`:
 
-## 10. 测试
+- `list_rfcs(opts)`:
+  - `:q`: an exact number match when it is numeric, otherwise ILIKE on `title`.
+  - `:label`.
+  - `:page` and `:per_page` (default 50).
+  - Ordered by number, descending.
+- `count_rfcs(opts)`: same filters, for pagination.
+- `get_rfc!(number)`: labels preloaded.
+- `get_rfcs_by_external_ids(ids)`: `%{external_id => item}` for the related-RFC links. Missing ones are left out.
+- `list_item_changes(item_id)`: newest first, with the run preloaded.
+- The existing `add_label/2` and `remove_label/2` work for RFC items unchanged.
 
-- **`Singularity.DataDirTest`**：`path!/1` 返回根目录下的子目录，并且会创建这个目录。
-- **`IetfRfc` 解析**：
-  - 使用真实 JSON fixture：
-    - `rfc8446.json`：字段齐全，包含 obsoletes/obsoleted_by。
-    - `rfc791.json`：abstract 为空。
-  - 加一个损坏的 JSON 和一个 `rfcThis.json`。
-  - 加一个小的 `rfc8446.txt`。
-  - 覆盖正常、空目录、单条损坏三种情况。
-  - 断言 attributes、自动 label、`period`、`content_path`、`skipped`。
-- **`IetfRfc.fetch/2`**：用测试替身运行器把 fixture 复制到镜像目录，覆盖成功和 rsync 失败两种情况。
-- **`Knowledge.record/3`**：
-  - RFC 元数据在第二次采集时被覆盖（如 `obsoleted_by` 变化）。
-  - 内容相同时 `content_updated_at` 不变；内容变化时更新。
-  - 非 UTF-8 字节被转换为合法文本。
-  - 手动 label 保留，过期的自动 label 被删除。
-  - 现有软件项目的测试不改，并且全部通过。
-- **LiveView**：
-  - 列表搜索（编号和标题）和 label 筛选。
-  - 详情页显示元数据。
-  - 相关 RFC：库里有的有链接，没有的无链接。
-  - 显示全文，或显示未同步提示。
-  - 增删手动 label。
+`Singularity.Collection`:
 
-## 11. 不做
+- `get_run!(id)`: source preloaded.
+- `list_run_changes(run_id, opts)`:
+  - `:change` filter.
+  - `:page` and `:per_page` (default 50).
+  - Ordered by change type, then `external_id`.
 
-- 向量搜索、Qdrant、全文搜索（tsvector）。
-- HTML、PDF、XML 格式，以及用 xberg 转换。
-- Internet-Drafts、勘误内容、BCP/STD/FYI 子系列。
-- 把 RFC 混入 "All knowledge" 列表或 Overview 统计。
-- 每个来源自定义同步目录。
+## 7. Interface
+
+Follows `DESIGN.md`. Text uses the gettext domains `knowledge` and `source`.
+
+### 7.1 Knowledge
+
+- Add "IETF RFCs" to the Knowledge left menu, after "Software projects".
+- `/knowledge/ietf-rfcs` list:
+  - Toolbar: search box (number or title), and the current label filter, which can be cleared.
+  - Table columns: number (`RFC 8446`, linking to the detail page), title, status badge, publication month.
+  - Paginated.
+- `/knowledge/ietf-rfcs/:number` detail:
+  - Header:
+    - `RFC 8446`, the title and a status badge.
+    - External links (original, DOI, errata), routed through `/out`.
+  - Metadata card: authors, working group (`stream_source`), publication month, pages, draft, keywords.
+  - Related RFCs card:
+    - Groups: Obsoletes, Obsoleted by, Updates, Updated by, See also. Empty groups are hidden.
+    - Each RFC links to its detail page. RFCs not in the knowledge base show only their number.
+  - Labels card: automatic and manual labels. Manual labels can be added and removed.
+  - Content card:
+    - Markdown rendered like the project README, height-limited with scrolling.
+    - Without content: "Full text not synced yet."
+  - History card: the item's changes, newest first. Each shows the run time and the change type, links to the run detail page, and lists changed field names.
+- Subscribes to `"knowledge"`, so the list refreshes after a run.
+- The Overview section is unchanged and still counts software projects only.
+
+### 7.2 Source runs
+
+- Rows on the existing `/source/runs` page also show `+added ~updated −removed`, and each row links to the run.
+- New `/source/runs/:id` run detail:
+  - Header: source, status, start and finish times, item and skipped counts, and the three change counters.
+  - Tabs or filter buttons: All, Added, Updated, Removed. Paginated.
+  - Each change shows:
+    - The kind and title, linking to the item when it still exists.
+    - For `updated`: a table of field, old value and new value.
+    - When there is a `content_diff`: a collapsible diff in a monospace block, with added lines highlighted as success and removed lines as error, using DuskMoon colors.
+
+## 8. Vector search integration point (not built)
+
+Vector search will use Qdrant and gets its own spec. This version only guarantees these conventions:
+
+- Every kind's full text is in `items.content`, as Markdown.
+- `content_updated_at` only moves when content actually changes, so it can serve as an incremental indexing watermark. An indexer remembers the last time it processed, and only handles items with a later `content_updated_at`. A full rebuild resets the watermark.
+- Qdrant point ids are `items.id`. Deleted items are reconciled by the indexer later.
+
+No Qdrant dependency, service or indexing code is added now.
+
+## 9. Environment and deployment
+
+- `devenv.nix`: add `pkgs.rsync` to packages.
+- Dockerfile: add `rsync` to the runtime stage's `apt-get install`.
+- Production sets `DATA_DIR` and mounts a persistent volume there. The mirror and Markdown cache take about 650 MB.
+
+## 10. Testing
+
+- **`DataDir`**: `path!/1` returns a subdirectory of the root and creates it.
+- **`TextDiff`**:
+  - Identical texts give `""`.
+  - A single changed line gives one hunk with 3 lines of context.
+  - Lines added at the start and end.
+  - Truncation past the limit.
+- **`IetfRfc.Markdown`**:
+  - `clean_html/1`, on xberg output saved from a real v3 RFC (fixture): front matter removed, pilcrows removed, in-page links flattened, relative RFC links rewritten.
+  - `from_text/1` keeps text byte for byte and handles text that contains backtick fences.
+- **`IetfRfc` parsing**, with real fixtures:
+  - `rfc8446.json` (full fields, obsoletes and obsoleted_by).
+  - `rfc791.json` (empty abstract).
+  - `rfc9999.json` (v3, `"XML"` in `format`).
+  - A broken JSON and an `rfcThis.json`.
+  - Covers normal, empty directory and one broken file. Asserts attributes, labels, `period`, `content_path` and `skipped`.
+- **`IetfRfc.fetch/2`**:
+  - A test-double runner copies fixtures into the mirror.
+  - Covers success, failure of the first or second rsync call, the `html-files.txt` list, the Markdown cache being reused, and regeneration when `VERSION` changes.
+  - The real xberg runs on one small v3 HTML fixture.
+- **`Knowledge.record/4`**:
+  - RFC metadata is overwritten on the second run, and an `updated` row records the `attributes.obsoleted_by` change.
+  - Unchanged content leaves `content_updated_at` alone and records no row.
+  - Changed content updates it and stores a `content_diff`.
+  - Latin-1 bytes are stored as valid text.
+  - Manual labels are kept, and stale automatic labels are removed.
+  - `added` rows for new items and for items rejoining a source; `removed` rows for items that left.
+  - Counters are returned and stored on the run.
+  - Existing software project tests keep passing unchanged, apart from the `record/4` call signature.
+- **LiveView**:
+  - RFC list: search by number and by title, label filter.
+  - RFC detail:
+    - Metadata.
+    - Related RFC links, present and missing.
+    - Content, or the not-synced message.
+    - Adding and removing manual labels.
+    - The history card.
+  - Run detail: counters, filters, field table and diff rendering.
+
+## 11. Out of scope
+
+- Vector search, Qdrant, full-text search (tsvector).
+- PDF and XML formats. HTML for RFCs before 8650.
+- Internet-Drafts, errata content, the BCP/STD/FYI subseries.
+- Full version history of content (only diffs are kept).
+- Change tracking for software project metadata from the details task.
+- Mixing RFCs into "All knowledge" or the Overview stats.
+- Per-source sync directories.
