@@ -3,9 +3,9 @@ defmodule Singularity.Documents.XbergExtractor do
   `Singularity.Documents.Extractor` backed by the xberg NIF. The only module
   that references `Xberg.*`.
 
-  Files are passed by path (`kind: :uri`), never as bytes: xberg JSON-encodes
-  its input before calling the NIF, which fails on non-UTF-8 binaries. OCR is
-  off. Never raises.
+  Files are passed by path (`kind: :uri`), never as bytes: in xberg 1.3.10
+  `kind: :bytes` fails for every input
+  (https://github.com/xberg-io/xberg/issues/3020). OCR is off. Never raises.
   """
 
   @behaviour Singularity.Documents.Extractor
