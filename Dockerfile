@@ -41,11 +41,15 @@ RUN mix release singularity
 
 FROM ${RUNNER_IMAGE}
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libncurses6 libstdc++6 locales openssl \
+  && apt-get install -y --no-install-recommends ca-certificates libncurses6 libstdc++6 locales openssl rsync \
   && rm -rf /var/lib/apt/lists/*
 ENV LANG=C.UTF-8 MIX_ENV=prod
 WORKDIR /app
-RUN useradd --system --home /app singularity && chown singularity /app
+RUN useradd --system --home /app singularity \
+  && mkdir -p /var/lib/singularity \
+  && chown singularity /app /var/lib/singularity
+# Synced files (DATA_DIR, see Singularity.DataDir); mount a persistent volume here.
+VOLUME /var/lib/singularity
 COPY --from=builder --chown=singularity /app/_build/prod/rel/singularity ./
 USER singularity
 EXPOSE 4000

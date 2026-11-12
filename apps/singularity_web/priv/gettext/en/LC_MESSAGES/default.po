@@ -26,7 +26,7 @@ msgstr ""
 msgid "Browse"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:143
+#: lib/singularity_web/components/layouts.ex:149
 #, elixir-autogen, elixir-format
 msgid "Collection runs"
 msgstr ""
@@ -59,23 +59,23 @@ msgid "Software projects"
 msgstr ""
 
 #: lib/singularity_web/components/layouts.ex:76
-#: lib/singularity_web/components/layouts.ex:132
+#: lib/singularity_web/components/layouts.ex:138
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:134
+#: lib/singularity_web/components/layouts.ex:140
 #, elixir-autogen, elixir-format
 msgid "Sources"
 msgstr ""
 
 #: lib/singularity_web/components/layouts.ex:77
-#: lib/singularity_web/components/layouts.ex:156
+#: lib/singularity_web/components/layouts.ex:162
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:172
+#: lib/singularity_web/components/layouts.ex:178
 #, elixir-autogen, elixir-format
 msgid "System status"
 msgstr ""
@@ -90,12 +90,12 @@ msgstr ""
 msgid "Expand navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:160
+#: lib/singularity_web/components/layouts.ex:166
 #, elixir-autogen, elixir-format
 msgid "Accounts"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:166
+#: lib/singularity_web/components/layouts.ex:172
 #, elixir-autogen, elixir-format
 msgid "Appearance"
 msgstr ""
@@ -116,7 +116,7 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:137
+#: lib/singularity_web/components/layouts.ex:143
 #, elixir-autogen, elixir-format
 msgid "Manual"
 msgstr ""
@@ -152,4 +152,9 @@ msgstr ""
 #: lib/singularity_web/controllers/outbound_html/show.html.heex:9
 #, elixir-autogen, elixir-format
 msgid "This link goes to another site. Check the address before you continue."
+msgstr ""
+
+#: lib/singularity_web/components/layouts.ex:125
+#, elixir-autogen, elixir-format
+msgid "IETF RFCs"
 msgstr ""

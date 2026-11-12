@@ -30,6 +30,9 @@ if config_env() == :dev do
 end
 
 if config_env() == :prod do
+  # Synced files (see Singularity.DataDir); mount a persistent volume here.
+  config :singularity, :data_dir, System.get_env("DATA_DIR", "/var/lib/singularity")
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

@@ -20,7 +20,8 @@ config :singularity, Styx,
     default: 5,
     collect: 1,
     github_web: [limit: 1, rate_limit: [allowed: 1, period: 30]],
-    github_api: [limit: 1, rate_limit: [allowed: 1, period: 2]]
+    github_api: [limit: 1, rate_limit: [allowed: 1, period: 2]],
+    rfc_editor: [limit: 1, rate_limit: [allowed: 1, period: 60]]
   ],
   plugins: [
     {Styx.Pruner, max_age: 60 * 60 * 24 * 7},
@@ -35,7 +36,8 @@ config :singularity, Styx,
 
 config :singularity, :collectors, [
   Singularity.Collectors.GithubTrending,
-  Singularity.Collectors.GithubStars
+  Singularity.Collectors.GithubStars,
+  Singularity.Collectors.IetfRfc
 ]
 
 config :singularity_web,

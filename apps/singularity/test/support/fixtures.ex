@@ -2,7 +2,7 @@ defmodule Singularity.Fixtures do
   @moduledoc "Direct-insert fixtures that bypass context validation."
 
   alias Singularity.Collection.FetchRun
-  alias Singularity.Knowledge.{Item, Label, Observation}
+  alias Singularity.Knowledge.{Item, ItemChange, Label, Observation}
   alias Singularity.Repo
   alias Singularity.Sources.Source
 
@@ -48,6 +48,35 @@ defmodule Singularity.Fixtures do
     }
 
     Item |> struct!(Map.merge(defaults, attrs)) |> Repo.insert!()
+  end
+
+  def rfc_fixture(number, attrs \\ %{}) do
+    defaults = %{
+      kind: "ietf_rfc",
+      external_id: "rfc#{number}",
+      title: "RFC #{number} title",
+      url: "https://www.rfc-editor.org/rfc/rfc#{number}",
+      attributes: %{"number" => number, "status" => "PROPOSED STANDARD"},
+      first_seen_at: now(),
+      last_seen_at: now()
+    }
+
+    Item |> struct!(Map.merge(defaults, Map.new(attrs))) |> Repo.insert!()
+  end
+
+  def item_change_fixture(run, item, attrs \\ %{}) do
+    defaults = %{
+      fetch_run_id: run.id,
+      item_id: item && item.id,
+      kind: (item && item.kind) || "ietf_rfc",
+      external_id: (item && item.external_id) || "rfc0",
+      title: (item && item.title) || "Gone",
+      change: "updated",
+      fields: %{},
+      inserted_at: now()
+    }
+
+    ItemChange |> struct!(Map.merge(defaults, Map.new(attrs))) |> Repo.insert!()
   end
 
   def label_fixture(%Item{} = item, name, origin \\ "auto"),

@@ -24,12 +24,15 @@ defmodule SingularityWeb.Router do
     live "/knowledge", KnowledgeLive.Index, :index
     live "/knowledge/projects", KnowledgeLive.Index, :projects
     live "/knowledge/projects/:id", KnowledgeLive.Show, :show
+    live "/knowledge/ietf-rfcs", KnowledgeLive.RfcIndex, :index
+    live "/knowledge/ietf-rfcs/:number", KnowledgeLive.RfcShow, :show
     live "/source/sources", SourceLive.Index, :index
     live "/source/sources/new", SourceLive.Form, :new
     live "/source/sources/:id/edit", SourceLive.Form, :edit
     live "/source/sources/:id", SourceLive.Show, :show
     live "/source/manual", SourceLive.Manual, :index
     live "/source/runs", SourceLive.Runs, :index
+    live "/source/runs/:id", SourceLive.RunShow, :show
     live "/system/accounts", SystemLive.Accounts, :show
     live "/system/accounts/:account", SystemLive.Accounts, :show
     live "/system/appearance", SystemLive.Appearance, :show

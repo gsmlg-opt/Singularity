@@ -1,19 +1,24 @@
 defmodule Singularity.Knowledge do
-  @moduledoc "Knowledge items (v2: software projects), their labels and source records."
+  @moduledoc "Knowledge items (software projects, IETF RFCs), their labels and source records."
 
   import Ecto.Query
+
+  require Logger
 
   alias Singularity.Collector.{Entry, Result}
 
   alias Singularity.Knowledge.{
     Address,
+    Changes,
     FetchDetailsWorker,
     FetchReadmeWorker,
     Item,
+    ItemChange,
     ItemSource,
     Label,
     Labels,
-    Observation
+    Observation,
+    TextDiff
   }
 
   alias Singularity.Repo
@@ -21,9 +26,14 @@ defmodule Singularity.Knowledge do
 
   @topic "knowledge"
   @project "software_project"
+  @rfc "ietf_rfc"
 
-  # title, summary and attributes come from GitHub details; collected values only seed new items.
+  # A project's title, summary and attributes come from GitHub details; collected values only
+  # seed new items. Other kinds take the collected values as authoritative.
   @replace_on_conflict [:last_seen_at, :updated_at]
+  @authoritative_fields [:title, :url, :summary, :published_at, :attributes]
+  # Content can be large; upserts never send it back.
+  @returning Item.__schema__(:fields) -- [:content]
   @details_ttl_seconds 24 * 60 * 60
   # A project no source keeps any more is deleted this long after it left the last one.
   @removal_grace_days 30
@@ -34,45 +44,213 @@ defmodule Singularity.Knowledge do
 
   @doc """
   Upserts items and inserts one observation per entry (for the entry's period,
-  else the result's), atomically. Every item is kept by the source. Trending
-  entries add a `trending:<since>` label. Entries carrying `details` store them;
-  other software projects without fresh details get a fetch queued.
+  else the result's), atomically, for the collection run `fetch_run_id`. Every
+  item is kept by the source. Trending entries add a `trending:<since>` label.
+  Entries carrying `details` store them; other software projects without fresh
+  details get a fetch queued.
+
+  Kinds other than software projects take the collected values as authoritative.
+  An entry's `content_path` becomes the item's content when its text changed;
+  `labels` replaces its automatic labels.
 
   For a complete result (with nothing skipped), items the source kept but no
   longer lists leave it; one that no source keeps any more is due for removal
   #{@removal_grace_days} days later.
+
+  The run's changes are recorded as `item_changes`: items the source started
+  keeping (`added`), whose authoritative fields or content changed (`updated`),
+  and that left it (`removed`).
   """
-  @spec record(Source.t(), Result.t(), DateTime.t()) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  def record(%Source{} = source, %Result{} = result, %DateTime{} = now) do
+  @spec record(Source.t(), Result.t(), DateTime.t(), integer()) ::
+          {:ok,
+           %{
+             count: non_neg_integer(),
+             added: non_neg_integer(),
+             updated: non_neg_integer(),
+             removed: non_neg_integer()
+           }}
+          | {:error, term()}
+  def record(%Source{} = source, %Result{} = result, %DateTime{} = now, fetch_run_id) do
     now = DateTime.truncate(now, :second)
 
     Repo.transaction(
       fn ->
-        item_ids =
-          Enum.map(result.entries, fn entry ->
+        before = tracked_state(result.entries)
+
+        {items, updates} =
+          Enum.map_reduce(result.entries, [], fn entry, updates ->
             item = upsert_item!(entry, now)
             insert_observation!(item, source, entry.period || result.period, entry, now)
             add_trending_label!(item, entry, now)
+            sync_entry_labels!(item, entry, now)
             keep_details!(item, entry, now)
-            item.id
+
+            previous = Map.get(before, {item.kind, item.external_id})
+            content = put_content!(item, entry, previous, now)
+            {item, prepend_update(updates, item, entry, previous, content)}
           end)
 
-        keep!(item_ids, source.id, now)
-        if result.complete and result.skipped == 0, do: leave!(source.id, item_ids, now)
-        length(result.entries)
+        item_ids = Enum.map(items, & &1.id)
+        added_ids = keep!(item_ids, source.id, now)
+
+        removed_ids =
+          if result.complete and result.skipped == 0,
+            do: leave!(source.id, item_ids, now),
+            else: []
+
+        added = MapSet.new(added_ids)
+        updates = Enum.reject(updates, &MapSet.member?(added, &1.item_id))
+        by_id = Map.new(items, &{&1.id, &1})
+
+        insert_changes!(
+          fetch_run_id,
+          Enum.map(added_ids, &change_row(Map.fetch!(by_id, &1), "added")) ++
+            updates ++ Enum.map(removed_items(removed_ids), &change_row(&1, "removed")),
+          now
+        )
+
+        %{
+          count: length(result.entries),
+          added: length(added_ids),
+          updated: length(updates),
+          removed: length(removed_ids)
+        }
       end,
       timeout: @record_timeout
     )
+  end
+
+  # Values of existing items that changes are measured against: authoritative
+  # fields and the md5 of the content, for entries of non-project kinds or with content.
+  defp tracked_state(entries) do
+    entries
+    |> Enum.filter(&(&1.item_kind != @project or &1.content_path != nil))
+    |> Enum.group_by(& &1.item_kind, & &1.external_id)
+    |> Enum.flat_map(fn {kind, external_ids} ->
+      Item
+      |> where([i], i.kind == ^kind and i.external_id in ^external_ids)
+      |> select([i], %{
+        kind: i.kind,
+        external_id: i.external_id,
+        title: i.title,
+        url: i.url,
+        summary: i.summary,
+        published_at: i.published_at,
+        attributes: i.attributes,
+        content_md5: fragment("md5(?)", i.content)
+      })
+      |> Repo.all()
+    end)
+    |> Map.new(&{{&1.kind, &1.external_id}, &1})
+  end
+
+  defp sync_entry_labels!(_item, %Entry{labels: nil}, _now), do: :ok
+
+  defp sync_entry_labels!(item, %Entry{labels: labels}, now),
+    do: sync_auto_labels!(item.id, labels, now)
+
+  # Writes the entry's content when its text differs from the stored one.
+  # Returns `:unchanged` or `{:changed, old_content_or_nil, new_content}`.
+  defp put_content!(_item, %Entry{content_path: nil}, _previous, _now), do: :unchanged
+
+  defp put_content!(item, %Entry{content_path: path}, previous, now) do
+    case File.read(path) do
+      {:ok, bytes} ->
+        text = to_text(bytes)
+        md5 = :crypto.hash(:md5, text) |> Base.encode16(case: :lower)
+        previous_md5 = previous && previous.content_md5
+
+        if md5 == previous_md5 do
+          :unchanged
+        else
+          old =
+            if previous_md5,
+              do:
+                Repo.one(from(i in Item, where: i.id == ^item.id, select: i.content), log: false)
+
+          # Full texts are large; they are kept out of the query log.
+          Item
+          |> where(id: ^item.id)
+          |> Repo.update_all([set: [content: text, content_updated_at: now]], log: false)
+
+          {:changed, old, text}
+        end
+
+      {:error, reason} ->
+        Logger.warning("content of #{item.external_id} not read from #{path}: #{inspect(reason)}")
+        :unchanged
+    end
+  end
+
+  # Stored text is valid UTF-8 without NUL bytes (Postgres text cannot hold them);
+  # other bytes are read as Latin-1, as in a few early RFCs.
+  defp to_text(bytes) do
+    text = if String.valid?(bytes), do: bytes, else: :unicode.characters_to_binary(bytes, :latin1)
+    String.replace(text, <<0>>, "")
+  end
+
+  # New items are reported as added, not updated.
+  defp prepend_update(updates, _item, _entry, nil, _content), do: updates
+
+  defp prepend_update(updates, item, entry, previous, content) do
+    fields = if entry.item_kind == @project, do: %{}, else: Changes.fields(previous, item)
+
+    content_diff =
+      case content do
+        {:changed, old, new} -> TextDiff.unified(old || "", new)
+        :unchanged -> nil
+      end
+
+    if fields == %{} and content_diff in [nil, ""],
+      do: updates,
+      else: [
+        %{change_row(item, "updated") | fields: fields, content_diff: content_diff} | updates
+      ]
+  end
+
+  defp change_row(item, change) do
+    %{
+      item_id: item.id,
+      kind: item.kind,
+      external_id: item.external_id,
+      title: item.title,
+      change: change,
+      fields: %{},
+      content_diff: nil
+    }
+  end
+
+  defp removed_items([]), do: []
+
+  defp removed_items(ids) do
+    Item
+    |> where([i], i.id in ^ids)
+    |> select([i], struct(i, [:id, :kind, :external_id, :title]))
+    |> Repo.all()
+  end
+
+  defp insert_changes!(fetch_run_id, rows, now) do
+    rows
+    |> Enum.map(&Map.merge(&1, %{fetch_run_id: fetch_run_id, inserted_at: now}))
+    |> Enum.chunk_every(1000)
+    |> Enum.each(&Repo.insert_all(ItemChange, &1))
   end
 
   defp keep_details!(item, %Entry{details: nil}, now), do: maybe_enqueue_details!(item, now)
   defp keep_details!(item, %Entry{details: details}, now), do: apply_details!(item, details, now)
 
   # The source (nil = by hand) keeps these items: rows are created or reopened,
-  # and a pending removal is called off.
+  # and a pending removal is called off. Returns the ids it did not keep before.
   defp keep!(item_ids, source_id, now) do
     item_ids = Enum.uniq(item_ids)
+
+    kept_before =
+      ItemSource
+      |> where([s], s.item_id in ^item_ids and is_nil(s.removed_at))
+      |> where(^source_condition(source_id))
+      |> select([s], s.item_id)
+      |> Repo.all()
+      |> MapSet.new()
 
     item_ids
     |> Enum.map(
@@ -90,8 +268,11 @@ defmodule Singularity.Knowledge do
     |> where([i], i.id in ^item_ids and not is_nil(i.removal_due_at))
     |> Repo.update_all(set: [removal_due_at: nil, updated_at: now])
 
-    :ok
+    Enum.reject(item_ids, &MapSet.member?(kept_before, &1))
   end
+
+  defp source_condition(nil), do: dynamic([s], is_nil(s.source_id))
+  defp source_condition(source_id), do: dynamic([s], s.source_id == ^source_id)
 
   defp leave!(source_id, listed_ids, now) do
     {_count, left_ids} =
@@ -109,7 +290,7 @@ defmodule Singularity.Knowledge do
       set: [removal_due_at: DateTime.add(now, @removal_grace_days, :day), updated_at: now]
     )
 
-    :ok
+    left_ids
   end
 
   @doc "The sources that added the item (`source` nil = by hand), oldest first."
@@ -178,11 +359,14 @@ defmodule Singularity.Knowledge do
       last_seen_at: now
     })
     |> Repo.insert!(
-      on_conflict: {:replace, @replace_on_conflict},
+      on_conflict: {:replace, replace_on_conflict(entry.item_kind)},
       conflict_target: [:kind, :external_id],
-      returning: true
+      returning: @returning
     )
   end
+
+  defp replace_on_conflict(@project), do: @replace_on_conflict
+  defp replace_on_conflict(_kind), do: @replace_on_conflict ++ @authoritative_fields
 
   defp insert_observation!(%Item{} = item, %Source{} = source, period, %Entry{} = entry, now) do
     %Observation{}
@@ -296,6 +480,83 @@ defmodule Singularity.Knowledge do
 
   def get_project!(id), do: projects_query() |> preload(labels: ^labels_query()) |> Repo.get!(id)
   def get_project(id), do: Repo.get(projects_query(), id)
+
+  @doc """
+  IETF RFCs with labels preloaded, highest number first. Options: `:q` (a
+  number matches exactly, other text ILIKE on the title), `:label`, `:page`
+  (default 1) and `:per_page` (default 50). Content is not loaded.
+  """
+  @spec list_rfcs(keyword()) :: [Item.t()]
+  def list_rfcs(opts \\ []) do
+    page = max(Keyword.get(opts, :page, 1), 1)
+    per_page = Keyword.get(opts, :per_page, 50)
+
+    opts
+    |> rfcs_query()
+    |> order_by([i], desc: fragment("(?->>'number')::integer", i.attributes), desc: i.id)
+    |> limit(^per_page)
+    |> offset(^((page - 1) * per_page))
+    |> select([i], struct(i, ^@returning))
+    |> preload(labels: ^labels_query())
+    |> Repo.all()
+  end
+
+  @doc "How many RFCs `list_rfcs/1` would list across all pages."
+  @spec count_rfcs(keyword()) :: non_neg_integer()
+  def count_rfcs(opts \\ []), do: opts |> rfcs_query() |> Repo.aggregate(:count)
+
+  defp rfcs_query(opts) do
+    Item
+    |> where([i], i.kind == ^@rfc)
+    |> filter_label(opts[:label])
+    |> search_rfcs(opts[:q])
+  end
+
+  defp search_rfcs(query, q) when q in [nil, ""], do: query
+
+  defp search_rfcs(query, q) do
+    q = q |> String.trim() |> String.replace(~r/^rfc\s*/i, "")
+
+    case Integer.parse(q) do
+      {number, ""} ->
+        where(query, [i], i.external_id == ^"rfc#{number}")
+
+      _text ->
+        pattern = "%" <> escape_like(q) <> "%"
+        where(query, [i], ilike(i.title, ^pattern))
+    end
+  end
+
+  @doc "The RFC with this number, labels preloaded."
+  @spec get_rfc!(pos_integer()) :: Item.t()
+  def get_rfc!(number) when is_integer(number) do
+    Item
+    |> where(kind: ^@rfc, external_id: ^"rfc#{number}")
+    |> preload(labels: ^labels_query())
+    |> Repo.one!()
+  end
+
+  @doc "`%{external_id => item}` for the RFCs among `external_ids` that exist (without content)."
+  @spec get_rfcs_by_external_ids([String.t()]) :: %{String.t() => Item.t()}
+  def get_rfcs_by_external_ids([]), do: %{}
+
+  def get_rfcs_by_external_ids(external_ids) do
+    Item
+    |> where([i], i.kind == ^@rfc and i.external_id in ^external_ids)
+    |> select([i], struct(i, ^@returning))
+    |> Repo.all()
+    |> Map.new(&{&1.external_id, &1})
+  end
+
+  @doc "The item's recorded changes, newest first, with their runs."
+  @spec list_item_changes(integer()) :: [ItemChange.t()]
+  def list_item_changes(item_id) do
+    ItemChange
+    |> where(item_id: ^item_id)
+    |> order_by(desc: :inserted_at, desc: :id)
+    |> preload(:fetch_run)
+    |> Repo.all()
+  end
 
   @doc "`{name, project_count}` for the most used labels."
   @spec top_labels(pos_integer()) :: [{String.t(), pos_integer()}]

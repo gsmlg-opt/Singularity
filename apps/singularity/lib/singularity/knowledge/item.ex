@@ -25,6 +25,8 @@ defmodule Singularity.Knowledge.Item do
     field :instruction, :string
     field :deprecated_at, :utc_datetime
     field :deprecation_reason, :string
+    field :content, :string
+    field :content_updated_at, :utc_datetime
     has_many :observations, Singularity.Knowledge.Observation
     has_many :labels, Singularity.Knowledge.Label
     has_many :item_sources, Singularity.Knowledge.ItemSource

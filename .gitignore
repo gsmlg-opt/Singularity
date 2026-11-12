@@ -5,6 +5,8 @@
 erl_crash.dump
 *.ez
 /tmp/
+# ExUnit tmp_dir in umbrella apps
+/apps/*/tmp/
 /.elixir_ls/
 /.devenv/
 /.direnv/

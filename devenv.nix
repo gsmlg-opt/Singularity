@@ -9,6 +9,8 @@ in
     pkgs.beam29Packages.elixir-ls
     pkgs-stable.nodejs_24
     pkgs.watchexec
+    # The IETF RFC collector syncs from rsync.rfc-editor.org.
+    pkgs-stable.rsync
   ];
 
   languages.elixir.enable = true;

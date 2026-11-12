@@ -8,6 +8,7 @@
 
 - Elixir umbrella：`apps/singularity`（领域与采集），`apps/singularity_web`（Phoenix LiveView + phoenix_duskmoon）。
 - PostgreSQL；后台任务用 Styx（自维护的 Oban fork，队列支持 `rate_limit`，对外请求按站点分队列限速，见 `2026-11-12-singularity-fetch-rate-limits-design.md`）；HTTP 用 http_fetch（统一经过 `Singularity.HttpClient`，测试用 http_test 的 fixture）；HTML 解析用 Floki；文档提取用 xberg（预编译 NIF，只经过 `Singularity.Documents`，只有 `Singularity.Documents.XbergExtractor` 引用 `Xberg.*`）。
+- Synced files live under one data directory (`config :singularity, :data_dir`, `DATA_DIR` in production). Each feature uses its own fixed subdirectory through `Singularity.DataDir.path!/1`, e.g. `ietf-rfcs`. Sources that call rsync use a replaceable runner, so tests never touch the network.
 - 界面文字全部经 gettext（`SingularityWeb.Gettext`，msgid 用英文，默认 locale `en`）。按区域分 domain：`overview`、`knowledge`、`source`、`system`；通用文字和布局放 `default`；changeset 错误放 `errors`。
 - `singularity_web` 只调用 `Singularity.Sources`、`Singularity.Knowledge`、`Singularity.Collection`、`Singularity.Settings`、`Singularity.System` 的公开函数，不直接访问 Repo、schema 或 `Singularity.Collector`。Web 表单提交的数据一律交给对应上下文的服务函数处理。
 

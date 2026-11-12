@@ -42,6 +42,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: lib/singularity_web/live/source_live/index.ex:87
+#: lib/singularity_web/live/source_live/runs.ex:46
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -84,8 +85,8 @@ msgstr ""
 msgid "Collection queued"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:17
-#: lib/singularity_web/live/source_live/runs.ex:30
+#: lib/singularity_web/live/source_live/runs.ex:18
+#: lib/singularity_web/live/source_live/runs.ex:31
 #, elixir-autogen, elixir-format
 msgid "Collection runs"
 msgstr ""
@@ -136,12 +137,14 @@ msgstr ""
 msgid "Enabled"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:39
+#: lib/singularity_web/live/source_live/run_show.ex:103
+#: lib/singularity_web/live/source_live/runs.ex:45
 #: lib/singularity_web/live/source_live/show.ex:83
 #, elixir-autogen, elixir-format
 msgid "Error"
 msgstr ""
 
+#: lib/singularity_web/live/source_live/run_show.ex:97
 #: lib/singularity_web/live/source_live/show.ex:80
 #, elixir-autogen, elixir-format
 msgid "Finished"
@@ -153,7 +156,8 @@ msgstr ""
 msgid "Interval"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:38
+#: lib/singularity_web/live/source_live/run_show.ex:99
+#: lib/singularity_web/live/source_live/runs.ex:39
 #: lib/singularity_web/live/source_live/show.ex:81
 #, elixir-autogen, elixir-format
 msgid "Items"
@@ -186,7 +190,7 @@ msgstr ""
 msgid "Next run"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:31
+#: lib/singularity_web/live/source_live/runs.ex:32
 #, elixir-autogen, elixir-format
 msgid "No collection has run yet."
 msgstr ""
@@ -211,12 +215,14 @@ msgstr ""
 msgid "Saved"
 msgstr ""
 
+#: lib/singularity_web/live/source_live/run_show.ex:101
 #: lib/singularity_web/live/source_live/show.ex:82
 #, elixir-autogen, elixir-format
 msgid "Skipped"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:33
+#: lib/singularity_web/live/source_live/run_show.ex:89
+#: lib/singularity_web/live/source_live/runs.ex:34
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
@@ -232,14 +238,15 @@ msgstr ""
 msgid "Sources"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/runs.ex:37
+#: lib/singularity_web/live/source_live/run_show.ex:95
+#: lib/singularity_web/live/source_live/runs.ex:38
 #: lib/singularity_web/live/source_live/show.ex:79
 #, elixir-autogen, elixir-format
 msgid "Started"
 msgstr ""
 
 #: lib/singularity_web/live/source_live/index.ex:70
-#: lib/singularity_web/live/source_live/runs.ex:36
+#: lib/singularity_web/live/source_live/runs.ex:37
 #: lib/singularity_web/live/source_live/show.ex:70
 #: lib/singularity_web/live/source_live/show.ex:78
 #, elixir-autogen, elixir-format
@@ -267,6 +274,7 @@ msgstr ""
 msgid "Range"
 msgstr ""
 
+#: lib/singularity_web/components/rfc_components.ex:53
 #: lib/singularity_web/live/source_live/manual.ex:107
 #, elixir-autogen, elixir-format
 msgid "Added"
@@ -278,6 +286,7 @@ msgid "Any git address: https://host/path, git@host:path or owner/repo for GitHu
 msgstr ""
 
 #: lib/singularity_web/live/source_live/manual.ex:104
+#: lib/singularity_web/live/source_live/run_show.ex:149
 #, elixir-autogen, elixir-format
 msgid "Details"
 msgstr ""
@@ -321,4 +330,76 @@ msgstr ""
 #: lib/singularity_web/live/source_live/manual.ex:74
 #, elixir-autogen, elixir-format
 msgid "Software projects added by hand, from any git repository."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:69
+#, elixir-autogen, elixir-format
+msgid "All"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:146
+#, elixir-autogen, elixir-format
+msgid "Change"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:112
+#, elixir-autogen, elixir-format
+msgid "Change type"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:108
+#: lib/singularity_web/live/source_live/runs.ex:40
+#, elixir-autogen, elixir-format
+msgid "Changes"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:20
+#: lib/singularity_web/live/source_live/run_show.ex:84
+#, elixir-autogen, elixir-format
+msgid "Collection run"
+msgstr ""
+
+#: lib/singularity_web/components/rfc_components.ex:93
+#, elixir-autogen, elixir-format
+msgid "Content diff"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:133
+#, elixir-autogen, elixir-format
+msgid "Item"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:166
+#, elixir-autogen, elixir-format
+msgid "Next"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:161
+#, elixir-autogen, elixir-format
+msgid "Pagination"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:163
+#, elixir-autogen, elixir-format
+msgid "Previous"
+msgstr ""
+
+#: lib/singularity_web/components/rfc_components.ex:55
+#, elixir-autogen, elixir-format
+msgid "Removed"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/run_show.ex:130
+#, elixir-autogen, elixir-format
+msgid "This run changed nothing."
+msgstr ""
+
+#: lib/singularity_web/components/rfc_components.ex:54
+#, elixir-autogen, elixir-format
+msgid "Updated"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/runs.ex:51
+#, elixir-autogen, elixir-format
+msgid "View run"
 msgstr ""

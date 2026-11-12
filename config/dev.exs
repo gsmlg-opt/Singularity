@@ -67,6 +67,9 @@ config :singularity_web, SingularityWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :singularity_web, dev_routes: true
 
+# Synced files (see Singularity.DataDir); /tmp/ is ignored by git.
+config :singularity, :data_dir, Path.expand("../tmp/data", __DIR__)
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

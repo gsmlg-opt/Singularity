@@ -14,6 +14,12 @@ defmodule Singularity.KnowledgeSourcesTest do
   @t2 ~U[2026-11-10 08:00:00Z]
   @t3 ~U[2026-11-11 08:00:00Z]
 
+  # Records within a fetch run; returns the item count.
+  defp record(source, result, now) do
+    run = fetch_run_fixture(source)
+    with {:ok, %{count: count}} <- Knowledge.record(source, result, now, run.id), do: {:ok, count}
+  end
+
   defp list(ids, opts \\ []) do
     %Result{
       period: Keyword.get(opts, :period, "2026-11-09"),
@@ -51,7 +57,7 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "every recorded item is kept by its source" do
     source = source_fixture()
-    {:ok, 2} = Knowledge.record(source, list(["a", "b"], complete: false), @t1)
+    {:ok, 2} = record(source, list(["a", "b"], complete: false), @t1)
 
     assert %ItemSource{added_at: @t1, removed_at: nil} = item_source("a", source)
     assert %ItemSource{added_at: @t1, removed_at: nil} = item_source("b", source)
@@ -59,8 +65,8 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "an item a complete list no longer has leaves the source and is due for removal" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, list(["a", "b"]), @t1)
-    {:ok, _} = Knowledge.record(source, list(["a"]), @t2)
+    {:ok, _} = record(source, list(["a", "b"]), @t1)
+    {:ok, _} = record(source, list(["a"]), @t2)
 
     assert %ItemSource{removed_at: @t2} = item_source("b", source)
     assert item("b").removal_due_at == DateTime.add(@t2, 30, :day)
@@ -70,8 +76,8 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "an incomplete list never makes items leave" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, list(["a", "b"], complete: false), @t1)
-    {:ok, _} = Knowledge.record(source, list(["a"], complete: false), @t2)
+    {:ok, _} = record(source, list(["a", "b"], complete: false), @t1)
+    {:ok, _} = record(source, list(["a"], complete: false), @t2)
 
     assert %ItemSource{removed_at: nil} = item_source("b", source)
     assert item("b").removal_due_at == nil
@@ -79,8 +85,8 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "a complete list with skipped entries does not make items leave" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, list(["a", "b"]), @t1)
-    {:ok, _} = Knowledge.record(source, list(["a"], skipped: 1), @t2)
+    {:ok, _} = record(source, list(["a", "b"]), @t1)
+    {:ok, _} = record(source, list(["a"], skipped: 1), @t2)
 
     assert %ItemSource{removed_at: nil} = item_source("b", source)
     assert item("b").removal_due_at == nil
@@ -89,9 +95,9 @@ defmodule Singularity.KnowledgeSourcesTest do
   test "an item another source keeps is not due for removal" do
     stars = source_fixture(name: "Stars")
     trending = source_fixture(name: "Trending")
-    {:ok, _} = Knowledge.record(trending, list(["a"], complete: false), @t1)
-    {:ok, _} = Knowledge.record(stars, list(["a", "b"]), @t1)
-    {:ok, _} = Knowledge.record(stars, list(["b"]), @t2)
+    {:ok, _} = record(trending, list(["a"], complete: false), @t1)
+    {:ok, _} = record(stars, list(["a", "b"]), @t1)
+    {:ok, _} = record(stars, list(["b"]), @t2)
 
     assert %ItemSource{removed_at: @t2} = item_source("a", stars)
     assert %ItemSource{removed_at: nil} = item_source("a", trending)
@@ -101,8 +107,8 @@ defmodule Singularity.KnowledgeSourcesTest do
   test "an item added by hand is not due for removal when a list drops it" do
     stars = source_fixture(name: "Stars")
     {:ok, project} = Knowledge.add_project(%{"name" => "Kept", "address" => "acme/kept"}, @t1)
-    {:ok, _} = Knowledge.record(stars, projects(["kept"]), @t1)
-    {:ok, _} = Knowledge.record(stars, projects(["other"]), @t2)
+    {:ok, _} = record(stars, projects(["kept"]), @t1)
+    {:ok, _} = record(stars, projects(["other"]), @t2)
 
     assert Repo.reload!(project).removal_due_at == nil
 
@@ -114,9 +120,9 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "being listed again calls off the removal and keeps the first added_at" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, list(["a", "b"]), @t1)
-    {:ok, _} = Knowledge.record(source, list(["a"]), @t2)
-    {:ok, _} = Knowledge.record(source, list(["a", "b"]), @t3)
+    {:ok, _} = record(source, list(["a", "b"]), @t1)
+    {:ok, _} = record(source, list(["a"]), @t2)
+    {:ok, _} = record(source, list(["a", "b"]), @t3)
 
     assert %ItemSource{added_at: @t1, removed_at: nil} = item_source("b", source)
     assert item("b").removal_due_at == nil
@@ -124,8 +130,8 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "adding a project due for removal by hand calls off the removal" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, projects(["x", "b"]), @t1)
-    {:ok, _} = Knowledge.record(source, projects(["b"]), @t2)
+    {:ok, _} = record(source, projects(["x", "b"]), @t1)
+    {:ok, _} = record(source, projects(["b"]), @t2)
     assert item("github.com/acme/x").removal_due_at
 
     {:existing, _} = Knowledge.add_project(%{"name" => "x", "address" => "acme/x"}, @t3)
@@ -137,7 +143,7 @@ defmodule Singularity.KnowledgeSourcesTest do
     source = source_fixture()
     entry = %{FakeCollector.entry("a", nil) | period: "2024-01-02"}
     result = %Result{period: "2026-11-09", entries: [entry, FakeCollector.entry("b", nil)]}
-    {:ok, 2} = Knowledge.record(source, result, @t1)
+    {:ok, 2} = record(source, result, @t1)
 
     periods = Observation |> select([o], o.period) |> order_by(:id) |> Repo.all()
     assert periods == ["2024-01-02", "2026-11-09"]
@@ -160,7 +166,7 @@ defmodule Singularity.KnowledgeSourcesTest do
       details: details
     }
 
-    {:ok, 1} = Knowledge.record(source, %Result{period: "p", entries: [entry]}, @t1)
+    {:ok, 1} = record(source, %Result{period: "p", entries: [entry]}, @t1)
 
     project = Knowledge.get_project!(item("github.com/acme/rocket").id)
     assert project.title == "Acme/Rocket"
@@ -186,8 +192,8 @@ defmodule Singularity.KnowledgeSourcesTest do
 
   test "one row per item and source, however often it is recorded" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, list(["a"], period: "1"), @t1)
-    {:ok, _} = Knowledge.record(source, list(["a"], period: "2"), @t2)
+    {:ok, _} = record(source, list(["a"], period: "1"), @t1)
+    {:ok, _} = record(source, list(["a"], period: "2"), @t2)
 
     assert Repo.aggregate(ItemSource, :count) == 1
   end

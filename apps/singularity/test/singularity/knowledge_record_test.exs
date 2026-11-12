@@ -13,6 +13,12 @@ defmodule Singularity.KnowledgeRecordTest do
   @t1 ~U[2026-11-09 08:00:00Z]
   @t2 ~U[2026-11-10 08:00:00Z]
 
+  # Records within a fetch run; returns the item count.
+  defp record(source, result, now) do
+    run = fetch_run_fixture(source)
+    with {:ok, %{count: count}} <- Knowledge.record(source, result, now, run.id), do: {:ok, count}
+  end
+
   defp result(period, ids),
     do: %Result{
       period: period,
@@ -21,7 +27,7 @@ defmodule Singularity.KnowledgeRecordTest do
 
   test "creates items and observations" do
     source = source_fixture()
-    assert {:ok, 2} = Knowledge.record(source, result("2026-11-09", ["a", "b"]), @t1)
+    assert {:ok, 2} = record(source, result("2026-11-09", ["a", "b"]), @t1)
 
     assert Repo.aggregate(Item, :count) == 2
     obs = Repo.all(Observation)
@@ -31,8 +37,8 @@ defmodule Singularity.KnowledgeRecordTest do
 
   test "re-recording the same period is idempotent" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, result("2026-11-09", ["a"]), @t1)
-    {:ok, _} = Knowledge.record(source, result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(source, result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(source, result("2026-11-09", ["a"]), @t1)
 
     assert Repo.aggregate(Item, :count) == 1
     assert Repo.aggregate(Observation, :count) == 1
@@ -40,8 +46,8 @@ defmodule Singularity.KnowledgeRecordTest do
 
   test "a new period appends an observation and updates last_seen_at only" do
     source = source_fixture()
-    {:ok, _} = Knowledge.record(source, result("2026-11-09", ["a"]), @t1)
-    {:ok, _} = Knowledge.record(source, result("2026-11-10", ["a"]), @t2)
+    {:ok, _} = record(source, result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(source, result("2026-11-10", ["a"]), @t2)
 
     item = Repo.one!(Item)
     assert item.first_seen_at == @t1
@@ -52,8 +58,8 @@ defmodule Singularity.KnowledgeRecordTest do
   test "the same item from two sources is one item with two observations" do
     s1 = source_fixture()
     s2 = source_fixture(name: "Other")
-    {:ok, _} = Knowledge.record(s1, result("2026-11-09", ["a"]), @t1)
-    {:ok, _} = Knowledge.record(s2, result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(s1, result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(s2, result("2026-11-09", ["a"]), @t1)
 
     assert Repo.aggregate(Item, :count) == 1
     assert Repo.aggregate(Observation, :count) == 2
@@ -76,7 +82,7 @@ defmodule Singularity.KnowledgeRecordTest do
 
   test "a trending project gets a trending label and a queued details fetch" do
     {:ok, 1} =
-      Knowledge.record(
+      record(
         source_fixture(),
         %Result{period: "2026-11-09", entries: [trending("acme/rocket", 1, "weekly")]},
         @t1
@@ -100,7 +106,7 @@ defmodule Singularity.KnowledgeRecordTest do
       )
 
     {:ok, 1} =
-      Knowledge.record(
+      record(
         source_fixture(),
         %Result{period: "2026-11-10", entries: [trending("acme/rocket", 2, "daily")]},
         DateTime.add(@t2, 3600, :second)
@@ -119,7 +125,7 @@ defmodule Singularity.KnowledgeRecordTest do
     project = project_fixture(external_id: "github.com/acme/rocket", details_fetched_at: @t1)
 
     {:ok, 1} =
-      Knowledge.record(
+      record(
         source_fixture(),
         %Result{period: "2026-11-10", entries: [trending("acme/rocket", 1, "daily")]},
         DateTime.add(@t1, 25 * 3600, :second)
@@ -129,7 +135,7 @@ defmodule Singularity.KnowledgeRecordTest do
   end
 
   test "items of other kinds get neither labels nor details fetches" do
-    {:ok, _} = Knowledge.record(source_fixture(), result("2026-11-09", ["a"]), @t1)
+    {:ok, _} = record(source_fixture(), result("2026-11-09", ["a"]), @t1)
     assert Repo.aggregate(Label, :count) == 0
     refute_enqueued(worker: FetchDetailsWorker)
   end

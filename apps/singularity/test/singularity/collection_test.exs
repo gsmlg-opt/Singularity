@@ -17,9 +17,10 @@ defmodule Singularity.CollectionTest do
       Collection.subscribe()
       source = source_fixture()
 
-      assert {:ok, %FetchRun{status: "ok", item_count: 1, skipped_count: 0}} =
+      assert {:ok, %FetchRun{status: "ok", item_count: 1, skipped_count: 0} = run} =
                Collection.run(source, @now)
 
+      assert {run.added_count, run.updated_count, run.removed_count} == {1, 0, 0}
       assert Repo.aggregate(Item, :count) == 1
       assert_receive {:fetch_run, %FetchRun{status: "running"}}
       assert_receive {:fetch_run, %FetchRun{status: "ok"}}

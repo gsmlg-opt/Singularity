@@ -25,6 +25,7 @@ config :singularity, Styx, testing: :manual
 config :singularity, :collectors, [
   Singularity.Collectors.GithubTrending,
   Singularity.Collectors.GithubStars,
+  Singularity.Collectors.IetfRfc,
   Singularity.Test.FakeCollector
 ]
 
@@ -35,7 +36,13 @@ config :singularity, Singularity.GitHub, adapter: {HTTP.Test, Singularity.GitHub
 
 config :singularity, Singularity.Collectors.GithubStars, page_interval: 0
 
+config :singularity, Singularity.Collectors.IetfRfc,
+  rsync: Singularity.Test.FakeRsync,
+  request_interval: 0
+
 config :singularity, :document_extractor, Singularity.Test.FakeExtractor
+
+config :singularity, :data_dir, Path.expand("../tmp/test-data", __DIR__)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

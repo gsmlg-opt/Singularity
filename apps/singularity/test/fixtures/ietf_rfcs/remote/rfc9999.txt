@@ -1,0 +1,32 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                       H. Birkholz
+Request for Comments: 9999                                Fraunhofer SIT
+Category: Standards Track                                       N. Smith
+ISSN: 2070-1721                                              Independent
+                                                              T. Fossati
+                                                                  Linaro
+                                                           H. Tschofenig
+                                                                UniBw M.
+                                                               July 2026
+
+
+ Remote ATtestation procedureS (RATS) Conceptual Message Wrapper (CMW)
+
+Abstract
+
+   The conceptual messages introduced by the Remote ATtestation
+   procedureS (RATS) architecture (RFC 9334) are protocol-agnostic data
+   units that are conveyed between RATS roles during RATS interactions.
+   Conceptual messages describe the meaning and function of such data
+   units within RATS data flows without specifying a wire format,
+   encoding, transport mechanism, or processing details.  The initial
+   set of conceptual messages is defined in Section 8 of RFC 9334 and
+   includes Evidence, Attestation Results, Endorsements, Reference
+   Values, and Appraisal Policies.
+
+   This document introduces the Conceptual Message Wrapper (CMW) that
+   provides a common structure to encapsulate these messages.  It
+   defines a dedicated Concis

@@ -4,6 +4,7 @@ defmodule Singularity.Collection do
   import Ecto.Query
 
   alias Singularity.Collection.{CollectSourceWorker, FetchRun}
+  alias Singularity.Knowledge.ItemChange
   alias Singularity.Collector.Result
   alias Singularity.{Collector, Knowledge, Repo}
   alias Singularity.Sources.Source
@@ -36,29 +37,29 @@ defmodule Singularity.Collection do
 
       {:ok, collector} ->
         run = start_run!(source, now)
-        outcome = collect(collector, source, now)
+        outcome = collect(collector, source, now, run.id)
         run = finish_run!(run, outcome)
 
         case outcome do
-          {:ok, _count, _skipped} -> {:ok, run}
+          {:ok, _counts, _skipped} -> {:ok, run}
           {:error, reason} -> {:error, reason, run}
         end
     end
   end
 
-  defp collect(collector, source, now) do
+  defp collect(collector, source, now, run_id) do
     case collector.fetch(source.config, now) do
       {:ok, %Result{entries: []}} -> {:error, :no_entries}
-      {:ok, %Result{} = result} -> record(source, result, now)
+      {:ok, %Result{} = result} -> record(source, result, now, run_id)
       {:error, reason} -> {:error, reason}
     end
   rescue
     exception -> {:error, {:exception, exception.__struct__}}
   end
 
-  defp record(source, result, now) do
-    case Knowledge.record(source, result, now) do
-      {:ok, count} -> {:ok, count, result.skipped}
+  defp record(source, result, now, run_id) do
+    case Knowledge.record(source, result, now, run_id) do
+      {:ok, counts} -> {:ok, counts, result.skipped}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -72,8 +73,18 @@ defmodule Singularity.Collection do
   defp finish_run!(run, outcome) do
     changes =
       case outcome do
-        {:ok, count, skipped} -> [status: "ok", item_count: count, skipped_count: skipped]
-        {:error, reason} -> [status: "failed", error: format_error(reason)]
+        {:ok, counts, skipped} ->
+          [
+            status: "ok",
+            item_count: counts.count,
+            skipped_count: skipped,
+            added_count: counts.added,
+            updated_count: counts.updated,
+            removed_count: counts.removed
+          ]
+
+        {:error, reason} ->
+          [status: "failed", error: format_error(reason)]
       end
 
     run
@@ -121,4 +132,37 @@ defmodule Singularity.Collection do
     |> preload(:source)
     |> Repo.all()
   end
+
+  @doc "The run with its source."
+  @spec get_run!(integer()) :: FetchRun.t()
+  def get_run!(id), do: FetchRun |> preload(:source) |> Repo.get!(id)
+
+  @doc """
+  The run's item changes, by change type then external id. Options: `:change`
+  (`"added"`, `"updated"` or `"removed"`), `:page` (default 1) and `:per_page`
+  (default 50).
+  """
+  @spec list_run_changes(integer(), keyword()) :: [ItemChange.t()]
+  def list_run_changes(run_id, opts \\ []) do
+    page = max(Keyword.get(opts, :page, 1), 1)
+    per_page = Keyword.get(opts, :per_page, 50)
+
+    run_id
+    |> run_changes_query(opts[:change])
+    |> order_by([c], asc: c.change, asc: c.external_id, asc: c.id)
+    |> limit(^per_page)
+    |> offset(^((page - 1) * per_page))
+    |> Repo.all()
+  end
+
+  @doc "How many changes `list_run_changes/2` would list across all pages."
+  @spec count_run_changes(integer(), keyword()) :: non_neg_integer()
+  def count_run_changes(run_id, opts \\ []),
+    do: run_id |> run_changes_query(opts[:change]) |> Repo.aggregate(:count)
+
+  defp run_changes_query(run_id, change) when change in [nil, ""],
+    do: where(ItemChange, fetch_run_id: ^run_id)
+
+  defp run_changes_query(run_id, change),
+    do: where(ItemChange, fetch_run_id: ^run_id, change: ^change)
 end

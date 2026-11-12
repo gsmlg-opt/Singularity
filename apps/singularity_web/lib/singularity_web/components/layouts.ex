@@ -119,6 +119,12 @@ defmodule SingularityWeb.Layouts do
             label: gettext("Software projects"),
             to: "/knowledge/projects",
             icon: "source-repository"
+          },
+          %{
+            id: "knowledge-rfcs",
+            label: gettext("IETF RFCs"),
+            to: "/knowledge/ietf-rfcs",
+            icon: "file-document-multiple-outline"
           }
         ]
       }

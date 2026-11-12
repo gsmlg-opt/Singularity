@@ -133,7 +133,7 @@ The signature becomes `record(source, result, now, fetch_run_id)`. It returns `{
   - Fields that change on every run (`last_seen_at`, `updated_at`) are never recorded.
   - `software_project` items only get `added` and `removed` rows. Their metadata changes come from the details task, not from runs, and are out of scope.
 - Everything else (observations, project detail fetching, removal grace period) is unchanged.
-- **First-run size.** The first RFC run writes about 10,000 items and about 10,000 `added` rows. The transaction timeout is 10 minutes today, and Styx Lifeline rescues jobs after 30 minutes. The implementation runs one real first sync in dev and records how long rsync, conversion and `record/4` each take. If any limit is exceeded, raise that timeout and write the measurements back into this section.
+- **First-run size.** The first RFC run writes about 10,000 items and about 10,000 `added` rows. The transaction timeout is 10 minutes today, and Styx Lifeline rescues jobs after 30 minutes. The implementation runs one real first sync in dev and records how long rsync, conversion and `record/4` each take. If any limit is exceeded, raise that timeout and write the measurements back into this section. Measured in dev on 2026-11-12: rsync of an empty mirror plus Markdown conversion took about 3 minutes. A run with a warm mirror and cache, where `record/4` wrote all 9,858 items and 9,858 `added` rows, took 4.5 minutes in total. Both are within the limits, so no timeout changed.
 
 ### 4.3 `Singularity.Knowledge.TextDiff`
 
@@ -213,6 +213,8 @@ Source and conversion:
 
 - `parse_dir(mirror)` walks the `rfc<digits>.json` files. Other names such as `rfcThis.json` and `-n.json` are ignored and not counted as skipped.
 - `parse_rfc(json_map, markdown_path_or_nil)` builds an `Entry` with attributes, `labels` (3.2), `period` and `content_path`.
+- RFCs with status `NOT ISSUED` are ignored: about 190 numbers that were reserved but never published, titled "Not Issued", with no text. They are not counted as skipped.
+- Empty strings are dropped from lists. Related-RFC lists hold `RFC<number>` (normalized to `rfc<number>`) and, rarely, other ids such as `BCP`, which are kept lowercased and are never linked.
 - JSON that cannot be decoded, or that lacks `doc_id` or `title`, counts toward `skipped` and does not stop the run.
 - The result is `%Result{period: "<YYYY-MM of the run>", entries: entries, skipped: n, complete: true}`.
 - With `skipped == 0`, RFCs the RFC Editor no longer lists leave the source, and the existing 30-day removal applies.
@@ -297,7 +299,7 @@ No Qdrant dependency, service or indexing code is added now.
 
 - `devenv.nix`: add `pkgs.rsync` to packages.
 - Dockerfile: add `rsync` to the runtime stage's `apt-get install`.
-- Production sets `DATA_DIR` and mounts a persistent volume there. The mirror and Markdown cache take about 650 MB.
+- Production sets `DATA_DIR` and mounts a persistent volume there. Measured on the first sync (2026-11-12): about 1.3 GB. The mirror (JSON, text, v3 HTML) is about 560 MB. The Markdown cache is about 650 MB, mostly a fenced copy of the plain text of RFCs before 8650.
 
 ## 10. Testing
 

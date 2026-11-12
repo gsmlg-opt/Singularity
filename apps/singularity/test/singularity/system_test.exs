@@ -18,7 +18,8 @@ defmodule Singularity.SystemTest do
              "collect",
              "default",
              "github_api",
-             "github_web"
+             "github_web",
+             "rfc_editor"
            ]
 
     assert %{available: 1, executing: 0, retryable: 0} =
