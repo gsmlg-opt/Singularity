@@ -2,6 +2,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
   use SingularityWeb, :live_view
 
   import SingularityWeb.ItemComponents
+  import SingularityWeb.KnowledgeSearch
 
   alias Singularity.{Collection, Knowledge}
 
@@ -43,21 +44,20 @@ defmodule SingularityWeb.KnowledgeLive.Index do
   def handle_info({:fetch_run, _run}, socket), do: {:noreply, socket}
 
   defp load(%{assigns: %{filters: filters}} = socket) do
+    opts = [label: filters.label, status: filters.status, q: filters.q]
+    total = Knowledge.count_projects(opts)
+
     projects =
       Knowledge.list_projects(
-        label: filters.label,
-        status: filters.status,
-        q: filters.q,
-        sort: filters.sort,
-        page: filters.page,
-        per_page: @per_page
+        opts ++ [sort: filters.sort, page: filters.page, per_page: @per_page]
       )
 
     socket
     |> stream(:projects, projects, reset: true)
     |> assign(
       projects_empty?: projects == [],
-      has_next: length(projects) == @per_page
+      total: total,
+      has_next: filters.page * @per_page < total
     )
   end
 
@@ -129,25 +129,29 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       section={:knowledge}
       active={active_item(@live_action)}
     >
-      <h1 class="text-2xl font-bold">{dgettext("knowledge", "Software projects")}</h1>
-
-      <div class="flex flex-wrap items-end gap-4">
-        <form
-          id="project-filters"
-          phx-change="filter"
-          phx-submit="filter"
-          class="flex flex-wrap items-end gap-3"
-        >
-          <.dm_input
-            id="filter-q"
-            name="filters[q]"
-            label={dgettext("knowledge", "Search")}
-            placeholder={dgettext("knowledge", "owner/repo or description")}
-            value={@filters.q}
-            phx-debounce="300"
-          />
+      <.search_toolbar
+        id="project-filters"
+        title={@page_title}
+        icon="source-repository"
+        count_id="project-result-count"
+        count_text={
+          dngettext("knowledge", "%{number} project", "%{number} projects", @total,
+            number: format_count(@total)
+          )
+        }
+        query={@filters.q}
+        placeholder={dgettext("knowledge", "Project name or description")}
+        reset_path={
+          (@filters.q || @filters.label || @filters.status || @filters.sort != :recent) &&
+            knowledge_path(@live_action, parse_filters(%{}))
+        }
+        label={@filters.label}
+        clear_label_path={knowledge_path(@live_action, %{@filters | label: nil, page: 1})}
+      >
+        <:filters>
           <.dm_select
             id="filter-sort"
+            size="sm"
             name="filters[sort]"
             label={dgettext("knowledge", "Sort by")}
             value={Atom.to_string(@filters.sort)}
@@ -158,6 +162,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
           />
           <.dm_select
             id="filter-status"
+            size="sm"
             name="filters[status]"
             label={dgettext("knowledge", "Status")}
             value={if @filters.status, do: Atom.to_string(@filters.status), else: ""}
@@ -167,24 +172,20 @@ defmodule SingularityWeb.KnowledgeLive.Index do
               {"deprecated", dgettext("knowledge", "Deprecated")}
             ]}
           />
-        </form>
-        <div :if={@filters.label} id="active-label" class="flex items-center gap-2">
-          <span class="text-sm">{dgettext("knowledge", "Label")}</span>
-          <.dm_badge variant="primary">{@filters.label}</.dm_badge>
-          <.link
-            id="clear-label"
-            patch={knowledge_path(@live_action, %{@filters | label: nil, page: 1})}
-            aria-label={dgettext("knowledge", "Clear label filter")}
-          >
-            <.dm_mdi name="close" class="h-4 w-4" />
-          </.link>
-        </div>
-      </div>
+        </:filters>
+      </.search_toolbar>
 
-      <p :if={@projects_empty?} id="projects-empty">
+      <p
+        :if={@projects_empty?}
+        id="projects-empty"
+        class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-outline-variant px-4 py-10 text-sm text-on-surface-variant"
+      >
+        <.dm_mdi name="magnify" class="size-7" aria-hidden="true" />
         {dgettext("knowledge", "No software projects match.")}
       </p>
-      <.project_table :if={!@projects_empty?} id="projects" rows={@streams.projects} />
+      <div :if={!@projects_empty?} class="overflow-hidden rounded-xl border border-outline-variant">
+        <.project_table id="projects" rows={@streams.projects} />
+      </div>
 
       <nav class="flex gap-3" aria-label={dgettext("knowledge", "Pagination")}>
         <.link

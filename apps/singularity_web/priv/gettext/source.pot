@@ -274,7 +274,7 @@ msgstr ""
 msgid "Range"
 msgstr ""
 
-#: lib/singularity_web/components/rfc_components.ex:53
+#: lib/singularity_web/components/rfc_components.ex:60
 #: lib/singularity_web/live/source_live/manual.ex:107
 #, elixir-autogen, elixir-format
 msgid "Added"
@@ -359,7 +359,7 @@ msgstr ""
 msgid "Collection run"
 msgstr ""
 
-#: lib/singularity_web/components/rfc_components.ex:93
+#: lib/singularity_web/components/rfc_components.ex:100
 #, elixir-autogen, elixir-format
 msgid "Content diff"
 msgstr ""
@@ -384,7 +384,7 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: lib/singularity_web/components/rfc_components.ex:55
+#: lib/singularity_web/components/rfc_components.ex:62
 #, elixir-autogen, elixir-format
 msgid "Removed"
 msgstr ""
@@ -394,7 +394,7 @@ msgstr ""
 msgid "This run changed nothing."
 msgstr ""
 
-#: lib/singularity_web/components/rfc_components.ex:54
+#: lib/singularity_web/components/rfc_components.ex:61
 #, elixir-autogen, elixir-format
 msgid "Updated"
 msgstr ""

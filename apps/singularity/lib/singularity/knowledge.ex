@@ -407,10 +407,7 @@ defmodule Singularity.Knowledge do
     page = max(Keyword.get(opts, :page, 1), 1)
     per_page = Keyword.get(opts, :per_page, 30)
 
-    projects_query()
-    |> filter_label(opts[:label])
-    |> filter_status(opts[:status])
-    |> search(opts[:q])
+    filtered_projects(opts)
     |> sort_projects(Keyword.get(opts, :sort, :recent))
     |> limit(^per_page)
     |> offset(^((page - 1) * per_page))
@@ -420,6 +417,13 @@ defmodule Singularity.Knowledge do
 
   defp projects_query, do: where(Item, [i], i.kind == ^@project)
   defp labels_query, do: order_by(Label, asc: :name)
+
+  defp filtered_projects(opts) do
+    projects_query()
+    |> filter_label(opts[:label])
+    |> filter_status(opts[:status])
+    |> search(opts[:q])
+  end
 
   defp filter_status(query, :deprecated), do: where(query, ^deprecated_condition())
 
@@ -461,8 +465,8 @@ defmodule Singularity.Knowledge do
 
   defp sort_projects(query, _recent), do: order_by(query, [i], desc: i.first_seen_at, desc: i.id)
 
-  @spec count_projects() :: non_neg_integer()
-  def count_projects, do: Repo.aggregate(projects_query(), :count)
+  @spec count_projects(keyword()) :: non_neg_integer()
+  def count_projects(opts \\ []), do: Repo.aggregate(filtered_projects(opts), :count)
 
   @doc "Projects added at or after `since` (the Overview's \"added this week\")."
   @spec count_projects_since(DateTime.t()) :: non_neg_integer()

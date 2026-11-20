@@ -42,8 +42,7 @@ msgstr ""
 msgid "Automatic labels cannot be removed"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:177
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:120
+#: lib/singularity_web/components/knowledge_search.ex:93
 #, elixir-autogen, elixir-format
 msgid "Clear label filter"
 msgstr ""
@@ -53,7 +52,7 @@ msgstr ""
 msgid "Created"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:77
+#: lib/singularity_web/components/item_components.ex:133
 #, elixir-autogen, elixir-format
 msgid "Details failed"
 msgstr ""
@@ -73,7 +72,7 @@ msgstr ""
 msgid "Fetch again"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:85
+#: lib/singularity_web/components/item_components.ex:141
 #, elixir-autogen, elixir-format
 msgid "Fetching details"
 msgstr ""
@@ -88,21 +87,19 @@ msgstr ""
 msgid "Homepage"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:172
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:115
+#: lib/singularity_web/components/knowledge_search.ex:86
 #, elixir-autogen, elixir-format
 msgid "Label"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:35
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:141
+#: lib/singularity_web/components/item_components.ex:56
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:228
 #: lib/singularity_web/live/knowledge_live/show.ex:313
 #, elixir-autogen, elixir-format
 msgid "Labels"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:29
+#: lib/singularity_web/components/item_components.ex:37
 #: lib/singularity_web/live/knowledge_live/show.ex:175
 #, elixir-autogen, elixir-format
 msgid "Language"
@@ -118,8 +115,8 @@ msgstr ""
 msgid "License"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:202
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:155
+#: lib/singularity_web/live/knowledge_live/index.ex:203
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:202
 #, elixir-autogen, elixir-format
 msgid "Next"
 msgstr ""
@@ -129,13 +126,13 @@ msgstr ""
 msgid "No"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:185
+#: lib/singularity_web/live/knowledge_live/index.ex:184
 #, elixir-autogen, elixir-format
 msgid "No software projects match."
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:189
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:146
+#: lib/singularity_web/live/knowledge_live/index.ex:190
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:193
 #, elixir-autogen, elixir-format
 msgid "Pagination"
 msgstr ""
@@ -145,8 +142,8 @@ msgstr ""
 msgid "Period"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:195
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:152
+#: lib/singularity_web/live/knowledge_live/index.ex:196
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:199
 #, elixir-autogen, elixir-format
 msgid "Previous"
 msgstr ""
@@ -156,7 +153,7 @@ msgstr ""
 msgid "Rank"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:155
+#: lib/singularity_web/live/knowledge_live/index.ex:159
 #, elixir-autogen, elixir-format
 msgid "Recently added"
 msgstr ""
@@ -167,19 +164,17 @@ msgstr ""
 msgid "Remove label %{name}"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:144
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:108
+#: lib/singularity_web/components/knowledge_search.ex:60
 #, elixir-autogen, elixir-format
 msgid "Search"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:19
-#: lib/singularity_web/live/knowledge_live/index.ex:132
+#: lib/singularity_web/live/knowledge_live/index.ex:20
 #, elixir-autogen, elixir-format
 msgid "Software projects"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:152
+#: lib/singularity_web/live/knowledge_live/index.ex:156
 #, elixir-autogen, elixir-format
 msgid "Sort by"
 msgstr ""
@@ -195,8 +190,8 @@ msgstr ""
 msgid "Source records"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:32
-#: lib/singularity_web/live/knowledge_live/index.ex:156
+#: lib/singularity_web/components/item_components.ex:45
+#: lib/singularity_web/live/knowledge_live/index.ex:160
 #: lib/singularity_web/live/knowledge_live/show.ex:159
 #, elixir-autogen, elixir-format
 msgid "Stars"
@@ -215,16 +210,6 @@ msgstr ""
 #: lib/singularity_web/live/knowledge_live/show.ex:280
 #, elixir-autogen, elixir-format
 msgid "Yes"
-msgstr ""
-
-#: lib/singularity_web/live/knowledge_live/index.ex:145
-#, elixir-autogen, elixir-format
-msgid "owner/repo or description"
-msgstr ""
-
-#: lib/singularity_web/components/item_components.ex:38
-#, elixir-autogen, elixir-format
-msgid "Details"
 msgstr ""
 
 #: lib/singularity_web/components/item_components.ex:19
@@ -247,7 +232,7 @@ msgstr ""
 msgid "Host"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:69
+#: lib/singularity_web/components/item_components.ex:125
 #, elixir-autogen, elixir-format
 msgid "No automatic details"
 msgstr ""
@@ -258,7 +243,7 @@ msgstr ""
 msgid "Repository"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:166
+#: lib/singularity_web/live/knowledge_live/index.ex:171
 #: lib/singularity_web/live/knowledge_live/show.ex:383
 #, elixir-autogen, elixir-format
 msgid "Active"
@@ -279,7 +264,7 @@ msgstr ""
 msgid "No source keeps this project any more. It will be removed on %{date} unless a source adds it again."
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:66
+#: lib/singularity_web/components/item_components.ex:122
 #, elixir-autogen, elixir-format
 msgid "Removal on %{date}"
 msgstr ""
@@ -289,14 +274,14 @@ msgstr ""
 msgid "Sources"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:162
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:135
+#: lib/singularity_web/live/knowledge_live/index.ex:167
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:179
 #: lib/singularity_web/live/knowledge_live/show.ex:381
 #, elixir-autogen, elixir-format
 msgid "Status"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/index.ex:165
+#: lib/singularity_web/live/knowledge_live/index.ex:170
 #, elixir-autogen, elixir-format
 msgid "All"
 msgstr ""
@@ -306,8 +291,8 @@ msgstr ""
 msgid "Clear the deprecated mark?"
 msgstr ""
 
-#: lib/singularity_web/components/item_components.ex:58
-#: lib/singularity_web/live/knowledge_live/index.ex:167
+#: lib/singularity_web/components/item_components.ex:114
+#: lib/singularity_web/live/knowledge_live/index.ex:172
 #, elixir-autogen, elixir-format
 msgid "Deprecated"
 msgstr ""
@@ -406,11 +391,6 @@ msgstr ""
 msgid "No labels yet."
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:99
-#, elixir-autogen, elixir-format
-msgid "%{count} RFCs"
-msgstr ""
-
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:163
 #, elixir-autogen, elixir-format
 msgid "Abstract"
@@ -451,8 +431,7 @@ msgstr ""
 msgid "History"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:20
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:97
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:21
 #, elixir-autogen, elixir-format
 msgid "IETF RFCs"
 msgstr ""
@@ -462,7 +441,7 @@ msgstr ""
 msgid "Keywords"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:127
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:155
 #, elixir-autogen, elixir-format
 msgid "No RFCs match."
 msgstr ""
@@ -475,11 +454,6 @@ msgstr ""
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:223
 #, elixir-autogen, elixir-format
 msgid "No related RFCs."
-msgstr ""
-
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:109
-#, elixir-autogen, elixir-format
-msgid "Number or title"
 msgstr ""
 
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:89
@@ -497,13 +471,13 @@ msgstr ""
 msgid "Pages"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:138
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:184
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:116
 #, elixir-autogen, elixir-format
 msgid "Published"
 msgstr ""
 
-#: lib/singularity_web/live/knowledge_live/rfc_index.ex:129
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:166
 #, elixir-autogen, elixir-format
 msgid "RFC"
 msgstr ""
@@ -556,4 +530,46 @@ msgstr ""
 #: lib/singularity_web/live/knowledge_live/rfc_show.ex:307
 #, elixir-autogen, elixir-format
 msgid "full text"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/index.ex:138
+#, elixir-autogen, elixir-format
+msgid "%{number} project"
+msgid_plural "%{number} projects"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/knowledge_live/index.ex:143
+#, elixir-autogen, elixir-format
+msgid "Project name or description"
+msgstr ""
+
+#: lib/singularity_web/components/knowledge_search.ex:34
+#, elixir-autogen, elixir-format
+msgid "Reset filters"
+msgstr ""
+
+#: lib/singularity_web/components/item_components.ex:84
+#, elixir-autogen, elixir-format
+msgid "%{count} additional label"
+msgid_plural "%{count} additional labels"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:138
+#, elixir-autogen, elixir-format
+msgid "%{number} RFC"
+msgid_plural "%{number} RFCs"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:116
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:117
+#, elixir-autogen, elixir-format
+msgid "Filter by %{status}"
+msgstr ""
+
+#: lib/singularity_web/live/knowledge_live/rfc_index.ex:143
+#, elixir-autogen, elixir-format
+msgid "RFC number or title (e.g. 8446 or TLS)"
 msgstr ""

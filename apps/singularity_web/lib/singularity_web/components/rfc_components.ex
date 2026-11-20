@@ -18,11 +18,18 @@ defmodule SingularityWeb.RfcComponents do
   def item_path(_item), do: nil
 
   attr :status, :string, default: nil
+  attr :size, :string, default: "sm"
 
   @doc "An RFC's status. It is a category, not a state: role colors, never semantic ones."
   def rfc_status(assigns) do
     ~H"""
-    <.dm_badge :if={@status} size="sm" variant={status_variant(@status)} soft data-role="rfc-status">
+    <.dm_badge
+      :if={@status}
+      size={@size}
+      variant={status_variant(@status)}
+      soft
+      data-role="rfc-status"
+    >
       {@status}
     </.dm_badge>
     """

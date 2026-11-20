@@ -53,6 +53,8 @@ defmodule SingularityWeb.RfcLiveTest do
 
       view |> form("#rfc-filters", filters: %{q: "791"}) |> render_change()
       assert_patch(view, ~p"/knowledge/ietf-rfcs?q=791")
+      assert has_element?(view, "#rfcs-total", "1 RFC")
+      refute has_element?(view, "#rfcs-total", "RFCs")
       assert has_element?(view, "#rfc-791")
       refute has_element?(view, "#rfc-8446")
 
@@ -62,6 +64,40 @@ defmodule SingularityWeb.RfcLiveTest do
 
       view |> form("#rfc-filters", filters: %{q: "nothing like this"}) |> render_change()
       assert has_element?(view, "#rfcs-empty")
+      assert has_element?(view, "#rfcs-total", "0 RFCs")
+    end
+
+    test "combines a result's status with the search and resets both", %{conn: conn} do
+      tls = tls_fixture()
+      label_fixture(tls, "status:proposed-standard")
+      label_fixture(tls, "reading", "manual")
+      rfc_fixture(5246, title: "Transport Layer Security 1.2")
+      rfc_fixture(791, title: "Internet Protocol")
+
+      {:ok, view, _html} = live(conn, ~p"/knowledge/ietf-rfcs?q=transport")
+      assert has_element?(view, "#rfcs-total", "2 RFCs")
+      assert has_element?(view, "#rfc-8446 [data-origin='manual']", "reading")
+      refute has_element?(view, "#rfc-8446 [data-origin='auto']", "status:proposed-standard")
+
+      view |> element("#rfc-8446 a[aria-label='Filter by PROPOSED STANDARD']") |> render_click()
+
+      assert_patch(
+        view,
+        ~p"/knowledge/ietf-rfcs?#{%{q: "transport", label: "status:proposed-standard"}}"
+      )
+
+      assert has_element?(view, "#rfcs-total", "1 RFC")
+      refute has_element?(view, "#rfc-5246")
+
+      view |> element("#clear-label") |> render_click()
+      assert_patch(view, ~p"/knowledge/ietf-rfcs?q=transport")
+      assert has_element?(view, "#rfcs-total", "2 RFCs")
+
+      view |> element("#rfc-8446 a[aria-label='Filter by PROPOSED STANDARD']") |> render_click()
+      view |> element("#reset-rfc-filters") |> render_click()
+      assert_patch(view, ~p"/knowledge/ietf-rfcs")
+      assert has_element?(view, "#rfcs-total", "3 RFCs")
+      refute has_element?(view, "#reset-rfc-filters")
     end
 
     test "filters by label and clears the filter", %{conn: conn} do

@@ -2,6 +2,7 @@ defmodule SingularityWeb.KnowledgeLive.RfcIndex do
   use SingularityWeb, :live_view
 
   import SingularityWeb.ItemComponents, only: [label_badges: 1, format_count: 1]
+  import SingularityWeb.KnowledgeSearch
   import SingularityWeb.RfcComponents
 
   alias Singularity.{Collection, Knowledge}
@@ -89,59 +90,105 @@ defmodule SingularityWeb.KnowledgeLive.RfcIndex do
     if query == %{}, do: ~p"/knowledge/ietf-rfcs", else: ~p"/knowledge/ietf-rfcs?#{query}"
   end
 
+  attr :rfc, :map, required: true
+  attr :filters, :map, required: true
+
+  defp classification(assigns) do
+    status = assigns.rfc.attributes["status"]
+    labels = assigns.rfc.labels
+
+    status_label =
+      status &&
+        Enum.find(labels, &(&1.origin == "auto" && String.starts_with?(&1.name, "status:")))
+
+    assigns =
+      assign(assigns,
+        status: status,
+        status_label: status_label,
+        labels: List.delete(labels, status_label)
+      )
+
+    ~H"""
+    <div class="flex flex-wrap items-center gap-1.5">
+      <.link
+        :if={@status_label}
+        patch={rfcs_path(%{@filters | label: @status_label.name, page: 1})}
+        aria-label={dgettext("knowledge", "Filter by %{status}", status: @status)}
+        title={dgettext("knowledge", "Filter by %{status}", status: @status)}
+        class="inline-flex min-h-8 items-center rounded hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+      >
+        <.rfc_status status={@status} size="md" />
+      </.link>
+      <.rfc_status :if={!@status_label} status={@status} size="md" />
+      <.label_badges labels={@labels} />
+    </div>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:knowledge} active="knowledge-rfcs">
-      <div class="space-y-1">
-        <h1 class="text-2xl font-bold">{dgettext("knowledge", "IETF RFCs")}</h1>
-        <p id="rfcs-total" class="text-sm text-on-surface-variant">
-          {dgettext("knowledge", "%{count} RFCs", count: format_count(@total))}
-        </p>
-      </div>
+      <.search_toolbar
+        id="rfc-filters"
+        title={@page_title}
+        icon="file-document-multiple-outline"
+        count_id="rfcs-total"
+        count_text={
+          dngettext("knowledge", "%{number} RFC", "%{number} RFCs", @total,
+            number: format_count(@total)
+          )
+        }
+        query={@filters.q}
+        placeholder={dgettext("knowledge", "RFC number or title (e.g. 8446 or TLS)")}
+        reset_path={if @filters.q || @filters.label, do: ~p"/knowledge/ietf-rfcs"}
+        label={@filters.label}
+        clear_label_path={rfcs_path(%{@filters | label: nil, page: 1})}
+      />
 
-      <div class="flex flex-wrap items-end gap-4">
-        <form id="rfc-filters" phx-change="filter" phx-submit="filter" class="flex items-end gap-3">
-          <.dm_input
-            id="filter-q"
-            name="filters[q]"
-            label={dgettext("knowledge", "Search")}
-            placeholder={dgettext("knowledge", "Number or title")}
-            value={@filters.q}
-            phx-debounce="300"
-          />
-        </form>
-        <div :if={@filters.label} id="active-label" class="flex items-center gap-2">
-          <span class="text-sm">{dgettext("knowledge", "Label")}</span>
-          <.dm_badge variant="primary">{@filters.label}</.dm_badge>
-          <.link
-            id="clear-label"
-            patch={rfcs_path(%{@filters | label: nil, page: 1})}
-            aria-label={dgettext("knowledge", "Clear label filter")}
+      <p
+        :if={@rfcs_empty?}
+        id="rfcs-empty"
+        class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-outline-variant px-4 py-10 text-sm text-on-surface-variant"
+      >
+        <.dm_mdi name="magnify" class="size-7" aria-hidden="true" />
+        {dgettext("knowledge", "No RFCs match.")}
+      </p>
+
+      <div :if={!@rfcs_empty?} class="overflow-hidden rounded-xl border border-outline-variant">
+        <.dm_table
+          id="rfcs"
+          data={@streams.rfcs}
+          stream
+          hover
+          class="knowledge-result-table table-fixed"
+        >
+          <:col :let={rfc} label={dgettext("knowledge", "RFC")}>
+            <.link
+              navigate={item_path(rfc)}
+              class="group block w-fit max-w-full space-y-1 rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              <span class="block font-mono text-xs font-semibold text-on-surface-variant">
+                {rfc_name(rfc)}
+              </span>
+              <span class="block text-base font-medium [overflow-wrap:anywhere] group-hover:underline">
+                {rfc.title}
+              </span>
+            </.link>
+          </:col>
+          <:col :let={rfc} label={dgettext("knowledge", "Status")} label_class="w-52">
+            <.classification rfc={rfc} filters={@filters} />
+          </:col>
+          <:col
+            :let={rfc}
+            label={dgettext("knowledge", "Published")}
+            label_class="w-28"
+            class="whitespace-nowrap tabular-nums text-on-surface-variant"
           >
-            <.dm_mdi name="close" class="h-4 w-4" />
-          </.link>
-        </div>
+            {published_month(rfc.published_at)}
+          </:col>
+        </.dm_table>
       </div>
-
-      <p :if={@rfcs_empty?} id="rfcs-empty">{dgettext("knowledge", "No RFCs match.")}</p>
-      <.dm_table :if={!@rfcs_empty?} id="rfcs" data={@streams.rfcs} stream hover>
-        <:col :let={rfc} label={dgettext("knowledge", "RFC")}>
-          <div class="min-w-0 max-w-2xl">
-            <.link navigate={item_path(rfc)} class="font-medium">{rfc_name(rfc)}</.link>
-            <p class="text-sm text-on-surface-variant line-clamp-1">{rfc.title}</p>
-          </div>
-        </:col>
-        <:col :let={rfc} label={dgettext("knowledge", "Status")}>
-          <.rfc_status status={rfc.attributes["status"]} />
-        </:col>
-        <:col :let={rfc} label={dgettext("knowledge", "Published")}>
-          {published_month(rfc.published_at)}
-        </:col>
-        <:col :let={rfc} label={dgettext("knowledge", "Labels")}>
-          <.label_badges labels={rfc.labels} />
-        </:col>
-      </.dm_table>
 
       <nav class="flex gap-3" aria-label={dgettext("knowledge", "Pagination")}>
         <.link

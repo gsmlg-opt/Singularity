@@ -25,7 +25,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       %{rocket: rocket, tool: tool}
     end
 
-    test "shows project cards with stars, language, labels and details state", %{
+    test "shows project rows with stars, language, labels and details state", %{
       conn: conn,
       rocket: rocket
     } do
@@ -87,8 +87,49 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       |> render_change(%{"filters" => %{"q" => "rocket", "sort" => "stars"}})
 
       assert_patch(view, ~p"/knowledge?q=rocket&sort=stars")
+      assert has_element?(view, "#project-result-count", "1 project")
       assert has_element?(view, "#projects", "acme/rocket")
       refute has_element?(view, "#projects", "solo/tool")
+    end
+
+    test "counts all matching projects across pages and resets on the same route", %{conn: conn} do
+      for i <- 1..30 do
+        project = project_fixture(title: "group/repo-#{i}")
+        label_fixture(project, "watch")
+      end
+
+      old = project_fixture(title: "group/old", deprecated_at: now())
+      label_fixture(old, "watch")
+      project_fixture(title: "group/unlabelled")
+
+      {:ok, view, _html} =
+        live(conn, ~p"/knowledge/projects?label=watch&q=group&status=active")
+
+      assert has_element?(view, "#project-result-count", "30 projects")
+      refute has_element?(view, "#page-next")
+      refute has_element?(view, "#projects", "group/old")
+
+      view |> element("#reset-project-filters") |> render_click()
+      assert_patch(view, ~p"/knowledge/projects")
+      assert has_element?(view, "#project-result-count", "34 projects")
+      view |> element("#page-next") |> render_click()
+      assert_patch(view, ~p"/knowledge/projects?page=2")
+      assert has_element?(view, "#project-result-count", "34 projects")
+      refute has_element?(view, "#page-next")
+    end
+
+    test "keeps manual labels visible and extra labels available in the row", %{
+      conn: conn,
+      rocket: project
+    } do
+      label_fixture(project, "topic:engines")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
+
+      row = "#project-#{project.id}"
+      assert has_element?(view, "#{row} [data-origin='manual']", "favorite")
+      assert has_element?(view, "#{row} details summary", "+1")
+      assert has_element?(view, "#{row} details", "lang:rust")
+      refute has_element?(view, "#{row} details", "favorite")
     end
 
     test "reloads when a project is updated", %{conn: conn} do

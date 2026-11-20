@@ -15,30 +15,86 @@ defmodule SingularityWeb.ItemComponents do
 
   def project_table(assigns) do
     ~H"""
-    <.dm_table id={@id} data={@rows} stream hover>
+    <.dm_table id={@id} data={@rows} stream hover class="knowledge-result-table table-fixed">
       <:col :let={project} label={dgettext("knowledge", "Project")}>
-        <div class="min-w-0 max-w-xl">
-          <.link navigate={~p"/knowledge/projects/#{project.id}"} class="font-medium">
+        <div class="min-w-0 space-y-1">
+          <.link
+            navigate={~p"/knowledge/projects/#{project.id}"}
+            class="rounded text-base font-semibold [overflow-wrap:anywhere] hover:underline focus-visible:outline-2"
+          >
             {project.title}
           </.link>
           <p :if={project.summary} class="text-sm text-on-surface-variant line-clamp-1">
             {inline_markdown(project.summary)}
           </p>
+          <div class="flex flex-wrap gap-1 empty:hidden">
+            <.details_status project={project} />
+          </div>
         </div>
       </:col>
-      <:col :let={project} label={dgettext("knowledge", "Language")}>
+      <:col
+        :let={project}
+        label={dgettext("knowledge", "Language")}
+        label_class="w-[15%]"
+        class="text-on-surface-variant [overflow-wrap:anywhere]"
+      >
         {project.attributes["language"] || "—"}
       </:col>
-      <:col :let={project} label={dgettext("knowledge", "Stars")}>
-        {format_count(project.attributes["stars"])}
+      <:col
+        :let={project}
+        label={dgettext("knowledge", "Stars")}
+        label_class="w-[13%]"
+        class="tabular-nums"
+      >
+        <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <.dm_mdi name="star-outline" class="size-4 text-on-surface-variant" aria-hidden="true" />
+          {format_count(project.attributes["stars"])}
+        </span>
       </:col>
-      <:col :let={project} label={dgettext("knowledge", "Labels")}>
-        <.label_badges labels={project.labels} />
-      </:col>
-      <:col :let={project} label={dgettext("knowledge", "Details")}>
-        <.details_status project={project} />
+      <:col
+        :let={project}
+        label={dgettext("knowledge", "Labels")}
+        label_class="w-[29%]"
+        class="result-labels"
+      >
+        <.project_labels labels={project.labels} />
       </:col>
     </.dm_table>
+    """
+  end
+
+  attr :labels, :list, required: true
+
+  defp project_labels(assigns) do
+    {preview, more} =
+      assigns.labels
+      |> Enum.sort_by(fn label ->
+        {label.origin != "manual", String.starts_with?(label.name, "lang:")}
+      end)
+      |> Enum.split(2)
+
+    assigns = assign(assigns, preview: preview, more: more)
+
+    ~H"""
+    <div :if={@preview != []} class="flex flex-wrap items-center gap-1.5">
+      <.label_badges labels={@preview} size="md" />
+      <details :if={@more != []} class="min-w-0 open:basis-full">
+        <summary
+          aria-label={
+            dngettext(
+              "knowledge",
+              "%{count} additional label",
+              "%{count} additional labels",
+              length(@more)
+            )
+          }
+          class="w-fit cursor-pointer rounded-full bg-secondary-container px-2 py-0.5 text-xs font-medium text-on-secondary-container focus-visible:outline-2"
+        >
+          +{length(@more)}
+        </summary>
+        <div class="mt-1.5"><.label_badges labels={@more} size="md" /></div>
+      </details>
+    </div>
     """
   end
 
@@ -214,13 +270,14 @@ defmodule SingularityWeb.ItemComponents do
   end
 
   attr :labels, :list, required: true
+  attr :size, :string, default: "sm"
 
   def label_badges(assigns) do
     ~H"""
     <div :if={@labels != []} class="flex flex-wrap gap-1">
       <.dm_badge
         :for={label <- @labels}
-        size="sm"
+        size={@size}
         variant={label_variant(label.origin)}
         soft={label.origin == "auto"}
         data-origin={label.origin}
