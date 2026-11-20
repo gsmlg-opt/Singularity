@@ -18,6 +18,8 @@
 | 左侧菜单 | `dm_left_menu`，sticky，底色 **secondary**（`app-sidebar bg-secondary text-secondary-content`），文字 secondary-content，选中项是 secondary-content 底色配 secondary 文字 |
 | 内容区 | `<main>` 内用 `mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8`，最上面是 `dm_flash_group` |
 
+窄屏（小于 `lg`）时应用栏分两行，四个板块仍全部可见；区域菜单使用全宽和自然高度，不占满视口。桌面保持 sticky 侧栏。
+
 左侧菜单的 secondary 配色暂时由 `assets/css/app.css` 里的 `.app-sidebar` 在侧栏范围内重新映射 token 实现，标记为 `WORKAROUND(upstream): duskmoon-dev/duskmoonui#79`。上游提供 secondary 变体后，删除这段 CSS，改用上游的写法。不要在别处复制这种 token 重映射。
 
 ## 3. 颜色
@@ -70,6 +72,8 @@ moonlight 下 `error` 按钮的文字对比度偏低，属于上游主题的问�
 - 详情页的单条信息（键值）不是列表数据，继续用键值网格。
 
 ### 配置页
+
+来源类型选择页是固定功能入口，不是业务数据列表：允许用等权重的 `dm_card` 网格展示，每张卡片包含图标、名称、用途、配置提示和选择动作。整张卡片使用一个导航链接，提供明确的键盘焦点和悬停边框，窄屏堆叠。已配置来源和其他业务列表仍使用 `dm_table`。
 
 系统配置分两类，交互方式不同：
 

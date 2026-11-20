@@ -25,7 +25,7 @@ defmodule SingularityWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div class="min-h-full bg-surface text-on-surface">
-      <header class="appbar appbar-sticky appbar-primary">
+      <header class="appbar appbar-sticky appbar-primary app-header">
         <.link navigate="/" class="appbar-brand no-underline">
           <.dm_mdi name="bookshelf" class="h-8 w-8" />
           <span class="appbar-title">Singularity</span>
@@ -55,7 +55,7 @@ defmodule SingularityWeb.Layouts do
           nav_label={gettext("Section navigation")}
           expand_label={gettext("Expand navigation")}
           collapse_label={gettext("Collapse navigation")}
-          class="app-sidebar sticky top-16 h-[calc(100dvh-4rem)] bg-secondary text-secondary-content"
+          class="app-sidebar lg:sticky lg:top-16 lg:h-[calc(100dvh-4rem)] bg-secondary text-secondary-content"
         />
         <main class="min-w-0 flex-1">
           <div class="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">

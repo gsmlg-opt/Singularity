@@ -74,7 +74,7 @@ msgstr ""
 msgid "Collect now"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/form.ex:154
+#: lib/singularity_web/live/source_live/form.ex:301
 #, elixir-autogen, elixir-format
 msgid "Collection interval (minutes)"
 msgstr ""
@@ -168,7 +168,7 @@ msgstr ""
 msgid "Latest run"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/form.ex:125
+#: lib/singularity_web/live/source_live/form.ex:272
 #: lib/singularity_web/live/source_live/index.ex:61
 #: lib/singularity_web/live/source_live/manual.ex:120
 #, elixir-autogen, elixir-format
@@ -205,7 +205,7 @@ msgstr ""
 msgid "Repository address"
 msgstr ""
 
-#: lib/singularity_web/live/source_live/form.ex:160
+#: lib/singularity_web/live/source_live/form.ex:307
 #, elixir-autogen, elixir-format
 msgid "Save"
 msgstr ""
@@ -402,4 +402,95 @@ msgstr ""
 #: lib/singularity_web/live/source_live/runs.ex:51
 #, elixir-autogen, elixir-format
 msgid "View run"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:255
+#, elixir-autogen, elixir-format
+msgid "Add a project manually"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:216
+#, elixir-autogen, elixir-format
+msgid "Back to sources"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:225
+#, elixir-autogen, elixir-format
+msgid "Choose another source type"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:150
+#, elixir-autogen, elixir-format
+msgid "Collect items from this source into your knowledge base."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:151
+#, elixir-autogen, elixir-format
+msgid "Configure the source in the next step"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:127
+#, elixir-autogen, elixir-format
+msgid "Enter a GitHub username"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:99
+#, elixir-autogen, elixir-format
+msgid "GitHub Stars"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:98
+#, elixir-autogen, elixir-format
+msgid "GitHub Trending"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:248
+#, elixir-autogen, elixir-format
+msgid "Have a specific project in mind?"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:100
+#, elixir-autogen, elixir-format
+msgid "IETF RFCs"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:141
+#, elixir-autogen, elixir-format
+msgid "Set a name and collection interval"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:113
+#, elixir-autogen, elixir-format
+msgid "Choose a time range and an optional language"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:123
+#, elixir-autogen, elixir-format
+msgid "Follow the repositories a GitHub user stars as their collection changes."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:137
+#, elixir-autogen, elixir-format
+msgid "Read full-text RFCs from the RFC Editor and track changes to each document."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:135
+#, elixir-autogen, elixir-format
+msgid "Reference documents"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:230
+#, elixir-autogen, elixir-format
+msgid "Select a source to start adding projects or reference documents to your knowledge base."
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:107
+#: lib/singularity_web/live/source_live/form.ex:121
+#, elixir-autogen, elixir-format
+msgid "Software projects"
+msgstr ""
+
+#: lib/singularity_web/live/source_live/form.ex:109
+#, elixir-autogen, elixir-format
+msgid "Track repositories on GitHub’s daily, weekly, or monthly trending charts."
 msgstr ""

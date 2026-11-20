@@ -67,11 +67,24 @@ defmodule SingularityWeb.SourceLiveTest do
 
   describe "form" do
     test "new: choose a type, then fill type-specific fields", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/source/sources/new")
-      assert html =~ "GitHub Trending"
-      assert html =~ "Fake"
+      {:ok, picker, _html} = live(conn, ~p"/source/sources/new")
 
-      {:ok, view, html} = live(conn, ~p"/source/sources/new?kind=fake")
+      for type <- Sources.list_source_types() do
+        assert has_element?(
+                 picker,
+                 "#type-#{type.kind}[href='/source/sources/new?kind=#{type.kind}']",
+                 type.label
+               )
+      end
+
+      assert has_element?(picker, "#type-fake", "Collect items from this source")
+
+      {:ok, view, html} =
+        picker
+        |> element("#type-fake")
+        |> render_click()
+        |> follow_redirect(conn, ~p"/source/sources/new?kind=fake")
+
       assert html =~ "Topic"
 
       html =
@@ -88,6 +101,31 @@ defmodule SingularityWeb.SourceLiveTest do
       [source] = Sources.list_sources()
       assert source.config == %{"topic" => "x"}
       assert_redirect(view, ~p"/source/sources/#{source.id}")
+    end
+
+    test "source selection and return navigation do not create a source", %{conn: conn} do
+      {:ok, picker, _html} = live(conn, ~p"/source/sources/new")
+
+      assert has_element?(picker, "#back-to-sources[href='/source/sources']")
+      assert has_element?(picker, "#add-project-manually[href='/source/manual']")
+
+      {:ok, form_view, _html} =
+        picker
+        |> element("#type-github_trending")
+        |> render_click()
+        |> follow_redirect(conn, ~p"/source/sources/new?kind=github_trending")
+
+      assert has_element?(form_view, "#config-language")
+      assert has_element?(form_view, "#config-since")
+
+      {:ok, picker, _html} =
+        form_view
+        |> element("#change-source-type")
+        |> render_click()
+        |> follow_redirect(conn, ~p"/source/sources/new")
+
+      assert has_element?(picker, "#source-types")
+      assert Sources.list_sources() == []
     end
 
     test "edit updates the source", %{conn: conn} do

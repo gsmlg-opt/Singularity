@@ -38,3 +38,41 @@
 .markdown-body img {
   display: inline;
 }
+
+/* Stack the app navigation above the content when a sidebar cannot fit. */
+@media (width < 64rem) {
+  .app-header {
+    height: auto;
+    min-height: 4rem;
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+    padding-block: 0.75rem;
+  }
+
+  .app-header .appbar-actions {
+    width: 100%;
+    margin-inline-start: 0;
+    justify-content: space-between;
+    gap: 0;
+  }
+
+  .app-header .appbar-action {
+    padding-inline: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .app-sidebar {
+    --dm-left-menu-width: 100%;
+    --dm-left-menu-collapsed-width: 100%;
+  }
+}
+
+/* A quiet grid distinguishes the source illustrations from their descriptions. */
+.source-type-banner {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, currentColor 13%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 10px 10px;
+}
