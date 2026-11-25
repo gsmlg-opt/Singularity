@@ -40,11 +40,11 @@ defmodule SingularityWeb.OverviewLiveTest do
 
     assert has_element?(
              view,
-             "#label-cloud a[href='/knowledge?label=lang%3Arust']",
+             "#label-cloud a[href='/knowledge/projects?label=lang%3Arust']",
              "lang:rust · 2"
            )
 
-    assert has_element?(view, "#view-all[href='/knowledge']")
+    assert has_element?(view, "#view-all[href='/knowledge/projects']")
   end
 
   test "updates when projects or runs change", %{conn: conn} do

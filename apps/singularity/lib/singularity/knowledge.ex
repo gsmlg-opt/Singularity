@@ -397,6 +397,91 @@ defmodule Singularity.Knowledge do
     do: Phoenix.PubSub.broadcast(Singularity.PubSub, @topic, {:project_updated, item_id})
 
   @doc """
+  Searches across item kinds and returns `{items, more?}`. The query is trimmed
+  and nonempty. Matching metadata ranks before matches in stored text.
+  """
+  @spec search_items(String.t(), pos_integer(), pos_integer()) :: {[Item.t()], boolean()}
+  def search_items(q, page, per_page) do
+    patterns = Enum.map(String.split(q), &("%" <> escape_like(&1) <> "%"))
+    exact = escape_like(q)
+    identifier = String.replace(exact, ~r/^(?:rfc\s*)?([0-9]+)$/i, "rfc\\1")
+
+    metadata_matches =
+      Enum.reduce(patterns, Item, fn pattern, query ->
+        where(
+          query,
+          [i],
+          ilike(i.title, ^pattern) or ilike(i.external_id, ^pattern) or ilike(i.summary, ^pattern)
+        )
+      end)
+      |> select([i], %{id: i.id})
+
+    # Titles and repository identifiers index the words around slashes.
+    text_condition = text_search_match(q)
+    split_path = String.replace(q, "/", " ")
+
+    text_condition =
+      if split_path == q,
+        do: text_condition,
+        else: dynamic(^text_condition or ^text_search_match(split_path))
+
+    text_matches = from i in Item, where: ^text_condition, select: %{id: i.id}
+
+    matches = union(metadata_matches, ^text_matches)
+
+    items =
+      from(i in Item,
+        join: match in subquery(matches),
+        on: i.id == match.id,
+        order_by: [
+          asc:
+            fragment(
+              """
+              CASE
+                WHEN ? ILIKE ? OR ? ILIKE ? THEN 0
+                WHEN concat_ws(' ', ?, ?) ILIKE ALL (?) THEN 1
+                WHEN concat_ws(' ', ?, ?, ?) ILIKE ALL (?) THEN 2
+                ELSE 3
+              END
+              """,
+              i.external_id,
+              ^identifier,
+              i.title,
+              ^exact,
+              i.title,
+              i.external_id,
+              type(^patterns, {:array, :string}),
+              i.title,
+              i.external_id,
+              i.summary,
+              type(^patterns, {:array, :string})
+            ),
+          desc: i.first_seen_at,
+          desc: i.id
+        ],
+        limit: ^(per_page + 1),
+        offset: ^((page - 1) * per_page),
+        select: struct(i, [:id, :kind, :title, :external_id, :summary, :attributes])
+      )
+      |> Repo.all()
+
+    {results, remaining} = Enum.split(items, per_page)
+    {results, remaining != []}
+  end
+
+  defp text_search_match(q) do
+    dynamic(
+      [i],
+      fragment(
+        "? @> tsvector_to_array(to_tsvector('pg_catalog.simple', ?)) AND to_tsvector('pg_catalog.simple', ?) <> ''::tsvector",
+        field(i, "search_terms"),
+        ^q,
+        ^q
+      )
+    )
+  end
+
+  @doc """
   Software projects with labels preloaded. Options: `:label`, `:status`
   (`:active` or `:deprecated`), `:q` (ILIKE on
   owner/repo and description), `:sort` (`:recent` or `:stars`), `:page`

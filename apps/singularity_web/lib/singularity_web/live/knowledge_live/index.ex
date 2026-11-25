@@ -35,7 +35,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         page: 1
     }
 
-    {:noreply, push_patch(socket, to: knowledge_path(socket.assigns.live_action, filters))}
+    {:noreply, push_patch(socket, to: projects_path(filters))}
   end
 
   @impl true
@@ -97,7 +97,7 @@ defmodule SingularityWeb.KnowledgeLive.Index do
   defp blank_to_nil(_value), do: nil
 
   # The empty filter state has no query string at all.
-  defp knowledge_path(action, filters) do
+  defp projects_path(filters) do
     query =
       [
         {"label", filters.label},
@@ -109,26 +109,13 @@ defmodule SingularityWeb.KnowledgeLive.Index do
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
 
-    case {action, query == %{}} do
-      {:projects, true} -> ~p"/knowledge/projects"
-      {:projects, false} -> ~p"/knowledge/projects?#{query}"
-      {_index, true} -> ~p"/knowledge"
-      {_index, false} -> ~p"/knowledge?#{query}"
-    end
+    if query == %{}, do: ~p"/knowledge/projects", else: ~p"/knowledge/projects?#{query}"
   end
-
-  defp active_item(:projects), do: "knowledge-projects"
-  defp active_item(_index), do: "knowledge-all"
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app
-      flash={@flash}
-      socket={@socket}
-      section={:knowledge}
-      active={active_item(@live_action)}
-    >
+    <Layouts.app flash={@flash} socket={@socket} section={:knowledge} active="knowledge-projects">
       <.search_toolbar
         id="project-filters"
         title={@page_title}
@@ -143,10 +130,10 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         placeholder={dgettext("knowledge", "Project name or description")}
         reset_path={
           (@filters.q || @filters.label || @filters.status || @filters.sort != :recent) &&
-            knowledge_path(@live_action, parse_filters(%{}))
+            projects_path(parse_filters(%{}))
         }
         label={@filters.label}
-        clear_label_path={knowledge_path(@live_action, %{@filters | label: nil, page: 1})}
+        clear_label_path={projects_path(%{@filters | label: nil, page: 1})}
       >
         <:filters>
           <.dm_select
@@ -191,14 +178,14 @@ defmodule SingularityWeb.KnowledgeLive.Index do
         <.link
           :if={@filters.page > 1}
           id="page-prev"
-          patch={knowledge_path(@live_action, %{@filters | page: @filters.page - 1})}
+          patch={projects_path(%{@filters | page: @filters.page - 1})}
         >
           {dgettext("knowledge", "Previous")}
         </.link>
         <.link
           :if={@has_next}
           id="page-next"
-          patch={knowledge_path(@live_action, %{@filters | page: @filters.page + 1})}
+          patch={projects_path(%{@filters | page: @filters.page + 1})}
         >
           {dgettext("knowledge", "Next")}
         </.link>

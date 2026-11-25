@@ -21,7 +21,7 @@ defmodule SingularityWeb.Router do
     get "/out", OutboundController, :show
     live "/", OverviewLive.Index, :index
     live "/overview/activity", OverviewLive.Activity, :index
-    live "/knowledge", KnowledgeLive.Index, :index
+    live "/knowledge", KnowledgeLive.Search, :index
     live "/knowledge/projects", KnowledgeLive.Index, :projects
     live "/knowledge/projects/:id", KnowledgeLive.Show, :show
     live "/knowledge/ietf-rfcs", KnowledgeLive.RfcIndex, :index

@@ -80,7 +80,9 @@ defmodule SingularityWeb.OverviewLive.Index do
       <section class="space-y-3">
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-semibold">{dgettext("overview", "Recently added")}</h2>
-          <.link navigate={~p"/knowledge"} id="view-all">{dgettext("overview", "View all")}</.link>
+          <.link navigate={~p"/knowledge/projects"} id="view-all">
+            {dgettext("overview", "View all")}
+          </.link>
         </div>
         <p :if={@recent_empty?} id="recent-empty">
           {dgettext("overview", "No software projects yet. Add one or run a source.")}
@@ -93,7 +95,7 @@ defmodule SingularityWeb.OverviewLive.Index do
         <div id="label-cloud" class="flex flex-wrap gap-2">
           <.link
             :for={{name, count} <- @labels}
-            navigate={~p"/knowledge?#{%{label: name}}"}
+            navigate={~p"/knowledge/projects?#{%{label: name}}"}
             class="no-underline"
           >
             <.dm_badge variant="primary" soft>{name} · {count}</.dm_badge>

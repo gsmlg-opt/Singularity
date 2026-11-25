@@ -29,7 +29,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       conn: conn,
       rocket: rocket
     } do
-      {:ok, view, html} = live(conn, ~p"/knowledge")
+      {:ok, view, html} = live(conn, ~p"/knowledge/projects")
       card = "#project-#{rocket.id}"
 
       assert html =~ "Software projects"
@@ -68,25 +68,25 @@ defmodule SingularityWeb.KnowledgeLiveTest do
     end
 
     test "filters by label and clears the filter", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/knowledge?label=favorite")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects?label=favorite")
 
       assert has_element?(view, "#active-label", "favorite")
       assert has_element?(view, "#projects", "acme/rocket")
       refute has_element?(view, "#projects", "solo/tool")
 
       view |> element("#clear-label") |> render_click()
-      assert_patch(view, ~p"/knowledge")
+      assert_patch(view, ~p"/knowledge/projects")
       assert has_element?(view, "#projects", "solo/tool")
     end
 
     test "searches and sorts through the toolbar", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
 
       view
       |> element("#project-filters")
       |> render_change(%{"filters" => %{"q" => "rocket", "sort" => "stars"}})
 
-      assert_patch(view, ~p"/knowledge?q=rocket&sort=stars")
+      assert_patch(view, ~p"/knowledge/projects?q=rocket&sort=stars")
       assert has_element?(view, "#project-result-count", "1 project")
       assert has_element?(view, "#projects", "acme/rocket")
       refute has_element?(view, "#projects", "solo/tool")
@@ -133,7 +133,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
     end
 
     test "reloads when a project is updated", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
       late = project_fixture(title: "late/arrival")
       send(view.pid, {:project_updated, late.id})
       assert has_element?(view, "#projects", "late/arrival")
@@ -311,7 +311,7 @@ defmodule SingularityWeb.KnowledgeLiveTest do
     end
 
     test "lists flag projects due for removal", %{conn: conn, project: project} do
-      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
 
       assert has_element?(
                view,
@@ -467,16 +467,16 @@ defmodule SingularityWeb.KnowledgeLiveTest do
       old = project_fixture(title: "acme/old", deprecated_at: now())
       fresh = project_fixture(title: "acme/fresh")
 
-      {:ok, view, _html} = live(conn, ~p"/knowledge")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects")
       assert has_element?(view, "#project-#{old.id} [data-role='deprecated-status']")
       refute has_element?(view, "#project-#{fresh.id} [data-role='deprecated-status']")
 
       view |> form("#project-filters", filters: %{status: "deprecated"}) |> render_change()
-      assert_patch(view, ~p"/knowledge?status=deprecated")
+      assert_patch(view, ~p"/knowledge/projects?status=deprecated")
       assert has_element?(view, "#project-#{old.id}")
       refute has_element?(view, "#project-#{fresh.id}")
 
-      {:ok, view, _html} = live(conn, ~p"/knowledge?status=active")
+      {:ok, view, _html} = live(conn, ~p"/knowledge/projects?status=active")
       refute has_element?(view, "#project-#{old.id}")
       assert has_element?(view, "#project-#{fresh.id}")
     end
