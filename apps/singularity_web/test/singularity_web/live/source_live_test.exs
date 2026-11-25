@@ -135,6 +135,47 @@ defmodule SingularityWeb.SourceLiveTest do
       view |> form("#source-form", source: %{name: "Renamed"}) |> render_submit()
       assert Sources.get_source!(source.id).name == "Renamed"
     end
+
+    test "Trending suggests GitHub languages and saves the chosen slug", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/source/sources/new?kind=github_trending")
+
+      assert has_element?(view, "input#config-language[role='combobox'][aria-expanded='false']")
+      assert has_element?(view, "#config-language-options[role='listbox'][hidden]")
+
+      assert has_element?(
+               view,
+               "#config-language-options [role='option'][data-value='elixir']",
+               "Elixir"
+             )
+
+      assert has_element?(
+               view,
+               "#config-language-options [role='option'][data-value='graphviz-(dot)']",
+               "Graphviz (DOT)"
+             )
+
+      view
+      |> form("#source-form",
+        source: %{name: "Trending DOT", interval_minutes: "10080", config: %{since: "weekly"}}
+      )
+      |> render_submit(%{source: %{config: %{language: "graphviz-(dot)"}}})
+
+      [source] = Sources.list_sources()
+      assert source.config["language"] == "graphviz-(dot)"
+      assert source.config["since"] == "weekly"
+      assert source.interval_minutes == 10_080
+      assert_redirect(view, ~p"/source/sources/#{source.id}")
+
+      {:ok, edit, _html} = live(conn, ~p"/source/sources/#{source.id}/edit")
+      assert has_element?(edit, "input#config-language[value='Graphviz (DOT)']")
+      assert has_element?(edit, "input#config-language-value[value='graphviz-(dot)']")
+
+      edit
+      |> form("#source-form")
+      |> render_submit(%{source: %{config: %{language: ""}}})
+
+      assert Sources.get_source!(source.id).config["language"] == ""
+    end
   end
 
   describe "show" do

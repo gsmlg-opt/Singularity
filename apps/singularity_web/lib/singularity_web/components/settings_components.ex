@@ -7,7 +7,7 @@ defmodule SingularityWeb.SettingsComponents do
   """
   use Phoenix.Component
 
-  import PhoenixDuskmoon.Component.Icon.Icons
+  import DuskmoonPhoenix.Component.Icon.Icons
 
   @doc """
   The configuration container. Pass `entries` (maps with `:id`, `:label`,

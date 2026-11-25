@@ -74,11 +74,11 @@ config :duskmoon_bundler, :singularity_web,
       %{base: Path.join(web_root, "lib"), pattern: "**/*.{ex,heex}"},
       %{base: Path.join(web_root, "assets"), pattern: "**/*.{css,js,ts,jsx,tsx}"},
       %{
-        base: Path.join(singularity_root, "deps/phoenix_duskmoon/lib"),
+        base: Path.join(singularity_root, "deps/duskmoon_phoenix/lib"),
         pattern: "**/*.{ex,heex}"
       },
       %{
-        base: Path.join(singularity_root, "deps/phoenix_duskmoon/assets/js"),
+        base: Path.join(singularity_root, "deps/duskmoon_phoenix/assets/js"),
         pattern: "**/*.{js,ts,jsx,tsx}"
       }
     ]
@@ -88,8 +88,8 @@ config :duskmoon_bundler, :singularity_web,
     watch_dirs: [
       Path.join(web_root, "lib"),
       Path.join(web_root, "assets"),
-      Path.join(singularity_root, "deps/phoenix_duskmoon/lib"),
-      Path.join(singularity_root, "deps/phoenix_duskmoon/assets/js")
+      Path.join(singularity_root, "deps/duskmoon_phoenix/lib"),
+      Path.join(singularity_root, "deps/duskmoon_phoenix/assets/js")
     ]
   ]
 

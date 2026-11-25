@@ -2,23 +2,15 @@
 import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import * as DuskmoonHooks from "phoenix_duskmoon/hooks"
-
-// Register only the DuskMoon custom elements this app uses.
-import {register as registerButton} from "@duskmoon-dev/el-button"
-import {register as registerBadge} from "@duskmoon-dev/el-badge"
-import {register as registerAlert} from "@duskmoon-dev/el-alert"
-import {register as registerCard} from "@duskmoon-dev/el-card"
-registerButton()
-registerBadge()
-registerAlert()
-registerCard()
+import {DuskmoonLeftMenu, DuskmoonLeftMenuNavigation, DuskmoonPopover} from "duskmoon_phoenix/hooks"
+import "@duskmoon-dev/el-alert/register"
+import {SourceAutocomplete, TrendingInterval} from "./source_form.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...DuskmoonHooks}
+  hooks: {DuskmoonLeftMenu, DuskmoonLeftMenuNavigation, DuskmoonPopover, SourceAutocomplete, TrendingInterval}
 })
 
 liveSocket.connect()

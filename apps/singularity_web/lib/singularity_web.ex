@@ -85,7 +85,7 @@ defmodule SingularityWeb do
       # HTML escaping functionality
       import Phoenix.HTML
       # DuskMoon UI components
-      use PhoenixDuskmoon.Component
+      use DuskmoonPhoenix.Component
       # Form errors through the errors domain
       import SingularityWeb.FormHelpers
       # Configuration page layout

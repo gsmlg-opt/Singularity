@@ -10,10 +10,10 @@ defmodule Singularity.Collector do
 
   @type field :: %{
           name: atom(),
-          type: :string | :select | :integer,
+          type: :string | :select | :integer | :autocomplete,
           label: String.t(),
           required: boolean(),
-          options: [String.t()]
+          options: [String.t() | {label :: String.t(), value :: String.t()}]
         }
 
   @callback kind() :: String.t()

@@ -2,8 +2,8 @@ defmodule SingularityWeb.TableComponents do
   @moduledoc "Pieces shared by data tables (see DESIGN.md)."
   use Phoenix.Component
 
-  import PhoenixDuskmoon.Component.Action.Button
-  import PhoenixDuskmoon.Component.Icon.Icons
+  import DuskmoonPhoenix.Component.Action.Button
+  import DuskmoonPhoenix.Component.Icon.Icons
 
   @doc """
   A row action: an icon-only button whose `title` (and accessible name) is the

@@ -1,13 +1,15 @@
+@layer properties, theme, base, components, utilities;
+@import "duskmoon_phoenix/css";
 @import "tailwindcss" source(none);
+@import "duskmoon_phoenix/elements.css";
 @source "../css";
 @source "../js";
 @source "../../lib/singularity_web";
-@source "../../../../deps/phoenix_duskmoon/lib";
-@source "../../../../deps/phoenix_duskmoon/assets/js";
+@source "../../../../deps/duskmoon_phoenix/lib";
+@source "../../../../deps/duskmoon_phoenix/assets/js";
 @plugin "@duskmoon-dev/core/plugin";
 @import "@duskmoon-dev/core/themes/sunshine";
 @import "@duskmoon-dev/core/themes/moonlight";
-@import "@duskmoon-dev/core/components";
 
 /* Top-level sections are text links, not the default round icon buttons (as in backplane). */
 .appbar-actions .appbar-action {

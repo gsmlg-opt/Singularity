@@ -11,6 +11,18 @@ defmodule Singularity.Collectors.GithubTrending do
   @since_values ~w(daily weekly monthly)
   @stars_in_period ~r/([\d,]+)\s+stars?\s+(?:today|this week|this month)/
 
+  # Snapshot of the Language filter at https://github.com/trending.
+  @languages_path Path.expand("../../../priv/github_trending_languages.tsv", __DIR__)
+  @external_resource @languages_path
+  @language_options @languages_path
+                    |> File.read!()
+                    |> String.split("\n", trim: true)
+                    |> Enum.map(fn row ->
+                      [slug, label] = String.split(row, "\t", parts: 2)
+                      {label, slug}
+                    end)
+  @language_slugs MapSet.new(@language_options, &elem(&1, 1))
+
   @impl true
   def kind, do: "github_trending"
 
@@ -25,10 +37,10 @@ defmodule Singularity.Collectors.GithubTrending do
     [
       %{
         name: :language,
-        type: :string,
+        type: :autocomplete,
         label: "Language (leave blank for all)",
         required: false,
-        options: []
+        options: @language_options
       },
       %{name: :since, type: :select, label: "Range", required: true, options: @since_values}
     ]
@@ -46,7 +58,9 @@ defmodule Singularity.Collectors.GithubTrending do
 
     errors =
       [
-        unless(language == "" or Regex.match?(~r/^[a-z0-9+#.\-]+$/, language),
+        unless(
+          language == "" or MapSet.member?(@language_slugs, language) or
+            Regex.match?(~r/^[a-z0-9+#.\-]+$/, language),
           do: {:language, "contains invalid characters"}
         ),
         unless(since in @since_values, do: {:since, "must be one of daily, weekly, monthly"})

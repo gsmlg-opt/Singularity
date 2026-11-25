@@ -3,6 +3,8 @@ defmodule SingularityWeb.SourceLive.Form do
 
   alias Singularity.Sources
 
+  @trending_intervals Jason.encode!(%{"daily" => 1_440, "weekly" => 10_080, "monthly" => 43_200})
+
   @impl true
   def mount(params, _session, socket),
     do: {:ok, apply_action(socket, socket.assigns.live_action, params)}
@@ -88,6 +90,61 @@ defmodule SingularityWeb.SourceLive.Form do
 
   # Collector field labels are English data; translate them at runtime.
   defp field_label(field), do: Gettext.dgettext(SingularityWeb.Gettext, "source", field.label)
+
+  attr :field, :map, required: true
+  attr :value, :string, default: nil
+
+  defp config_autocomplete(assigns) do
+    {display_value, _slug} =
+      List.keyfind(assigns.field.options, assigns.value, 1, {assigns.value, assigns.value})
+
+    assigns = assign(assigns, id: "config-#{assigns.field.name}", display_value: display_value)
+
+    ~H"""
+    <div
+      id={"#{@id}-autocomplete"}
+      class="autocomplete"
+      phx-hook="SourceAutocomplete"
+      phx-update="ignore"
+    >
+      <.dm_input
+        id={@id}
+        name={nil}
+        label={field_label(@field)}
+        value={@display_value}
+        role="combobox"
+        autocomplete="off"
+        aria-autocomplete="list"
+        aria-expanded="false"
+        aria-controls={"#{@id}-options"}
+      />
+      <input
+        id={"#{@id}-value"}
+        type="hidden"
+        name={"source[config][#{@field.name}]"}
+        value={@value || ""}
+      />
+      <ul
+        id={"#{@id}-options"}
+        role="listbox"
+        aria-label={field_label(@field)}
+        class="autocomplete-dropdown autocomplete-options bg-surface-container-high"
+        hidden
+      >
+        <li
+          :for={{label, slug} <- @field.options}
+          id={"#{@id}-option-#{slug}"}
+          role="option"
+          aria-selected={to_string(slug == @value)}
+          data-value={slug}
+          class="autocomplete-option"
+        >
+          {label}
+        </li>
+      </ul>
+    </div>
+    """
+  end
 
   # Marks the collectors' type and field labels for `mix gettext.extract`; never called.
   @doc false
@@ -203,6 +260,8 @@ defmodule SingularityWeb.SourceLive.Form do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :trending_intervals, @trending_intervals)
+
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-sources">
       <div class="space-y-6">
@@ -264,6 +323,8 @@ defmodule SingularityWeb.SourceLive.Form do
         id="source-form"
         phx-change="validate"
         phx-submit="save"
+        phx-hook={@type.kind == "github_trending" && "TrendingInterval"}
+        data-intervals={@type.kind == "github_trending" && @trending_intervals}
         class="max-w-lg space-y-3"
       >
         <.dm_input
@@ -283,8 +344,13 @@ defmodule SingularityWeb.SourceLive.Form do
             value={config_value(@form, field.name)}
             options={Enum.map(field.options, &{&1, &1})}
           />
+          <.config_autocomplete
+            :if={field.type == :autocomplete}
+            field={field}
+            value={config_value(@form, field.name)}
+          />
           <.dm_input
-            :if={field.type != :select}
+            :if={field.type not in [:select, :autocomplete]}
             id={"config-#{field.name}"}
             type={if field.type == :integer, do: "number", else: "text"}
             name={"source[config][#{field.name}]"}
