@@ -1,7 +1,7 @@
 defmodule SingularityWeb.SourceLive.RunShow do
   use SingularityWeb, :live_view
 
-  import SingularityWeb.ItemComponents, only: [format_time: 1, format_count: 1]
+  import SingularityWeb.ItemComponents, only: [format_time: 1, format_count: 1, item_path: 1]
   import SingularityWeb.RfcComponents
   import SingularityWeb.RunComponents
 

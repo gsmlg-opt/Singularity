@@ -1,7 +1,8 @@
 defmodule SingularityWeb.KnowledgeLive.Search do
   use SingularityWeb, :live_view
 
-  import SingularityWeb.RfcComponents, only: [item_path: 1, rfc_name: 1]
+  import SingularityWeb.ItemComponents, only: [item_path: 1]
+  import SingularityWeb.RfcComponents, only: [rfc_name: 1]
 
   alias Singularity.Knowledge
 
@@ -63,9 +64,11 @@ defmodule SingularityWeb.KnowledgeLive.Search do
 
   defp kind_label("software_project"), do: dgettext("knowledge", "Project")
   defp kind_label("ietf_rfc"), do: dgettext("knowledge", "RFC")
+  defp kind_label("published_book"), do: dgettext("knowledge", "Book")
   defp kind_label(kind), do: kind
 
   defp kind_variant("ietf_rfc"), do: "secondary"
+  defp kind_variant("published_book"), do: "tertiary"
   defp kind_variant(_kind), do: "primary"
 
   @impl true

@@ -26,11 +26,16 @@ defmodule SingularityWeb.Router do
     live "/knowledge/projects/:id", KnowledgeLive.Show, :show
     live "/knowledge/ietf-rfcs", KnowledgeLive.RfcIndex, :index
     live "/knowledge/ietf-rfcs/:number", KnowledgeLive.RfcShow, :show
+    live "/knowledge/books", KnowledgeLive.BookIndex, :index
+    live "/knowledge/books/:id", KnowledgeLive.BookShow, :show
+    get "/knowledge/books/:id/download", BookDownloadController, :show
     live "/source/sources", SourceLive.Index, :index
     live "/source/sources/new", SourceLive.Form, :new
     live "/source/sources/:id/edit", SourceLive.Form, :edit
     live "/source/sources/:id", SourceLive.Show, :show
     live "/source/manual", SourceLive.Manual, :index
+    live "/source/manual/books/new", SourceLive.BookForm, :new
+    live "/source/manual/books/import", SourceLive.BookImport, :index
     live "/source/runs", SourceLive.Runs, :index
     live "/source/runs/:id", SourceLive.RunShow, :show
     live "/system/accounts", SystemLive.Accounts, :show

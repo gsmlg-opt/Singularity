@@ -41,7 +41,7 @@ RUN mix release singularity
 
 FROM ${RUNNER_IMAGE}
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libncurses6 libstdc++6 locales openssl rsync \
+  && apt-get install -y --no-install-recommends ca-certificates libncurses6 libstdc++6 locales openssh-client openssl rsync \
   && rm -rf /var/lib/apt/lists/*
 ENV LANG=C.UTF-8 MIX_ENV=prod
 WORKDIR /app

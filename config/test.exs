@@ -22,6 +22,9 @@ config :singularity,
 
 config :singularity, Styx, testing: :manual
 
+config :singularity, :book_import_ssh_hosts, ["reader@books.example"]
+config :singularity, :book_import_ssh, Singularity.Test.FakeBookImportSSH
+
 config :singularity, :collectors, [
   Singularity.Collectors.GithubTrending,
   Singularity.Collectors.GithubStars,

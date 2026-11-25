@@ -19,6 +19,7 @@ config :singularity, Styx,
   queues: [
     default: 5,
     collect: 1,
+    book_import: 1,
     github_web: [limit: 1, rate_limit: [allowed: 1, period: 30]],
     github_api: [limit: 1, rate_limit: [allowed: 1, period: 2]],
     rfc_editor: [limit: 1, rate_limit: [allowed: 1, period: 60]]

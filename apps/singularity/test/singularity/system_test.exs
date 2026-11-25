@@ -15,6 +15,7 @@ defmodule Singularity.SystemTest do
     assert status.version == to_string(Application.spec(:singularity, :vsn))
 
     assert Enum.map(status.queues, & &1.name) == [
+             "book_import",
              "collect",
              "default",
              "github_api",

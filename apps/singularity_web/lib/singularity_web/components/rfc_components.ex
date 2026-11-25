@@ -5,18 +5,6 @@ defmodule SingularityWeb.RfcComponents do
   @doc "`RFC 8446` for an RFC item."
   def rfc_name(%{attributes: %{"number" => number}}), do: "RFC #{number}"
 
-  @doc "The detail page of a changed or listed item, or nil when it has none."
-  def item_path(%{kind: "ietf_rfc", external_id: "rfc" <> number}),
-    do: ~p"/knowledge/ietf-rfcs/#{number}"
-
-  def item_path(%{kind: "software_project", item_id: id}) when is_integer(id),
-    do: ~p"/knowledge/projects/#{id}"
-
-  def item_path(%{kind: "software_project", id: id}) when is_integer(id),
-    do: ~p"/knowledge/projects/#{id}"
-
-  def item_path(_item), do: nil
-
   attr :status, :string, default: nil
   attr :size, :string, default: "sm"
 

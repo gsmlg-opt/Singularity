@@ -1,5 +1,5 @@
 defmodule Singularity.Knowledge do
-  @moduledoc "Knowledge items (software projects, IETF RFCs), their labels and source records."
+  @moduledoc "Knowledge items, their labels and source records."
 
   import Ecto.Query
 
@@ -9,6 +9,10 @@ defmodule Singularity.Knowledge do
 
   alias Singularity.Knowledge.{
     Address,
+    BookFiles,
+    BookImportSSH,
+    BookImportWorker,
+    BookMetadataWorker,
     Changes,
     FetchDetailsWorker,
     FetchReadmeWorker,
@@ -27,6 +31,7 @@ defmodule Singularity.Knowledge do
   @topic "knowledge"
   @project "software_project"
   @rfc "ietf_rfc"
+  @book "published_book"
 
   # A project's title, summary and attributes come from GitHub details; collected values only
   # seed new items. Other kinds take the collected values as authoritative.
@@ -636,6 +641,139 @@ defmodule Singularity.Knowledge do
     |> Repo.all()
     |> Map.new(&{&1.external_id, &1})
   end
+
+  @doc "The maximum size in bytes of an EPUB upload."
+  defdelegate book_upload_limit(), to: BookFiles, as: :max_bytes
+
+  @doc "Queues an EPUB import from a configured SSH directory."
+  def queue_book_import(location) do
+    with {:ok, host, directory} <- BookImportSSH.parse(location) do
+      Styx.insert(BookImportWorker.new(%{location: host <> ":" <> directory}))
+    end
+  end
+
+  @doc "Recent SSH book imports and their progress."
+  def list_book_imports do
+    worker = Styx.Worker.to_string(BookImportWorker)
+
+    Styx.Job
+    |> where(worker: ^worker)
+    |> order_by(desc: :id)
+    |> limit(10)
+    |> Repo.all()
+  end
+
+  @doc "Stores an uploaded EPUB and queues the extraction of its book metadata."
+  @spec upload_book(Path.t(), String.t(), DateTime.t()) ::
+          {:ok, Item.t()} | {:existing, Item.t()} | {:error, term()}
+  def upload_book(path, filename, now \\ DateTime.utc_now()) do
+    save_book(path, filename, now, :upload)
+  end
+
+  @doc false
+  def import_staged_book(path, filename) do
+    save_book(path, filename, DateTime.utc_now(), :staged)
+  end
+
+  defp save_book(path, filename, now, mode) do
+    now = DateTime.truncate(now, :second)
+
+    with {:ok, file} <- BookFiles.prepare(path, filename, mode),
+         :ok <- BookFiles.store(path, file.digest, mode),
+         {:ok, outcome} <- Repo.transact(fn -> insert_book(file, now) end) do
+      outcome
+    end
+  end
+
+  defp insert_book(file, now) do
+    changeset =
+      Item.changeset(%Item{}, %{
+        kind: @book,
+        external_id: file.digest,
+        title: file.title,
+        url: "urn:sha256:" <> file.digest,
+        attributes: %{"filename" => file.filename, "metadata_status" => "pending"},
+        first_seen_at: now,
+        last_seen_at: now
+      })
+
+    case Repo.insert(changeset, on_conflict: :nothing, conflict_target: [:kind, :external_id]) do
+      {:ok, %Item{id: nil}} ->
+        book = Repo.get_by!(Item, kind: @book, external_id: file.digest)
+
+        {:ok, {:existing, book}}
+
+      {:ok, item} ->
+        insert_manual_observation!(item, now)
+        keep!([item.id], nil, now)
+
+        with {:ok, _job} <- Styx.insert(BookMetadataWorker.new(%{item_id: item.id})) do
+          {:ok, {:ok, item}}
+        end
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
+  @doc "Lists published books by addition time and indicates whether another page exists."
+  @spec list_books(pos_integer(), pos_integer()) :: {[Item.t()], boolean()}
+  def list_books(page, per_page) do
+    items =
+      Item
+      |> where(kind: ^@book)
+      |> order_by(desc: :first_seen_at, desc: :id)
+      |> limit(^(per_page + 1))
+      |> offset(^((page - 1) * per_page))
+      |> Repo.all()
+
+    {results, remaining} = Enum.split(items, per_page)
+    {results, remaining != []}
+  end
+
+  @doc "Returns the published book by id."
+  def get_book(id), do: Item |> where(kind: ^@book) |> Repo.get(book_id(id))
+  def get_book!(id), do: Item |> where(kind: ^@book) |> Repo.get!(book_id(id))
+
+  @doc "Retrieves the stored file and download filename for a published book."
+  def book_file(%Item{kind: @book, external_id: digest, attributes: %{"filename" => filename}}) do
+    with {:ok, path} <- BookFiles.locate(digest), do: {:ok, path, filename}
+  end
+
+  def book_file(nil), do: {:error, :enoent}
+
+  @doc "Subscribes to updates to this title's extracted metadata."
+  def subscribe_book(id),
+    do: Phoenix.PubSub.subscribe(Singularity.PubSub, book_topic(book_id(id)))
+
+  @doc false
+  def update_book_metadata(%Item{kind: @book} = book, status, fields \\ %{}) do
+    attributes =
+      book.attributes
+      |> Map.merge(Map.drop(fields, ["title"]))
+      |> Map.put("metadata_status", status)
+
+    title = Map.get(fields, "title", book.title)
+
+    with {:ok, updated} <-
+           Repo.update(Ecto.Changeset.change(book, title: title, attributes: attributes)) do
+      Phoenix.PubSub.broadcast(Singularity.PubSub, book_topic(book.id), {:book_updated, updated})
+      {:ok, updated}
+    end
+  end
+
+  defp book_topic(id), do: "knowledge:published_book:#{id}"
+
+  defp book_id(id) when is_integer(id) and id in 1..9_223_372_036_854_775_807, do: id
+
+  defp book_id(value) when is_binary(value) and byte_size(value) <= 19 do
+    case Integer.parse(value) do
+      {id, ""} -> book_id(id)
+      _invalid -> 0
+    end
+  end
+
+  defp book_id(_value), do: 0
 
   @doc "The item's recorded changes, newest first, with their runs."
   @spec list_item_changes(integer()) :: [ItemChange.t()]

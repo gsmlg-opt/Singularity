@@ -1,7 +1,7 @@
 defmodule SingularityWeb.KnowledgeLive.RfcIndex do
   use SingularityWeb, :live_view
 
-  import SingularityWeb.ItemComponents, only: [label_badges: 1, format_count: 1]
+  import SingularityWeb.ItemComponents, only: [label_badges: 1, format_count: 1, item_path: 1]
   import SingularityWeb.KnowledgeSearch
   import SingularityWeb.RfcComponents
 

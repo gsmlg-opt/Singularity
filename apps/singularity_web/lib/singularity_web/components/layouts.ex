@@ -125,6 +125,12 @@ defmodule SingularityWeb.Layouts do
             label: gettext("IETF RFCs"),
             to: "/knowledge/ietf-rfcs",
             icon: "file-document-multiple-outline"
+          },
+          %{
+            id: "knowledge-books",
+            label: dgettext("knowledge", "Published books"),
+            to: "/knowledge/books",
+            icon: "book-open-variant"
           }
         ]
       }

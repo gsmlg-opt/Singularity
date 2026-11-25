@@ -1,7 +1,6 @@
 defmodule SingularityWeb.SourceLive.Manual do
   @moduledoc """
-  Manual: software projects added by hand. The list is a table; "Add project"
-  opens a modal with a name and any git repository address.
+  Manual additions. Software projects are listed here and books are browsed in Knowledge.
   """
   use SingularityWeb, :live_view
 
@@ -67,26 +66,41 @@ defmodule SingularityWeb.SourceLive.Manual do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} socket={@socket} section={:source} active="source-manual">
-      <div class="flex items-center justify-between gap-4">
-        <div>
-          <h1 class="text-2xl font-bold">{dgettext("source", "Manual")}</h1>
-          <p class="mt-1 text-sm text-on-surface-variant">
-            {dgettext("source", "Software projects added by hand, from any git repository.")}
-          </p>
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <h1 class="text-2xl font-bold">{dgettext("source", "Manual")}</h1>
+        <div class="flex flex-wrap items-center gap-2">
+          <.dm_btn
+            id="import-books"
+            variant="outline"
+            size="sm"
+            navigate={~p"/source/manual/books/import"}
+          >
+            {dgettext("source", "Import books via SSH")}
+          </.dm_btn>
+          <.dm_btn
+            id="add-book"
+            variant="outline"
+            size="sm"
+            navigate={~p"/source/manual/books/new"}
+          >
+            <.dm_mdi name="book-open-variant" class="size-4" aria-hidden="true" />
+            {dgettext("source", "Add book")}
+          </.dm_btn>
+          <.dm_btn
+            id="open-add-project"
+            variant="primary"
+            size="sm"
+            command="show-modal"
+            commandfor="add-project-modal"
+          >
+            <.dm_mdi name="plus" class="h-4 w-4" />{dgettext("source", "Add project")}
+          </.dm_btn>
         </div>
-        <.dm_btn
-          id="open-add-project"
-          variant="primary"
-          size="sm"
-          command="show-modal"
-          commandfor="add-project-modal"
-        >
-          <.dm_mdi name="plus" class="h-4 w-4" />{dgettext("source", "Add project")}
-        </.dm_btn>
       </div>
 
+      <h2 class="text-lg font-semibold">{dgettext("source", "Manually added projects")}</h2>
       <p :if={@projects_empty?} id="manual-empty" class="text-sm text-on-surface-variant">
-        {dgettext("source", "Nothing added by hand yet.")}
+        {dgettext("source", "No manually added projects.")}
       </p>
       <.dm_table :if={!@projects_empty?} id="manual-projects" data={@streams.projects} stream hover>
         <:col :let={%{item: project}} label={dgettext("source", "Project")}>

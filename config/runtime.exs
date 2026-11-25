@@ -14,6 +14,12 @@ if System.get_env("PHX_SERVER") do
   config :singularity_web, SingularityWeb.Endpoint, server: true
 end
 
+if hosts = System.get_env("BOOK_IMPORT_SSH_HOSTS") do
+  config :singularity,
+         :book_import_ssh_hosts,
+         hosts |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :singularity_web, SingularityWeb.Endpoint,

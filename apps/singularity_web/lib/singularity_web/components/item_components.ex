@@ -1,10 +1,21 @@
 defmodule SingularityWeb.ItemComponents do
-  @moduledoc """
-  Knowledge item rendering. Software projects are the only kind in v2; a new
-  item kind gets its own component here.
-  """
+  @moduledoc "Knowledge item rendering and links."
 
   use SingularityWeb, :html
+
+  @doc "The detail page of a changed or listed item, or nil when it has none."
+  def item_path(%{kind: "ietf_rfc", external_id: "rfc" <> number}),
+    do: ~p"/knowledge/ietf-rfcs/#{number}"
+
+  def item_path(%{kind: "software_project", item_id: id}) when is_integer(id),
+    do: ~p"/knowledge/projects/#{id}"
+
+  def item_path(%{kind: "software_project", id: id}) when is_integer(id),
+    do: ~p"/knowledge/projects/#{id}"
+
+  def item_path(%{kind: "published_book", id: id}), do: ~p"/knowledge/books/#{id}"
+
+  def item_path(_item), do: nil
 
   @doc """
   Software projects as a table. `rows` is a stream configured with

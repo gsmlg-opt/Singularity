@@ -2,7 +2,14 @@ defmodule SingularityWeb.KnowledgeLive.RfcShow do
   use SingularityWeb, :live_view
 
   import SingularityWeb.ItemComponents,
-    only: [markdown: 1, label_variant: 1, format_date: 1, format_time: 1, format_count: 1]
+    only: [
+      markdown: 1,
+      label_variant: 1,
+      format_date: 1,
+      format_time: 1,
+      format_count: 1,
+      item_path: 1
+    ]
 
   import SingularityWeb.RfcComponents
 

@@ -26,7 +26,7 @@ msgstr ""
 msgid "Browse"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:149
+#: lib/singularity_web/components/layouts.ex:155
 #, elixir-autogen, elixir-format
 msgid "Collection runs"
 msgstr ""
@@ -59,23 +59,23 @@ msgid "Software projects"
 msgstr ""
 
 #: lib/singularity_web/components/layouts.ex:76
-#: lib/singularity_web/components/layouts.ex:138
+#: lib/singularity_web/components/layouts.ex:144
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:140
+#: lib/singularity_web/components/layouts.ex:146
 #, elixir-autogen, elixir-format
 msgid "Sources"
 msgstr ""
 
 #: lib/singularity_web/components/layouts.ex:77
-#: lib/singularity_web/components/layouts.ex:162
+#: lib/singularity_web/components/layouts.ex:168
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:178
+#: lib/singularity_web/components/layouts.ex:184
 #, elixir-autogen, elixir-format
 msgid "System status"
 msgstr ""
@@ -90,19 +90,20 @@ msgstr ""
 msgid "Expand navigation"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:166
+#: lib/singularity_web/components/layouts.ex:172
 #, elixir-autogen, elixir-format
 msgid "Accounts"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:172
+#: lib/singularity_web/components/layouts.ex:178
 #, elixir-autogen, elixir-format
 msgid "Appearance"
 msgstr ""
 
 #: lib/singularity_web/live/knowledge_live/show.ex:428
 #: lib/singularity_web/live/knowledge_live/show.ex:457
-#: lib/singularity_web/live/source_live/manual.ex:141
+#: lib/singularity_web/live/source_live/book_form.ex:123
+#: lib/singularity_web/live/source_live/manual.ex:155
 #: lib/singularity_web/live/system_live/accounts.ex:134
 #, elixir-autogen, elixir-format
 msgid "Cancel"
@@ -110,13 +111,13 @@ msgstr ""
 
 #: lib/singularity_web/live/knowledge_live/show.ex:409
 #: lib/singularity_web/live/knowledge_live/show.ex:438
-#: lib/singularity_web/live/source_live/manual.ex:112
+#: lib/singularity_web/live/source_live/manual.ex:126
 #: lib/singularity_web/live/system_live/accounts.ex:113
 #, elixir-autogen, elixir-format
 msgid "Close"
 msgstr ""
 
-#: lib/singularity_web/components/layouts.ex:143
+#: lib/singularity_web/components/layouts.ex:149
 #, elixir-autogen, elixir-format
 msgid "Manual"
 msgstr ""
